@@ -1,0 +1,26 @@
+TOP_DIR = ../..
+include $(TOP_DIR)/Makefile.rules
+
+PACKAGES = equeue,unix
+
+OBJ = rtypes.cmo xdr.cmo rpc.cmo rpc_common.cmo \
+	rpc_program.cmo rpc_portmapper_aux.cmo \
+	rpc_packer.cmo rpc_transport.cmo rpc_client.cmo \
+	rpc_simple_client.cmo rpc_portmapper_clnt.cmo rpc_portmapper.cmo \
+	rpc_server.cmo rpc_auth_sys.cmo
+
+XOBJ = $(OBJ:.cmo=.cmx)
+
+OCAMLOPT_OPTIONS += -inline 10
+
+all: rpc.cma
+
+opt: rpc.cmxa
+
+rpc.cma: $(OBJ)
+	$(OCAMLC) -o rpc.cma -a $(OBJ)
+
+rpc.cmxa: $(XOBJ)
+	$(OCAMLOPT) -o rpc.cmxa -a $(XOBJ)
+
+include depend

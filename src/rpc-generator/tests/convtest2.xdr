@@ -1,0 +1,32 @@
+/* Tests the conversion functions for the O'Caml language mapping */
+
+
+/* (2) Arrays, enums, options */
+
+typedef int b1[3];
+typedef int b2<3>;
+typedef int b3<>;
+typedef string s<>;
+typedef s b4<>;        /* An array of strings */
+typedef int *b5;
+typedef enum {
+  x6 = -1,
+  y6 = 0,
+  z6 = 1
+} b6;
+typedef enum {
+  x7 = -1,
+  y7 = 0,
+  z7 = 1
+} b7<>;
+typedef enum {
+  x8 = -1,
+  y8 = 0,
+  z8 = 1
+} *b8;
+
+program B {
+  version B {
+    int f(b1,b2,b3,b4,b5,b6,b7,b8) = 1;
+  } = 1;
+} = 1;

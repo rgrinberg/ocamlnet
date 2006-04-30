@@ -1,0 +1,5 @@
+version = "@VERSION@"
+requires = "equeue,unix"
+archive(byte) = "rpc.cma"
+archive(native) = "rpc.cmxa"
+

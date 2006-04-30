@@ -1,0 +1,10 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<HTML><HEAD>
+<TITLE>400 Bad Request</TITLE>
+</HEAD><BODY>
+<H1>Bad Request</H1>
+Your browser sent a request that this server could not understand.<P>
+client sent invalid HTTP/0.9 request: HEAD /techdocs/corba/OMG-2.0/mailto:pubs@omg.org<P>
+<HR>
+<ADDRESS>Apache/1.3.9 Server at ice.darmstadt.netsurf.de Port 80</ADDRESS>
+</BODY></HTML>

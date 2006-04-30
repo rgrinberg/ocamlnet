@@ -1,0 +1,50 @@
+/* Common syntax extensions */
+
+typedef struct intlist_s *intlist;
+  /* Correct would be:
+   *   typedef intlist_s *intlist;
+   * However, the C language requires the additional "struct" keyword,
+   * and so do many rpcgen generators.
+   */
+
+struct intlist_s {
+  int v;
+  intlist next;
+};
+
+/* -- */
+
+typedef unsigned x;
+  /* Correct would be: 
+   *   typedef unsigned int x;
+   */
+
+
+/* -- */
+
+enum foo_enum {
+        A = 0,
+        B = 1,
+        C = 2
+};
+union foo1 switch (foo_enum s) {
+        case A:
+        case B:
+                int c;   
+                /* Correct would be: case A: int c; case B: int c; */
+        default:
+                void;
+};
+
+/* -- */
+
+program P {
+  version V {
+    void nothing(void) = 0;
+    /* void arguments and void result are extensions to the standard */
+
+    int multiple(int,int) = 1;
+    /* Functions with several arguments are extensions to the standard */
+  } = 1;
+} = 1;
+

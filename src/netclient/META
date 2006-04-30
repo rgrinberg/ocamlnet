@@ -1,0 +1,8 @@
+version = "0.92.1"
+requires = "equeue,unix,netstring"
+requires(mt) = "equeue,unix,netstring,threads"
+archive(byte) = "netclient.cma"
+archive(native) = "netclient.cmxa"
+archive(mt,byte) = "netclient.cma http_client_mt.cmo"
+archive(mt,native) = "netclient.cmxa http_client_mt.cmx"
+

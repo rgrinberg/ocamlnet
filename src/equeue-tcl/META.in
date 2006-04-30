@@ -1,0 +1,5 @@
+version = "@VERSION@"
+description = "Event queues, especially for events on file descriptors"
+requires = "unix equeue"
+archive(byte) = "equeue_tcl.cma"
+archive(native) = "equeue_tcl.cmxa"

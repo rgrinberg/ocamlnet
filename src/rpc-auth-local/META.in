@@ -1,0 +1,5 @@
+version = "@VERSION@"
+requires = "rpc"
+archive(byte) = "rpc_auth_local.cma"
+archive(native) = "rpc_auth_local.cmxa"
+

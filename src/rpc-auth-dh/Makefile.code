@@ -1,0 +1,23 @@
+TOP_DIR = ../..
+include $(TOP_DIR)/Makefile.rules
+
+PACKAGES = equeue,unix,cryptgps
+OCAMLC_OPTIONS = -I ../rpc -I ../rpc-xti
+OCAMLOPT_OPTIONS = -I ../rpc -I ../rpc-xti
+
+OBJ = rpc_time.cmo \
+      rpc_key_aux.cmo rpc_key_clnt.cmo rpc_key_service.cmo rpc_auth_dh.cmo
+
+XOBJ = $(OBJ:.cmo=.cmx)
+
+all: rpc_auth_dh.cma
+
+opt: rpc_auth_dh.cmxa
+
+rpc_auth_dh.cma: $(OBJ)
+	$(OCAMLC) -o rpc_auth_dh.cma -a $(OBJ)
+
+rpc_auth_dh.cmxa: $(XOBJ)
+	$(OCAMLOPT) -o rpc_auth_dh.cmxa -a $(XOBJ)
+
+include depend

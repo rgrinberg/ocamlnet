@@ -1,0 +1,30 @@
+/* Tests the conversion functions for the O'Caml language mapping */
+
+
+/* (3) Structs and recursive types */
+
+struct b1 {
+  int x1;
+  string y1<>;
+  enum {
+    z1a = -1,
+    z1b = 0,
+    z1c = 1
+  } z1;
+};
+
+typedef struct {
+  int x2;
+  void;
+} b2<>;
+
+typedef struct {
+  string x3<>;
+  b3 y3;
+} *b3;
+
+program B {
+  version B {
+    int f(b1,b2,b3) = 1;
+  } = 1;
+} = 1;

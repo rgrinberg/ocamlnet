@@ -1,0 +1,11 @@
+#! /bin/sh
+
+set -e
+
+version=`awk '/version/ { print substr($3,2,length($3)-2) }' META`
+destdir="netclient-$version"
+
+mkdir -p packages
+rm -rf "packages/$destdir"
+makepkg -spec netclient.files -intree . -outtree "packages/$destdir"
+(cd packages; tar czf "$destdir.tar.gz" "$destdir")

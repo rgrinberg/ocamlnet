@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+content-type: text/plain
+transfer-encoding: chunked
+
+37
+ABCDEFGHIJKLMNOPQRSTUVWXYZ: abcdefghijklmnopqrstuvwxyz
+
+3a
+abcdefghijklmnopqrstuvwxyz: @#*ABCDEFGHIJKLMNOPQRSTUVWXYZ
+
+3A
+abcdefghijklmnopqrstuvwxyz: *#@ABCDEFGHIJKLMNOPQRSTUVWXYZ
+
+0
+Date: Wed, 15 Nov 1995 06:25:24 GMT
+

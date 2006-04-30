@@ -1,0 +1,27 @@
+#directory "/home/gerd/ocaml/smcvs/ocamlpkg/rpc/tests/ctest/OCaml";;
+#load "adder.cma";;
+open Adder_clnt.ADDER.V1;;
+open Adder_srv.ADDER.V1;;
+
+let server() =
+  ( try Sys.remove "socket" with _ -> ());
+  let esys = Unixqueue.create_unix_event_system() in
+  let s = create_async_server
+	    ~proc_add:(fun session (a,b) reply -> 
+			 prerr_endline("User: " ^ Rpc_server.get_user session);
+			 reply (a+b))
+	    (Rpc_server.Unix "socket")
+	    Rpc.Tcp
+	    Rpc.Socket
+	    esys in
+  let auth = Rpc_auth_local.server_auth_method() in
+  Rpc_server.set_auth_methods s [auth; Rpc_server.auth_none ];
+  Unixqueue.run esys
+;;
+
+
+let client() =
+  let c = create_client (Rpc_client.Unix "socket") Rpc.Tcp in
+  add c (3,4)
+;;
+

@@ -1,0 +1,5 @@
+description = "Unix shell functions"
+requires = "unix equeue"
+version = "@VERSION@"
+archive(byte) = "shell.cma"
+archive(native) = "shell.cmxa"

@@ -1,0 +1,27 @@
+/* Tests the conversion functions for the O'Caml language mapping */
+
+
+/* (1) Basic types */
+
+typedef int b1;
+typedef unsigned int b2;
+typedef hyper b3;
+typedef unsigned hyper b4;
+typedef bool b5;
+typedef string b6<>;
+typedef string b7<3>;
+typedef opaque b8<>;
+typedef opaque b9<3>;
+typedef opaque b10[3];
+typedef double b11;
+typedef float b12;
+
+program B {
+  version B {
+    int f(b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11) = 1;
+	/* b12 = single-precision floats are intentionally excluded from this
+         * test
+         */
+  } = 1;
+} = 1;
+

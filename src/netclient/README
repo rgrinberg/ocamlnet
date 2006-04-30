@@ -1,0 +1,188 @@
+Netclient includes:
+
+- A sophisticated HTTP 1.1 client (quite stable)
+- A Telnet client
+- An experimental FTP client
+
+All clients are multiplexing-aware, and can be used concurrently.
+
+The installation of the clients is "findlib"-based. "findlib" is a
+simple library that organizes the installation of "packages", i.e.
+collections of ocaml modules. (The client works without "findlib",
+but you have to heavily modify the Makefile.)
+
+You need the following packages:
+
+	- ocamlnet
+        - equeue
+
+You find "findlib" and the packages in the Ocaml link database,
+
+	http://www.npc.de/ocaml/linkdb/
+
+Note that there is online documentation for "findlib":
+
+	http://www.ocaml-programming.de/packages/findlib/
+
+------------------------------------------------------------------------
+Installation:
+------------------------------------------------------------------------
+
+- It is assumed that "findlib", "ocamlnet" and "equeue" are properly installed.
+
+- Do 
+	make all
+  to compile with the bytecode compiler. This creates netclient.cma
+  and http_client_mt.cmo, the add-on for bytecode multi-threading.
+
+- Do 
+	make opt
+  to compile with the native compiler if present. This creates netclient.cmxa,
+  and, if possible, http_client_mt.cmx, the add-on for native 
+  multi-threading.
+
+- Do
+	make install
+  to install.
+
+- Do
+	make uninstall
+  to uninstall.
+
+
+
+------------------------------------------------------------------------
+How to link in netclient.cma:
+------------------------------------------------------------------------
+
+To link something which uses netclient.cma, use the following command
+which demonstrates how to link:
+
+ocamlfind ocamlc  -o output 
+		-package netclient -linkpkg
+		<your objects>
+
+
+SUPPORT FOR MULTI-THREADING:
+
+This is simply enabled by giving the -thread (or -vmthread) option, e.g. 
+
+ocamlfind ocamlc -thread -o output -package netclient -linkpkg 
+	  <your objects>
+
+------------------------------------------------------------------------
+Example:
+------------------------------------------------------------------------
+
+To run the examples in examples/simple, you need a toploop as follows:
+
+ocamlfind ocamlmktop -o top -package unix,str -linkpkg
+
+The other examples have Makefiles.
+
+------------------------------------------------------------------------
+New Convenience Module
+------------------------------------------------------------------------
+
+From release 0.2, there is a convenience module which simplifies the
+usage of the client.
+
+- open the module:
+
+  open Http_client.Convenience;;
+
+- get the result in one step:
+
+  http_get "http://somewhere.com/file"
+
+The convenience module also interprets the environment variables
+http_proxy and no_proxy. Furthermore, user and password can be
+given directly in the URL (http://user:password@location.domain/path).
+
+
+------------------------------------------------------------------------
+RESTRICTED MULTI-THREADING SAFETY
+------------------------------------------------------------------------
+
+If used in a certain way, release 0.3 of "netclient" is thread-safe. 
+See the comment in "http_client.mli" for details.
+
+
+------------------------------------------------------------------------
+Restrictions
+------------------------------------------------------------------------
+
+- Some rarely used features of HTTP/1.1 have not been implemented,
+  such as multipart messages. 
+
+- Some features of HTTP/1.1 are not supported by this module, but can 
+  be implemented on top of it:
+  content encoding, content digests, conditional/partial GET, caching
+
+A lot of fun!
+
+Author:
+
+Gerd Stolpmann, gerd@gerd-stolpmann.de
+
+
+
+----------------------------------------------------------------------
+History
+----------------------------------------------------------------------
+
+0.92.1:
+	- Fixed error path for DNS failures
+	- maximum_connection_failures limits now the total number
+	  of connection attempts (as documented)
+
+0.92:
+	- Missing initialization in Http_client, class io_buffer
+	  (a more theoretical issue).
+	- Fixed error path (case when Unix.connect immediately fails)
+	- Fixed number_of_open_messages. This number is set _before_
+          the user callback function is invoked, allowing better
+	  reaction.
+	- Pipelining is disabled after the first connection crash
+	- Added a pipelining blacklist
+	- Maximum for pipelining is 8
+	- Support for pluggable name resolver
+	- Special exception for name resolution errors
+	- Special exception for syntax errors in URLs after redirection
+	- Documented that Redirect_inquire is allowed to set the Location
+	  header
+	- Added response_status method
+	- It is possible to set socket options
+
+0.91.1: Single fix for chunked encoding: Some servers include extra
+        spaces.
+
+0.91:   Improved HTTP API. Again rewritten most parts of Http_client. 
+
+        This version solves a number of issues:
+        - Updated to match RFC 2617
+        - Large requests can be handled without performance problems.
+          It is possible to download into files, and to upload from
+          files.
+        - Fixed the "100 Continue" behaviour
+        - New authentication framework. Digest authentication is
+          supported as specified in RFC 2617.
+        - Fixed redirection behaviour
+        - xstr is no longer required for multi-threading
+
+        This version requires O'Caml 3.08.3 or better.
+
+        Addition of the experimental FTP client.
+
+0.90.4: Removed dependency on the module "Cgi" (deprecated)
+
+0.90.3: Fixing bugs in Makefile for O'Caml 3.07
+
+0.90.2: Fixed a problem with incomplete status lines (e.g.
+        "HTTP/1.1 500" instead of "HTTP/1.1 500 Server Error").
+
+0.90.1: ???
+
+0.90:	Rewritten Http_client in event-driven way.
+	Added Telnet_client.
+

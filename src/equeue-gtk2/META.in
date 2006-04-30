@@ -1,0 +1,5 @@
+version = "@VERSION@"
+description = "Event queues, especially for events on file descriptors"
+requires = "unix equeue lablgtk2"
+archive(byte) = "equeue_gtk2.cma"
+archive(native) = "equeue_gtk2.cmxa"

@@ -1,0 +1,45 @@
+OCAMLPATH=~/tmp/site-lib ledit ocaml
+#use "topfind";;
+#require "netstring,equeue,str";;
+#load "http_client.cmo";;
+open Http_client;;
+let p = new pipeline;;
+let opts = p # get_options in
+let opts' = { opts with
+		number_of_parallel_connections = 1;
+		verbose_status = true;
+		verbose_request_header = true;
+		verbose_response_header = true;
+		verbose_request_contents = true;
+		verbose_response_contents = true;
+		verbose_connection = true } in
+p # set_options opts';;
+let hc = new get "http://localhost/";;
+p # add hc;;
+
+let c = create_aggressive_cache();;
+p # set_connection_cache c;;
+
+
+let hc = new get "http://localhost/~gerd/basicauth/";;
+let hc = new get "http://localhost/~gerd/digestauth/";;
+
+let kr = new key_ring();;
+kr # add_key (object method user="gerd" method password ="997705" method realm="Realm" method domain=["http://localhost:80/~gerd/digestauth"] end);;
+let b = new basic_auth_handler kr;;
+let b = new basic_auth_handler ~enable_auth_in_advance:true kr;;
+p # add_auth_handler b;;
+
+let d = new digest_auth_handler kr;;
+let d = new digest_auth_handler ~enable_auth_in_advance:true kr;;
+p # add_auth_handler d;;
+
+**********************************************************************
+
+Public MVS FTP server:
+
+- sruvm.sru.edu
+  user anonymous
+  (cd to anonymo1u.191)
+
+  supports EBCDIC and block mode

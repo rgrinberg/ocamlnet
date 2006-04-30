@@ -1,0 +1,30 @@
+TOP_DIR = ../..
+include $(TOP_DIR)/Makefile.rules
+
+PACKAGES = unix
+
+OBJ = unix_exts.cmo shell_sys.cmo shell.cmo shell_uq.cmo
+XOBJ = $(OBJ:.cmo=.cmx)
+
+COBJ = unix_exts_c.o
+
+OCAMLC_OPTIONS = -I ../equeue
+OCAMLOPT_OPTIONS = -I ../equeue
+
+all: shell.cma libshell.a 
+
+opt: shell.cmxa libshell.a
+
+shell.cma: $(OBJ) $(COBJ)
+	$(OCAMLMKLIB) -o shell $(COBJ) $(OBJ)
+
+shell.cmxa: $(XOBJ) $(COBJ)
+	$(OCAMLMKLIB) -o shell $(COBJ) $(XOBJ)
+
+#shell_mt.cmo: shell_mt.ml shell_mt.cmi
+#	$(OCAMLC) -c -thread -package threads $<
+
+#shell_mt.cmx: shell_mt.ml shell_mt.cmi
+#	$(OCAMLOPT) -c -thread -package threads $<
+
+include depend

@@ -1,0 +1,41 @@
+TOP_DIR = ../..
+include $(TOP_DIR)/Makefile.rules
+
+PACKAGES = equeue,unix
+OCAMLC_OPTIONS = -I ../rpc
+OCAMLOPT_OPTIONS = -I ../rpc
+
+OBJ = rpc_auth_local.cmo
+
+XOBJ = $(OBJ:.cmo=.cmx)
+
+COBJ = rpclocal.o
+
+all: rpc_auth_local.cma librpclocal.a
+
+opt: rpc_auth_local.cmxa librpclocal.a
+
+rpc_auth_local.cma: $(OBJ)
+	if ocamlmklib; then                                                   \
+		ocamlmklib -o rpc_auth_local -oc rpclocal $(OBJ) ;            \
+	else                                                                  \
+		$(OCAMLC) -o rpc_auth_local.cma -a $(OBJ) -cclib -lrpclocal ; \
+	fi
+
+rpc_auth_local.cmxa: $(XOBJ)
+	if ocamlmklib; then                                                   \
+		ocamlmklib -o rpc_auth_local -oc rpclocal $(XOBJ) ;           \
+	else                                                                  \
+		$(OCAMLOPT) -o rpc_auth_local.cmxa -a $(XOBJ) -cclib -lrpclocal ; \
+	fi
+
+librpclocal.a: $(COBJ)
+	if ocamlmklib; then                                   \
+		ocamlmklib -o rpclocal $(COBJ);               \
+	else                                                  \
+		rm -f librpclocal.a;                          \
+		ar q librpclocal.a $(COBJ);                   \
+		ranlib librpclocal.a;                         \
+	fi
+
+include depend

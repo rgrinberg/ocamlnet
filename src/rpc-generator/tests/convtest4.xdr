@@ -1,0 +1,106 @@
+/* Tests the conversion functions for the O'Caml language mapping */
+
+
+/* (4) Unions */
+
+typedef int i;
+typedef unsigned int j;
+
+union b1 switch (i d1) {
+  case -1: 
+    string x1<>;
+  case 0:
+    void;
+  case 1:
+    int y1<>;
+};
+
+union b2 switch (i d2) {
+  case -1: 
+    string x2<>;
+  case 0:
+    void;
+  case 1:
+    int y2<>;
+  default:
+    opaque z2<>;
+};
+
+union b3 switch (i d3) {
+  case -1: 
+    string x3<>;
+  case 0:
+    void;
+  case 1:
+    int y3<>;
+  default:
+    void;
+};
+
+union b4 switch (j d4) {
+  case 2: 
+    string x4<>;
+  case 0:
+    void;
+  case 1:
+    int y4<>;
+};
+
+union b5 switch (j d5) {
+  case 2: 
+    string x5<>;
+  case 0:
+    void;
+  case 1:
+    int y5<>;
+  default:
+    opaque z5<>;
+};
+
+union b6 switch (j d6) {
+  case 2: 
+    string x6<>;
+  case 0:
+    void;
+  case 1:
+    int y6<>;
+  default:
+    void;
+};
+
+enum e {
+  A = -1,
+  B = 0,
+  C = 1
+};
+
+union b7 switch (e d7) {
+  case A:
+    string x7<>;
+  case B:
+    void;
+};
+
+union b8 switch (e d8) {
+  case A:
+    string x8<>;
+  case B:
+    void;
+  default:
+    opaque z8<>;
+};
+
+union b9 switch (e d9) {
+  case A:
+    string x9<>;
+  case B:
+    void;
+  default:
+    void;
+};
+
+program B {
+  version B {
+    int f(b1,b2,b3,b4,b5,b6,b7,b8,b9) = 1;
+  } = 1;
+} = 1;

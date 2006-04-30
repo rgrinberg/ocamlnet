@@ -1,0 +1,5 @@
+description = "Equeue SSL encapsulation"
+requires = "unix equeue ssl"
+version = "@VERSION@"
+archive(byte) = "equeue_ssl.cma"
+archive(native) = "equeue_ssl.cmxa"

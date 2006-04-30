@@ -1,0 +1,73 @@
+# SYNTAX OF netclient.files:
+#
+# d DIRPATH
+#
+# include this subdirectory
+#
+# f FILEPATH
+#
+# include this file (or symlink)
+#
+# x FILEPATH
+#
+# exclude this file
+#
+# p DIRPATH/FILEPATTERN
+#
+# include all files of the directory that match the regular expression
+# FILEPATTERN (Str-type regexp)
+#
+# w DIRPATH/FILEPATTERN
+#
+# output a warning if one of the matching files matches
+#
+# Exclusions must be mentioned before inclusions.
+
+f META
+f README
+f REVISIONS
+f LICENSE
+f Makefile
+
+f http_client.ml
+f http_client.mli
+f http_client_mt.mli
+f http_client_mt.ml
+f telnet_client.ml
+f telnet_client.mli
+f ftp_client.ml
+f ftp_client.mli
+f ftp_data_endpoint.ml
+f ftp_data_endpoint.mli
+
+d tests_std
+f tests_std/Makefile
+f tests_std/helpers.sh
+f tests_std/refuser.ml
+f tests_std/test_bad_request.ml
+f tests_std/test_bench
+f tests_std/test_client.ml
+f tests_std/test_server.ml
+d tests_std/data
+p tests_std/data/[^.][^~]*
+d tests_std/specs
+p tests_std/specs/.*\.sh
+p tests_std/specs/.*\.out
+f tests_std/specs/README
+
+d examples
+d examples/simple
+p examples/simple/.*\.ml
+
+d examples/spider
+p examples/spider/.*\.ml[il]?
+f examples/spider/Makefile
+
+d examples/telnet_labltk
+p examples/telnet_labltk/.*\.ml
+f examples/telnet_labltk/Makefile
+
+d doc
+p doc/.*\.html
+p doc/.*\.css
+

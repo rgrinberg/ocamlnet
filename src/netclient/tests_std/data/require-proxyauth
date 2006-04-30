@@ -1,0 +1,6 @@
+HTTP/1.1 407 Proxy Authentication Required
+content-type: text/plain
+content-length: 30
+proxy-authenticate: Basic realm="testrealm"
+
+Proxy Authentication Required
