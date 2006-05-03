@@ -1,0 +1,5 @@
+requires = "netstring"
+version = "@VERSION@"
+description = "Ocamlnet - Post Office Protocol (POP3)"
+archive(byte) = "pop.cma"
+archive(native) = "pop.cmxa"
