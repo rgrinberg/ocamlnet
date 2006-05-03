@@ -1,0 +1,8 @@
+*.cm[ioax]
+*.cmxa
+*.o
+*.a
+META
+depend
+netdate.ml
+nethtml_scanner.ml

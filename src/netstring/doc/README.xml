@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE readme SYSTEM "readme.dtd" [
+
+<!ENTITY % common SYSTEM "common.xml">
+%common;
+
+<!-- Special HTML config: -->
+<!ENTITY % readme:html:up '<a href="../..">up</a>'>
+
+<!ENTITY % config SYSTEM "config.xml">
+%config;
+
+]>
+
+<readme title="README - Netstring, string processing functions for the net">
+  <sect1>
+    <title>Abstract</title>
+    <p>
+<em>Netstring</em> is a collection of string processing functions that are
+useful in conjunction with Internet messages and protocols. In particular,
+it contains functions for the following purposes:</p>
+
+<ul>
+      <li><p>Parsing MIME messages</p>
+      </li>
+      <li><p>Several encoding/decoding functions (Base 64, Quoted Printable, Q, URL-encoding)</p>
+      </li>
+      <li><p>A new implementation of the CGI interface that allows users to upload files</p>
+      </li>
+      <li><p>A simple HTML parser</p>
+      </li>
+      <li><p>URL parsing, printing and processing</p>
+      </li>
+      <li><p>Conversion between character sets</p>
+      </li>
+    </ul>
+
+  </sect1>
+
+  <sect1>
+    <title>Download</title>
+    <p>
+You can download <em>Netstring</em> as gzip'ed <a
+					       href="&url.netstring-download;">tarball</a>.
+</p>
+
+  </sect1>
+
+  <sect1>
+    <title>Documentation</title>
+    <p>
+Sorry, there is no manual. The mli files describe each function in
+detail. Furthermore, the following additional information may be useful.</p>
+
+    <sect2>
+      <title>New CGI implementation</title>
+
+      <p>For a long time, the CGI implementation by Jean-Christophe Filliatre
+has been the only freely available module that implemented the CGI interface
+(it also based on code by Daniel de Rauglaudre). It worked well, but it did not
+support file uploads because this requires a parser for MIME messages.</p>
+      <p>The main goal of Netstring is to realize such uploads, and because of
+this it contains an almost complete parser for MIME messages.</p>
+      <p>The new CGI implementation provides the same functions than the old
+one, and some extensions. If you call Cgi.parse_args(), you get the CGI
+parameters as before, but as already explained this works also if the
+parameters are encaspulated as MIME message. In the HTML code, you can select
+the MIME format by using
+<code><![CDATA[
+<form action="..." method="post" enctype="multipart/form-data">
+...
+</form>
+]]>
+</code>
+- this "enctype" attribute forces the browser to send the form parameters
+as multipart MIME message (Note: You can neither send the parameters of a
+conventional hyperlink as MIME message nor the form parameters if the
+"method" is "get"). In many browsers only this particular encoding enables
+the file upload elements, you cannot perform file uploads with other encodings.
+</p>
+
+      <p>As MIME messages can transport MIME types, filename, and other
+additional properties, it is also possible to get these using the enhanced
+interface. After calling
+<code><![CDATA[
+Cgi.parse_arguments config
+]]></code>
+you can get all available information about a certain parameter by invoking
+<code><![CDATA[
+let param = Cgi.argument "name"
+]]></code>
+- where "param" has the type "argument". There are several accessor functions
+to extract the various aspects of arguments (name, filename, value by string,
+value by temporary file, MIME type, MIME header) from "argument" values.
+</p>
+
+    </sect2>
+
+
+    <sect2>
+      <title>Base64, and other encodings</title>
+
+      <p>Netstring is also the successor of the Base64 package. It provides a
+Base64 compatible interface, and an enhanced API. The latter is contained in
+the Netencoding module which also offers implementations of the "quoted
+printable", "Q", and "URL" encodings. Please see netencoding.mli for
+details.</p>
+
+    </sect2>
+
+
+    <sect2>
+      <title>The MIME scanner functions</title>
+
+      <p>In the Mimestring module you can find several functions scanning parts
+of MIME messages. These functions already cover most aspects of MIME messages:
+Scanning of headers, analysis of structured header entries, and scanning of
+multipart bodies. Of course, a full-featured MIME scanner would require some
+more functions, especially concrete parsers for frequent structures 
+(mail addresses or date strings).
+</p>
+      <p>Please see the file mimestring.mli for details.</p>
+    </sect2>
+
+
+    <sect2>
+      <title>The HTML parser</title>
+
+      <p>The HTML parser should be able to read every HTML file; whether it is
+correct or not. The parser tries to recover from parsing errors as much as
+possible.
+</p>
+      <p>The parser returns the HTML term as conventional recursive value
+(i.e. no object-oriented design).</p>
+      <p>The parser has needs some knowledge about HTML which can be
+passed to it as a simplified DTD. A DTD for HTML 4.0 is included into the
+module.
+</p>
+      <p>Please see the Nethtml module for details.</p>
+    </sect2>
+
+    <sect2>
+      <title>The abstract data type URL</title>
+      <p>The module Neturl contains support for URL parsing and processing.
+The implementation follows strictly the standards RFC 1738 and RFC 1808.
+URLs can be parsed, and several accessor functions allow the user to
+get components of parsed URLs, or to change components. Modifying URLs
+is safe; it is impossible to create a URL that does not have a valid
+string representation.</p>
+
+      <p>Both absolute and relative URLs are supported. It is possible to
+apply a relative URL to a base URL in order to get the corresponding
+absolute URL.</p>
+    </sect2>
+
+    <sect2>
+      <title>Conversion between character sets and encodings</title>
+      <p>The module Netconversion converts strings from one characters set
+to another. It is Unicode-based, and there are conversion tables for more than
+50 encodings.</p>
+    </sect2>
+
+  </sect1>
+
+  <sect1>
+    <title>Author, Copying</title>
+    <p>
+<em>Netstring</em> has been written by &person.gps;. You may copy it as you like,
+you may use it even for commercial purposes as long as the license conditions
+are respected, see the file LICENSE coming with the distribution. It allows
+almost everything.
+</p>
+  </sect1>
+
+  <sect1>
+    <title>History</title>
+
+    <ul>
+      <li><p><em>Changed in 0.10:</em> The CGI module has been extended.
+There is now a built-in test bench; the module can be instantiated several
+times; improved cache-control; support for cookies, and lots of smaller
+changes.</p>
+	<p>Neturl: Fixed apply_relative_path for a certain data case.</p>
+	<p>Netencoding.Url: New option ~plus.</p>
+	<p>Netdate: This module is new and contains functions to create
+date strings.</p>
+	<p>Nethtml: Added "essential blocks", i.e. elements that strictly
+require an end tag.</p>
+	<p>Overall: The netstring package depends now on Unix.</p>
+      </li>
+      <li><p><em>Changed in 0.9.8:</em> Some fixes in Nethtml. There is
+now a relaxed HTML 4 DTD.</p>
+      </li>
+      <li><p><em>Changed in 0.9.7:</em> Fix: Mimestring</p>
+      </li>
+      <li><p><em>Changed in 0.9.6:</em> Nethtml.write omits end tags
+if end tags are forbidden.</p></li>
+      <li><p><em>Changed in 0.9.5:</em> Bugfixes and improvements
+in the HTML parser.</p></li>
+      <li><p><em>Changed in 0.9.4:</em> Improvements in the HTML parser.
+There is now a simplified DTD which can much better represent the
+constraints of the DTD than the previous list of empty elements. It
+should now parse every HTML 4.0 document correctly even if end tags
+are omitted (where such omissions are allowed).</p></li>
+      <li><p><em>Changed in 0.9.3:</em> Fixed a bug in the "install" rule of
+the Makefile.</p>
+      </li>
+      <li><p><em>Changed in 0.9.2:</em> New format for the conversion tables
+which are now much smaller.</p>
+      </li>
+      <li><p><em>Changed in 0.9.1:</em> Updated the Makefile such that
+(native-code) compilation of netmappings.ml becomes possible.
+</p>
+      </li>
+      <li><p><em>Changed in 0.9:</em> Extended Mimestring module: It can
+now process RFC-2047 messages.</p>
+	<p>New Netconversion module which converts strings between character
+encodings.</p>
+      </li>
+      <li><p><em>Changed in 0.8.1:</em> Added the component
+url_accepts_8bits to Neturl.url_syntax. This helps processing URLs which
+intentionally contain bytes >= 0x80.</p>
+	<p>Fixed a bug: Every URL containing a 'j' was malformed!</p>
+      </li>
+      <li><p><em>Changed in 0.8:</em> Added the module Neturl which 
+provides the abstract data types of URLs.</p>
+	<p>The whole package is now thread-safe.</p>
+	<p>Added printers for the various opaque data types.</p>
+	<p>Added labels to function arguments where appropriate. The
+following functions changed their signatures significantly:
+Cgi.mk_memory_arg, Cgi.mk_file_arg.</p>
+      </li>
+      <li><p><em>Changed in 0.7:</em> Added workarounds for frequent
+browser bugs. Some functions take now an additional argument
+specifying which workarounds are enabled.</p>
+      </li>
+      <li><p><em>Changed in 0.6.1:</em> Updated URLs in documentation.</p>
+      </li>
+
+      <li><p><em>Changed in 0.6:</em> The file upload has been re-implemented
+to support large files; the file is now read block by block and the blocks can
+be collected either in memory or in a temporary file.<br/>
+Furthermore, the CGI API has been revised. There is now an opaque data type
+"argument" that hides all implementation details and that is extensible (if
+necessary, it is possible to add features without breaking the interface
+again).<br/>
+The CGI argument parser can be configured; currently it is possible to
+limit the size of uploaded data, to control by which method arguments are
+processed, and to set up where temporary files are created.<br/>
+The other parts of the package that have nothing to do with CGI remain
+unchanged.
+</p>
+      </li>
+
+      <li><p><em>Changed in 0.5.1:</em> A mistake in the documentation has
+been corrected.</p>
+      </li>
+
+      <li><p><em>Initial version 0.5:</em>
+The Netstring package wants to be the successor of the Base64-0.2 and
+the Cgi-0.3 packages. The sum of both numbers is 0.5, and because of this,
+the first version number is 0.5.
+</p>
+      </li>
+    </ul>
+  </sect1>
+
+</readme>
+

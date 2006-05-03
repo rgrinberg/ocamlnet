@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE readme SYSTEM "readme.dtd" [
+
+<!ENTITY % common SYSTEM "common.xml">
+%common;
+
+<!ENTITY m "<em>Netstring</em>">
+
+]>
+
+<readme title="INSTALL - Netstring, string processing functions for the net">
+  <sect1><title>The "Netstring" package</title>
+    <sect2><title>Prerequisites</title>
+      <p>
+&m; does not need any other packages besides the O'Caml core. &m; needs
+at least O'Caml 3.00. The installation procedure defined in the Makefile
+requires <a href="&url.findlib-project;">findlib</a> to
+work<footnote><em>Findlib</em> is a package manager, see the file
+ABOUT-FINDLIB.</footnote>.
+</p>
+    </sect2>
+
+    <sect2><title>Configuration</title>
+      <p>
+It is not necessary to configure "Netstring".
+</p>
+    </sect2>
+
+    <sect2><title>Compilation</title>
+      <p>
+The Makefile defines the following goals:
+</p>
+      <ul>
+	<li>
+	  <p>make all</p> 
+	  <p>compiles with the bytecode compiler and creates netstring.cma,
+netstring_mt.cmo, netstring_top.cmo, netmappings_iso.cmo, and
+netmappings_other.cmo</p>
+	</li>
+	<li>
+	  <p>make opt</p>
+	  <p>compiles with the native compiler and creates netstring.cmxa,
+netstring_mt.cmx, netmappings_iso.cmx, and netmappings_other.cmx</p>
+	</li>
+      </ul>
+
+      <p>The archive netstring.cmx?a contains the functionality, and the two
+single-module files netmappings_iso.cm[ox] and netmappings_other.cm[ox] add
+configurations to the character set conversion module. These configurations are
+optional:</p>
+
+      <ul>
+	<li><p>Netmappings_iso: Conversion tables for the character sets
+ISO-8859-2, -3, -4, -5, -6, -7, -8, -9, -10, 13, -14, and -15.</p>
+	</li>
+	<li><p>Netmappings_other: Conversion tables for the character sets
+WINDOWS-1250, -1251, -1252, -1253, -1254, -1255, -1256, -1257, -1258;
+code pages 037, 424, 437, 500, 737, 775, 850, 852, 855, 856, 857, 860, 861,
+862, 863, 864, 865, 866, 869, 874, 875, 1006, 1026; JIS-0201; KOI8R; Macintosh
+Roman encoding; Adobe Standard Encoding, Symbol Encoding, and Zapf Dingbats
+Encodings.</p>
+	</li>
+      </ul>
+
+<p>Even without these configuration files, the conversion module is able to
+handle the encodings ISO-8859-1, US-ASCII, UTF-16, UTF-8, and the Java variant
+of UTF-8.</p>
+
+<p>The module Netstring_mt must be linked into multi-threaded applications;
+otherwise some mutexes remain uninitialized.</p>
+
+<p>The module Netstring_top loads several printers for abstract values (for
+toploops).</p> 
+
+    </sect2>
+
+    <sect2><title>Installation</title>
+      <p>
+The Makefile defines the following goals:</p>
+      <ul>
+	<li>
+	  <p>make install</p>
+	  <p>installs the bytecode archive, the interface definitions, and if
+present, the native archive in the default location of <em>findlib</em>
+</p>
+	</li>
+
+	<li>
+	  <p>make install-cgi</p>
+	  <p>Installs a pseudo package "cgi" which is compatible with the old
+cgi package. This has the effect that software searching the "cgi" package will
+find the netstring package instead. This is recommended.</p>
+	</li>
+
+	<li>
+	  <p>make install-base64</p> <p>Installs a pseudo package "base64"
+which is compatible with the old base64 package. This has the effect that
+software searching the "base64" package will find the netstring package
+instead. This is recommended.</p>
+	</li>
+
+	<li>
+	  <p>make uninstall</p>
+	  <p>removes the package</p>
+	</li>
+
+	<li>
+	  <p>make uninstall-cgi</p>
+	  <p>removes the "cgi" compatibility package</p>
+	</li>
+
+	<li>
+	  <p>make uninstall-base64</p>
+	  <p>removes the "base64" compatibility package</p>
+	</li>
+      </ul>
+    </sect2>
+
+
+    <sect2>
+      <title>Linking netstring with findlib</title>
+      <p>The command
+<code>
+ocamlfind ocamlc ... -package netstring ... -linkpkg ...
+</code>
+links as much as possible code from netstring into your application: All
+conversion tables; when -thread is specified, the initialization code for
+multi-threaded programs; when a toploop is created, the code setting the value
+printers.</p>
+
+<p>The following predicates reduce the amount of linked code:</p>
+
+      <ul>
+	<li><p>netstring_only_iso: Only the conversion tables for the ISO-8859
+series of character sets are linked.</p>
+	</li>
+	<li><p>netstring_minimum: No additional conversion tables are linked;
+only ISO-8859-1 and the UTF encodings work.</p>
+	</li>
+      </ul>
+
+<p>For example, the command may look like
+
+<code>
+ocamlfind ocamlc ... 
+          -package netstring -predicates netstring_only_iso ... -linkpkg ...
+</code>
+
+to link only the ISO-8859 conversion tables.</p>
+    </sect2>
+
+  </sect1>
+</readme>

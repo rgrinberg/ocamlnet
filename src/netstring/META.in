@@ -1,0 +1,44 @@
+version = "@VERSION@"
+requires = "pcre,unix"
+description = "Ocamlnet - String processing library"
+
+archive(byte) = 
+    "netstring.cma"
+archive(byte,toploop) = 
+    "netstring.cma netstring_top.cmo"
+archive(byte,mt) = 
+    "netstring.cma netstring_mt.cmo"
+archive(byte,mt,toploop) = 
+    "netstring.cma netstring_mt.cmo netstring_top.cmo"
+archive(native) = 
+    "netstring.cmxa"
+archive(native,mt) = 
+    "netstring.cmxa netstring_mt.cmx"
+
+archive(byte,netstring_only_iso) += 
+    "netmappings_iso.cmo"
+archive(native,netstring_only_iso) += 
+    "netmappings_iso.cmx"
+
+archive(byte,netstring_minimum) += 
+    "netmappings_min.cmo"
+archive(native,netstring_minimum) += 
+    "netmappings_min.cmx"
+
+archive(byte,netstring_static) += 
+    "netmappings_iso.cmo netmappings_other.cmo netmappings_jp.cmo"
+archive(native,netstring_static) += 
+    "netmappings_iso.cmx netmappings_other.cmx netmappings_jp.cmx"
+
+archive(byte) +=
+    "netaccel.cma netaccel_link.cmo"
+
+# compatcgi can be enabled or disabled during ocamlnet's configuration.
+@DISABLE_COMPATCGI@ archive(byte) +=
+@DISABLE_COMPATCGI@    "compatcgi.cma"
+@DISABLE_COMPATCGI@ archive(native) +=
+@DISABLE_COMPATCGI@    "compatcgi.cmxa"
+@DISABLE_COMPATCGI@ archive(byte,mt) +=
+@DISABLE_COMPATCGI@    "cgi_mt.cmo"
+@DISABLE_COMPATCGI@ archive(native,mt) +=
+@DISABLE_COMPATCGI@    "cgi_mt.cmx"
