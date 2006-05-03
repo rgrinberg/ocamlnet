@@ -1,0 +1,5 @@
+requires = "netstring"
+version = "@VERSION@"
+description = "Ocamlnet - Simple Mail Transfer Protocol (SMTP)"
+archive(byte) = "smtp.cma"
+archive(native) = "smtp.cmxa"
