@@ -1,40 +1,15 @@
-TOP_DIR = ../..
+TOP_DIR=..
+
+PKGNAME  = rpc-ssl
+ARCHIVE  = rpc_ssl
+OBJECTS  = rpc_ssl.cmo
+OCAMLDOC = rpc_ssl.mli
+
 include $(TOP_DIR)/Makefile.rules
-include $(TOP_DIR)/Makefile.xrules
 
-XDRFILES = 
+INCLUDES += -I ../rpc -I ../equeue -I ../equeue-ssl
 
-RPCGEN_AUX_OPTIONS    = 
-RPCGEN_CLIENT_OPTIONS = 
-RPCGEN_SERVER_OPTIONS = 
+ocamldoc.dump: $(OCAMLDOC)
+        ocamldoc $(INCLUDES) -v -stars -dump ocamldoc.dump $(OCAMLDOC)
 
-all:
-#	$(MAKE) generate
-	$(MAKE) depend
-	$(MAKE) -f Makefile.code all
-
-opt:
-#	$(MAKE) generate
-	$(MAKE) depend
-	$(MAKE) -f Makefile.code opt
-
-#generate: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) 
-# Don't generate server stubs
-
-depend: *.ml *.mli
-	$(OCAMLDEP) *.ml *.mli >depend
-
-clean:
-	rm -f $(CLEAN_LIST)
-
-CLEAN: clean
-
-distclean: clean
-	rm -f META
-
-install:
-	files=`$(COLLECT_FILES) *.mli *.cmi *.cma *.cmxa *.a *.x dll* META` && \
-	$(OCAMLFIND) install rpc-ssl $$files
-
-uninstall:
-	$(OCAMLFIND) remove rpc-ssl
+include depend

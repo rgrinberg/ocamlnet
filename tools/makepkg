@@ -1,0 +1,274 @@
+#! /bin/sh
+# (*
+#
+# Assumes "ocaml" finds ocaml-3.03(alpha); otherwise you need a special
+# toploop:
+exec ocaml "$0" "$@"
+#
+*) directory ".";;
+
+(* USAGE:
+ *
+ * makepkg -spec pkg.spec -intree DIR1 -outtree DIR2
+ *
+ * copies files from the directory hierarchy DIR1 to the directory
+ * hierarchy DIR2 that match the rules pkg.spec. This is a text file
+ * with the following format. Every line specifies a rule. The
+ * first column is the type of the rule, and the rest of the line
+ * are the parameters.
+ *
+ * d DIRPATH
+ * 
+ * include this subdirectory
+ *
+ * f FILEPATH
+ *
+ * include this file (or symlink)
+ *
+ * x FILEPATH
+ *
+ * exclude this file
+ *
+ * p DIRPATH/FILEPATTERN
+ *
+ * include all files of the directory that match the regular expression
+ * FILEPATTERN (Str-type regexp)
+ *
+ * w DIRPATH/FILEPATTERN
+ *
+ * output a warning if one of the matching files matches
+ *
+ * Exclusions must be mentioned before inclusions.
+ *)
+
+#load "str.cma";;
+#load "unix.cma";;
+
+open Printf
+
+type spec =
+    Dir of string
+  | File of (string * bool ref)  
+      (* The bool records whether the rule ever matches *)
+  | XFile of string
+  | PFile of (string * Str.regexp)
+  | Warn of (string * Str.regexp)
+;;
+
+exception Continue;;
+
+let ws_re = Str.regexp "[ \t\r]+";;
+
+
+let parse_spec fname =
+  let dest_pattern n s =
+    let l = String.length s in
+    try
+      let dir,pat =
+	try
+	  let slash = String.rindex s '/' in  (* or Not_found *)
+	  (String.sub s 0 slash, String.sub s (slash+1) (l-slash-1))
+	with
+	    Not_found -> ("", s)
+      in
+      let pat' = Str.regexp ("^" ^ pat ^ "$") in
+      (dir, pat')
+    with
+        Failure f ->
+	  failwith ("Error in line " ^ string_of_int n ^ " of file " ^ 
+		    fname ^ ": " ^ f);
+  in
+
+  let no_trailing_slash n s =
+    let l = String.length s in
+    if s <> "" && s.[l-1] = '/' then
+      failwith ("Error in line " ^ string_of_int n ^ " of file " ^ 
+		fname ^ ": trailing slash not allowed")
+  in
+
+
+  let rec next_line n f =
+    try
+      let line = input_line f in
+      if line = "" then raise Continue;
+      if line.[0] = '#' then raise Continue;
+      let words = Str.split ws_re line in
+      match words with
+	  [ "d"; path ] -> no_trailing_slash n path;
+                           Dir path :: next_line (n+1) f
+	| [ "f"; path ] -> File (path,ref false) :: next_line (n+1) f
+	| [ "x"; path ] -> XFile path :: next_line (n+1) f
+	| [ "p"; path ] -> let dir,pat = dest_pattern n path in
+	                   PFile(dir,pat) :: next_line (n+1) f
+	| [ "w"; path ] -> let dir,pat = dest_pattern n path in
+	                   Warn(dir,pat) :: next_line (n+1) f
+	| _ ->
+	    failwith ("Error in line " ^ string_of_int n ^ " of file " ^ 
+		      fname);
+      with
+	  Continue ->
+	    next_line (n+1) f
+	| End_of_file ->
+	    []
+  in
+
+  let f = open_in fname in
+  let list = next_line 1 f in
+  close_in f;
+  list
+;;
+
+
+let extract_dirs spec =
+  "" ::           (* the top-level directory *)
+    (List.map
+       (function
+	    Dir p -> p
+	  | _ -> assert false
+       )
+       (List.filter
+	  (function 
+	       Dir _ -> true
+	     | _ -> false
+	  )
+	  spec
+       )
+    )
+;;
+
+
+let does_file_match spec dir file =
+  let path = if dir = "" then file else dir ^ "/" ^ file in
+  try
+    let rule =
+      List.find
+	(function
+	     Dir _ -> false
+	   | File(p,b) -> (p = path) && (b:=true; true)
+	   | XFile p -> p = path
+	   | PFile(d,re) -> 
+	       d = dir && Str.string_match re file 0
+	   | Warn(d,re) ->
+	       d = dir && Str.string_match re file 0
+	)
+	spec
+    in
+    (* A positive or a negative rule? *)
+    match rule with
+	Dir _ -> assert false
+      | File(_,_) -> true
+      | XFile _ -> false
+      | PFile (_,_) -> true
+      | Warn (_,_) ->
+	  prerr_endline("Warning: The file " ^ path ^ " is not packaged");
+	  false
+  with
+      Not_found ->
+	(* No rule matches: exclude silently *)
+	false
+;;
+
+
+let command s =
+  match Sys.command s with
+      0 -> ()
+    | n ->
+	failwith ("Command execution failed: " ^ s)
+;;
+
+
+let read_directory dir =
+  let rec next f =
+    try 
+      let s = Unix.readdir f in
+      if s <> "." && s <> ".." then
+	s :: (next f)
+      else
+	next f
+    with
+	End_of_file -> []
+  in
+  let f = Unix.opendir dir in
+  let list = next f in
+  Unix.closedir f;
+  list
+;;
+
+
+let copy_file path1 path2 =
+  (* If path1 is a symlink, create the same symlink as path2. Otherwise,
+   * simply copy the file 
+   *)
+  let st = Unix.lstat path1 in
+  if st.Unix.st_kind = Unix.S_LNK then begin
+    let link = Unix.readlink path1 in
+    Unix.symlink link path2
+  end
+  else begin
+    command 
+      (sprintf "cp %s %s" (Filename.quote path1) (Filename.quote path2))
+  end
+;;
+
+
+let copy_directory spec srcdir destdir curdir =
+  (* Copy the matching files from srcdir/curdir to destdir/curdir. 
+   * The latter directory will be created if necessary
+   *)
+  let dir1 = srcdir ^ "/" ^ curdir in
+  let dir2 = destdir ^ "/" ^ curdir in
+  command 
+    (sprintf "mkdir -p %s" (Filename.quote dir2));
+  let files = read_directory dir1 in
+  List.iter
+    (fun file ->
+       if does_file_match spec curdir file then
+	 copy_file (dir1 ^ "/" ^ file) (dir2 ^ "/" ^ file)
+    )
+    files
+;;
+
+
+let copy_all spec srcdir destdir =
+  let dirs = extract_dirs spec in
+  List.iter
+    (fun dir ->
+       copy_directory spec srcdir destdir dir)
+    dirs
+;;
+
+
+let main() =
+  let spec = ref "" in
+  let srcdir = ref "" in
+  let destdir = ref "" in
+  Arg.parse
+      [ "-spec", Arg.String (fun s -> spec := s),
+	      "SPEC           use this package specification";
+	"-intree", Arg.String (fun s -> srcdir := s),
+	        "DIR          this directory contains the source";
+	"-outtree", Arg.String (fun s -> destdir := s),
+	         "DIR         this directory will contain the package";
+      ]
+      (fun s -> raise(Arg.Bad "unexpected argument"))
+      "usage: makepkg <options>";
+  if !spec = "" then failwith "Error: No specification";
+  if !srcdir = "" then failwith "Error: No intree";
+  if !destdir = "" then failwith "Error: No outtree";
+
+  let speclist = parse_spec !spec in
+  copy_all speclist !srcdir !destdir;
+  
+  (* Check whether all File specs match a file *)
+  List.iter
+    (function
+	 File(path,b) when not !b ->
+	   prerr_endline("Warning: The file " ^ path ^ " does not exist");
+       | _ ->
+	   ()
+    )
+    speclist
+;;
+
+
+main();;

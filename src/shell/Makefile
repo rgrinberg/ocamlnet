@@ -1,37 +1,19 @@
-TOP_DIR = ../..
+TOP_DIR=..
+
+PKGNAME  = shell
+OBJECTS  = unix_exts.cmo shell_sys.cmo shell.cmo shell_uq.cmo 
+COBJECTS = unix_exts_c.o
+OCAMLDOC = unix_exts.mli shell_sys.mli shell.mli shell_uq.mli
+
 include $(TOP_DIR)/Makefile.rules
 
-all:
-	$(MAKE) depend
-	$(MAKE) -f Makefile.code all
+INCLUDES += -I ../equeue
 
-opt:
-	$(MAKE) depend
-	$(MAKE) -f Makefile.code opt
+ocamldoc.dump: $(OCAMLDOC)
+        ocamldoc -I ../equeue -v -stars -dump ocamldoc.dump $(OCAMLDOC)
 
-depend:
-	$(OCAMLDEP) *.ml *.mli >depend
+clean::
+        rm -f ocamldoc.dump
 
-clean:
-	rm -f $(CLEAN_LIST)
 
-CLEAN: clean
-
-distclean: clean
-	rm -f META depend
-
-install:
-	files=`$(COLLECT_FILES) *.mli *.cmi *.cma *.cmxa *.a dll* META` && \
-	$(OCAMLFIND) install shell $$files
-
-uninstall:
-	$(OCAMLFIND) remove shell
-
-HTML_TARGET?=html
-
-.PHONY: htmldoc
-htmldoc:
-	ocamldoc -html -d $(HTML_TARGET) -stars -t "Shell Reference Manual" \
-		-I ../equeue \
-		shell.mli shell_sys.mli shell_uq.mli unix_exts.mli
-
+include depend

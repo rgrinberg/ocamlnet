@@ -1,45 +1,23 @@
-TOP_DIR = ../..
+TOP_DIR=..
+
+PKGNAME  = rpc-auth-dh
+ARCHIVE  = rpc_auth_dh
+OBJECTS  = rpc_time.cmo \
+           rpc_key_aux.cmo rpc_key_clnt.cmo rpc_key_service.cmo rpc_auth_dh.cmo
+OCAMLDOC = 
+
 include $(TOP_DIR)/Makefile.rules
-include $(TOP_DIR)/Makefile.xrules
 
-OCAMLRPCGEN = ../generator/ocamlrpcgen
+INCLUDES += -I ../rpc
+RPCGEN = ../rpc-generator/ocamlrpcgen
 
-XDRFILES = rpc_key.x
+ocamldoc.dump: $(OCAMLDOC)
+        ocamldoc $(INCLUDES) -v -stars -dump ocamldoc.dump $(OCAMLDOC)
 
-RPCGEN_AUX_OPTIONS    = -int int32 -hyper int64
-RPCGEN_CLIENT_OPTIONS = -int int32 -hyper int64
-RPCGEN_SERVER_OPTIONS = -int int32 -hyper int64
+rpc_key_aux.ml: rpc_key.x
+	$(RPCGEN) -int int32 -hyper int64 -aux rpc_key.x
 
-all:
-	$(MAKE) generate
-	$(MAKE) depend
-	$(MAKE) -f Makefile.code all
+rpc_key_clnt.ml: rpc_key.x
+	$(RPCGEN) -int int32 -hyper int64 -clnt rpc_key.x
 
-opt:
-	$(MAKE) generate
-	$(MAKE) depend
-	$(MAKE) -f Makefile.code opt
-
-generate: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) 
-# Don't generate server stubs
-
-depend: *.ml *.mli
-	$(OCAMLDEP) *.ml *.mli >depend
-
-clean:
-	rm -f $(CLEAN_LIST)
-
-CLEAN: clean
-
-distclean: clean
-	rm -f META
-
-install:
-	files=`$(COLLECT_FILES) *.mli *.cmi *.cma *.cmxa *.a *.x META` && \
-	$(OCAMLFIND) install rpc-auth-dh $$files
-
-uninstall:
-	$(OCAMLFIND) remove rpc-auth-dh
-
-
-
+include depend

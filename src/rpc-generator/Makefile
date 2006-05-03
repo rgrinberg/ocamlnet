@@ -1,40 +1,19 @@
-TOP_DIR = ../..
+TOP_DIR=..
+
+PKGNAME  = rpc-generator
+ARCHIVE  = rpc_generator
+OBJECTS  = rtypes.cmo syntax.cmo options.cmo parser.cmo lexer.cmo rename.cmo \
+           generate.cmo
+OCAMLDOC = 
+
+ALL_EXTRA = ocamlrpcgen
+
 include $(TOP_DIR)/Makefile.rules
 
-all:
-	$(MAKE) generate
-	$(MAKE) depend
-	$(MAKE) -f Makefile.code all
+ocamlrpcgen: $(ARCHIVE).cma main.cmo
+	$(OCAMLC) -custom -o ocamlrpcgen $(ARCHIVE).cma main.cmo -linkpkg
 
-opt:
-	true
+ocamldoc.dump: $(OCAMLDOC)
+        ocamldoc -v -stars -dump ocamldoc.dump $(OCAMLDOC)
 
-depend:
-	$(OCAMLDEP) *.ml *.mli >depend
-
-generate: parser.ml lexer.ml rtypes.ml rtypes.mli
-
-lexer.ml: parser.ml
-
-rtypes.ml:
-	cp ../rpc/rtypes.ml .
-
-rtypes.mli:
-	cp ../rpc/rtypes.mli .
-
-clean:
-	rm -f $(CLEAN_LIST) META ocamlrpcgen parser.ml parser.mli lexer.ml
-
-CLEAN: clean
-	$(MAKE) -C tests CLEAN
-
-distclean: clean
-	$(MAKE) -C tests distclean
-
-install:
-	test -n "$(BINDIR)"
-	cp ocamlrpcgen $(BINDIR)
-
-uninstall:
-	test -n "$(BINDIR)"
-	rm -f $(BINDIR)/ocamlrpcgen
+include depend

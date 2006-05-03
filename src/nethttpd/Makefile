@@ -13,8 +13,7 @@ HTMLDIR?=html
 include $(TOP_DIR)/Makefile.rules
 
 INCLUDES += -I ../netstring -I ../cgi
-PP_OPTIONS_FINDLIB = -package "camlp4, camlp4.macro" -syntax "camlp4o"
-PP_OPTIONS_NON_FINDLIB = -pp "camlp4o pa_macro.cmo"
+PP_OPTIONS = -package "camlp4, camlp4.macro" -syntax "camlp4o"
 
 #PP_OPTIONS_FINDLIB += -ppopt "-DTesting"
 # do this to enable test coverage calculations

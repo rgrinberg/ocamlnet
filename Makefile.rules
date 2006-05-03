@@ -1,0 +1,111 @@
+# Inclusion of Makefile.conf may fail when cleaning up:
+
+-include $(TOP_DIR)/Makefile.conf
+
+# Makefile.conf: written by "configure".
+
+# How to invoke compilers and tools:
+# (May be moved to Makefile.conf if necessary)
+
+OCAMLC    = $(OCAMLFIND) ocamlc -g $(OCAMLC_OPTIONS) $(INCLUDES) $(PP_OPTIONS)
+OCAMLOPT  = $(OCAMLFIND) ocamlopt -inline 10 $(OCAMLOPT_OPTIONS) $(INCLUDES) $(PP_OPTIONS)
+OCAMLDEP  = $(OCAMLFIND) ocamldep $(OCAMLDEP_OPTIONS) $(PP_OPTIONS)
+OCAMLFIND = ocamlfind
+OCAMLYACC = ocamlyacc
+OCAMLLEX  = ocamllex
+CAMLP4    = camlp4
+OCAMLMKLIB = ocamlmklib
+
+TOOLS_DIR = $(TOP_DIR)/tools
+COLLECT_FILES = $(TOOLS_DIR)/collect_files
+
+# Standard definitions and rules
+
+XOBJECTS = $(OBJECTS:.cmo=.cmx)
+ARCHIVE  ?= $(PKGNAME)
+XARCHIVE ?= $(PKGNAME)
+
+all: $(ARCHIVE) $(ALL_EXTRA)
+
+opt: $(XARCHIVE) $(OPT_EXTRA)
+
+$(ARCHIVE): $(OBJECTS) $(COBJECTS)
+	$(OCAMLMKLIB) -o $(ARCHIVE) $(OBJECTS) $(COBJECTS) $(LINK_OPTIONS)
+
+$(XARCHIVE): $(XOBJECTS) $(COBJECTS)
+	$(OCAMLMKLIB) -o $(XARCHIVE) $(XOBJECTS) $(COBJECTS) $(LINK_OPTIONS)
+
+# Files to remove everywhere by "make clean":
+
+CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa packlist-*
+
+# Generic build rules:
+
+.SUFFIXES: .cmo .cmi .cmx .ml .mli .mll .mly .mtml .c .o
+
+.ml.cmx:
+	$(OCAMLOPT) -c $<
+
+.ml.cmo:
+	$(OCAMLC) -c $<
+
+.mtml.cmx:
+	ml=`basename $< .mtml`.ml; \
+	cp $< $$ml; \
+	$(OCAMLOPT) -c $(THREAD) $$ml; \
+	code=$$?; \
+	rm $$ml; \
+	exit $$code
+
+.mtml.cmo:
+	ml=`basename $< .mtml`.ml; \
+	cp $< $$ml; \
+	$(OCAMLC) -c $(THREAD) $$ml; \
+	code=$$?; \
+	rm $$ml; \
+	exit $$code
+
+.mli.cmi:
+	$(OCAMLC) -c $<
+
+.mll.ml:
+	$(OCAMLLEX) $<
+
+.mly.ml:
+	$(OCAMLYACC) $<
+
+.c.o:
+	$(OCAMLC) -c -ccopt -O $(CC_OPTIONS) $<
+
+# Install rules:
+
+.PHONY: install
+install: install-$(INSTMETHOD) $(INSTOTHER)
+
+.PHONY: uninstall
+uninstall: $(UNINSTOTHER) uninstall-$(INSTMETHOD) 
+
+.PHONY: install-findlib
+install-findlib:
+	files=`$(COLLECT_FILES) *.mli *.cmi *.cma *.cmxa *.a META $(INSTALL_EXTRA)` && \
+	$(OCAMLFIND) install $(PKGNAME) $$files
+
+.PHONY: uninstall-findlib
+uninstall-findlib:
+	$(OCAMLFIND) remove $(PKGNAME)
+
+
+#----------------------------------------------------------------------
+# general rules:
+
+depend:: *.ml *.mli
+	$(OCAMLDEP) *.ml *.mli >depend
+
+.PHONY: clean
+clean::
+	rm -f $(CLEAN_LIST)
+
+.PHONY: distclean
+distclean::
+	rm -f $(CLEAN_LIST) META
+	rm -f *~ depend

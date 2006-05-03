@@ -42,8 +42,7 @@ OCAMLDOC = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netstring_mt.mli \
 	netmappings.mli netaux.mli nethttp.mli
 
-PP_OPTIONS_FINDLIB = -package camlp4 -syntax camlp4o
-PP_OPTIONS_NON_FINDLIB = -pp "camlp4o"
+PP_OPTIONS = -package camlp4 -syntax camlp4o
 
 INSTOTHER = install-netdb
 UNINSTOTHER = uninstall-netdb
@@ -164,32 +163,6 @@ distclean::
 	$(MAKE) -C doc distclean
 	$(MAKE) -C tools distclean
 
-
-netdb-packlist: mk_netdb
-	test -d netdb
-	(cd netdb && ls *.netdb) | \
-	{ while read f; do echo "$(NET_DB_DIR)/$$f"; done; } >netdb-packlist
-
-.PHONY: install-netdb
-install-netdb:
-	mkdir -p $(NET_DB_DIR)
-	cp netdb/*.netdb $(NET_DB_DIR)
-	@echo "Installed .netdb files into $(NET_DB_DIR)"
-	if [ "$(INSTMETHOD)" != "findlib" ]; then                     \
-		cat netdb-packlist >>$(LIBDIR)/packlist-$(PKGNAME);   \
-	fi
-
-.PHONY: uninstall-netdb
-uninstall-netdb:
-	if [ "$(INSTMETHOD)" = "findlib" ]; then                              \
-		if packlist=`ocamlfind query $(PKGNAME)`/netdb-packlist; then \
-		    if [ -f "$$packlist" ]; then                              \
-			files=`cat $$packlist` &&                             \
-			rm -f $$files;                                        \
-			echo "Removed .netdb files";                          \
-		    fi;                                                       \
-		fi;                                                           \
-	fi
 
 -include depend
 

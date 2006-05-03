@@ -1,43 +1,16 @@
-TOP_DIR = ../..
+TOP_DIR=..
+
+PKGNAME  = rpc-xti
+ARCHIVE  = rpc_xti
+OBJECTS  = rpc_xti_client.cmo
+COBJECTS = rpcxti.o
+OCAMLDOC = 
+
 include $(TOP_DIR)/Makefile.rules
-include $(TOP_DIR)/Makefile.xrules
 
-XDRFILES = 
+INCLUDES += -I ../rpc
 
-RPCGEN_AUX_OPTIONS    = 
-RPCGEN_CLIENT_OPTIONS = 
-RPCGEN_SERVER_OPTIONS = 
+ocamldoc.dump: $(OCAMLDOC)
+        ocamldoc $(INCLUDES) -v -stars -dump ocamldoc.dump $(OCAMLDOC)
 
-all:
-#	$(MAKE) generate
-	$(MAKE) depend
-	$(MAKE) -f Makefile.code all
-
-opt:
-#	$(MAKE) generate
-	$(MAKE) depend
-	$(MAKE) -f Makefile.code opt
-
-#generate: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) 
-# Don't generate server stubs
-
-depend: *.ml *.mli
-	$(OCAMLDEP) *.ml *.mli >depend
-
-clean:
-	rm -f $(CLEAN_LIST)
-
-CLEAN: clean
-
-distclean: clean
-	rm -f META
-
-install:
-	files=`$(COLLECT_FILES) *.mli *.cmi *.cma *.cmxa *.a *.x dll* META` && \
-	$(OCAMLFIND) install rpc-xti $$files
-
-uninstall:
-	$(OCAMLFIND) remove rpc-xti
-
-
-
+include depend
