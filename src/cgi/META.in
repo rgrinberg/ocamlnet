@@ -1,0 +1,5 @@
+requires = "netstring"
+version = "@VERSION@"
+description = "Ocamlnet - Common Gateway Interface"
+archive(byte) = "cgi.cma"
+archive(native) = "cgi.cmxa"
