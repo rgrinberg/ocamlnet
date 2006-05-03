@@ -17,26 +17,26 @@ PKGLIST ?= netstring cgi
 .PHONY: all
 all:
 	#$(MAKE) -C tools all
-	for pkg in $(PKGLIST); do $(MAKE) -C $$pkg all || exit; done
+	for pkg in $(PKGLIST); do ( cd src/$$pkg && $(MAKE) all ) || exit; done
 
 .PHONY: opt
 opt:
-	for pkg in $(PKGLIST); do $(MAKE) -C $$pkg opt || exit; done
+	for pkg in $(PKGLIST); do ( cd src/$$pkg && $(MAKE) opt ) || exit; done
 
 # The following PHONY rule is important for Cygwin:
 .PHONY: install
 install:
-	for pkg in $(PKGLIST); do $(MAKE) -C $$pkg install || exit; done
+	for pkg in $(PKGLIST); do ( cd src/$$pkg && $(MAKE) install ) || exit; done
 
 .PHONY: uninstall
 uninstall:
-	for pkg in */.; do test ! -f $$pkg/Makefile || $(MAKE) -C $$pkg uninstall; done
+	for pkg in src/*/.; do test ! -f $$pkg/Makefile || ( cd $$pkg && $(MAKE) uninstall) ; done
 
 .PHONY: clean
 clean:
 	#rm -f Makefile.conf
 	#$(MAKE) -C tools CLEAN
-	for pkg in */.; do test ! -f $$pkg/Makefile || $(MAKE) -C $$pkg clean; done
+	for pkg in src/*/.; do test ! -f $$pkg/Makefile || ( cd $$pkg && $(MAKE) clean) ; done
 
 .PHONY: CLEAN
 CLEAN: clean
@@ -45,4 +45,4 @@ CLEAN: clean
 distclean:
 	rm -f Makefile.conf
 	#$(MAKE) -C tools distclean
-	for pkg in */.; do test ! -f $$pkg/Makefile || $(MAKE) -C $$pkg distclean; done
+	for pkg in src/*/.; do test ! -f $$pkg/Makefile || ( cd $$pkg && $(MAKE) distclean) ; done
