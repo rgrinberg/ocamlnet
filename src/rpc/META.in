@@ -1,3 +1,4 @@
+description = "Ocamlnet - Remote Procedure Call (RPC)"
 version = "@VERSION@"
 requires = "equeue,unix"
 archive(byte) = "rpc.cma"

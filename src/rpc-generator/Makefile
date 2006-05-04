@@ -8,9 +8,16 @@ DOBJECTS =
 
 ALL_EXTRA = ocamlrpcgen
 
+INSTMETHOD = local
+
 include $(TOP_DIR)/Makefile.rules
 
 ocamlrpcgen: $(ARCHIVE).cma main.cmo
-	$(OCAMLC) -custom -o ocamlrpcgen $(ARCHIVE).cma main.cmo -linkpkg
+	$(OCAMLC) -custom -o ocamlrpcgen -package unix \
+		$(ARCHIVE).cma main.cmo -linkpkg
+
+install-local:
+	mkdir -p $(BINDIR)
+	cp ocamlrpcgen $(BINDIR)
 
 include depend

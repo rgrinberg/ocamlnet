@@ -1,4 +1,4 @@
-description = "Equeue SSL encapsulation"
+description = "Ocamlnet - Equeue SSL encapsulation"
 requires = "unix equeue ssl"
 version = "@VERSION@"
 archive(byte) = "equeue_ssl.cma"

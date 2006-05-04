@@ -7,8 +7,8 @@
 # How to invoke compilers and tools:
 # (May be moved to Makefile.conf if necessary)
 
-OCAMLC    = $(OCAMLFIND) ocamlc -g $(OCAMLC_OPTIONS) $(INCLUDES) $(PP_OPTIONS)
-OCAMLOPT  = $(OCAMLFIND) ocamlopt -inline 10 $(OCAMLOPT_OPTIONS) $(INCLUDES) $(PP_OPTIONS)
+OCAMLC    = $(OCAMLFIND) ocamlc -g $(OCAMLC_OPTIONS) $(INCLUDES) -package "$(REQUIRES)" $(PP_OPTIONS)
+OCAMLOPT  = $(OCAMLFIND) ocamlopt -inline 10 $(OCAMLOPT_OPTIONS) $(INCLUDES) -package "$(REQUIRES)" $(PP_OPTIONS)
 OCAMLDEP  = $(OCAMLFIND) ocamldep $(OCAMLDEP_OPTIONS) $(PP_OPTIONS)
 OCAMLFIND = ocamlfind
 OCAMLYACC = ocamlyacc
@@ -25,15 +25,23 @@ COLLECT_FILES = $(TOOLS_DIR)/collect_files
 XOBJECTS = $(OBJECTS:.cmo=.cmx)
 ARCHIVE  ?= $(PKGNAME)
 
-all: $(ARCHIVE) $(ALL_EXTRA)
+all: $(ARCHIVE).cma $(ALL_EXTRA) $(ALLMT_EXTRA)
 
-opt: $(XARCHIVE) $(OPT_EXTRA)
+opt: $(ARCHIVE).cmxa $(OPT_EXTRA) $(OPTMT_EXTRA)
 
 $(ARCHIVE).cma: $(OBJECTS) $(COBJECTS)
-	$(OCAMLMKLIB) -o $(ARCHIVE) $(OBJECTS) $(COBJECTS) $(LINK_OPTIONS)
+	if [ "X$(COBJECTS)" = "X" ]; then \
+		$(OCAMLC) -a -o $(ARCHIVE).cma $(OBJECTS); \
+	else \
+		$(OCAMLMKLIB) -o $(ARCHIVE) $(OBJECTS) $(COBJECTS) $(LINK_OPTIONS); \
+	fi
 
 $(ARCHIVE).cmxa: $(XOBJECTS) $(COBJECTS)
-	$(OCAMLMKLIB) -o $(ARCHIVE) $(XOBJECTS) $(COBJECTS) $(LINK_OPTIONS)
+	if [ "X$(COBJECTS)" = "X" ]; then \
+		$(OCAMLOPT) -a -o $(ARCHIVE).cmxa $(XOBJECTS); \
+	else \
+		$(OCAMLMKLIB) -o $(ARCHIVE) $(XOBJECTS) $(COBJECTS) $(LINK_OPTIONS); \
+	fi
 
 # Files to remove everywhere by "make clean":
 
@@ -74,7 +82,7 @@ install: install-$(INSTMETHOD) $(INSTOTHER)
 uninstall: $(UNINSTOTHER) uninstall-$(INSTMETHOD) 
 
 .PHONY: install-findlib
-install-findlib:
+install-findlib: META
 	files=`$(COLLECT_FILES) *.mli *.cmi *.cma *.cmxa *.a META $(INSTALL_EXTRA)` && \
 	$(OCAMLFIND) install $(PKGNAME) $$files
 
@@ -82,6 +90,8 @@ install-findlib:
 uninstall-findlib:
 	$(OCAMLFIND) remove $(PKGNAME)
 
+META: META.in
+	sed -e 's/@VERSION@/$(VERSION)/' META.in >META
 
 #----------------------------------------------------------------------
 # general rules:

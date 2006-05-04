@@ -1,5 +1,5 @@
 version = "@VERSION@"
-description = "Event queues, especially for events on file descriptors"
+description = "Ocamlnet - Event queues"
 requires = "unix"
 requires(mt) = "unix,threads"
 archive(byte) = "equeue.cma"

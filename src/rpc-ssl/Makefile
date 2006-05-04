@@ -9,4 +9,6 @@ INCLUDES += -I ../rpc -I ../equeue -I ../equeue-ssl
 
 include $(TOP_DIR)/Makefile.rules
 
+REQUIRES += unix ssl
+
 include depend

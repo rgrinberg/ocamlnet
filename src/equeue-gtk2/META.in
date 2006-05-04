@@ -1,5 +1,5 @@
 version = "@VERSION@"
-description = "Event queues, especially for events on file descriptors"
+description = "Ocamlnet - Event queues, integrated into GTK2 event loop"
 requires = "unix equeue lablgtk2"
 archive(byte) = "equeue_gtk2.cma"
 archive(native) = "equeue_gtk2.cmxa"

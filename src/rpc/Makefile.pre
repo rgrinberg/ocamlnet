@@ -2,11 +2,11 @@ TOP_DIR=../..
 
 PKGNAME = rpc
 
-include $(TOP_DIR)/Makefile.rules
-
 GENERATE = rpc_portmapper_aux.ml rpc_portmapper_clnt.ml
 
 RPCGEN = ../rpc-generator/ocamlrpcgen
+
+include $(TOP_DIR)/Makefile.rules
 
 rpc_portmapper_aux.ml: rpc_portmapper.x
 	$(RPCGEN) -aux rpc_portmapper.x

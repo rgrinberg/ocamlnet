@@ -1,4 +1,4 @@
-description = "Unix shell functions"
+description = "Ocamlnet - Unix shell functions"
 requires = "unix equeue"
 version = "@VERSION@"
 archive(byte) = "shell.cma"

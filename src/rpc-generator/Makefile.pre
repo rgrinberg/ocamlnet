@@ -2,6 +2,19 @@ TOP_DIR=../..
 
 PKGNAME = rpc-generator
 
+GENERATE = rtypes.ml rtypes.mli parser.ml
+
+INSTMETHOD = local
+
 include $(TOP_DIR)/Makefile.rules
 
 CLEAN_LIST += ocamlrpcgen
+
+rtypes.ml: ../rpc/rtypes.ml
+	cp ../rpc/rtypes.ml .
+
+rtypes.mli: ../rpc/rtypes.mli
+	cp ../rpc/rtypes.mli .
+
+uninstall-local:
+	rm -f $(BINDIR)/ocamlrpcgen

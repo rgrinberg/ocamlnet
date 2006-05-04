@@ -17,14 +17,14 @@ PKGLIST ?= netstring cgi
 .PHONY: all
 all:
 	for pkg in $(PKGLIST); do \
-		( cd src/$$pkg && $(MAKE) -f Makefile.pre generate ) || exit;
+		( cd src/$$pkg && $(MAKE) -f Makefile.pre generate ) || exit; \
 		( cd src/$$pkg && $(MAKE) all ) || exit; \
 	done
 
 .PHONY: opt
 opt:
 	for pkg in $(PKGLIST); do \
-		( cd src/$$pkg && $(MAKE) -f Makefile.pre generate ) || exit;
+		( cd src/$$pkg && $(MAKE) -f Makefile.pre generate ) || exit; \
 		( cd src/$$pkg && $(MAKE) opt ) || exit; \
 	done
 

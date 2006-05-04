@@ -8,9 +8,9 @@ OBJECTS  = netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
 	   netaddress.cmo \
 	   netmime.cmo netsendmail.cmo nethttp.cmo \
 
-COBJECTS = netaccel_c.o
-
 PKGNAME  = netstring
+
+REQUIRES = pcre
 
 ISO_MAPPINGS   = mappings/iso*.unimap
 JP_MAPPINGS    = mappings/jis*.*map
@@ -32,7 +32,7 @@ INSTALL_EXTRA = netstring_mt.cmo      netstring_mt.cmx      netstring_mt.o     \
 		netconversion.cmx \
 		netstring_top.cmo \
 		netdb-packlist \
-		dllnetaccel_c.* netaccel_link.cmo
+		dllnetaccel.* netaccel_link.cmo
 
 DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netmime.mli netsendmail.mli neturl.mli netaddress.mli netbuffer.mli \
@@ -43,11 +43,25 @@ DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 
 PP_OPTIONS = -package camlp4 -syntax camlp4o
 
+OCAMLC_OPTIONS_FOR_netstring_mt.ml = $(THREAD)
+OCAMLOPT_OPTIONS_FOR_netstring_mt.ml = $(THREAD)
+
 INSTOTHER = install-netdb
 UNINSTOTHER = uninstall-netdb
 
-ALL_EXTRA = netstring_mt.cmo
-OPT_EXTRA = netstring_mt.cmx
+BUILD_EXTRA = netaccel.cma  netaccel_link.cmo \
+	      $(PMAP:.pmap=.cmo) netmappings_min.cmo
+
+ALL_EXTRA = $(BUILD_EXTRA) netstring_top.cmo
+ALLMT_EXTRA = netstring_mt.cmo 
+OPT_EXTRA = $(BUILD_EXTRA:.cmo=.cmx)
+OPTMT_EXTRA = netstring_mt.cmx
+
+netaccel.cma: netaccel_c.o netaccel.cmo
+	$(OCAMLMKLIB) -o netaccel netaccel_c.o netaccel.cmo
+
+netaccel.cmxa: netaccel_c.o netaccel.cmx
+	$(OCAMLMKLIB) -o netaccel netaccel_c.o netaccel.cmx
 
 netdb.ml: netdb.mlp netdb.cmi
 	sed -e 's|@NET_DB_DIR@|$(NET_DB_DIR)|' netdb.mlp >netdb.ml

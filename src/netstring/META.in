@@ -32,13 +32,3 @@ archive(native,netstring_static) +=
 
 archive(byte) +=
     "netaccel.cma netaccel_link.cmo"
-
-# compatcgi can be enabled or disabled during ocamlnet's configuration.
-@DISABLE_COMPATCGI@ archive(byte) +=
-@DISABLE_COMPATCGI@    "compatcgi.cma"
-@DISABLE_COMPATCGI@ archive(native) +=
-@DISABLE_COMPATCGI@    "compatcgi.cmxa"
-@DISABLE_COMPATCGI@ archive(byte,mt) +=
-@DISABLE_COMPATCGI@    "cgi_mt.cmo"
-@DISABLE_COMPATCGI@ archive(native,mt) +=
-@DISABLE_COMPATCGI@    "cgi_mt.cmx"

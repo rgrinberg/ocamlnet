@@ -1,3 +1,4 @@
+description = "Ocamlnet - RPC add-on for Diffie-Hellman authentication"
 version = "@VERSION@"
 requires = "rpc,cryptgps@AUTHDHREQS@"
 archive(byte) = "rpc_auth_dh.cma"
