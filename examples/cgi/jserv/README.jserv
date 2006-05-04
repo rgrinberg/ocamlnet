@@ -1,0 +1,162 @@
+**********************************************************************
+***                    Experimental JSERV support                  ***
+**********************************************************************
+
+The jserv protocol is very similar to CGI, but it does not start a new
+process for every HTTP request. The request is encoded and forwarded
+to a server process that handles it. The server process can be started
+manually or on demand by the web server.  As a picture:
+
+          BROWSER    <----HTTP---->  WEBSERVER   <----JSERV---->   JSERVD
+
+There is a relatively old module for Apache (mod_jserv) implementing
+the jserv client.  You can get it from
+http://java.apache.org/jserv. Note that the Java Apache project is
+dead, but the jserv protocol is also used by Jakarta: Tomcat contains
+the module mod_jk that supports the same jserv protocol version (1.2)
+as the original implementation but with a different configuration
+file. However, I am currently using mod_jserv for my experiments; it
+is smaller and easier to extract from the whole distribution. The
+Jakarta version will surely become important in the future.
+
+I have written a server for jserv in O'Caml that uses the existing
+netcgi infrastructure. This means that it is simple to convert an
+existing CGI script into a jserv server, it is only necessary to
+change the main program. 
+
+Currently, the following server architectures are supported:
+
+- Sequential servers: One request is processed after the other
+
+- Forking servers: For every request a new subprocess is started. 
+  (This looks like CGI, but has still advantages, as the main process
+  can do expensive initializations.)
+
+There is also a working experiment with a multi-threaded server,
+but the code is not yet ready to be released (look into the CVS tree
+under src/cgi/tests).
+
+A typical CGI script is:
+
+let cgi = new std_activation() in
+... (* analyze request *)
+cgi # set_header ... ();
+cgi # output # output_string ...;
+cgi # output # commit_work()
+
+The corresponding jserv program is:
+
+let process cgi =
+  ... (* analyze request *)
+  cgi # set_header ... ();
+  cgi # output # output_string ...;
+  cgi # output # commit_work()
+
+let srvtype =
+  `Sequential  (* or `Forking *)
+      [ "add", { req_activate = process;
+                 req_processing = (fun _ _ -> `Memory);
+                 req_operating_type = buffered_transactional_optype;
+               }
+      ]
+
+jvm_emu_main
+  (run srvtype `Ajp_1_2)
+
+
+As you can see, the request handler (once the cgi object is available) is the
+same. Some explanations:
+
+- jvm_emu_main: This is the main program. It emulates the JVM command
+  signature which is necessary because the jservd is started from
+  mod_jserv, and mod_jserv assumes it starts a JVM. The important
+  thing is that the second command argument is the name of the
+  property file to read in ( ==> props).  
+
+  Apache starts the jserv server by executing a command like
+
+  /where/it/is/jservd -classpath XXX jserv.properties
+
+  jvm_emu_main ignores the classpath, but extracts the name of the
+  jserv.properties file from the command, and parses it to get more 
+  information.
+
+- In the property file the address and port of the server socket is
+  configured, and optionally the authentication method (the connection
+  betweem the web server and jservd can be secured).
+
+  See README.properties for a minimal properties file. (You have to 
+  write one.)
+
+- The function Netcgi_jserv_app.run starts the server. It gets two
+  arguments: The server type and the protocol type. The latter is
+  currently always `Ajp_1_2 (Apache Jserv Protocol 1.2). The server
+  type determines the architecture (sequential or forking), and the
+  mapping of the servlet names to the request handlers.
+
+  In this example, "add" is the name of the servlet, and the 
+  record specifies how to handle requests arriving for this servlet.
+  
+  The httpd.conf file defines the root URL for the servlets, e.g.
+  /servlets, and the servlet names are simply appended. In the example,
+  the servlet has the URL /servlets/add.
+
+  (Note: Alternatively, it is also possible to start several jservd
+  servers, for every servlet a new one.)
+
+In this directory, you find two examples:
+
+- add_sequential.ml: Same as ../cgi/add.cgi, but uses a sequential
+  jservd
+
+- add_forking.ml: Same as ../cgi/add.cgi, but uses a forking jservd
+
+Once you have compiled them, there are two executables: add_sequential
+and add_forking. These are already the daemons. Try
+
+./add_sequential -help
+
+- you will see that the daemon accepts JVM-compatible arguments. The
+daemon can be started manually, or by the web server. Which method is
+better depends on:
+
+- As which user the daemons run. If the user is the same as the web
+  server, it is preferrable to let the web server start the jserv server.
+
+- Whether the web server acts as "watch dog" for the jserv server.
+  If the jservd crashes, the web server can automatically restart it.
+
+The way the jservd is started is configured in httpd.conf. See
+README.httpd.conf for details.
+
+So the next steps to get the examples running are:
+
+- Modify your httpd.conf
+
+- Write jserv.properties and put the file at the right place
+
+- Restart your web server
+
+
+*** Notes on installing mod_jserv ***************************************
+
+If you don't have already mod_jserv.so for your Apache: You need
+http://java.apache.org/jserv/dist/ApacheJServ-1.1.2.tar.gz. You don't need
+the JSDK classes (but a Java compiler; only to satisfy the configure script).
+Do:
+  mkdir -p jsdk/javax/servlet
+  touch jsdk/javax/servlet/Servlet.class
+This way the configure script thinks you have the JSDK classes.
+  ./configure --with-apxs=/usr/sbin/apxs --prefix=/tmp/jserv --with-JSDK=jsdk
+(Maybe you need --enable-EAPI, too)
+Then do 
+  cd src/c
+  make
+The resulting mod_jserv.so was in src/c/.libs (i.e. where libtool stores
+libraries before installation).
+
+If you have already mod_jk.so for your Apache: I don't know if it works.
+Eventually it is necessary to change the names of the properties in
+jvm_emu_main. httpd.conf is probably different, too. Furthermore, mod_jk
+seems to pass fewer variables (e.g. SCRIPT_NAME is omitted). I had a 
+quick look at the source code, so I know that things are slightly different.
