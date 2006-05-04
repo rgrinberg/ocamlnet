@@ -16,27 +16,39 @@ PKGLIST ?= netstring cgi
 
 .PHONY: all
 all:
-	#$(MAKE) -C tools all
-	for pkg in $(PKGLIST); do ( cd src/$$pkg && $(MAKE) all ) || exit; done
+	for pkg in $(PKGLIST); do \
+		( cd src/$$pkg && $(MAKE) -f Makefile.pre generate ) || exit;
+		( cd src/$$pkg && $(MAKE) all ) || exit; \
+	done
 
 .PHONY: opt
 opt:
-	for pkg in $(PKGLIST); do ( cd src/$$pkg && $(MAKE) opt ) || exit; done
+	for pkg in $(PKGLIST); do \
+		( cd src/$$pkg && $(MAKE) -f Makefile.pre generate ) || exit;
+		( cd src/$$pkg && $(MAKE) opt ) || exit; \
+	done
+
 
 # The following PHONY rule is important for Cygwin:
 .PHONY: install
 install:
-	for pkg in $(PKGLIST); do ( cd src/$$pkg && $(MAKE) install ) || exit; done
+	for pkg in $(PKGLIST); do \
+		( cd src/$$pkg && $(MAKE) install ) || exit; \
+	done
 
 .PHONY: uninstall
 uninstall:
-	for pkg in src/*/.; do test ! -f $$pkg/Makefile || ( cd $$pkg && $(MAKE) uninstall) ; done
+	for pkg in src/*/.; do \
+		test ! -f $$pkg/Makefile || \
+			( cd $$pkg && $(MAKE) -f Makefile.pre uninstall); \
+	done
 
 .PHONY: clean
 clean:
-	#rm -f Makefile.conf
-	#$(MAKE) -C tools CLEAN
-	for pkg in src/*/.; do test ! -f $$pkg/Makefile || ( cd $$pkg && $(MAKE) clean) ; done
+	for pkg in src/*/.; do \
+		test ! -f $$pkg/Makefile || \
+			( cd $$pkg && $(MAKE) -f Makefile.pre clean); \
+	done
 
 .PHONY: CLEAN
 CLEAN: clean
@@ -44,5 +56,7 @@ CLEAN: clean
 .PHONY: distclean
 distclean:
 	rm -f Makefile.conf
-	#$(MAKE) -C tools distclean
-	for pkg in src/*/.; do test ! -f $$pkg/Makefile || ( cd $$pkg && $(MAKE) distclean) ; done
+	for pkg in src/*/.; do \
+		test ! -f $$pkg/Makefile || \
+			( cd $$pkg && $(MAKE) -f Makefile.pre distclean); \
+	done

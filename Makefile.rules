@@ -15,6 +15,7 @@ OCAMLYACC = ocamlyacc
 OCAMLLEX  = ocamllex
 CAMLP4    = camlp4
 OCAMLMKLIB = ocamlmklib
+OCAMLDOC  = ocamldoc
 
 TOOLS_DIR = $(TOP_DIR)/tools
 COLLECT_FILES = $(TOOLS_DIR)/collect_files
@@ -23,50 +24,34 @@ COLLECT_FILES = $(TOOLS_DIR)/collect_files
 
 XOBJECTS = $(OBJECTS:.cmo=.cmx)
 ARCHIVE  ?= $(PKGNAME)
-XARCHIVE ?= $(PKGNAME)
 
 all: $(ARCHIVE) $(ALL_EXTRA)
 
 opt: $(XARCHIVE) $(OPT_EXTRA)
 
-$(ARCHIVE): $(OBJECTS) $(COBJECTS)
+$(ARCHIVE).cma: $(OBJECTS) $(COBJECTS)
 	$(OCAMLMKLIB) -o $(ARCHIVE) $(OBJECTS) $(COBJECTS) $(LINK_OPTIONS)
 
-$(XARCHIVE): $(XOBJECTS) $(COBJECTS)
-	$(OCAMLMKLIB) -o $(XARCHIVE) $(XOBJECTS) $(COBJECTS) $(LINK_OPTIONS)
+$(ARCHIVE).cmxa: $(XOBJECTS) $(COBJECTS)
+	$(OCAMLMKLIB) -o $(ARCHIVE) $(XOBJECTS) $(COBJECTS) $(LINK_OPTIONS)
 
 # Files to remove everywhere by "make clean":
 
-CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa packlist-*
+CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa dll* packlist-* \
+	     ocamldoc.dump $(GENERATE)
 
 # Generic build rules:
 
-.SUFFIXES: .cmo .cmi .cmx .ml .mli .mll .mly .mtml .c .o
+.SUFFIXES: .cmo .cmi .cmx .ml .mli .mll .mly .c .o
 
 .ml.cmx:
-	$(OCAMLOPT) -c $<
+	$(OCAMLOPT) -c $(OCAMLOPT_OPTIONS_FOR_$<) $<
 
 .ml.cmo:
-	$(OCAMLC) -c $<
-
-.mtml.cmx:
-	ml=`basename $< .mtml`.ml; \
-	cp $< $$ml; \
-	$(OCAMLOPT) -c $(THREAD) $$ml; \
-	code=$$?; \
-	rm $$ml; \
-	exit $$code
-
-.mtml.cmo:
-	ml=`basename $< .mtml`.ml; \
-	cp $< $$ml; \
-	$(OCAMLC) -c $(THREAD) $$ml; \
-	code=$$?; \
-	rm $$ml; \
-	exit $$code
+	$(OCAMLC) -c $(OCAMLC_OPTIONS_FOR_$<) $<
 
 .mli.cmi:
-	$(OCAMLC) -c $<
+	$(OCAMLC) -c $(OCAMLC_OPTIONS_FOR_$<) $<
 
 .mll.ml:
 	$(OCAMLLEX) $<
@@ -75,7 +60,10 @@ CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa packlist-*
 	$(OCAMLYACC) $<
 
 .c.o:
-	$(OCAMLC) -c -ccopt -O $(CC_OPTIONS) $<
+	$(OCAMLC) -c -ccopt -O $(CC_OPTIONS) $(CC_OPTIONS_FOR_$<) $<
+
+ocamldoc.dump: $(DOBJECTS)
+	ocamldoc -dump ocamldoc.dump -stars $(INCLUDES) $(OCAMLDOC_OPTIONS) $(DOBJECTS)
 
 # Install rules:
 
@@ -99,7 +87,7 @@ uninstall-findlib:
 # general rules:
 
 depend:: *.ml *.mli
-	$(OCAMLDEP) *.ml *.mli >depend
+	$(OCAMLDEP) *.ml *.mli >depend || { rm -f depend; exit 1; }
 
 .PHONY: clean
 clean::
@@ -109,3 +97,5 @@ clean::
 distclean::
 	rm -f $(CLEAN_LIST) META
 	rm -f *~ depend
+
+generate:: $(GENERATE)
