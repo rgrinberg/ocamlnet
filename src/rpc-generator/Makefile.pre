@@ -1,0 +1,7 @@
+TOP_DIR=../..
+
+PKGNAME = rpc-generator
+
+include $(TOP_DIR)/Makefile.rules
+
+CLEAN_LIST += ocamlrpcgen

@@ -1,4 +1,4 @@
-TOP_DIR=..
+TOP_DIR=../..
 
 PKGNAME  = nethttpd
 OBJECTS  = nethttpd_types.cmo nethttpd_kernel.cmo nethttpd_reactor.cmo \
@@ -7,12 +7,7 @@ OBJECTS  = nethttpd_types.cmo nethttpd_kernel.cmo nethttpd_reactor.cmo \
 OCAMLDOC = nethttpd_types.mli nethttpd_kernel.mli nethttpd_reactor.mli \
 	  nethttpd_engine.mli nethttpd_services.mli
 
-
-HTMLDIR?=html
-
-include $(TOP_DIR)/Makefile.rules
-
-INCLUDES += -I ../netstring -I ../cgi
+INCLUDES += -I ../equeue -I ../netstring -I ../cgi
 PP_OPTIONS = -package "camlp4, camlp4.macro" -syntax "camlp4o"
 
 #PP_OPTIONS_FINDLIB += -ppopt "-DTesting"
@@ -20,10 +15,6 @@ PP_OPTIONS = -package "camlp4, camlp4.macro" -syntax "camlp4o"
 
 INSTALL_EXTRA += LICENSE
 
-ocamldoc.dump:
-	ocamldoc `ocamlfind query -i-format equeue pcre` -I ../netstring -I ../cgi -v -stars -dump ocamldoc.dump $(OCAMLDOC)
-
-clean::
-	rm -f ocamldoc.dump
+include $(TOP_DIR)/Makefile.rules
 
 include depend

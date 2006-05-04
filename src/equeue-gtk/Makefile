@@ -5,17 +5,16 @@ include ./Makefile.gtk
 
 PKGNAME = $(FL_NAME)
 OBJECTS = uq_gtk.cmo
-OCAMLDOC = uq_gtk.mli
-
-include $(TOP_DIR)/Makefile.rules
+DOBJECTS = uq_gtk.mli
 
 REQUIRES += camlp4.macro $(GTK_PKG)
 GTK_DEFINES += -ppopt -D$(GTK_VERSION)
 
-OCAMLC_OPTIONS = -I ../equeue -syntax camlp4o $(GTK_DEFINES)
-OCAMLOPT_OPTIONS = -I ../equeue -syntax camlp4o $(GTK_DEFINES)
+INCLUDES += -I ../equeue
 
-ocamldoc.dump: $(OCAMLDOC)
-	ocamldoc -dump ocamldoc.dump -stars -I ../equeue $(OCAMLDOC)
+OCAMLC_OPTIONS = -syntax camlp4o $(GTK_DEFINES)
+OCAMLOPT_OPTIONS = -syntax camlp4o $(GTK_DEFINES)
+
+include $(TOP_DIR)/Makefile.rules
 
 include depend

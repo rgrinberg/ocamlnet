@@ -1,0 +1,5 @@
+TOP_DIR=../..
+
+PKGNAME = netclient
+
+include $(TOP_DIR)/Makefile.rules

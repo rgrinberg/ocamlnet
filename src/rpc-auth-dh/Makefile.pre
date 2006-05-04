@@ -1,0 +1,19 @@
+TOP_DIR=../..
+
+PKGNAME = rpc-auth-dh
+
+include $(TOP_DIR)/Makefile.rules
+
+GENERATE = rpc_key_aux.ml rpc_key_clnt.ml rpc_key_service.ml
+
+rpc_key_aux.ml: rpc_key.x
+	$(RPCGEN) -int int32 -hyper int64 -aux rpc_key.x
+
+rpc_key_clnt.ml: rpc_key.x
+	$(RPCGEN) -int int32 -hyper int64 -clnt rpc_key.x
+
+rpc_key_service.ml: rpc_key_service.mlp
+	sed -e "s/@CONNECTOR@/$(RPC_AUTH_DH_CONNECTOR)/" \
+		rpc_key_service.mlp >rpc_key_service.ml
+
+RPCGEN = ../rpc-generator/ocamlrpcgen

@@ -1,14 +1,11 @@
-TOP_DIR=..
+TOP_DIR=../..
 
 PKGNAME  = smtp
 OBJECTS  = netsmtp.cmo
-OCAMLDOC = netsmtp.mli
-
-include $(TOP_DIR)/Makefile.rules
+DOBJECTS = netsmtp.mli
 
 INCLUDES += -I ../netstring
 
-ocamldoc.dump: $(OCAMLDOC)
-	ocamldoc `ocamlfind query -i-format pcre` -I ../netstring -v -stars -dump ocamldoc.dump $(OCAMLDOC)
+include $(TOP_DIR)/Makefile.rules
 
 include depend

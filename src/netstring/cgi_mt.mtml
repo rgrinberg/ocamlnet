@@ -1,8 +1,0 @@
-(* $Id$ *)
-
-(* Initialize multi-threading mode for the legacy Cgi module: *)
-
-let cgi_mutex = Mutex.create();;
-Cgi.init_mt
-  (fun () -> Mutex.lock cgi_mutex)
-  (fun () -> Mutex.unlock cgi_mutex);

@@ -1,0 +1,15 @@
+TOP_DIR=../..
+
+PKGNAME = rpc
+
+include $(TOP_DIR)/Makefile.rules
+
+GENERATE = rpc_portmapper_aux.ml rpc_portmapper_clnt.ml
+
+RPCGEN = ../rpc-generator/ocamlrpcgen
+
+rpc_portmapper_aux.ml: rpc_portmapper.x
+	$(RPCGEN) -aux rpc_portmapper.x
+
+rpc_portmapper_clnt.ml: rpc_portmapper.x
+	$(RPCGEN) -clnt rpc_portmapper.x
