@@ -1,0 +1,18 @@
+TOP_DIR=../..
+
+PKGNAME = netplex
+
+GENERATE = netplex_ctrl_aux.ml netplex_ctrl_clnt.ml netplex_ctrl_srv.ml
+
+RPCGEN = ../rpc-generator/ocamlrpcgen
+
+include $(TOP_DIR)/Makefile.rules
+
+netplex_ctrl_aux.ml: netplex_ctrl.x
+	$(RPCGEN) -aux netplex_ctrl.x -int unboxed
+
+netplex_ctrl_clnt.ml: netplex_ctrl.x
+	$(RPCGEN) -clnt netplex_ctrl.x -int unboxed
+
+netplex_ctrl_srv.ml: netplex_ctrl.x
+	$(RPCGEN) -srv netplex_ctrl.x -int unboxed
