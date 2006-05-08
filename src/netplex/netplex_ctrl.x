@@ -21,17 +21,23 @@ typedef socket_id socket_id_list<>;
 
 
 enum event_type {
-    EVENT_ACCEPT = 0,
-    EVENT_RECEIVED_MESSAGE = 1,
-    EVENT_RECEIVED_ADMIN_MESSAGE = 2,
-    EVENT_SHUTDOWN = 3
+    EVENT_NONE = 0,
+    EVENT_ACCEPT = 1,
+    EVENT_NOACCEPT = 2,
+    EVENT_RECEIVED_MESSAGE = 3,
+    EVENT_RECEIVED_ADMIN_MESSAGE = 4,
+    EVENT_SHUTDOWN = 5
 };
 
 
 union event switch(event_type discr) {
+ case EVENT_NONE:
+     void;
  case EVENT_ACCEPT:
-     socket_id_list enabled_sockets;
+     void;
      /* Sets that these sockets try to accept new connections. */
+ case EVENT_NOACCEPT:
+     void;
  case EVENT_RECEIVED_MESSAGE:
      message msg;
  case EVENT_RECEIVED_ADMIN_MESSAGE:
@@ -73,9 +79,9 @@ program Control {
          */
 
 
-	event wait(int               /* Number of active connections */
+	event poll(int               /* Number of active connections */
 		   ) = 3;
-	/* Waits for the next controller event */
+	/* Polls for the next controller event */
 
 	void accepted(socket_id) = 4;
 	/* Tells the controller that a connection on this socket has just

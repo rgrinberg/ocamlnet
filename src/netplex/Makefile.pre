@@ -15,4 +15,4 @@ netplex_ctrl_clnt.ml: netplex_ctrl.x
 	$(RPCGEN) -clnt netplex_ctrl.x -int unboxed
 
 netplex_ctrl_srv.ml: netplex_ctrl.x
-	$(RPCGEN) -srv netplex_ctrl.x -int unboxed
+	$(RPCGEN) -srv2 netplex_ctrl.x -int unboxed

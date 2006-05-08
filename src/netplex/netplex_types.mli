@@ -21,12 +21,13 @@ type socket_state =
     * - [`Down]: The socket is down/closed
    *)
 
-type container_id
+type container_id = <: :>
   (** Identifies a container *)
 
 type container_state =
     [ `Accepting of int * float
     | `Busy
+    | `Starting
     ]
   (** The container state for workload management:
     * - [`Accepting(n,t)]: The container is accepting further connections.
@@ -67,6 +68,11 @@ end
 and controller_config =
 object
   method create_logger : controller -> Netplex_log.logger
+    (** Create a logger to be used for the whole Netplex system. The
+      * controller is already initialized which makes it possible to
+      * write the logger as Netplex service. Messages arriving during the
+      * creation are queued up and sent afterwards to the new logger.
+     *)
 end
 	  
 and socket_service =
@@ -89,7 +95,7 @@ object
   method socket_service_config : socket_service_config
     (** The configuration *)
 
-  method pre_start_hook : controller -> unit
+  method pre_start_hook : controller -> container_id -> unit
     (** A user-supplied function that is called before the container is
       * created and started. It is called from the process/thread of the
       * controller.
@@ -108,7 +114,7 @@ object
       * container.
      *)
 
-  method post_finish_hook : controller -> unit
+  method post_finish_hook : controller -> container_id -> unit
     (** A user-supplied function that is called after the container is
       * terminated. It is called from the process/thread of the
       * controller.
@@ -263,3 +269,20 @@ object
      *)
 end
 ;;
+
+
+class type parallelizer =
+object
+  method ptype : parallelization_type
+
+  method init : unit -> unit
+    (** Initializes the main process for usage with this parallelizer *)
+
+  method start_thread : 't . ('t -> unit) -> 't -> Unix.file_descr list -> unit
+    (** [start_thread f arg l]: Starts a new thread or process and calls
+      * [f arg] in that context. The list of file descriptors [l] is ensured
+      * to be shared with the main process.
+      *
+      * There is no way to check when the thread terminates.
+     *)
+end
