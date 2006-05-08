@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+open Printf
+
 type level =
     [ `Emerg | `Alert | `Crit | `Err | `Warning | `Notice | `Info | `Debug ]
 

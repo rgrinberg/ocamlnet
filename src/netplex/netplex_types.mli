@@ -21,7 +21,7 @@ type socket_state =
     * - [`Down]: The socket is down/closed
    *)
 
-type container_id = <: :>
+type container_id = < >
   (** Identifies a container *)
 
 type container_state =
@@ -51,7 +51,7 @@ object
 
   method logger : Netplex_log.logger
 
-  method event_system : unit -> unit
+  method event_system : Unixqueue.unix_event_system
 
   method restart : unit -> unit
     (** Initiates a restart of all containers: All threads/processes are
@@ -187,7 +187,7 @@ end
 and processor =
 object
   method process : 
-           close:(Unix.file_descr -> unit) ->
+           when_done:(unit -> unit) ->
            container -> Unix.file_descr -> string -> unit
     (** A user-supplied function that is called when a new socket connection
       * is established. The function can now process the requests arriving
@@ -196,8 +196,8 @@ object
       * also allowed to process the requests synchronously and to first return
       * to the caller when the connection is terminated. 
       *
-      * The function {b must} call [close] to indicate that it processed
-      * this connection completely and to close the file descriptor.
+      * The function {b must} call [when_done] to indicate that it processed
+      * this connection completely.
       *
       * The string argument is the protocol name.
      *)
@@ -216,7 +216,6 @@ end
 
 and container =
 object
-  method ptype : parallelization_type
   method socket_service : socket_service
 
   method event_system : Unixqueue.unix_event_system
@@ -242,7 +241,8 @@ object
       * [Control.V1].
      *)
 
-  (* TODO: Easy way to log messages *)
+  method log : Netplex_log.level -> string -> unit
+    (** Sends a log message to the controller. *)
 
 end
 

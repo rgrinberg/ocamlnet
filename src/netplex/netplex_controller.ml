@@ -9,7 +9,7 @@ let ast_re = Pcre.regexp "[*]";;
 let regexp_of_pattern s =
   let l = Netstring_pcre.split_delim ast_re s in
   Netstring_pcre.regexp
-    (String.concat ".*" (List.map (fun u -> Netstring_pcre.quote u)) ^ "$")
+    (String.concat ".*" (List.map (fun u -> Netstring_pcre.quote u) l) ^ "$")
 
 
 class type extended_socket_controller =
@@ -47,7 +47,8 @@ type action =
     ]
 
 
-class std_socket_controller rm_service par controller sockserv wrkmng
+class std_socket_controller rm_service (par: parallelizer) 
+                            controller sockserv wrkmng
       : extended_socket_controller =
 object(self)
   val mutable state = (`Disabled : socket_state)
@@ -125,7 +126,9 @@ object(self)
 	  ) in
       let container = sockserv # create_container sockserv in
       (* CHECK: ptype *)
-      sockserv # pre_start_hook controller (container :> container_id);
+      sockserv # pre_start_hook 
+	(controller :> controller)
+	(container :> container_id);
       par # start_thread
 	(fun () ->
 	   ( try 
@@ -145,29 +148,33 @@ object(self)
 	  (`Socket_endpoint(Rpc.Tcp, fd_srv))
 	  controller#event_system in
       let c =
-	{ container = container;
+	{ container = (container :> container_id);
 	  cont_state = `Starting;
 	  rpc = rpc;
 	  poll_call = None;
-	  messages = [];
-	  admin_messages = [];
+	  messages = Queue.create();
+	  admin_messages = Queue.create();
 	  shutting_down = false;
 	  t_accept = 0.0;
-	  selected = `None
 	} in
       Rpc_server.set_onclose_action rpc 
 	(fun _ ->
 	   (* Called back when fd_clnt is closed by the container *)
 	   clist <- List.filter (fun c' -> c' != c) clist;
-	   sockserv # post_finish_hook controller (container :> container_id);
-	   wrkmng # adjust sockserv self;
-	   ( match action with
-	       | `Selected c' when c == c'
-	       | `Notified c' when c == c'
-	       | `Deselected c' when c == c' ->
-		   action <- `None;
-		   self # schedule()
-	       | _ -> ()
+	   sockserv # post_finish_hook 
+	     (controller :> controller)
+	     (container :> container_id);
+	   wrkmng # adjust 
+	     sockserv (self : #socket_controller :> socket_controller);
+	   let reschedule =
+	     match action with
+	       | `Selected c' when c == c' -> true
+	       | `Notified c' when c == c' -> true
+	       | `Deselected c' when c == c' -> true
+	       | _ -> false in
+	   if reschedule then (
+	     action <- `None;
+	     self # schedule()
 	   );
 	   if clist = [] then (
 	     match state with
@@ -175,7 +182,11 @@ object(self)
 		   state <- `Disabled;
 		   if flag then self # enable()
 	       | `Down ->
-		   rm_service self
+		   rm_service 
+		     (self : #extended_socket_controller
+		      :> extended_socket_controller);
+	       | _ ->
+		   ()
 	   )
 	);
       clist <- c :: clist
@@ -212,21 +223,23 @@ object(self)
      *)
     if state = `Enabled && action = `None then (
       if clist = [] then
-	wrkmng # adjust sockserv self;
+	wrkmng # adjust 
+	  sockserv (self : #socket_controller :> socket_controller);
       let best = ref None in
       List.iter
 	(fun c ->
 	   match c.cont_state with
 	     | `Busy -> ()  (* ignore *)
+	     | `Starting -> ()  (* ignore *)
 	     | `Accepting(n, t_last) ->
 		 ( match !best with
 		     | None -> best := Some c
 		     | Some c' ->
 			 ( match c'.cont_state with
-			     | `Busy -> assert false
 			     | `Accepting(n', t_last') ->
 				 if n < n' || (n = n' && t_last < t_last') then
 				   best := Some c
+			     | _ -> assert false
 			 )
 		 )
 	)
@@ -285,10 +298,11 @@ object(self)
 	    ( match action with
 		| `Selected c' when c' == c ->
 		    reply `event_accept;
-		    c.conn_state <- `Busy;
+		    c.cont_state <- `Busy;
 		    c.poll_call <- None;
 		    action <- `Notified c;
-		    wrkmng # adjust sockserv self
+		    wrkmng # adjust 
+		      sockserv (self : #socket_controller :> socket_controller)
 		| `Deselected c' when c' == c ->
 		    reply `event_noaccept;
 		    c.poll_call <- None;
@@ -302,7 +316,7 @@ object(self)
     match action with
       | `Notified c' when c' == c ->
 	  c.t_accept <- Unix.gettimeofday();
-	  action <- None;
+	  action <- `None;
 	  self # schedule()
       | _ -> ()
 	  (* This call is not replied! *)
@@ -376,9 +390,9 @@ object(self)
 
   method reopen() = ()
 
-  method max_level = `Debug
+  method max_level : Netplex_log.level = `Debug
 
-  method set_max_level _ = ()
+  method set_max_level (_ : Netplex_log.level) = ()
 
   method forward (l : Netplex_log.logger) =
     Queue.iter
@@ -415,17 +429,20 @@ object(self)
     ( services 
       :> (socket_service * socket_controller * workload_manager) list )
 
+  method ext_services =
+    services
+
   method add_service sockserv wrkmng =
     if shutting_down then
       failwith "#add_service: controller is shutting down";
     let sockctrl = 
       new std_socket_controller 
 	self#rm_service
-	(self : #controller :> controller)
 	par
+	(self : #extended_controller :> extended_controller)
 	sockserv 
 	wrkmng in
-    services <- (sockserv, sockctrl, wrkmng) <- services;
+    services <- (sockserv, sockctrl, wrkmng) :: services;
     sockctrl # enable();
 
   method private rm_service sockctrl =
@@ -456,4 +473,4 @@ end
 
 
 let create_controller par config =
-  new std_controller par config
+  (new std_controller par config :> controller)

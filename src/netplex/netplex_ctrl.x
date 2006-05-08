@@ -83,7 +83,7 @@ program Control {
 		   ) = 3;
 	/* Polls for the next controller event */
 
-	void accepted(socket_id) = 4;
+	void accepted(void) = 4;
 	/* Tells the controller that a connection on this socket has just
          * been accepted. 
          *
