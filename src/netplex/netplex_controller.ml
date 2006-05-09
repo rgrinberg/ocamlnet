@@ -48,7 +48,8 @@ type action =
     ]
 
 
-class std_socket_controller rm_service (par: parallelizer) 
+class std_socket_controller ?(no_disable = false)
+                            rm_service (par: parallelizer) 
                             controller sockserv wrkmng
       : extended_socket_controller =
 object(self)
@@ -76,6 +77,8 @@ object(self)
 	  failwith "#enable: service is already down"
 
   method disable() =
+    if no_disable then
+      failwith "#disable: not allowed for this service";
     match state with
       | `Disabled ->
 	  ()
@@ -202,6 +205,7 @@ prerr_endline "DOWN";
       (fun c ->
 	 if List.mem (c.container :> container_id) l then (
 	   c.shutting_down <- true;
+	   c.cont_state <- `Shutting_down;
 	   ( match action with
 	       | `Notified c' when c' == c ->
 		   action <- `Deselected c
@@ -217,6 +221,7 @@ prerr_endline "DOWN";
     List.iter
       (fun c ->
 	 c.shutting_down <- true;
+	 c.cont_state <- `Shutting_down;
 	 self # check_for_poll_reply c
       )
       clist
@@ -236,6 +241,7 @@ prerr_endline "DOWN";
 	   match c.cont_state with
 	     | `Busy -> ()  (* ignore *)
 	     | `Starting -> ()  (* ignore *)
+	     | `Shutting_down -> ()  (* ignore *)
 	     | `Accepting(n, t_last) ->
 		 ( match !best with
 		     | None -> best := Some c
@@ -278,7 +284,8 @@ prerr_endline "scheduled";
 	    last_reply `event_none
     );
     c.poll_call <- Some (sess, reply);
-    c.cont_state <- `Accepting(n, c.t_accept);
+    if c.cont_state <> `Shutting_down then 
+      c.cont_state <- `Accepting(n, c.t_accept);
     self # schedule();
     self # check_for_poll_reply c
 
@@ -333,7 +340,8 @@ prerr_endline "got 'accepted'";
     match action with
       | `Notified c' when c' == c ->
 	  c.t_accept <- Unix.gettimeofday();
-	  c.cont_state <- `Busy;
+	  if c.cont_state <> `Shutting_down then
+	    c.cont_state <- `Busy;
 	  action <- `None;
 	  self # schedule()
       | _ -> ();
@@ -642,6 +650,7 @@ object(self)
     (* Cannot use [add_service] because we must use the special parallelizer *)
     let my_sockctrl = 
       new std_socket_controller 
+	~no_disable:true
 	self#rm_service
 	(new admin_par)
 	(self : #extended_controller :> extended_controller)
@@ -699,8 +708,9 @@ object(self)
   method shutdown() =
     shutting_down <- true;
     List.iter
-      (fun (_, ctrl, _) ->
-	 ctrl # shutdown()
+      (fun (_, ctrl, wrkmng) ->
+	 ctrl # shutdown();
+	 wrkmng # shutdown();
       )
       services
 end

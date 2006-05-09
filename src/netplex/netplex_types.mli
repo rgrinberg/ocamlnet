@@ -28,6 +28,7 @@ type container_state =
     [ `Accepting of int * float
     | `Busy
     | `Starting
+    | `Shutting_down
     ]
   (** The container state for workload management:
     * - [`Accepting(n,t)]: The container is accepting further connections.
