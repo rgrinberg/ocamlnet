@@ -118,13 +118,16 @@ union unit_result switch (result_code discr) {
 
 
 enum socket_domain {
-    PF_UNIX = 0,
-    PF_INET = 1,
-    PF_INET6 = 2
+    PF_UNKNOWN = 0,
+    PF_UNIX = 1,
+    PF_INET = 2,
+    PF_INET6 = 3
 };
 
 
 union port switch (socket_domain discr) {
+ case PF_UNKNOWN:
+     void;
  case PF_UNIX:
      longstring path;
  case PF_INET:

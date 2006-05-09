@@ -1,0 +1,5 @@
+version = "@VERSION@"
+description = "Ocamlnet - Server framework"
+requires = "equeue,netstring,rpc,shell"
+archive(byte) = "netplex.cma"
+archive(native) = "netplex.cmxa"

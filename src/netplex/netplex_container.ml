@@ -2,10 +2,11 @@
 
 open Netplex_types
 open Netplex_ctrl_aux
+open Printf
 
-class std_container sockserv : container =
+class std_container ?(esys = Unixqueue.create_unix_event_system()) 
+                    sockserv =
 object(self)
-  val esys = Unixqueue.create_unix_event_system()
   val mutable rpc = None
   val mutable nr_conns = 0
   val mutable engines = []
@@ -47,21 +48,27 @@ object(self)
     match rpc with
       | None -> assert false
       | Some r ->
+eprintf "%d: setup_polling\n%!" (Unix.getpid());
 	  Netplex_ctrl_clnt.Control.V1.poll'async r nr_conns
 	    (fun getreply ->
+eprintf "%d: setup_polling reply\n%!" (Unix.getpid());
 	       let continue =
 		 ( try
 		     let reply = getreply() in
 		     ( match reply with
 			 | `event_none ->
-			     true
+eprintf "%d: event_none\n%!" (Unix.getpid());
+			     false
 			 | `event_accept -> 
+eprintf "%d: event_accept\n%!" (Unix.getpid());
 			     self # enable_accepting();
 			     true
 			 | `event_noaccept -> 
+eprintf "%d: event_noaccept\n%!" (Unix.getpid());
 			     self # disable_accepting();
 			     true
 			 | `event_received_message msg ->
+eprintf "%d: event_received_message\n%!" (Unix.getpid());
 			     self # protect
 			       "receive_message"
 			       (sockserv # processor # receive_message
@@ -70,6 +77,7 @@ object(self)
 			       msg.msg_arguments;
 			     true
 			 | `event_received_admin_message msg ->
+eprintf "%d: event_received_admin_message\n%!" (Unix.getpid());
 			     self # protect
 			       "receive_admin_message"
 			       (sockserv # processor # receive_admin_message
@@ -78,6 +86,7 @@ object(self)
 			       msg.msg_arguments;
 			     true
 			 | `event_shutdown ->
+eprintf "%d: event_shutdown\n%!" (Unix.getpid());
 			     self # disable_accepting();
 			     self # protect
 			       "shutdown"
@@ -88,6 +97,7 @@ object(self)
 		     )
 		   with
 		     | error ->
+eprintf "%d: setup_polling error: %s\n%!" (Unix.getpid()) (Printexc.to_string error);
 			 self # log `Err ("poll: Exception " ^ 
 					    Printexc.to_string error);
 			 true
@@ -129,9 +139,11 @@ object(self)
     match rpc with
       | None -> assert false
       | Some r ->
+eprintf "%d: sending 'accepted'\n%!" (Unix.getpid());
 	  self # disable_accepting();
 	  Rpc_client.add_call
 	    ~when_sent:(fun () ->
+eprintf "%d: sent 'accepted'\n%!" (Unix.getpid());
 			  nr_conns <- nr_conns + 1;
 			  self # protect
 			    "process"
@@ -186,6 +198,25 @@ object(self)
 end
 
 
+class admin_container esys sockserv =
+object(self)
+  inherit std_container ~esys sockserv
+
+  method start fd_clnt =
+    let fd_clnt' = Unix.dup fd_clnt in
+    if rpc <> None then
+      failwith "#start: already started";
+    rpc <-
+      Some(Netplex_ctrl_clnt.Control.V1.create_client
+	     ~esys
+	     (Rpc_client.Descriptor fd_clnt')
+	     Rpc.Tcp);
+    self # setup_polling();
+end
+
+
 let create_container sockserv =
   new std_container sockserv
 
+let create_admin_container esys sockserv =
+  new admin_container esys sockserv

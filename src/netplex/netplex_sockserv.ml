@@ -15,10 +15,15 @@ let open_sockets prots =
 		  Unix.socket
 		    (Unix.domain_of_sockaddr addr) Unix.SOCK_STREAM 0 in
 		fdlist := s :: !fdlist;
+		Unix.setsockopt s Unix.SO_REUSEADDR proto#lstn_reuseaddr;
+		( match addr with
+		    | Unix.ADDR_UNIX path ->
+			( try Unix.unlink path with _ -> () )
+		    | _ -> ()
+		);
 		Unix.bind s addr;
 		Unix.set_nonblock s;
 		Unix.set_close_on_exec s;
-		Unix.setsockopt s Unix.SO_REUSEADDR proto#lstn_reuseaddr;
 		Unix.listen s proto#lstn_backlog;
 		s
 	     )

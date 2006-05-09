@@ -67,6 +67,12 @@ end
 
 and controller_config =
 object
+  method socket_directory : string
+    (** The directory where Unix domain sockets are created. For every
+      * service a subdirectory is created, and the socket has the name
+      * of the protocol.
+     *)
+
   method create_logger : controller -> Netplex_log.logger
     (** Create a logger to be used for the whole Netplex system. The
       * controller is already initialized which makes it possible to
