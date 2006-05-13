@@ -15,4 +15,21 @@ object
 end
 
 
-class channel_logger : out_channel -> logger
+val channel_logger : out_channel -> logger
+
+val file_logger : string -> logger
+  (** Writes messages to this file *)
+
+
+class type multi_file_config =
+object
+  method log_directory : string
+  method log_files :
+    (string * [ level | `All ] * string) list
+    (** Triples [ (component, max_level, file) ]. Use [*] as wildcard in
+      * component
+      *)
+end
+
+val multi_file_logger : multi_file_config -> logger
+
