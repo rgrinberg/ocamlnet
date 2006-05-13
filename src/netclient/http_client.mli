@@ -958,6 +958,51 @@ class pipeline :
         * returned to the cache do not count)
        *)
 
+    method connections : (string * int * int) list
+      (** Reports which connections exist: [ (host, port, queue_length) ] *)
+
+    method cnt_new_connections : int
+      (** Counts new connections (or better: attempts to establish connections)
+        *)
+
+    method cnt_timed_out_connections : int
+      (** Counts connections given up because of timeouts *)
+
+    method cnt_crashed_connections : int
+      (** Counts connections with network or protocol errors *)
+
+    method cnt_server_eof_connections : int
+      (** Counts connections the server terminated with EOF *)
+
+    method cnt_successful_connections : int
+      (** Counts connections closed because pipelines become empty *)
+
+    method cnt_failed_connections : int
+      (** Counts totally failed connections (no more reconnects allowed) *)
+
+    method reset_counters : unit -> unit
+
+      (** Notes on counters:
+        *
+        * - [cnt_new_connections]: Is increased when a new connection attempt
+        *   is started (that may fail or timeout in the future). Reconnects
+        *   do not count.
+        * - [cnt_timed_out_connections]: Is increased whenever an established
+        *   connection times out. Usually, it is immediately reconnected.
+        * - [cnt_crashed_connections]: Is increased whenever an established
+        *   connection crashes. Usually, it is immediately reconnected.
+        * - [cnt_failed_connections]: Is increased when a timed out or
+        *   crashed connection exceeds the maximum number of errors, and it is
+        *   not tried to reconnect.
+        * - [cnt_successful_connections]: Is increased when all HTTP calls
+        *   have been replied.
+        *
+        * When the client has done all of its jobs, we have
+        *
+        * {[ cnt_new_connections = cnt_failed_connections + cnt_successful_connections ]}
+        *
+       *)
+
   end
 ;;
 

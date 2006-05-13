@@ -53,6 +53,16 @@ type resolver =
       unit
 ;;
 
+type counters =
+    { mutable new_connections : int;
+      mutable timed_out_connections : int;
+      mutable crashed_connections: int;
+      mutable server_eof_connections : int;
+      mutable successful_connections : int;
+      mutable failed_connections : int;
+    }
+
+
 let better_unix_error f arg =
   try
     f arg
@@ -1548,13 +1558,18 @@ object(self)
 	  if not (List.mem fd fd_list) then
 	    Hashtbl.replace rev_active_conns owner (fd :: fd_list)
       | `Inactive ->
-	  let peer = Unix.getpeername fd in
-	  self # forget_active_connection fd;
-	  Hashtbl.replace inactive_conns fd peer;
-	  let fd_list =
-	    try Hashtbl.find rev_inactive_conns peer with Not_found -> [] in
-	  if not (List.mem fd fd_list) then
-	    Hashtbl.replace rev_inactive_conns peer (fd :: fd_list)
+	  ( try
+	      let peer = Unix.getpeername fd in
+	      self # forget_active_connection fd;
+	      Hashtbl.replace inactive_conns fd peer;
+	      let fd_list =
+		try Hashtbl.find rev_inactive_conns peer with Not_found -> [] in
+	      if not (List.mem fd fd_list) then
+		Hashtbl.replace rev_inactive_conns peer (fd :: fd_list)
+	    with
+	      | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
+		  self # forget_connection fd
+	  )
 
   method find_inactive_connection peer =
     match Hashtbl.find rev_inactive_conns peer with
@@ -1585,20 +1600,27 @@ object(self)
    
 
   method private forget_inactive_connection fd =
-    let peer = Unix.getpeername fd in
-    let fd_list = 
-      try Hashtbl.find rev_inactive_conns peer with Not_found -> [] in
-    let fd_list' =
-      List.filter (fun fd' -> fd' <> fd) fd_list in
-    if fd_list' <> [] then 
-      Hashtbl.replace rev_inactive_conns peer fd_list'
-    else
-      Hashtbl.remove rev_inactive_conns peer;
-    Hashtbl.remove inactive_conns fd;
+    try
+      let peer = Hashtbl.find inactive_conns fd in
+      (* Do not use getpeername! fd might be disconnected in the meantime! *)
+      let fd_list = 
+	try Hashtbl.find rev_inactive_conns peer with Not_found -> [] in
+      let fd_list' =
+	List.filter (fun fd' -> fd' <> fd) fd_list in
+      if fd_list' <> [] then 
+	Hashtbl.replace rev_inactive_conns peer fd_list'
+      else
+	Hashtbl.remove rev_inactive_conns peer;
+      Hashtbl.remove inactive_conns fd;
+    with
+      | Not_found ->
+	  ()
+
 
   method forget_connection fd =
     self # forget_active_connection fd;
     self # forget_inactive_connection fd
+
 
   method close_all () =
     Hashtbl.iter
@@ -2431,6 +2453,7 @@ class connection the_esys
                  auth_cache
                  conn_cache
 		 conn_owner   (* i.e. the pipeline coerced to < > *)
+		 counters     (* we count here only when connections close *)
 		 the_options
   =
   object (self)
@@ -2708,6 +2731,8 @@ class connection the_esys
 	       self # cleanup_on_eof ~force_total_failure:true err;
 	       self # leave_critical_section;
 	       self # maintain_polling;
+	       counters.crashed_connections <-
+		 counters.crashed_connections + 1;
 
 	   | Some addr ->
 	       ( let peer = Unix.ADDR_INET(addr, peer_port) in
@@ -2932,6 +2957,8 @@ class connection the_esys
 	    );
 	    Unix.close s;                 (* close socket explicitly *)
 	    (* Continue with the regular error path: *)
+	    counters.crashed_connections <- 
+	      counters.crashed_connections + 1;
 	    self # cleanup_on_eof ~force_total_failure:true err;
 	    self # leave_critical_section;
 	    self # maintain_polling;
@@ -3033,11 +3060,15 @@ class connection the_esys
 	      if options.verbose_connection then
 		prerr_endline("HTTP connection: Connection reset by peer");
 	      self # abort_connection;
-	      end_of_queueing := true
+	      end_of_queueing := true;
+	      counters.crashed_connections <-
+		counters.crashed_connections + 1;
 	  | Unix.Unix_error(e,a,b) as err ->
 	      if options.verbose_connection then
 		prerr_endline("HTTP connection: Unix error " ^
 			      Unix.error_message e);
+	      counters.crashed_connections <- 
+		counters.crashed_connections + 1;
 	      self # abort_connection;
 	      end_of_queueing := true;
 	      (* This exception is reported to the message currently being read
@@ -3051,10 +3082,18 @@ class connection the_esys
 
       if io # in_eof || io # timeout then begin
 	(* shutdown the connection, and clean up the event system: *)
-	if options.verbose_connection && io # in_eof then 
-	  prerr_endline "HTTP connection: Got EOF!";
-	if options.verbose_connection && io # timeout then 
-	  prerr_endline "HTTP connection: Connection timeout!";
+	if io # in_eof then (
+	  if options.verbose_connection	then
+	    prerr_endline "HTTP connection: Got EOF!";
+	  counters.server_eof_connections <- 
+	    counters.server_eof_connections + 1
+	);
+	if io # timeout then (
+	  if options.verbose_connection then 
+	    prerr_endline "HTTP connection: Connection timeout!";
+	  counters.timed_out_connections <- 
+	    counters.timed_out_connections + 1;
+	);
 	self # abort_connection;
 	end_of_queueing := true
       end;
@@ -3160,6 +3199,7 @@ class connection the_esys
 		  if close_connection || options.inhibit_persistency then (
 		    self # abort_connection;
 		    end_of_queueing := true;
+		    (* We do not count this event - it is regular! *)
 		  );
 
 		  (* Remember that the first request/reply round is over: *)
@@ -3180,6 +3220,8 @@ class connection the_esys
 
 		  self # abort_connection;
 		  end_of_queueing := true;
+		  counters.crashed_connections <-
+		    counters.crashed_connections + 1;
 
 		  (* If the response has a proper status, we can remove it
                    * from the queue. Otherwise leave it on the queue, so
@@ -3210,6 +3252,8 @@ class connection the_esys
 		    prerr_endline "HTTP connection: Aborting the errorneuos connection";
 		  self # abort_connection;
 		  end_of_queueing := true;
+		  counters.crashed_connections <-
+		    counters.crashed_connections + 1;
 	  );
 	end
       in         (* of "let rec read_loop() = " *)
@@ -3232,6 +3276,8 @@ class connection the_esys
 		prerr_endline "HTTP connection: Extra octets -- aborting connection";
 	      self # abort_connection;
 	      end_of_queueing := true;
+	      counters.crashed_connections <-
+		counters.crashed_connections + 1;
 	    end
       end;
 
@@ -3407,11 +3453,16 @@ class connection the_esys
 	  (* Process the queues: *)
 	  self # attach_to_esys;
 	end
-	else
+	else (
 	  if options.verbose_connection then
-	    prerr_endline "HTTP connection: Nothing left to do after EOF";
+	    prerr_endline "HTTP connection: Nothing left to do";
+	  counters.failed_connections <- counters.failed_connections + 1
+	)
 
-      end;
+      end else (
+	(* n_read = 0 && n_write = 0 *)
+	counters.successful_connections <- counters.successful_connections + 1
+      )
       
 
     method clear_read_queue err =
@@ -3602,6 +3653,7 @@ class connection the_esys
 	  Unixqueue.remove_resource esys g (Unixqueue.Wait_out io#socket);
 	polling_wr <- false;
 	Unixqueue.remove_resource esys g (Unixqueue.Wait_in io#socket);
+	counters.successful_connections <- counters.successful_connections + 1
       );
 
       self # maintain_polling;
@@ -3824,6 +3876,15 @@ class pipeline =
 
     val mutable conn_cache = create_restrictive_cache()
 
+    val counters =
+      { new_connections = 0;
+	timed_out_connections = 0;
+	crashed_connections = 0;
+	server_eof_connections = 0;
+	successful_connections = 0;
+	failed_connections = 0;
+      }
+
     method set_event_system new_esys =
       esys <- new_esys;
       Hashtbl.clear connections;
@@ -3900,7 +3961,9 @@ class pipeline =
 	   conn_cache # forget_connection fd;
 	   Unix.close fd;
 	)
-	(conn_cache # find_my_connections (self :> < >))
+	(conn_cache # find_my_connections (self :> < >));
+
+      self # reset_counters()
       
 
     method private add_with_callback_no_redirection (request : http_call) f_done =
@@ -3959,8 +4022,10 @@ class pipeline =
 			     auth_cache
 			     conn_cache
 			     (self :> < >)
+			     counters
 			     options in
 	    open_connections <- open_connections + 1;
+	    counters.new_connections <- counters.new_connections + 1;
 	    connlist := new_conn :: !connlist;
 	    new_conn
 	  end 
@@ -4149,6 +4214,40 @@ class pipeline =
     method number_of_open_messages = open_messages
 
     method number_of_open_connections = open_connections
+
+    method connections =
+      let l = ref [] in
+      Hashtbl.iter
+	(fun (peer, port, _) conns ->
+	   List.iter
+	     (fun conn ->
+		l := (peer, port, conn#length) :: !l
+	     )
+	     !conns
+	)
+	connections;
+      !l
+
+    method cnt_new_connections = counters.new_connections
+
+    method cnt_timed_out_connections = counters.timed_out_connections
+
+    method cnt_crashed_connections = counters.crashed_connections
+
+    method cnt_server_eof_connections = counters.server_eof_connections
+
+    method cnt_successful_connections = counters.successful_connections
+
+    method cnt_failed_connections = counters.failed_connections
+
+    method reset_counters() =
+      counters.new_connections <- 0;
+      counters.timed_out_connections <- 0;
+      counters.crashed_connections <- 0;
+      counters.server_eof_connections <- 0;
+      counters.successful_connections <- 0;
+      counters.failed_connections <- 0;
+
 
   end
 ;;
