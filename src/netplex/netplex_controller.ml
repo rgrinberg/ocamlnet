@@ -30,6 +30,7 @@ type ext_cont_state =
     { container : container_id;
       mutable cont_state : container_state;
       mutable rpc : Rpc_server.t;
+      mutable sys_rpc : Rpc_server.t;
       mutable poll_call : (Rpc_server.session * 
 			     (Netplex_ctrl_aux.t_Control'V1'poll'res -> unit)
 			  ) option;
@@ -122,8 +123,10 @@ prerr_endline "DOWN";
     for k = 1 to n do
       let (fd_clnt, fd_srv) = 
 	Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+      let (sys_fd_clnt, sys_fd_srv) = 
+	Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
       let fd_list =
-	fd_clnt ::
+	fd_clnt :: sys_fd_clnt ::
 	  (List.flatten
 	     (List.map
 		(fun (_, fd_arr) -> Array.to_list fd_arr)
@@ -138,33 +141,42 @@ prerr_endline "DOWN";
       par # start_thread
 	(fun () ->
 	   ( try 
-	       container # start fd_clnt
+	       container # start fd_clnt sys_fd_clnt
 	     with 
 	       | error ->
 		   (* It is difficult to get this error written to a log file *)
+		   prerr_endline ("Netplex Catastrophic Error: " ^ Printexc.to_string error);
 		   ()
 	   );
-	   Unix.close fd_clnt  (* indicates successful termination *)
+	   Unix.close fd_clnt;  (* indicates successful termination *)
+	   Unix.close sys_fd_clnt 
 	)
 	()
 	fd_list;
-      if par # ptype = `Multi_processing then 
+      if par # ptype = `Multi_processing then (
 	Unix.close fd_clnt;
+	Unix.close sys_fd_clnt;
+      );
       let rpc =
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, fd_srv))
+	  controller#event_system in
+      let sys_rpc =
+	Rpc_server.create2 
+	  (`Socket_endpoint(Rpc.Tcp, sys_fd_srv))
 	  controller#event_system in
       let c =
 	{ container = (container :> container_id);
 	  cont_state = `Starting;
 	  rpc = rpc;
+	  sys_rpc = sys_rpc;
 	  poll_call = None;
 	  messages = Queue.create();
 	  admin_messages = Queue.create();
 	  shutting_down = false;
 	  t_accept = 0.0;
 	} in
-      self # bind_server rpc c;
+      self # bind_server rpc sys_rpc c;
       Rpc_server.set_onclose_action rpc 
 	(fun _ ->
 	   (* Called back when fd_clnt is closed by the container *)
@@ -265,16 +277,18 @@ prerr_endline "scheduled";
       )
     )
 
-  method private bind_server rpc c =
+  method private bind_server rpc sys_rpc c =
     Netplex_ctrl_srv.Control.V1.bind_async
+      ~proc_ping:(fun _ _ reply -> reply())
+      ~proc_poll:(self # poll c)
+      ~proc_accepted:(self # accepted c)
+      rpc;
+    Netplex_ctrl_srv.System.V1.bind_async
       ~proc_ping:(fun _ _ reply -> reply())
       ~proc_lookup:(self # lookup c)
       ~proc_send_message:(self # send_message c)
-      ~proc_poll:(self # poll c)
-      ~proc_accepted:(self # accepted c)
       ~proc_log:(self # log c)
-      rpc
-
+      sys_rpc
 
   method private poll c sess n reply =
     (* Last [poll] call still unreplied? If so, send EVENT_NONE: *)
@@ -579,6 +593,10 @@ object(self)
 
   method shutdown() = ()
 
+  method post_start_hook _ = ()
+
+  method pre_finish_hook _ = ()
+
 end ;;
 
 
@@ -618,8 +636,6 @@ object(self)
   method sockets = sockserv' # sockets
   method socket_service_config = sockserv' # socket_service_config
   method pre_start_hook _ _ = ()
-  method post_start_hook _ = ()
-  method pre_finish_hook _ = ()
   method post_finish_hook _ _ = ()
   method processor = processor
   method create_container s =

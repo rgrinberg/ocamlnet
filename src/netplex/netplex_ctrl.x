@@ -67,6 +67,29 @@ program Control {
 
 	void ping(void) = 0;
 
+	event poll(int               /* Number of active connections */
+		   ) = 1;
+	/* Polls for the next controller event */
+
+	void accepted(void) = 2;
+	/* Tells the controller that a connection on this socket has just
+         * been accepted. 
+         *
+         * This is a special procedure: The controller does not send a
+         * response for performance reasons.
+         */
+
+    } = 1;
+
+} = 1;
+
+
+program System {
+    /* API of the controller for all parts of the system */
+
+    version V1 {
+	void ping(void) = 0;
+
 	internal_port lookup(longstring,        /* service name */
 			     longstring         /* protocol */
 			     ) = 1;
@@ -78,29 +101,16 @@ program Control {
          * send_message("*", msg) broadcasts to all processors.
          */
 
-
-	event poll(int               /* Number of active connections */
-		   ) = 3;
-	/* Polls for the next controller event */
-
-	void accepted(void) = 4;
-	/* Tells the controller that a connection on this socket has just
-         * been accepted. 
-         *
-         * This is a special procedure: The controller does not send a
-         * response for performance reasons.
-         */
-
 	void log(level,                /* log level */
 		 longstring            /* log message */
-		 ) = 5;
+		 ) = 3;
         /* This is a special procedure: The controller does not send a
          * response for performance reasons.
          */
 
     } = 1;
 
-} = 1;
+} = 2;
 
 
 enum result_code {
@@ -209,4 +219,4 @@ program Admin {
 
     } = 1;
 
-} = 2;
+} = 3;

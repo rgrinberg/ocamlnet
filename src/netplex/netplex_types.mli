@@ -108,19 +108,6 @@ object
       * controller.
      *)
 
-  method post_start_hook : container -> unit
-    (** A user-supplied function that is called after the container is
-      * created and started, but before the first service request arrives.
-      * It is called from the process/thread of the
-      * container.
-     *)
-
-  method pre_finish_hook : container -> unit
-    (** A user-supplied function that is called just before the container is
-      * terminated. It is called from the process/thread of the
-      * container.
-     *)
-
   method post_finish_hook : controller -> container_id -> unit
     (** A user-supplied function that is called after the container is
       * terminated. It is called from the process/thread of the
@@ -193,6 +180,19 @@ end
 
 and processor =
 object
+  method post_start_hook : container -> unit
+    (** A user-supplied function that is called after the container is
+      * created and started, but before the first service request arrives.
+      * It is called from the process/thread of the
+      * container.
+     *)
+
+  method pre_finish_hook : container -> unit
+    (** A user-supplied function that is called just before the container is
+      * terminated. It is called from the process/thread of the
+      * container.
+     *)
+
   method process : 
            when_done:(unit -> unit) ->
            container -> Unix.file_descr -> string -> unit
@@ -228,13 +228,14 @@ object
   method event_system : Unixqueue.unix_event_system
     (** The event system the container uses *)
 
-  method start : Unix.file_descr -> unit
+  method start : Unix.file_descr -> Unix.file_descr -> unit
     (** {b Internal Method.} Called by the controller to start the container.
       * It is the responsibility of the container to call the 
       * [post_start_hook] and the [pre_finish_hook].
       *
-      * The file descriptor is the endpoint of an RPC connection to the
-      * controller.
+      * The file descriptors are endpoints of RPC connections to the
+      * controller. The first serves calls of the [Control] program,
+      * and the second serves calls of the [System] program.
       *
       * When [start] returns the container will be terminated.
      *)
@@ -242,10 +243,21 @@ object
   method shutdown : unit -> unit
     (** Initiates a shutdown of the container. *)
 
-  method ctrl : Rpc_client.t
+  method system : Rpc_client.t
     (** An RPC client that can be used to send messages to the controller.
       * Only available while [start] is running. It is bound to 
-      * [Control.V1].
+      * [System.V1].
+     *)
+
+  method lookup : string -> string -> string option
+    (** [lookup service_name protocol_name] tries to find a Unix domain
+      * socket for the service and returns it.
+     *)
+
+  method send_message : string -> string -> string array -> unit
+    (** [send_message service_pattern msg_name msg_arguments]: Sends
+      * a message to all services matching [service_pattern]. The pattern
+      * may include the wildcard [*].
      *)
 
   method log : Netplex_log.level -> string -> unit

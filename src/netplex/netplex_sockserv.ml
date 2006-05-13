@@ -41,8 +41,6 @@ let open_sockets prots =
 
 class std_socket_service 
         ?(pre_start_hook = fun _ _ -> ())
-        ?(post_start_hook = fun _ -> ())
-        ?(pre_finish_hook = fun _ -> ())
         ?(post_finish_hook = fun _ _ -> ())
 	proc
         config : socket_service =
@@ -52,8 +50,6 @@ object(self)
   method sockets = sockets
   method socket_service_config = config
   method pre_start_hook = pre_start_hook
-  method post_start_hook = post_start_hook
-  method pre_finish_hook = pre_finish_hook
   method post_finish_hook = post_finish_hook
   method processor = proc
   method create_container sockserv =
@@ -64,12 +60,10 @@ end
 
 let create_socket_service
       ?pre_start_hook 
-      ?post_start_hook
-      ?pre_finish_hook
       ?post_finish_hook
       proc
       config =
   new std_socket_service 
-    ?pre_start_hook ?post_start_hook ?pre_finish_hook ?post_finish_hook
+    ?pre_start_hook ?post_finish_hook
     proc config
 ;;

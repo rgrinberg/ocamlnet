@@ -7,7 +7,9 @@ open Printf
 class std_container ?(esys = Unixqueue.create_unix_event_system()) 
                     sockserv =
 object(self)
+  val sys_esys = Unixqueue.create_unix_event_system()
   val mutable rpc = None
+  val mutable sys_rpc = None
   val mutable nr_conns = 0
   val mutable engines = []
 
@@ -15,7 +17,7 @@ object(self)
 
   method event_system = esys
 
-  method start fd_clnt =
+  method start fd_clnt sys_fd_clnt =
     if rpc <> None then
       failwith "#start: already started";
     rpc <-
@@ -23,12 +25,17 @@ object(self)
 	     ~esys
 	     (Rpc_client.Descriptor fd_clnt)
 	     Rpc.Tcp);
+    sys_rpc <-
+      Some(Netplex_ctrl_clnt.System.V1.create_client
+	     ~esys:sys_esys
+	     (Rpc_client.Descriptor sys_fd_clnt)
+	     Rpc.Tcp);
     self # protect "post_start_hook"
-      (sockserv # post_start_hook) (self : #container :> container);
+      (sockserv # processor # post_start_hook) (self : #container :> container);
     self # setup_polling();
     self # protect "run" Unixqueue.run esys;
     self # protect "pre_finish_hook"
-      (sockserv # pre_finish_hook) (self : #container :> container);
+      (sockserv # processor # pre_finish_hook) (self : #container :> container);
     rpc <- None
 
   method private protect : 's. string -> ('s -> unit) -> 's -> unit =
@@ -163,9 +170,9 @@ eprintf "%d: sent 'accepted'\n%!" (Unix.getpid());
 	    Xdr.XV_void
 	    (fun _ -> ())
 
-  method ctrl =
-    match rpc with
-      | None -> failwith "#ctrl: No RPC client available"
+  method system =
+    match sys_rpc with
+      | None -> failwith "#system: No RPC client available"
       | Some r -> r
 
   method shutdown() =
@@ -175,7 +182,7 @@ eprintf "%d: sent 'accepted'\n%!" (Unix.getpid());
       | Some r -> Rpc_client.shut_down r
 
   method log level message =
-    match rpc with
+    match sys_rpc with
       | None -> ()
       | Some r ->
 	  let lev = 
@@ -192,8 +199,25 @@ eprintf "%d: sent 'accepted'\n%!" (Unix.getpid());
 	    ~when_sent:(fun () -> false)
 	    r
 	    "log"
-	    (_of_Control'V1'log'arg(lev,message))
-	    (fun _ -> ())
+	    (_of_System'V1'log'arg(lev,message))
+	    (fun _ -> ());
+	  Unixqueue.run sys_esys
+
+  method lookup service protocol =
+    match sys_rpc with
+      | None -> failwith "#lookup: No RPC client available"
+      | Some r ->
+	  Netplex_ctrl_clnt.System.V1.lookup r (service,protocol)
+
+  method send_message pat msg_name msg_arguments =
+    match sys_rpc with
+      | None -> failwith "#send_message: No RPC client available"
+      | Some r ->
+	  let msg =
+	    { msg_name = msg_name;
+	      msg_arguments = msg_arguments
+	    } in
+	  Netplex_ctrl_clnt.System.V1.send_message r (pat, msg)
 
 end
 
@@ -202,7 +226,7 @@ class admin_container esys sockserv =
 object(self)
   inherit std_container ~esys sockserv
 
-  method start fd_clnt =
+  method start fd_clnt sys_fd_clnt =
     let fd_clnt' = Unix.dup fd_clnt in
     if rpc <> None then
       failwith "#start: already started";
@@ -210,6 +234,11 @@ object(self)
       Some(Netplex_ctrl_clnt.Control.V1.create_client
 	     ~esys
 	     (Rpc_client.Descriptor fd_clnt')
+	     Rpc.Tcp);
+    sys_rpc <-
+      Some(Netplex_ctrl_clnt.System.V1.create_client
+	     ~esys:sys_esys
+	     (Rpc_client.Descriptor sys_fd_clnt)
 	     Rpc.Tcp);
     self # setup_polling();
 end
