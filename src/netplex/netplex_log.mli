@@ -64,3 +64,5 @@ val create_multi_file_logger_config : create_logger_config
     * is omitted it is assumed to be "all".
    *)
 
+val create_logger_configs :  create_logger_config list
+  (** All built-in logger configurators *)

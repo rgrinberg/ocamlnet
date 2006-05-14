@@ -63,3 +63,6 @@ val create_dynamic_workload_manager_config : create_workload_config
     *    }
     * ]}
    *)
+
+val create_workload_manager_configs : create_workload_config list
+  (** All built-in workload manager configurators *)

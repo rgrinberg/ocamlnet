@@ -304,3 +304,9 @@ object
 
     multi_file_logger config
 end
+
+
+let create_logger_configs =
+  [ create_file_logger_config;
+    create_multi_file_logger_config
+  ]

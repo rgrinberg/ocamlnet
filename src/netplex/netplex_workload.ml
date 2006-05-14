@@ -189,3 +189,9 @@ object
 
     create_dynamic_workload_manager cfg
 end
+
+
+let create_workload_manager_configs =
+  [ create_constant_workload_manager_config;
+    create_dynamic_workload_manager_config
+  ]
