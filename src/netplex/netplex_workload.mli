@@ -14,6 +14,16 @@ val create_constant_workload_manager : int -> workload_manager
     * reached.
    *)
 
+val create_constant_workload_manager_config : create_workload_config
+  (** Reads a workload_manager section like
+    *
+    * {[ workload_manager {
+    *      type = "constant";
+    *      jobs = <n>;
+    *    }
+    * ]}
+   *)
+
 class type dynamic_workload_config =
 object
   method max_jobs_per_thread : int
@@ -40,3 +50,16 @@ end
 
 val create_dynamic_workload_manager :
       dynamic_workload_config -> workload_manager
+
+val create_dynamic_workload_manager_config : create_workload_config
+  (** Reads a workload_manager section like
+    *
+    * {[ workload_manager {
+    *      type = "dynamic";
+    *      max_jobs_per_thread = <n>;
+    *      min_free_job_capacity = <n>;
+    *      max_free_job_capacity = <n>;
+    *      max_threads = <n>;
+    *    }
+    * ]}
+   *)

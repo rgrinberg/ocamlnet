@@ -1,5 +1,16 @@
 (* $Id$ *)
 
+type level =
+    [ `Emerg | `Alert | `Crit | `Err | `Warning | `Notice | `Info | `Debug ]
+
+class type logger =
+object
+  method log : component:string -> level:level -> message:string -> unit
+  method reopen : unit -> unit
+  method max_level : level
+  method set_max_level : level -> unit
+end
+
 type parallelization_type =
     [ `Multi_processing
     | `Multi_threading
@@ -50,7 +61,7 @@ object
       * soon.
      *)
 
-  method logger : Netplex_log.logger
+  method logger : logger
 
   method event_system : Unixqueue.unix_event_system
 
@@ -74,7 +85,7 @@ object
       * of the protocol.
      *)
 
-  method create_logger : controller -> Netplex_log.logger
+  method create_logger : controller -> logger
     (** Create a logger to be used for the whole Netplex system. The
       * controller is already initialized which makes it possible to
       * write the logger as Netplex service. Messages arriving during the
@@ -130,8 +141,7 @@ and socket_service_config =
 object
   method name : string
     (** The proposed name for the [socket_service] *)
-  method supported_ptypes : parallelization_type list
-    (** The supported parallelization types *)
+
   method protocols : protocol list
     (** This list describes the sockets to create in detail *)
 end
@@ -219,6 +229,9 @@ object
     (** A user-supplied function that is called when a shutdown notification
       * arrives.
      *)
+
+  method supported_ptypes : parallelization_type list
+    (** The supported parallelization types *)
 end
 
 and container =
@@ -260,7 +273,7 @@ object
       * may include the wildcard [*].
      *)
 
-  method log : Netplex_log.level -> string -> unit
+  method log : level -> string -> unit
     (** Sends a log message to the controller. *)
 
 end
@@ -318,6 +331,7 @@ and param_value =
     [ `String of string
     | `Int of int
     | `Float of float
+    | `Bool of bool
     ]
 
 and address = < >
@@ -340,10 +354,11 @@ object
   method string_param : address -> string
   method int_param : address -> int
   method float_param : address -> float
+  method bool_param : address -> bool
 end
 
 
-class type processor_config =
+class type create_processor_config =
 object
   method name : string
   method create_processor :
@@ -351,11 +366,18 @@ object
 end
 
 
-class type workload_config =
+class type create_workload_config =
 object
   method name : string
   method create_workload_manager : 
     controller_config -> config_file -> address -> workload_manager
+end
+
+
+class type create_logger_config =
+object
+  method name : string
+  method create_logger : config_file -> address -> controller -> logger
 end
 
 
@@ -366,7 +388,7 @@ object
   method controller_config : controller_config
 
   method services : (socket_service_config * 
-		       processor_config * 
-		       workload_config ) list
+		       (address * create_processor_config) * 
+		       (address * create_workload_config) ) list
 end
 

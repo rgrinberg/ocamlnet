@@ -443,11 +443,11 @@ object(self)
 
   method reopen() = ()
 
-  method max_level : Netplex_log.level = `Debug
+  method max_level : Netplex_types.level = `Debug
 
-  method set_max_level (_ : Netplex_log.level) = ()
+  method set_max_level (_ : Netplex_types.level) = ()
 
-  method forward (l : Netplex_log.logger) =
+  method forward (l : logger) =
     Queue.iter
       (fun (component,level,message) ->
 	 l # log ~component ~level ~message
@@ -487,6 +487,8 @@ class controller_processor controller : processor =
 	  `code_error (Printexc.to_string error)
   in
 object(self)
+  method supported_ptypes = [ `Multi_processing; `Multi_threading ]
+
   method process ~when_done cont fd proto =
     let rpc =
       Rpc_server.create2 (`Socket_endpoint(Rpc.Tcp, fd)) cont#event_system in
@@ -618,7 +620,6 @@ class controller_sockserv controller : socket_service =
   let config : socket_service_config = 
     ( object
 	method name = "netplex.controller"
-	method supported_ptypes = []
 	method protocols =
 	  [ object
 	      method name = "admin"
@@ -647,7 +648,7 @@ class std_controller (par : parallelizer) (config : controller_config)
        : extended_controller =
   let dl = new deferring_logger in
 object(self)
-  val mutable logger = (dl :> Netplex_log.logger)
+  val mutable logger = (dl :> logger)
   val esys = Unixqueue.create_unix_event_system()
   val mutable services = []
   val mutable shutting_down = false
@@ -734,3 +735,76 @@ end
 
 let create_controller par config =
   (new std_controller par config :> controller)
+
+
+let default_socket_directory = "/tmp/.netplex"
+
+let default_create_logger _ = Netplex_log.channel_logger stderr
+
+let extract_config (loggers : create_logger_config list) (cf : config_file) =
+  match cf # resolve_section cf#root_addr "controller" with
+    | [] ->
+	(* Create a default configuration: *)
+	( object
+	    method socket_directory = default_socket_directory
+	    method create_logger = default_create_logger
+	  end
+	)
+    | [ ctrladdr ] ->
+	let socket_directory =
+	  try 
+	    cf # string_param 
+	      (cf # resolve_parameter ctrladdr "socket_directory")
+	  with
+	    | Not_found -> default_socket_directory in
+	let create_logger ctrl =
+	  ( match cf # resolve_section ctrladdr "logging" with
+	      | [] ->
+		  default_create_logger ctrl
+	      | [ logaddr ] ->
+		  let typ =
+		    try 
+		      cf # string_param
+			(cf # resolve_parameter logaddr "type") 
+		    with
+		      | Not_found ->
+			  failwith "Parameter 'type' in 'logging' section is missing" in
+		  let logger =
+		    try
+		      List.find (fun l -> l#name = typ) loggers 
+		    with
+		      | Not_found ->
+			  failwith ("Logging type not found: " ^ typ) in
+		  logger # create_logger cf logaddr ctrl
+	      | _ ->
+		  failwith "More than one 'logging' section"
+	  ) in
+	let max_level_opt =
+	  try
+	    let s = 
+	      cf # string_param
+		(cf # resolve_parameter ctrladdr "max_level") in
+	    if String.lowercase s = "all" then
+	      Some `Debug
+	    else
+	      Some(Netplex_log.level_of_string s)
+	  with
+	    | Not_found -> None
+	    | _ -> 
+		failwith ("In section " ^ cf # print ctrladdr ^ ": Bad max_level parameter value")
+	in
+	( object
+	    method socket_directory = socket_directory
+	    method create_logger ctrl = 
+	      let l = create_logger ctrl in
+	      ( match max_level_opt with
+		  | None -> ()
+		  | Some max_level ->
+		      l # set_max_level max_level
+	      );
+	      l
+	  end
+	)
+    | _ ->
+	failwith "More than one 'controller' section"
+;;

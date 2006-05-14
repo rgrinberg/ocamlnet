@@ -19,6 +19,21 @@ let level_weight =
 let level_names =
   [| "emerg"; "alert"; "crit"; "err"; "warning"; "notice"; "info"; "debug" |]
 
+let level_of_string s =
+  let s = String.lowercase s in
+  match s with
+    | "emerg"   -> `Emerg
+    | "alert"   -> `Alert
+    | "crit"    -> `Crit
+    | "err"     -> `Err
+    | "warning" -> `Warning
+    | "notice"  -> `Notice
+    | "info"    -> `Info
+    | "debug"   -> `Debug
+    | _         -> failwith ("Unknown level: " ^ s)
+;;
+
+
 class type logger =
 object
   method log : component:string -> level:level -> message:string -> unit
@@ -58,6 +73,12 @@ object(self)
 end
 
 let channel_logger ch = new channel_logger ch
+
+let create_stderr_logger_config =
+object
+  method name = "stderr"
+  method create_logger _ _ _ = channel_logger stderr
+end
 
 
 class file_logger file : logger =
@@ -101,6 +122,21 @@ object(self)
 end
 
 let file_logger name = new file_logger name
+
+
+let create_file_logger_config =
+object
+  method name = "file"
+  method create_logger cf addr _ =
+    let fileaddr =
+      try
+	cf # resolve_parameter addr "file"
+      with
+	| Not_found ->
+	    failwith ("File logger needs parameter 'file'") in
+    let file = cf # string_param fileaddr in
+    file_logger file
+end
 
 
 class type multi_file_config =
@@ -214,3 +250,57 @@ end
 
 
 let multi_file_logger mfc = new multi_file_logger mfc
+
+let create_multi_file_logger_config =
+object
+  method name = "multi_file"
+  method create_logger cf addr _ =
+    let diraddr =
+      try
+	cf # resolve_parameter addr "directory"
+      with
+	| Not_found ->
+	    failwith ("Multi-file logger needs parameter 'directory'") in
+    let dir = cf # string_param diraddr in
+
+    let log_files =
+      List.map
+	(fun addr ->
+	   let component =
+	     try 
+	       cf # string_param (cf # resolve_parameter addr "component")
+	     with
+	       | Not_found -> "*" in
+	   let max_level_str =
+	     try
+	       cf # string_param (cf # resolve_parameter addr "max_level")
+	     with
+	       | Not_found -> "all" in
+	   let max_level =
+	     try
+	       if String.lowercase(max_level_str) = "all" then
+		 `All
+	       else
+		 level_of_string max_level_str
+	     with
+	       | _ ->
+		   failwith ("In section " ^ cf # print addr ^ ": Bad max_level parameter value: " ^ max_level_str) in
+	   let file =
+	     try
+	       cf # string_param (cf # resolve_parameter addr "file")
+	     with
+	       | Not_found ->
+		   failwith ("In section " ^ cf # print addr ^ ": Parameter 'file' is missing") in
+	   (component, max_level, file)
+	)
+	(cf # resolve_section addr "file") in
+
+    let config =
+      ( object
+	  method log_directory = dir
+	  method log_files = log_files
+	end
+      ) in
+
+    multi_file_logger config
+end

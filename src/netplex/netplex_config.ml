@@ -61,6 +61,8 @@ let parse_config_file filename =
       | [< 'Int n >] -> `Int n
       | [< 'Float f >] -> `Float f
       | [< 'String s >] -> `String s
+      | [< 'Ident "false" >] -> `Bool false
+      | [< 'Ident "true" >] -> `Bool true
   in
 
   let ch = open_in filename in
@@ -241,8 +243,267 @@ object(self)
 	  raise(Config_error(filename ^ ": Parameter " ^ fullname ^ 
 			       " is not a floating-point number"))
 
+  method bool_param addr =
+    let (fullname, subtree) =
+      try
+	Hashtbl.find addresses addr
+      with
+	| Not_found ->
+	    failwith "#bool_param" in
+    match subtree with
+      | `Parameter(_,_,`Bool b) -> b
+      | _ ->
+	  raise(Config_error(filename ^ ": Parameter " ^ fullname ^ 
+			       " is not a boolean value"))
+
 end
 
 
 let read_config_file filename =
   new config_file filename
+
+
+let inet4_binding =
+  Pcre.regexp "^([0-9.]*):([0-9]+)$" ;;
+
+let inet6_binding =
+  Pcre.regexp "^\\[([0-9a-fA-F.:]*)\\]:([0-9]+)$" ;;
+
+let host_binding =
+  Pcre.regexp "^(.*):([0-9]+)$" ;;
+
+
+let extract_address cf addraddr =
+  let typ =
+    try
+      cf # string_param
+	(cf # resolve_parameter addraddr "type") 
+    with
+      | Not_found ->
+	  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".type") in
+  ( match typ with
+      | "local" ->
+	  let path =
+	    try
+	      cf # string_param
+		(cf # resolve_parameter addraddr "path") 
+	    with
+	      | Not_found ->
+		  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".path") in
+	  [ Unix.ADDR_UNIX path ]
+      | "internet" ->
+	  let bind =
+	    try
+	      cf # string_param
+		(cf # resolve_parameter addraddr "bind") 
+	    with
+	      | Not_found ->
+		  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".bind") in
+	  ( match Netstring_pcre.string_match inet4_binding bind 0 with
+	      | Some m ->
+		  ( try
+		      let a = 
+			Unix.inet_addr_of_string
+			  (Netstring_pcre.matched_group m 1 bind) in
+		      let p =
+			int_of_string
+			  (Netstring_pcre.matched_group m 2 bind) in
+		      [ Unix.ADDR_INET(a,p) ]
+		    with
+		      | _ ->
+			  failwith ("Cannot parse " ^ cf#print addraddr ^ 
+				      ".bind")
+		  )
+	      | None ->
+		  ( match Netstring_pcre.string_match inet6_binding bind 0 with
+		      | Some m ->
+			  ( try
+			      let a = 
+				Unix.inet_addr_of_string
+				  (Netstring_pcre.matched_group m 1 bind) in
+			      let p =
+				int_of_string
+				  (Netstring_pcre.matched_group m 2 bind) in
+			      [ Unix.ADDR_INET(a,p) ]
+			    with
+			      | _ ->
+				  failwith ("Cannot parse " ^ cf#print addraddr ^ 
+					      ".bind")
+			  )
+		      | None ->
+			  ( match Netstring_pcre.string_match host_binding bind 0 with
+			      | Some m ->
+				  ( try
+				      let h = 
+					Netstring_pcre.matched_group m 1 bind in
+				      let p =
+					int_of_string
+					  (Netstring_pcre.matched_group m 2 bind) in
+				      let entry =
+					Unix.gethostbyname h in
+				      let al =
+					Array.to_list
+					  entry.Unix.h_addr_list in
+				      List.map
+					(fun a ->
+					   Unix.ADDR_INET(a,p)
+					)
+					al
+				    with
+				      | _ ->
+					  failwith ("Cannot parse or resolve " ^ cf#print addraddr ^ 
+						      ".bind")
+				  )
+			      | None ->
+				  failwith ("Cannot parse " ^ cf#print addraddr ^ 
+					      ".bind")
+			  )
+		  )
+	  )
+
+      | _ ->
+	  failwith ("Bad parameter: " ^ cf#print addraddr ^ ".type")
+  )
+;;
+
+let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
+  
+  if cf # root_name <> "netplex" then
+    failwith ("Not a netplex configuration file");
+
+  let ctrl_cfg = Netplex_controller.extract_config c_logger_cfg cf in
+
+  let services =
+    List.map
+      (fun addr ->
+	 let service_name =
+	   try
+	     cf # string_param (cf # resolve_parameter addr "name")
+	   with
+	     | Not_found ->
+		 failwith ("Missing parameter: " ^ cf#print addr ^ ".name") in
+	 
+	 let protocols =
+	   List.map
+	     (fun protaddr ->
+		let prot_name =
+		  try
+		    cf # string_param (cf # resolve_parameter protaddr "name")
+		  with
+		    | Not_found ->
+			failwith ("Missing parameter: " ^ cf#print protaddr ^ ".name") in
+		let lstn_backlog =
+		  try
+		    cf # int_param (cf # resolve_parameter protaddr "lstn_backlog") 
+		  with
+		    | Not_found -> 5 in
+		let lstn_reuseaddr =
+		  try
+		    cf # bool_param (cf # resolve_parameter protaddr "lstn_reuseaddr") 
+		  with
+		    | Not_found -> true in
+		let addresses =
+		  List.flatten
+		    (List.map
+		       (extract_address cf)
+		       (cf # resolve_section protaddr "address")) in
+
+		( object
+		    method name = prot_name
+		    method addresses = Array.of_list addresses
+		    method lstn_backlog = lstn_backlog
+		    method lstn_reuseaddr = lstn_reuseaddr
+		    method configure_slave_socket _ = ()
+		  end
+		)
+
+	     )
+	     (cf # resolve_section addr "protocol") in
+
+	 if protocols = [] then
+	   failwith ("Section " ^ cf#print addr ^ " requires a sub-section 'protocol'");
+
+	 let sockserv_config =
+	   ( object
+	       method name = service_name
+	       method protocols = protocols
+	     end
+	   ) in
+
+	 let procaddr =
+	   match cf # resolve_section addr "processor" with
+	     | [] ->
+		 failwith ("Missing section: " ^ cf#print addr ^ ".processor")
+	     | [a] -> a
+	     | _ ->
+		 failwith ("Only one section allowed: " ^ cf#print addr ^ 
+			     ".processor") in
+
+	 let processor_type =
+	   try
+	     cf # string_param (cf # resolve_parameter procaddr "type")
+	   with
+	     | Not_found ->
+		 failwith ("Missing parameter: " ^ cf#print procaddr ^ ".type")
+	 in
+
+	 let create_processor_config =
+	   try
+	     List.find
+	       (fun cfg -> cfg # name = processor_type)
+	       c_proc_cfg
+	   with
+	     | Not_found ->
+		 failwith ("No such processor type: "  ^ processor_type) in
+
+	 let wrkmngaddr =
+	   match cf # resolve_section addr "workload_manager" with
+	     | [] ->
+		 failwith ("Missing section: " ^ cf#print addr ^
+			     ".workload_manager")
+	     | [a] -> a
+	     | _ ->
+		 failwith ("Only one section allowed: " ^ cf#print addr ^ 
+			     ".workload_manager") in
+
+	 let wrkmng_type =
+	   try
+	     cf # string_param (cf # resolve_parameter wrkmngaddr "type")
+	   with
+	     | Not_found ->
+		 failwith ("Missing parameter: " ^ cf#print wrkmngaddr ^ ".type")
+	 in
+
+	 let create_wrkmng_config =
+	   try
+	     List.find
+	       (fun cfg -> cfg # name = wrkmng_type)
+	       c_wrkmng_cfg
+	   with
+	     | Not_found ->
+		 failwith ("No such workload_manager type: "  ^ wrkmng_type) in
+
+	 ( sockserv_config, 
+	   (procaddr, create_processor_config), 
+	   (wrkmngaddr, create_wrkmng_config) )
+      )
+      (cf # resolve_section cf#root_addr "service") in
+
+  ( object
+      method ptype = ptype
+      method controller_config = ctrl_cfg 
+      method services = services
+    end
+      : netplex_config
+  )
+;;
+
+
+let read_netplex_config ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
+  try
+    read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf
+  with
+    | Failure msg ->
+	raise (Config_error(cf#filename ^ ": " ^ msg))
+;;
+

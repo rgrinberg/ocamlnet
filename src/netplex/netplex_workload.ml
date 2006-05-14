@@ -30,6 +30,24 @@ let create_constant_workload_manager n =
   new constant_workload_manager n
 
 
+let create_constant_workload_manager_config =
+object
+  method name = "constant"
+  method create_workload_manager ctrl_cfg cf addr =
+    let n =
+      try
+	cf # int_param
+	  (cf # resolve_parameter addr "jobs")
+      with
+	| Not_found ->
+	    failwith ("Constant workload manager needs parameter 'jobs'") in
+    if n < 1 then
+      failwith ("Parameter " ^ cf#print addr ^ ".jobs must be > 0");
+    create_constant_workload_manager n
+end
+
+
+
 class type dynamic_workload_config =
 object
   method max_jobs_per_thread : int
@@ -117,3 +135,57 @@ end
 
 let create_dynamic_workload_manager config =
   new dynamic_workload_manager config
+
+
+let create_dynamic_workload_manager_config =
+object
+  method name = "dynamic"
+  method create_workload_manager ctrl_cfg cf addr =
+    let max_jobs_per_thread =
+      try
+	cf # int_param
+	  (cf # resolve_parameter addr "max_jobs_per_thread")
+      with
+	| Not_found ->
+	    1 in
+    let min_free_job_capacity =
+      try
+	cf # int_param
+	  (cf # resolve_parameter addr "min_free_jobs_capacity")
+      with
+	| Not_found ->
+	    failwith "Dynamic workload manager needs parameter 'min_free_jobs_capacity'" in
+    let max_free_job_capacity =
+      try
+	cf # int_param
+	  (cf # resolve_parameter addr "max_free_jobs_capacity")
+      with
+	| Not_found ->
+	    failwith "Dynamic workload manager needs parameter 'max_free_jobs_capacity'" in
+    let max_threads =
+      try
+	cf # int_param
+	  (cf # resolve_parameter addr "max_threads")
+      with
+	| Not_found ->
+	    failwith "Dynamic workload manager needs parameter 'max_threads'" in
+    if max_jobs_per_thread < 1 then
+      failwith ("Parameter " ^ cf#print addr ^ ".max_jobs_per_thread must be > 0");
+    if min_free_job_capacity < 0 then
+      failwith ("Parameter " ^ cf#print addr ^ ".min_free_job_capacity must be >= 0");
+    if max_free_job_capacity < min_free_job_capacity then
+      failwith ("Parameter " ^ cf#print addr ^ ".max_free_job_capacity must be >= min_free_job_capacity");
+    if max_threads < 1 then
+      failwith ("Parameter " ^ cf#print addr ^ ".max_threads must be > 0");
+    
+    let cfg =
+      ( object
+	  method max_jobs_per_thread = max_jobs_per_thread
+	  method min_free_job_capacity = min_free_job_capacity
+	  method max_free_job_capacity = max_free_job_capacity
+	  method max_threads = max_threads
+	end
+      ) in
+
+    create_dynamic_workload_manager cfg
+end
