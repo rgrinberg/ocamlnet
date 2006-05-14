@@ -3,6 +3,7 @@ TOP_DIR=../..
 PKGNAME  = netplex
 OBJECTS  = netplex_mp.cmo netplex_log.cmo \
 	   netplex_ctrl_aux.cmo netplex_ctrl_clnt.cmo netplex_ctrl_srv.cmo \
+	   netplex_config.cmo \
 	   netplex_container.cmo netplex_sockserv.cmo netplex_workload.cmo \
 	   netplex_controller.cmo
 DOBJECTS = netplex_types.mli netplex_mp.mli netplex_log.mli \
@@ -13,6 +14,8 @@ INCLUDES += -I ../equeue -I ../rpc -I ../shell -I ../netstring
 # Note: Instead of shell use unix-exts
 
 ALL_EXTRA = netplex-admin
+
+PP_OPTIONS = -syntax camlp4o -package camlp4
 
 include $(TOP_DIR)/Makefile.rules
 

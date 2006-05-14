@@ -305,3 +305,68 @@ object
       * There is no way to check when the thread terminates.
      *)
 end
+
+
+type config_tree =
+    [ `Section of address * string * config_tree list
+	(* (relative_name, contents) *)
+    | `Parameter of address * string * param_value
+	(* (relative_name, contents) *)
+    ]
+
+and param_value =
+    [ `String of string
+    | `Int of int
+    | `Float of float
+    ]
+
+and address = < >
+
+class type config_file =
+object
+  method filename : string
+  method tree : config_tree
+  method root_addr : address
+  method root_name : string
+  method resolve_section : address -> string -> address list
+    (* Fails if the address cannot be found. Returns [] if there is no
+     * such section at this address
+     *)
+  method resolve_parameter : address -> string -> address
+    (* Fails if the address cannot be found. Raises Not_found if there is no
+     * such parameter at this address
+     *)
+  method print : address -> string
+  method string_param : address -> string
+  method int_param : address -> int
+  method float_param : address -> float
+end
+
+
+class type processor_config =
+object
+  method name : string
+  method create_processor :
+    controller_config -> config_file -> address -> processor
+end
+
+
+class type workload_config =
+object
+  method name : string
+  method create_workload_manager : 
+    controller_config -> config_file -> address -> workload_manager
+end
+
+
+class type netplex_config =
+object
+  method ptype : parallelization_type
+
+  method controller_config : controller_config
+
+  method services : (socket_service_config * 
+		       processor_config * 
+		       workload_config ) list
+end
+
