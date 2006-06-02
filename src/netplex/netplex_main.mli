@@ -21,9 +21,9 @@ val foreground : cmdline_config -> bool
 
 val startup : 
       parallelizer ->
-      create_logger_config list ->
-      create_workload_config list ->
-      create_processor_config list -> 
+      logger_factory list ->
+      workload_manager_factory list ->
+      processor_factory list -> 
       cmdline_config -> 
         unit
   (** Parses the configuration file and starts the Netplex daemon.

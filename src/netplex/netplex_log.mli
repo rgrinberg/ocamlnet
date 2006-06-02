@@ -8,7 +8,7 @@ val level_of_string : string -> level
 
 val channel_logger : out_channel -> logger
 
-val create_stderr_logger_config : create_logger_config
+val stderr_logger_factory : logger_factory
   (** Reads a logging section like
     *
     * {[ logging {
@@ -21,7 +21,7 @@ val create_stderr_logger_config : create_logger_config
 val file_logger : string -> logger
   (** Writes messages to this file *)
 
-val create_file_logger_config : create_logger_config
+val file_logger_factory : logger_factory
   (** Reads a logging section like
     *
     * {[ logging {
@@ -45,7 +45,7 @@ end
 
 val multi_file_logger : multi_file_config -> logger
 
-val create_multi_file_logger_config : create_logger_config
+val multi_file_logger_factory : logger_factory
   (**  Reads a logging section like
     *
     * {[ logging {
@@ -64,5 +64,5 @@ val create_multi_file_logger_config : create_logger_config
     * is omitted it is assumed to be "all".
    *)
 
-val create_logger_configs :  create_logger_config list
-  (** All built-in logger configurators *)
+val logger_factories :  logger_factory list
+  (** All built-in logger factories *)

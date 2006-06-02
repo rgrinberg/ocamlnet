@@ -93,6 +93,8 @@ type call =
 	mutable call_auth_session : t pre_auth_session;
 	mutable call_auth_method : t pre_auth_method;
 	  (* calls store the authentication session and the method. *)
+
+	mutable when_sent : unit -> bool;
       }
 
 and t =
@@ -283,7 +285,7 @@ let find_or_make_auth_session cl =
  * the call is scheduled.
  *)
 
-let add_call cl procname param receiver =
+let add_call ?(when_sent = fun () -> true) cl procname param receiver =
   if not cl.ready then
     raise Client_is_down;
 
@@ -311,7 +313,8 @@ let add_call cl procname param receiver =
       call_timeout = cl.timeout;
       timeout_group = None;
       call_auth_session = s;
-      call_auth_method = cl.current_auth_method
+      call_auth_method = cl.current_auth_method;
+      when_sent = when_sent
     }
   in
 
@@ -532,7 +535,7 @@ and next_incoming_message' cl trans =
 check_for_input := next_incoming_message;;
 
 
-let rec handle_outgoing_message cl r =
+let rec handle_outgoing_message cl call r =
   (* Called after a complete message has been sent by the transporter *)
   match r with
     | `Error e ->
@@ -540,6 +543,9 @@ let rec handle_outgoing_message cl r =
 
     | `Ok () ->
 	if !debug then prerr_endline "Rpc_client: message writing finished";
+	let cont = call.when_sent() in
+	if not cont then
+	  remove_pending_call cl call;
 	!check_for_input cl;
 	next_outgoing_message cl
 
@@ -597,7 +603,7 @@ and next_outgoing_message' cl trans =
 	  if !debug then prerr_endline "Rpc_client: start_writing";
 	  trans # start_writing
 	    ~when_done:(fun r ->
-			  handle_outgoing_message cl r)
+			  handle_outgoing_message cl call r)
 	    call.value
 	    trans#getpeername
 

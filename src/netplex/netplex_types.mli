@@ -358,7 +358,7 @@ object
 end
 
 
-class type create_processor_config =
+class type processor_factory =
 object
   method name : string
   method create_processor :
@@ -366,7 +366,7 @@ object
 end
 
 
-class type create_workload_config =
+class type workload_manager_factory =
 object
   method name : string
   method create_workload_manager : 
@@ -374,7 +374,7 @@ object
 end
 
 
-class type create_logger_config =
+class type logger_factory =
 object
   method name : string
   method create_logger : config_file -> address -> controller -> logger
@@ -388,7 +388,7 @@ object
   method controller_config : controller_config
 
   method services : (socket_service_config * 
-		       (address * create_processor_config) * 
-		       (address * create_workload_config) ) list
+		       (address * processor_factory) * 
+		       (address * workload_manager_factory) ) list
 end
 

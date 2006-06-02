@@ -36,6 +36,7 @@ object(self)
   method shutdown() = ()
   method post_start_hook _ = ()
   method pre_finish_hook _ = ()
+  method supported_ptypes = [ `Multi_processing ; `Multi_threading ]
 end
 
 let netplex_processor mk_config srv =

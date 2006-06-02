@@ -741,7 +741,7 @@ let default_socket_directory = "/tmp/.netplex"
 
 let default_create_logger _ = Netplex_log.channel_logger stderr
 
-let extract_config (loggers : create_logger_config list) (cf : config_file) =
+let extract_config (loggers : logger_factory list) (cf : config_file) =
   match cf # resolve_section cf#root_addr "controller" with
     | [] ->
 	(* Create a default configuration: *)

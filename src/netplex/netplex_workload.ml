@@ -30,7 +30,7 @@ let create_constant_workload_manager n =
   new constant_workload_manager n
 
 
-let create_constant_workload_manager_config =
+let constant_workload_manager_factory =
 object
   method name = "constant"
   method create_workload_manager ctrl_cfg cf addr =
@@ -137,7 +137,7 @@ let create_dynamic_workload_manager config =
   new dynamic_workload_manager config
 
 
-let create_dynamic_workload_manager_config =
+let dynamic_workload_manager_factory =
 object
   method name = "dynamic"
   method create_workload_manager ctrl_cfg cf addr =
@@ -191,7 +191,7 @@ object
 end
 
 
-let create_workload_manager_configs =
-  [ create_constant_workload_manager_config;
-    create_dynamic_workload_manager_config
+let workload_manager_factories =
+  [ constant_workload_manager_factory;
+    dynamic_workload_manager_factory
   ]

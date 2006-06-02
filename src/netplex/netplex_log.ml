@@ -74,7 +74,7 @@ end
 
 let channel_logger ch = new channel_logger ch
 
-let create_stderr_logger_config =
+let stderr_logger_factory =
 object
   method name = "stderr"
   method create_logger _ _ _ = channel_logger stderr
@@ -124,7 +124,7 @@ end
 let file_logger name = new file_logger name
 
 
-let create_file_logger_config =
+let file_logger_factory =
 object
   method name = "file"
   method create_logger cf addr _ =
@@ -251,7 +251,7 @@ end
 
 let multi_file_logger mfc = new multi_file_logger mfc
 
-let create_multi_file_logger_config =
+let multi_file_logger_factory =
 object
   method name = "multi_file"
   method create_logger cf addr _ =
@@ -306,7 +306,7 @@ object
 end
 
 
-let create_logger_configs =
-  [ create_file_logger_config;
-    create_multi_file_logger_config
+let logger_factories =
+  [ file_logger_factory;
+    multi_file_logger_factory
   ]

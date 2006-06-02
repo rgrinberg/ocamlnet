@@ -238,6 +238,7 @@ val set_exception_handler : t -> (exn -> unit) -> unit
    *)
 
 val add_call :
+    ?when_sent:(unit -> bool) ->
     t ->
     string ->
     xdr_value ->
@@ -267,6 +268,11 @@ val add_call :
     * The function [f] can raise the exception [Keep_call] to indicate
     * the special handling that a further reply of the call is expected
     * (batching).
+    *
+    * [when_sent]: This function is called when the call has been fully sent
+    * to the server, but before the reply arrives. The function returns whether
+    * to continue the call. By returning [false] the call is removed from the
+    * internal bookkeeping. The function [f] is not called in this case.
    *)
 
 

@@ -11,4 +11,4 @@ open Netplex_types
 val create_controller : parallelizer -> controller_config -> controller
 
 val extract_config : 
-  create_logger_config list -> config_file -> controller_config
+  logger_factory list -> config_file -> controller_config

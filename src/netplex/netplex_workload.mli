@@ -14,7 +14,7 @@ val create_constant_workload_manager : int -> workload_manager
     * reached.
    *)
 
-val create_constant_workload_manager_config : create_workload_config
+val constant_workload_manager_factory : workload_manager_factory
   (** Reads a workload_manager section like
     *
     * {[ workload_manager {
@@ -51,7 +51,7 @@ end
 val create_dynamic_workload_manager :
       dynamic_workload_config -> workload_manager
 
-val create_dynamic_workload_manager_config : create_workload_config
+val dynamic_workload_manager_factory : workload_manager_factory
   (** Reads a workload_manager section like
     *
     * {[ workload_manager {
@@ -64,5 +64,5 @@ val create_dynamic_workload_manager_config : create_workload_config
     * ]}
    *)
 
-val create_workload_manager_configs : create_workload_config list
-  (** All built-in workload manager configurators *)
+val workload_manager_factories : workload_manager_factory list
+  (** All built-in workload manager factories *)

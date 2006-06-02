@@ -8,9 +8,9 @@ val read_config_file : string -> config_file
 
 val read_netplex_config : 
       parallelization_type ->
-      create_logger_config list ->
-      create_workload_config list ->
-      create_processor_config list -> 
+      logger_factory list ->
+      workload_manager_factory list ->
+      processor_factory list -> 
       config_file ->
         netplex_config
   (** Reads a configuration file like:
