@@ -4,3 +4,6 @@
 
 class mp : unit -> Netplex_types.parallelizer
   (** Uses [Unix.fork] to create new threads *)
+
+val mp : unit -> Netplex_types.parallelizer
+  (** Uses [Unix.fork] to create new threads *)

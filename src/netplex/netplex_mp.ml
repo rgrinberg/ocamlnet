@@ -60,3 +60,5 @@ object
 	  
 
 end
+
+let mp () = new mp()

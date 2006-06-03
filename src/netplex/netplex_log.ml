@@ -308,5 +308,6 @@ end
 
 let logger_factories =
   [ file_logger_factory;
-    multi_file_logger_factory
+    multi_file_logger_factory;
+    stderr_logger_factory
   ]
