@@ -258,7 +258,7 @@ val std_activation : std_activation -> extended_environment -> Netcgi_types.cgi_
 val dynamic_service : 
        'a dynamic_service -> [> `Dynamic_service of 'a dynamic_service ] http_service
   (** Configures the dynamic service. *)
-(*
+
 type ac_by_host_rule =
     [ `Allow of string list
     | `Deny of string list
@@ -271,6 +271,12 @@ type ac_by_host_rule =
 type 'a ac_by_host = ac_by_host_rule * 'a http_service
   (** The service is protected by the access control rule *)
 
-val ac_by_host : 'a ac_by_host -> 'a ac_by_host http_service
+val ac_by_host : 'a ac_by_host -> [> `Ac_by_host of 'a ac_by_host ] http_service
   (** Configures host-based access control *)
- *)
+
+val read_media_types_file : string -> (string * string) list
+  (** Reads a text file with two columns where the left column is the
+    * media type and the right column the corresponding suffix.
+    * Returns the contents as pairs [ (suffix, type) ].
+   *)
+

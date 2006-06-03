@@ -1182,7 +1182,6 @@ let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi_types.cgi_activati
   cgi # output # commit_work()
 
 
-(*
 type ac_by_host_rule =
     [ `Allow of string list
     | `Deny of string list
@@ -1190,9 +1189,88 @@ type ac_by_host_rule =
 
 type 'a ac_by_host = ac_by_host_rule * 'a http_service
 
-let ac_by_host spec =
-  XXX
- *)
+let prepare_ac_by_host spec =
+  let resolve host =
+    try
+      [ Unix.inet_addr_of_string host ]
+    with
+      | _ ->
+	  ( try
+	      let h = Unix.gethostbyname host in
+	      Array.to_list h.Unix.h_addr_list
+	    with
+	      | Not_found -> []
+	  )
+  in
+
+  match spec with
+    | `Allow hosts ->
+	let ipaddrs = List.flatten (List.map resolve hosts) in
+	`Allow_ip ipaddrs
+    | `Deny hosts ->
+	let ipaddrs = List.flatten (List.map resolve hosts) in
+	`Deny_ip ipaddrs
+
+let ac_by_host (spec, (srv : 'a http_service)) =
+  let spec' = prepare_ac_by_host spec in
+  ( object(self)
+      method name = "ac_by_host"
+      method def_term = `Ac_by_host (spec,srv)
+      method print fmt =
+	Format.fprintf fmt "ac_by_host(...)"
+      method process_header env =
+	let addr = env # remote_socket_addr in
+	let allowed =
+	  match spec' with
+	    | `Allow_ip ipaddrs ->
+		( match addr with
+		    | Unix.ADDR_INET(ia,_) ->
+			List.mem ia ipaddrs
+		    | _ ->
+			true
+		)
+	    | `Deny_ip ipaddrs -> 
+		( match addr with
+		    | Unix.ADDR_INET(ia,_) ->
+			not(List.mem ia ipaddrs)
+		    | _ ->
+			true
+		)
+	in
+	if allowed then
+	  srv # process_header env
+	else
+	  `Std_response(`Forbidden, None, (Some "Nethttpd: Access denied by host rule"))
+    end
+  )
 
 
-(* CHECK: HEAD handling *)
+let ws_re = Pcre.regexp "[ \r\t\n]+"
+
+let split_ws s =
+  Netstring_pcre.split ws_re s
+
+let read_media_types_file fname =
+  let f = open_in fname in
+  let l = ref [] in
+  try
+    while true do
+      let line = input_line f in
+      if line = "" || line.[0] <> '#' then (
+	let words = split_ws line in
+	match words with
+	  | [] -> ()
+	  | [ mtype ] -> ()
+	  | mtype :: suffixes ->
+	      l := (List.map (fun s -> (s,mtype)) (List.rev suffixes)) @ !l
+      )
+    done;
+    assert false
+  with
+    | End_of_file ->
+	close_in f;
+	List.rev !l
+    | error ->
+	close_in f;
+	raise error
+;;
