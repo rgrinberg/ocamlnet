@@ -1,5 +1,5 @@
 all: easy_daemon easy_reactor easy_engine proxy_engine file_reactor \
-     file_mt_reactor file_engine
+     file_mt_reactor file_engine netplex
 
 easy_daemon: easy_daemon.ml
 	ocamlfind ocamlc -o easy_daemon -package "netstring,cgi,unix,nethttpd" \
@@ -41,8 +41,12 @@ file_engine: file_engine.ml
 	ocamlfind ocamlc -o file_engine -package "netstring,cgi,unix,equeue,nethttpd" \
 		file_engine.ml -linkpkg -g
 
+netplex: netplex.ml
+	ocamlfind ocamlc -o netplex -package "netstring,cgi,unix,nethttpd,netplex" \
+		netplex.ml -linkpkg -g
+
 clean:
 	rm -f *.cmi *.cmo *.cmx *.o
 	rm -f test_acceptor easy_daemon easy_reactor easy_engine easy_engine.opt
 	rm -f proxy_engine proxy_engine.opt file_reactor file_mt_reactor 
-	rm -f file_mt_reactor.opt file_engine
+	rm -f file_mt_reactor.opt file_engine netplex
