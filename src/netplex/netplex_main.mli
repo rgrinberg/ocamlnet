@@ -20,6 +20,7 @@ val foreground : cmdline_config -> bool
   (** Returns whether the daemon runs in the foreground *)
 
 val startup : 
+      ?late_initializer:(config_file -> controller -> unit) ->
       parallelizer ->
       logger_factory list ->
       workload_manager_factory list ->
@@ -29,5 +30,9 @@ val startup :
   (** Parses the configuration file and starts the Netplex daemon.
     * Fails with [Netplex_config.Config_error] when an error in the
     * configuration file is detected.
+    *
+    * The [late_initializer] is called after the Netplex controller has been
+    * fully initialized, and before the main event loop is entered. You can
+    * perform here further initializations, e.g. starting helper threads.
    *)
 

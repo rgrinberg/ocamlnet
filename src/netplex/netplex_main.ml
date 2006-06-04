@@ -74,7 +74,8 @@ let rec run ctrl =
 ;;
 
 
-let startup par c_logger_cf c_wrkmg_cf c_proc_cf cf =
+let startup ?(late_initializer = fun _ _ -> ())
+            par c_logger_cf c_wrkmg_cf c_proc_cf cf =
   let config_file =
     Netplex_config.read_config_file cf.config_filename in
   
@@ -126,6 +127,8 @@ let startup par c_logger_cf c_wrkmg_cf c_proc_cf cf =
 	      controller # add_service sockserv wrkmng
 	   )
 	   netplex_config#services;
+
+	 late_initializer config_file controller;
 
 	 run controller
 
