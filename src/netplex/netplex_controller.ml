@@ -687,7 +687,8 @@ object(self)
     services
 
   method add_service sockserv wrkmng =
-    (* TODO: Check supported_ptypes *)
+    if not (List.mem par#ptype sockserv#processor#supported_ptypes) then
+      failwith "#add_service: the parallelization type is not supported";
     if shutting_down then
       failwith "#add_service: controller is shutting down";
     let sockctrl = 
