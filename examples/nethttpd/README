@@ -41,7 +41,8 @@ The most advanced (and recommended for applications) is netplex.ml.
 - netplex.ml: High-level, uses Netplex to configure and control the reactive
   encapsulation. The example mixes accesses to the file system with dynamic
   services. There is a configuration file. The resulting server uses
-  multi-processing to serve requests in parallel. The server can be
+  multi-processing to serve requests in parallel by default, but there is also 
+  a command-line switch to change that to multi-threading. The server can be
   controlled (start/stop) using the generic netplex-admin tool.
 
   This is what you should use for your applications.

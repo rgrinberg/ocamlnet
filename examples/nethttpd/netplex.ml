@@ -156,11 +156,23 @@ let process (cgi : cgi_activation) =
 
 let start() =
   let (opt_list, cmdline_cfg) = Netplex_main.args() in
+
+  let use_mt = ref false in
+
+  let opt_list' =
+    [ "-mt", Arg.Set use_mt,
+      "  Use multi-threading instead of multi-processing"
+    ] @ opt_list in
+
   Arg.parse 
-    opt_list
+    opt_list'
     (fun s -> raise (Arg.Bad ("Don't know what to do with: " ^ s)))
     "usage: netplex [options]";
-  let parallelizer = Netplex_mp.mp() in  (* multi-processing *)
+  let parallelizer = 
+    if !use_mt then
+      Netplex_mt.mt()     (* multi-threading *)
+    else
+      Netplex_mp.mp() in  (* multi-processing *)
   let adder =
     { Nethttpd_services.dyn_handler = (fun _ -> process);
       dyn_activation = Nethttpd_services.std_activation `Std_activation_buffered;

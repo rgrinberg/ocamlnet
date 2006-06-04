@@ -43,7 +43,7 @@ file_engine: file_engine.ml
 
 netplex: netplex.ml
 	ocamlfind ocamlc -o netplex -package "netstring,cgi,unix,nethttpd,netplex" \
-		netplex.ml -linkpkg -g
+		-thread netplex.ml -linkpkg -g
 
 clean:
 	rm -f *.cmi *.cmo *.cmx *.o
