@@ -164,6 +164,51 @@ object(self)
       | `Parameter _ ->
 	  []
 
+  method restrict_subsections addr names =
+    let (fullname, subtree) =
+      try
+	Hashtbl.find addresses addr
+      with
+	| Not_found ->
+	    failwith "#restrict_subsections" in
+    match subtree with
+      | `Section(_,_,tl) ->
+	  List.iter
+	    (function
+	       | `Section(a,n,_) ->
+		   if not (List.mem n names) then
+		     raise(Config_error(filename ^ ": Section " ^ 
+					  self#print addr ^ 
+					  " must not contain subsection '" ^ 
+					  n ^ "'"))
+	       | _ -> ())
+	    tl
+      | _ -> 
+	  failwith "#restrict_subsections"
+
+  method restrict_parameters addr names =
+    let (fullname, subtree) =
+      try
+	Hashtbl.find addresses addr
+      with
+	| Not_found ->
+	    failwith "#restrict_parameters" in
+    match subtree with
+      | `Section(_,_,tl) ->
+	  List.iter
+	    (function
+	       | `Parameter(a,n,_) ->
+		   if not (List.mem n names) then
+		     raise(Config_error(filename ^ ": Section " ^ 
+					  self#print addr ^ 
+					  " must not contain parameter '" ^ 
+					  n ^ "'"))
+	       | _ -> ())
+	    tl
+      | _ -> 
+	  failwith "#restrict_parameters"
+
+
   method resolve_parameter addr name =
     let (fullname, subtree) =
       try
@@ -283,6 +328,8 @@ let extract_address cf addraddr =
 	  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".type") in
   ( match typ with
       | "local" ->
+	  cf # restrict_subsections addraddr [];
+	  cf # restrict_parameters addraddr [ "type"; "path" ];
 	  let path =
 	    try
 	      cf # string_param
@@ -292,6 +339,8 @@ let extract_address cf addraddr =
 		  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".path") in
 	  [ Unix.ADDR_UNIX path ]
       | "internet" ->
+	  cf # restrict_subsections addraddr [];
+	  cf # restrict_parameters addraddr [ "type"; "bind" ];
 	  let bind =
 	    try
 	      cf # string_param
@@ -371,11 +420,18 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
   if cf # root_name <> "netplex" then
     failwith ("Not a netplex configuration file");
 
+  cf # restrict_subsections cf#root_addr [ "controller"; "service" ];
+  cf # restrict_parameters cf#root_addr [];
+
   let ctrl_cfg = Netplex_controller.extract_config c_logger_cfg cf in
 
   let services =
     List.map
       (fun addr ->
+	 cf # restrict_subsections addr [ "protocol"; "processor";
+					  "workload_manager" ];
+	 cf # restrict_parameters addr [ "name" ];
+
 	 let service_name =
 	   try
 	     cf # string_param (cf # resolve_parameter addr "name")
@@ -386,6 +442,11 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 	 let protocols =
 	   List.map
 	     (fun protaddr ->
+		cf # restrict_subsections protaddr [ "address" ];
+		cf # restrict_parameters protaddr [ "name";
+						    "lstn_backlog";
+						    "lstn_reuseaddr" ];
+
 		let prot_name =
 		  try
 		    cf # string_param (cf # resolve_parameter protaddr "name")

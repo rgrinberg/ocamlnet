@@ -1,12 +1,12 @@
 TOP_DIR=../..
 
 PKGNAME  = netplex
-OBJECTS  = netplex_mp.cmo netplex_log.cmo \
+OBJECTS  = netplex_mp.cmo netplex_mt.cmo netplex_log.cmo \
 	   netplex_ctrl_aux.cmo netplex_ctrl_clnt.cmo netplex_ctrl_srv.cmo \
 	   netplex_container.cmo netplex_sockserv.cmo netplex_workload.cmo \
 	   netplex_controller.cmo netplex_config.cmo \
            netplex_main.cmo
-DOBJECTS = netplex_types.mli netplex_mp.mli netplex_log.mli \
+DOBJECTS = netplex_types.mli netplex_mp.mli netplex_mt.mli netplex_log.mli \
 	   netplex_controller.mli netplex_container.mli \
 	   netplex_sockserv.mli netplex_workload.mli netplex_main.mli \
 	   netplex_config.mli
@@ -17,6 +17,9 @@ INCLUDES += -I ../equeue -I ../rpc -I ../shell -I ../netstring
 ALL_EXTRA = netplex-admin
 
 PP_OPTIONS = -syntax camlp4o -package camlp4
+
+OCAMLC_OPTIONS_FOR_netplex_mt.ml = $(THREAD)
+OCAMLOPT_OPTIONS_FOR_netplex_mt.ml = $(THREAD)
 
 include $(TOP_DIR)/Makefile.rules
 

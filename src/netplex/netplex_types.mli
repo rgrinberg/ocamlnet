@@ -355,6 +355,8 @@ object
   method int_param : address -> int
   method float_param : address -> float
   method bool_param : address -> bool
+  method restrict_subsections : address -> string list -> unit
+  method restrict_parameters : address -> string list -> unit
 end
 
 

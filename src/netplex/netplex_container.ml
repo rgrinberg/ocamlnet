@@ -55,27 +55,21 @@ object(self)
     match rpc with
       | None -> assert false
       | Some r ->
-eprintf "%d: setup_polling\n%!" (Unix.getpid());
 	  Netplex_ctrl_clnt.Control.V1.poll'async r nr_conns
 	    (fun getreply ->
-eprintf "%d: setup_polling reply\n%!" (Unix.getpid());
 	       let continue =
 		 ( try
 		     let reply = getreply() in
 		     ( match reply with
 			 | `event_none ->
-eprintf "%d: event_none\n%!" (Unix.getpid());
 			     false
 			 | `event_accept -> 
-eprintf "%d: event_accept\n%!" (Unix.getpid());
 			     self # enable_accepting();
 			     true
 			 | `event_noaccept -> 
-eprintf "%d: event_noaccept\n%!" (Unix.getpid());
 			     self # disable_accepting();
 			     true
 			 | `event_received_message msg ->
-eprintf "%d: event_received_message\n%!" (Unix.getpid());
 			     self # protect
 			       "receive_message"
 			       (sockserv # processor # receive_message
@@ -84,7 +78,6 @@ eprintf "%d: event_received_message\n%!" (Unix.getpid());
 			       msg.msg_arguments;
 			     true
 			 | `event_received_admin_message msg ->
-eprintf "%d: event_received_admin_message\n%!" (Unix.getpid());
 			     self # protect
 			       "receive_admin_message"
 			       (sockserv # processor # receive_admin_message
@@ -93,7 +86,6 @@ eprintf "%d: event_received_admin_message\n%!" (Unix.getpid());
 			       msg.msg_arguments;
 			     true
 			 | `event_shutdown ->
-eprintf "%d: event_shutdown\n%!" (Unix.getpid());
 			     self # disable_accepting();
 			     self # protect
 			       "shutdown"
@@ -104,7 +96,6 @@ eprintf "%d: event_shutdown\n%!" (Unix.getpid());
 		     )
 		   with
 		     | error ->
-eprintf "%d: setup_polling error: %s\n%!" (Unix.getpid()) (Printexc.to_string error);
 			 self # log `Err ("poll: Exception " ^ 
 					    Printexc.to_string error);
 			 true
@@ -146,11 +137,9 @@ eprintf "%d: setup_polling error: %s\n%!" (Unix.getpid()) (Printexc.to_string er
     match rpc with
       | None -> assert false
       | Some r ->
-eprintf "%d: sending 'accepted'\n%!" (Unix.getpid());
 	  self # disable_accepting();
 	  Rpc_client.add_call
 	    ~when_sent:(fun () ->
-eprintf "%d: sent 'accepted'\n%!" (Unix.getpid());
 			  nr_conns <- nr_conns + 1;
 			  self # protect
 			    "process"

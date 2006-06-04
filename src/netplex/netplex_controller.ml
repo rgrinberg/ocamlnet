@@ -115,7 +115,6 @@ object(self)
 
   method shutdown() =
     (* TODO: Close socket/remove socket file *)
-prerr_endline "DOWN";
     state <- `Down;
     self # stop_all_containers()
 
@@ -271,7 +270,6 @@ prerr_endline "DOWN";
 	  | None -> 
 	      ()   (* All containers are busy! *)
 	  | Some c ->
-prerr_endline "scheduled";
 	      action <- `Selected c;
 	      self # check_for_poll_reply c
       )
@@ -350,7 +348,6 @@ prerr_endline "scheduled";
 	    )
 	      
   method private accepted c sess arg reply =
-prerr_endline "got 'accepted'";
     match action with
       | `Notified c' when c' == c ->
 	  c.t_accept <- Unix.gettimeofday();
@@ -359,7 +356,6 @@ prerr_endline "got 'accepted'";
 	  action <- `None;
 	  self # schedule()
       | _ -> ();
-prerr_endline "'accepted' mismatch"
 	  (* This call is not replied! *)
 
   method private lookup c sess (srv_name, proto_name) reply =
@@ -751,6 +747,8 @@ let extract_config (loggers : logger_factory list) (cf : config_file) =
 	  end
 	)
     | [ ctrladdr ] ->
+	cf # restrict_subsections ctrladdr [ "logging" ];
+	cf # restrict_parameters ctrladdr [ "socket_directory"; "max_level" ];
 	let socket_directory =
 	  try 
 	    cf # string_param 

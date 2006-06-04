@@ -77,7 +77,10 @@ let channel_logger ch = new channel_logger ch
 let stderr_logger_factory =
 object
   method name = "stderr"
-  method create_logger _ _ _ = channel_logger stderr
+  method create_logger cf addr _ = 
+    cf # restrict_subsections addr [];
+    cf # restrict_parameters addr [ "type" ];
+    channel_logger stderr
 end
 
 
@@ -128,6 +131,8 @@ let file_logger_factory =
 object
   method name = "file"
   method create_logger cf addr _ =
+    cf # restrict_subsections addr [];
+    cf # restrict_parameters addr [ "type"; "file" ];
     let fileaddr =
       try
 	cf # resolve_parameter addr "file"
@@ -255,6 +260,8 @@ let multi_file_logger_factory =
 object
   method name = "multi_file"
   method create_logger cf addr _ =
+    cf # restrict_subsections addr [ "file" ];
+    cf # restrict_parameters addr [ "type"; "directory" ];
     let diraddr =
       try
 	cf # resolve_parameter addr "directory"
@@ -266,6 +273,8 @@ object
     let log_files =
       List.map
 	(fun addr ->
+	   cf # restrict_subsections addr [];
+	   cf # restrict_parameters addr [ "component"; "max_level"; "file" ];
 	   let component =
 	     try 
 	       cf # string_param (cf # resolve_parameter addr "component")

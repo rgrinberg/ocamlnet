@@ -34,6 +34,8 @@ let constant_workload_manager_factory =
 object
   method name = "constant"
   method create_workload_manager ctrl_cfg cf addr =
+    cf # restrict_subsections addr [];
+    cf # restrict_parameters addr [ "type"; "jobs" ];
     let n =
       try
 	cf # int_param
@@ -141,6 +143,12 @@ let dynamic_workload_manager_factory =
 object
   method name = "dynamic"
   method create_workload_manager ctrl_cfg cf addr =
+    cf # restrict_subsections addr [];
+    cf # restrict_parameters addr [ "type"; "max_jobs_per_thread";
+				    "min_free_jobs_capacity";
+				    "max_free_jobs_capacity";
+				    "max_threads"
+				  ];
     let max_jobs_per_thread =
       try
 	cf # int_param
