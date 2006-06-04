@@ -5,7 +5,7 @@ open Netplex_ctrl_aux
 open Printf
 
 class std_container ?(esys = Unixqueue.create_unix_event_system()) 
-                    sockserv =
+                    ptype sockserv =
 object(self)
   val sys_esys = Unixqueue.create_unix_event_system()
   val mutable rpc = None
@@ -20,15 +20,19 @@ object(self)
   method start fd_clnt sys_fd_clnt =
     if rpc <> None then
       failwith "#start: already started";
-    ( match sockserv # socket_service_config # change_user_to with
-	| None -> ()
-	| Some(uid,gid) ->
-	    (* In Netplex_config it has already been checked whether the
-             * effective uid of the process is root. So the following 
-             * drops all privileges:
-             *)
-	    Unix.setgid gid;
-	    Unix.setuid uid
+    ( match ptype with
+	| `Multi_processing ->
+	    ( match sockserv # socket_service_config # change_user_to with
+		| None -> ()
+		| Some(uid,gid) ->
+		    (* In Netplex_config it has already been checked whether the
+                     * effective uid of the process is root. So the following 
+                     * drops all privileges:
+		     *)
+		    Unix.setgid gid;
+		    Unix.setuid uid
+	    )
+	| _ -> ()
     );
     rpc <-
       Some(Netplex_ctrl_clnt.Control.V1.create_client
@@ -221,9 +225,9 @@ object(self)
 end
 
 
-class admin_container esys sockserv =
+class admin_container esys ptype sockserv =
 object(self)
-  inherit std_container ~esys sockserv
+  inherit std_container ~esys ptype sockserv
 
   method start fd_clnt sys_fd_clnt =
     let fd_clnt' = Unix.dup fd_clnt in
@@ -243,8 +247,8 @@ object(self)
 end
 
 
-let create_container sockserv =
-  new std_container sockserv
+let create_container ptype sockserv =
+  new std_container ptype sockserv
 
-let create_admin_container esys sockserv =
-  new admin_container esys sockserv
+let create_admin_container esys ptype sockserv =
+  new admin_container esys ptype sockserv

@@ -132,7 +132,7 @@ object(self)
 		sockserv # sockets
 	     )
 	  ) in
-      let container = sockserv # create_container sockserv in
+      let container = sockserv # create_container par#ptype sockserv in
       (* CHECK: ptype *)
       sockserv # pre_start_hook 
 	(controller :> controller)
@@ -636,8 +636,8 @@ object(self)
   method pre_start_hook _ _ = ()
   method post_finish_hook _ _ = ()
   method processor = processor
-  method create_container s =
-    Netplex_container.create_admin_container controller#event_system s
+  method create_container p s =
+    Netplex_container.create_admin_container controller#event_system p s
 end
 
 

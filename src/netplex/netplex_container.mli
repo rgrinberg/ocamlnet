@@ -9,9 +9,9 @@
 open Netplex_types
 
 val create_container : 
-      socket_service -> container
+      parallelization_type -> socket_service -> container
   (** The container for normal services *)
 
 val create_admin_container : 
-      Unixqueue.unix_event_system -> socket_service -> container
+      Unixqueue.unix_event_system -> parallelization_type -> socket_service -> container
   (** {b Internally used.} The container for the special admin service *)

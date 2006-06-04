@@ -128,7 +128,7 @@ object
   method processor : processor
     (** A user-supplied object to process incoming connections *)
 
-  method create_container : socket_service -> container
+  method create_container : parallelization_type -> socket_service -> container
     (** {b Internal method.} Called by the controller to create a new
       * container. The container must match the parallelization type of
       * the controller. This call is already done in the process/thread
