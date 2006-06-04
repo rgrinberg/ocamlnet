@@ -144,6 +144,12 @@ object
 
   method protocols : protocol list
     (** This list describes the sockets to create in detail *)
+
+  method change_user_to : (int * int) option
+    (** Instructs the container to change the user of the process after
+      * starting the service. This is only possible in multi-processing mode.
+      * In multi-threading mode, this parameter is ignored.
+     *)
 end
 
 and protocol =

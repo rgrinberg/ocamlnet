@@ -430,7 +430,7 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
       (fun addr ->
 	 cf # restrict_subsections addr [ "protocol"; "processor";
 					  "workload_manager" ];
-	 cf # restrict_parameters addr [ "name" ];
+	 cf # restrict_parameters addr [ "name"; "user"; "group" ];
 
 	 let service_name =
 	   try
@@ -439,6 +439,46 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 	     | Not_found ->
 		 failwith ("Missing parameter: " ^ cf#print addr ^ ".name") in
 	 
+	 let user_opt =
+	   try
+	     Some(cf # string_param (cf # resolve_parameter addr "user"))
+	   with
+	     | Not_found -> None in
+
+	 let group_opt =
+	   try
+	     Some(cf # string_param (cf # resolve_parameter addr "group"))
+	   with
+	     | Not_found -> None in
+
+	 let user_group_opt =
+	   match (user_opt, group_opt) with
+	     | Some user, Some group -> 
+		 let user_ent =
+		   try Unix.getpwnam user
+		   with Not_found ->
+		     failwith ("Unknown user: " ^ cf#print addr ^ ".user") in
+		 let group_ent =
+		   try Unix.getgrnam user
+		   with Not_found ->
+		     failwith ("Unknown group: " ^ cf#print addr ^ ".group") in
+		 Some(user_ent.Unix.pw_uid, group_ent.Unix.gr_gid)
+	     | Some user, None ->
+		 let user_ent =
+		   try Unix.getpwnam user
+		   with Not_found ->
+		     failwith ("Unknown user: " ^ cf#print addr ^ ".user") in
+		 Some(user_ent.Unix.pw_uid, user_ent.Unix.pw_gid)
+	     | None, Some _ ->
+		 failwith("Missing user parameter for: " ^ cf#print addr ^
+			    ".group")
+	     | None, None -> None in
+
+	 if user_group_opt <> None then (
+	    if Unix.geteuid() <> 0 then
+	      failwith "Cannot set user and group if not running as root";
+	 );
+
 	 let protocols =
 	   List.map
 	     (fun protaddr ->
@@ -488,6 +528,7 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 	   ( object
 	       method name = service_name
 	       method protocols = protocols
+	       method change_user_to = user_group_opt
 	     end
 	   ) in
 

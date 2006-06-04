@@ -143,6 +143,10 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
       access_sects
 
   and host_sub_service uri_path addr =
+    cfg # restrict_subsections addr [ "host"; "uri"; "method"; "service";
+				      "access" ];
+    cfg # restrict_parameters addr [ "names"; "pref_name"; "pref_port" ];
+
     let names_str = req_str_param addr "names" in
     let names = 
       List.map
@@ -173,11 +177,17 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
     (host_def, srv)
 
   and uri_sub_service _ addr =
+    cfg # restrict_subsections addr [ "host"; "uri"; "method"; "service";
+				      "access" ];
+    cfg # restrict_parameters addr [ "path" ];
     let path = req_str_param addr "path" in
     let srv = sub_service_ac path (* sic! *) addr in
     (path, srv)
 
   and method_sub_service uri_path addr =
+    cfg # restrict_subsections addr [ "host"; "uri"; "method"; "service";
+				      "access" ];
+    cfg # restrict_parameters addr [ "allow"; "deny" ];
     let allow_opt = opt_str_param addr "allow" in
     let deny_opt = opt_str_param addr "deny" in
     let filter =
@@ -203,6 +213,8 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
 	  failwith ("Unknown access control type: " ^ cfg#print addr ^ ".type")
 
   and host_access_control addr srv =
+    cfg # restrict_subsections addr [ ];
+    cfg # restrict_parameters addr [ "type"; "allow"; "deny" ];
     let allow_opt = opt_str_param addr "allow" in
     let deny_opt = opt_str_param addr "deny" in
     let filter =
@@ -227,9 +239,17 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
 	  failwith ("Unknown service type: " ^ cfg#print addr ^ ".type")
 
   and file_service uri_path addr =
+    cfg # restrict_subsections addr [ "media_type" ];
+    cfg # restrict_parameters addr [ "type"; "media_types_file";
+				     "docroot"; "default_media_type";
+				     "enable_gzip"; "index_files";
+				     "enable_listings";
+				     "hide_from_listings" ];
     let suffix_types =
       ( List.map
 	  (fun addr ->
+	     cfg # restrict_subsections addr [];
+	     cfg # restrict_parameters addr [ "suffix"; "type" ];
 	     (req_str_param addr "suffix", req_str_param addr "type")
 	  )
 	  (cfg # resolve_section addr "media_type")
@@ -273,6 +293,8 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
     Nethttpd_services.file_service spec
 
   and dynamic_service addr =
+    cfg # restrict_subsections addr [];
+    cfg # restrict_parameters addr [ "type"; "handler" ];
     let handler_name = req_str_param addr "handler" in
     let srv =
       try
@@ -283,6 +305,9 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
 			cfg#print addr ^ ".handler") in
     Nethttpd_services.dynamic_service srv
   in
+
+  cfg # restrict_subsections addr [ "host"; "uri"; "method"; "service" ];
+  cfg # restrict_parameters addr [ "type"; "timeout"; "timeout_next_request" ];
 
   let srv =
     linear_distributor

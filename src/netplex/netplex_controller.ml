@@ -625,6 +625,7 @@ class controller_sockserv controller : socket_service =
 	      method configure_slave_socket _ = ()
 	    end
 	  ]
+	method change_user_to = None
       end
     ) in
   let sockserv' = Netplex_sockserv.create_socket_service processor config in

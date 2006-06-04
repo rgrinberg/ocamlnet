@@ -49,4 +49,9 @@ val read_netplex_config :
     *      }
     *   }
     * ]}
+    *
+    * The [service] section may also contain two parameters [user] and
+    * [group]. They instruct the service container to drop root privileges
+    * and to become the configured user and group. Note that this is only
+    * possible in multi-processing mode.
    *)

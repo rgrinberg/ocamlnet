@@ -20,6 +20,16 @@ object(self)
   method start fd_clnt sys_fd_clnt =
     if rpc <> None then
       failwith "#start: already started";
+    ( match sockserv # socket_service_config # change_user_to with
+	| None -> ()
+	| Some(uid,gid) ->
+	    (* In Netplex_config it has already been checked whether the
+             * effective uid of the process is root. So the following 
+             * drops all privileges:
+             *)
+	    Unix.setgid gid;
+	    Unix.setuid uid
+    );
     rpc <-
       Some(Netplex_ctrl_clnt.Control.V1.create_client
 	     ~esys
