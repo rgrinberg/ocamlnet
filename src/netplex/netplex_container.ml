@@ -34,6 +34,7 @@ object(self)
 	    )
 	| _ -> ()
     );
+    (* Note: fd_clnt and sys_fd_clnt are closed by the caller *)
     rpc <-
       Some(Netplex_ctrl_clnt.Control.V1.create_client
 	     ~esys
@@ -61,13 +62,13 @@ object(self)
 	    ( match rpc with
 		| None -> ()  (* no way to report this error *)
 		| Some r ->
-		    self # log `Err (label ^ ": Exception " ^ 
+		    self # log `Crit (label ^ ": Exception " ^ 
 				       Printexc.to_string error)
 	    )
 
   method private setup_polling() =
     match rpc with
-      | None -> assert false
+      | None -> ()  (* Already shut down ! *)
       | Some r ->
 	  Netplex_ctrl_clnt.Control.V1.poll'async r nr_conns
 	    (fun getreply ->
@@ -106,11 +107,18 @@ object(self)
 			       (sockserv # processor # shutdown)
 			       ();
 			     Rpc_client.shut_down r;
+			     rpc <- None;
 			     false
 		     )
 		   with
+		     | Rpc_client.Message_lost ->
+			 (* This can happen when the container is shut down
+                          * and several [poll] calls are active at the same
+                          * time.
+                          *)
+			 false
 		     | error ->
-			 self # log `Err ("poll: Exception " ^ 
+			 self # log `Crit ("poll: Exception " ^ 
 					    Printexc.to_string error);
 			 true
 		 ) in
@@ -131,7 +139,7 @@ object(self)
 			      self # accepted fd_slave proto
 			   )
 		  ~is_error:(fun err ->
-			       self # log `Err
+			       self # log `Crit
 				 ("accept: Exception " ^ 
 				    Printexc.to_string err)
 			    )
@@ -155,17 +163,23 @@ object(self)
 	  Rpc_client.add_call
 	    ~when_sent:(fun () ->
 			  nr_conns <- nr_conns + 1;
+			  let when_done_called = ref false in
 			  self # protect
 			    "process"
 			    (sockserv # processor # process
 			       ~when_done:(fun fd ->
-					     nr_conns <- nr_conns - 1
+					     if not !when_done_called then (
+					       nr_conns <- nr_conns - 1;
+					       when_done_called := true;
+					       self # setup_polling();
+					     )
 					  )
 			       (self : #container :> container)
 			       fd_slave
 			    )
 			    proto;
-			  self # setup_polling();
+			  if not !when_done_called then
+			    self # setup_polling();
 			  false
 		       )
 	    r
@@ -182,7 +196,9 @@ object(self)
     self # disable_accepting();
     match rpc with
       | None -> ()
-      | Some r -> Rpc_client.shut_down r
+      | Some r -> 
+	  Rpc_client.shut_down r;
+	  rpc <- None
 
   method log level message =
     match sys_rpc with

@@ -38,8 +38,4 @@ val rpc_factory :
     * bind procedures in the [setup] function. This can be done by calling
     * [Rpc_server.bind] or the ocamlrpcgen-generated function (by the
     * [-srv2] switch of ocamlrpcgen).
-    *
-    * TODO:
-    * - Portmapper: Bei Start des Services _synchron_ eintragen, bei Stopp
-    *   austragen.
    *)

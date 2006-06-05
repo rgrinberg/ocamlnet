@@ -116,7 +116,7 @@ object(self)
   method shutdown() =
     (* TODO: Close socket/remove socket file *)
     state <- `Down;
-    self # stop_all_containers()
+    self # stop_all_containers();
 
   method start_containers n =
     for k = 1 to n do
@@ -161,10 +161,24 @@ object(self)
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, fd_srv))
 	  controller#event_system in
+      Rpc_server.set_exception_handler rpc
+	(fun err ->
+	   controller # logger # log
+	     ~component:sockserv#name
+	     ~level:`Crit
+	     ~message:("Control server caught exception: " ^ 
+			 Printexc.to_string err));
       let sys_rpc =
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, sys_fd_srv))
 	  controller#event_system in
+      Rpc_server.set_exception_handler rpc
+	(fun err ->
+	   controller # logger # log
+	     ~component:sockserv#name
+	     ~level:`Crit
+	     ~message:("System server caught exception: " ^ 
+			 Printexc.to_string err));
       let c =
 	{ container = (container :> container_id);
 	  cont_state = `Starting;
@@ -208,7 +222,7 @@ object(self)
 		      :> extended_socket_controller);
 	       | _ ->
 		   ()
-	   )
+	   );
 	);
       clist <- c :: clist
     done
@@ -490,6 +504,13 @@ object(self)
   method process ~when_done cont fd proto =
     let rpc =
       Rpc_server.create2 (`Socket_endpoint(Rpc.Tcp, fd)) cont#event_system in
+    Rpc_server.set_exception_handler rpc
+      (fun err ->
+	 controller # logger # log
+	   ~component:"netplex.controller"
+	   ~level:`Crit
+	   ~message:("Admin server caught exception: " ^ 
+		       Printexc.to_string err));
     Netplex_ctrl_srv.Admin.V1.bind
       ~proc_ping:(fun () -> ())
       ~proc_list:(fun () ->
@@ -585,7 +606,9 @@ object(self)
 				    controller#ext_services
 			       )
       rpc;
-    Rpc_server.set_onclose_action rpc (fun _ -> when_done())
+    Rpc_server.set_onclose_action rpc (fun _ -> 
+					 when_done();
+				      )
 
   method receive_message _ _ _ = ()
 

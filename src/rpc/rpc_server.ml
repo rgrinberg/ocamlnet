@@ -760,7 +760,7 @@ type mode2 =
 
 let create2_srv prot esys =
   let default_exception_handler ex =
-    prerr_endline ("Exception " ^ Printexc.to_string ex ^ " caught")
+    prerr_endline ("RPC server exception handler: Exception " ^ Printexc.to_string ex ^ " caught")
   in
 
   let none = Hashtbl.create 3 in

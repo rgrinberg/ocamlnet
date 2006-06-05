@@ -15,7 +15,7 @@ let rpc_factory
 	      match Unix.getsockname fd with
 		| Unix.ADDR_INET(_,p) ->
 		    ( match !port with
-			| None -> port := Some p
+			| None -> port := Some p;
 			| Some p' ->
 			    if p <> p' then
 			      failwith ("Cannot register RPC service in the portmapper when it listens to several ports")
@@ -54,7 +54,7 @@ let rpc_factory
 	       ignore(Rpc_portmapper.unset pmap prog_nr vers_nr Rpc.Tcp p);
 	    )
 	    progs_and_versions;
-	  Rpc_portmapper.shut_down pmap
+	  Rpc_portmapper.shut_down pmap;
   in
 
   ( object(self)
@@ -102,10 +102,30 @@ let rpc_factory
 
 	    method process ~when_done container fd proto =
 	      let esys = container # event_system in
-	      let conn = Rpc_server.Dynamic_descriptor(fun () -> fd) in
-	      let srv = Rpc_server.create2 (`Socket(Rpc.Tcp,conn,sconf)) esys in
-	      Rpc_server.set_onclose_action srv (fun _ -> when_done());
-	      setup srv custom_cfg;
+	      let mplex_eng = sconf # multiplexing 
+		~close_inactive_descr:true Rpc.Tcp fd esys in
+	      Uq_engines.when_state
+		~is_done:(fun mplex ->
+			    let srv = 
+			      Rpc_server.create2 
+				(`Multiplexer_endpoint mplex) esys in
+			    Rpc_server.set_exception_handler srv
+			      (fun err ->
+				 container # log
+				   `Crit
+				   ("RPC server caught exception: " ^ 
+				      Printexc.to_string err));
+			    Rpc_server.set_onclose_action 
+			      srv (fun _ ->
+				     let g = Unixqueue.new_group esys in
+				     Unixqueue.once esys g 0.0 when_done);
+			    setup srv custom_cfg)
+		~is_error:(fun err ->
+			     container # log `Crit 
+			       ("Cannot create RPC multiplexer: " ^ 
+				  Printexc.to_string err)
+			  )
+		mplex_eng
 
 	    method receive_message _ _ _ = ()
 	    method receive_admin_message _ _ _ = ()
