@@ -1220,6 +1220,21 @@ let unbind_all srv =
 ;;
 
 
+let bound_programs srv =
+  let l = ref [] in
+  Uint4Map.iter
+    (fun prog_nr progbinding ->
+       Uint4Map.iter
+	 (fun vers_nr (prog,_) ->
+	    l := prog :: !l
+	 )
+	 progbinding
+    )
+    srv.service;
+  !l
+;;
+
+
 let create ?program_number ?version_number
            esys conn prot mode prog0 procs max_clients =
 

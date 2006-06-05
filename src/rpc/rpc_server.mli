@@ -210,6 +210,9 @@ val unbind :
         unit
   (** Unbinds the program if it is bound by the server *)
 
+val bound_programs : t -> Rpc_program.t list
+  (** Returns the bound programs *)
+
 val get_event_system : session -> Unixqueue.event_system
   (** Find out the event system that contains the 'session' *)
 
