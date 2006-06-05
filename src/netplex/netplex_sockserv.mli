@@ -9,8 +9,6 @@
 open Netplex_types
 
 val create_socket_service :
-      ?pre_start_hook:(controller -> container_id -> unit) -> 
-      ?post_finish_hook:(controller -> container_id -> unit) ->
       processor ->
       socket_service_config ->
         socket_service

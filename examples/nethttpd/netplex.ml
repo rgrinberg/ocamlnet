@@ -181,7 +181,7 @@ let start() =
       dyn_accept_all_conditionals = false;
     } in
   let nethttpd_factory = 
-    Nethttpd_plex.netplex_factory
+    Nethttpd_plex.nethttpd_factory
       ~handlers:[ "adder", adder ]
       () in
   Netplex_main.startup

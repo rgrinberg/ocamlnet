@@ -40,8 +40,6 @@ let open_sockets prots =
 
 
 class std_socket_service 
-        ?(pre_start_hook = fun _ _ -> ())
-        ?(post_finish_hook = fun _ _ -> ())
 	proc
         config : socket_service =
   let sockets = open_sockets config#protocols in
@@ -49,8 +47,6 @@ object(self)
   method name = config#name
   method sockets = sockets
   method socket_service_config = config
-  method pre_start_hook = pre_start_hook
-  method post_finish_hook = post_finish_hook
   method processor = proc
   method create_container sockserv =
     Netplex_container.create_container sockserv
@@ -59,11 +55,8 @@ end
 
 
 let create_socket_service
-      ?pre_start_hook 
-      ?post_finish_hook
       proc
       config =
   new std_socket_service 
-    ?pre_start_hook ?post_finish_hook
     proc config
 ;;

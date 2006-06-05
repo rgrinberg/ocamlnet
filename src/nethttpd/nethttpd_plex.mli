@@ -5,7 +5,7 @@
 type config_log_error =
     Unix.sockaddr option -> Unix.sockaddr option -> Nethttp.http_method option -> Nethttp.http_header option -> string -> unit
 
-val netplex_processor : 
+val nethttpd_processor : 
       (config_log_error -> #Nethttpd_reactor.http_reactor_config) ->
       'a Nethttpd_types.http_service ->
       Netplex_types.processor
@@ -21,7 +21,7 @@ val netplex_processor :
     * by calling the controller's method [add_service].
    *)
 
-val netplex_factory :
+val nethttpd_factory :
       ?config_cgi:Netcgi_env.cgi_config -> 
       ?handlers:(string * 'a Nethttpd_services.dynamic_service) list ->
       unit ->

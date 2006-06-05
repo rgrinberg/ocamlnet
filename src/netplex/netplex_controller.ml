@@ -134,7 +134,8 @@ object(self)
 	  ) in
       let container = sockserv # create_container par#ptype sockserv in
       (* CHECK: ptype *)
-      sockserv # pre_start_hook 
+      sockserv # processor # pre_start_hook 
+	sockserv
 	(controller :> controller)
 	(container :> container_id);
       par # start_thread
@@ -180,7 +181,8 @@ object(self)
 	(fun _ ->
 	   (* Called back when fd_clnt is closed by the container *)
 	   clist <- List.filter (fun c' -> c' != c) clist;
-	   sockserv # post_finish_hook 
+	   sockserv # processor # post_finish_hook 
+	     sockserv
 	     (controller :> controller)
 	     (container :> container_id);
 	   wrkmng # adjust 
@@ -591,9 +593,17 @@ object(self)
 
   method shutdown() = ()
 
+  method post_add_hook _ = ()
+
+  method post_rm_hook _ = ()
+
+  method pre_start_hook _ _ _ = ()
+
   method post_start_hook _ = ()
 
   method pre_finish_hook _ = ()
+
+  method post_finish_hook _ _ _ = ()
 
 end ;;
 
@@ -633,8 +643,6 @@ object(self)
   method name = sockserv' # name
   method sockets = sockserv' # sockets
   method socket_service_config = sockserv' # socket_service_config
-  method pre_start_hook _ _ = ()
-  method post_finish_hook _ _ = ()
   method processor = processor
   method create_container p s =
     Netplex_container.create_admin_container controller#event_system p s
@@ -701,10 +709,25 @@ object(self)
 	wrkmng in
     services <- (sockserv, sockctrl, wrkmng) :: services;
     wrkmng # hello (self : #controller :> controller);
+    sockserv # processor # post_add_hook sockserv;
     sockctrl # enable();
 
   method private rm_service sockctrl =
-    services <- List.filter (fun (_, c, _) -> c <> sockctrl) services
+    let sockserv = ref None in
+    services <- 
+      (List.filter 
+         (fun (s, c, _) -> 
+	    if c = sockctrl then (
+	      sockserv := Some s;
+	      false
+	    )
+	    else
+	      true
+	 ) 
+         services);
+    match !sockserv with
+      | None -> ()   (* strange *)
+      | Some s -> s # processor # post_rm_hook s
 
   method logger = logger
 

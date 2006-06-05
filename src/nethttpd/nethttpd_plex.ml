@@ -6,7 +6,7 @@ open Netplex_types
 type config_log_error =
     Unix.sockaddr option -> Unix.sockaddr option -> Nethttp.http_method option -> Nethttp.http_header option -> string -> unit
 
-class netplex_processor mk_config srv : Netplex_types.processor =
+class nethttpd_processor mk_config srv : Netplex_types.processor =
 object(self)
   method process ~when_done (container : Netplex_types.container) fd proto =
     let error_logger _ peeraddr_opt meth_opt _ msg =
@@ -37,13 +37,17 @@ object(self)
   method receive_message _ _ _ = ()
   method receive_admin_message _ _ _ = ()
   method shutdown() = ()
+  method post_add_hook _ = ()
+  method post_rm_hook _ = ()
+  method pre_start_hook _ _ _ = ()
   method post_start_hook _ = ()
   method pre_finish_hook _ = ()
+  method post_finish_hook _ _ _ = ()
   method supported_ptypes = [ `Multi_processing ; `Multi_threading ]
 end
 
-let netplex_processor mk_config srv =
-  new netplex_processor mk_config srv
+let nethttpd_processor mk_config srv =
+  new nethttpd_processor mk_config srv
 
 
 let is_options_request env =
@@ -336,18 +340,18 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
      end
     ) in
 
-  netplex_processor
+  nethttpd_processor
     mk_config
     srv
 ;;
 
-class netplex_factory ?(config_cgi = Netcgi_env.default_config) 
-                      ?(handlers=[]) () : processor_factory =
+class nethttpd_factory ?(config_cgi = Netcgi_env.default_config) 
+                       ?(handlers=[]) () : processor_factory =
 object
   method name = "nethttpd"
   method create_processor ctrl_cfg cfg addr =
     create_processor config_cgi handlers ctrl_cfg cfg addr
 end
 
-let netplex_factory ?config_cgi ?handlers () =
-  new netplex_factory ?config_cgi ?handlers ()
+let nethttpd_factory ?config_cgi ?handlers () =
+  new nethttpd_factory ?config_cgi ?handlers ()

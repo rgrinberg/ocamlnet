@@ -113,18 +113,6 @@ object
   method socket_service_config : socket_service_config
     (** The configuration *)
 
-  method pre_start_hook : controller -> container_id -> unit
-    (** A user-supplied function that is called before the container is
-      * created and started. It is called from the process/thread of the
-      * controller.
-     *)
-
-  method post_finish_hook : controller -> container_id -> unit
-    (** A user-supplied function that is called after the container is
-      * terminated. It is called from the process/thread of the
-      * controller.
-     *)
-
   method processor : processor
     (** A user-supplied object to process incoming connections *)
 
@@ -196,6 +184,22 @@ end
 
 and processor =
 object
+  method post_add_hook : socket_service -> unit
+    (** A user-supplied function that is called after the service has been
+      * added to the controller 
+     *)
+
+  method post_rm_hook : socket_service  -> unit
+    (** A user-supplied function that is called after the service has been
+      * removed from the controller 
+     *)
+
+  method pre_start_hook : socket_service -> controller -> container_id -> unit
+    (** A user-supplied function that is called before the container is
+      * created and started. It is called from the process/thread of the
+      * controller.
+     *)
+
   method post_start_hook : container -> unit
     (** A user-supplied function that is called after the container is
       * created and started, but before the first service request arrives.
@@ -207,6 +211,12 @@ object
     (** A user-supplied function that is called just before the container is
       * terminated. It is called from the process/thread of the
       * container.
+     *)
+
+  method post_finish_hook : socket_service -> controller -> container_id -> unit
+    (** A user-supplied function that is called after the container is
+      * terminated. It is called from the process/thread of the
+      * controller.
      *)
 
   method process : 
