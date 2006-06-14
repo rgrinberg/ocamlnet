@@ -1,0 +1,21 @@
+TOP_DIR = ../../..
+include $(TOP_DIR)/Makefile.rules
+
+PACKAGES = rpc,unix
+
+OBJ = adder_aux.cmo adder_clnt.cmo adder_srv.cmo
+
+
+XOBJ = $(OBJ:.cmo=.cmx)
+
+all: adder.cma 
+
+opt: adder.cmxa
+
+adder.cma: $(OBJ)
+	$(OCAMLC) -o adder.cma -a $(OBJ)
+
+adder.cmxa: $(XOBJ)
+	$(OCAMLOPT) -o adder.cmxa -a $(XOBJ)
+
+include depend

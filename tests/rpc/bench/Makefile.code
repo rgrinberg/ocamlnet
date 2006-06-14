@@ -1,0 +1,20 @@
+TOP_DIR = ../..
+include $(TOP_DIR)/Makefile.rules
+
+PACKAGES = rpc,rpc-auth-dh,rpc-auth-local,unix
+
+OBJ = proto_aux.cmo proto_clnt.cmo proto_srv.cmo
+XOBJ = $(OBJ:.cmo=.cmx)
+
+all: proto.cma protoserver protoclient
+
+protoserver: protoserver.cmo
+	$(OCAMLC) -o protoserver -custom proto.cma protoserver.cmo -linkpkg
+
+protoclient: protoclient.cmo
+	$(OCAMLC) -o protoclient -custom proto.cma protoclient.cmo -linkpkg
+
+proto.cma: $(OBJ)
+	$(OCAMLC) -o proto.cma -a $(OBJ)
+
+include depend

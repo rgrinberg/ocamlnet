@@ -1,0 +1,15 @@
+#! /bin/sh
+
+set -e
+
+# Start the test server:
+./protoserver -tcp -udp -unix >protosettings 
+
+# Read the settings:
+source ./protosettings
+
+# Stop the test server when this script exits:
+trap "kill -2 $pid" EXIT
+
+# Start the test client:
+./protoclient -tcp_port $tcp_port -udp_port $udp_port -unix_path $unix_path "$@"

@@ -1,0 +1,29 @@
+TOP_DIR = ../..
+include $(TOP_DIR)/Makefile.rules
+
+PACKAGES = rpc
+
+OBJ = proto_aux.cmo proto_clnt.cmo proto_srv.cmo proto_testcase.cmo
+XOBJ = $(OBJ:.cmo=.cmx)
+
+OCAMLPATH = ../../src
+export OCAMLPATH
+
+all: proto.cma protospeed_byte
+
+opt: proto.cmxa protospeed_opt
+
+
+protospeed_byte: protospeed.cmo proto.cma
+	$(OCAMLC) -o protospeed_byte proto.cma protospeed.cmo -linkpkg
+
+protospeed_opt: protospeed.cmx proto.cmxa
+	$(OCAMLOPT) -o protospeed_opt proto.cmxa protospeed.cmx -linkpkg
+
+proto.cma: $(OBJ)
+	$(OCAMLC) -o proto.cma -a $(OBJ)
+
+proto.cmxa: $(XOBJ)
+	$(OCAMLOPT) -o proto.cmxa -a $(XOBJ)
+
+include depend
