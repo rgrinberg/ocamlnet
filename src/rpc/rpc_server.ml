@@ -513,7 +513,7 @@ let terminate_any srv conn =
     | Some mplex ->
 	if !debug then prerr_endline "Rpc_server: Closing connection";
 	conn.trans <- None;
-	mplex # cancel_rw();
+	mplex # abort_rw();
 	( try
 	    mplex # start_shutting_down
 	      ~when_done:(fun exn_opt ->
@@ -576,9 +576,10 @@ let rec handle_incoming_message srv conn r =
 	  let rule =
 	    match trans_addr with
 	      | `Implied -> 
+		  if !debug then prerr_endline "Rpc_server: No filter 1 (implied address)";
 		  `Accept  (* Don't have the information to process filters *)
 	      | `Sockaddr peer ->
-		  if !debug then prerr_endline "Rpc_server: Checking filter";
+		  if !debug then prerr_endline "Rpc_server: Checking filter 1";
 		  let rule = 
 		    unroll_rule (get_rule conn srv peer)
 		      (Rpc_packer.length_of_packed_value pv)
@@ -633,9 +634,10 @@ and next_incoming_message' srv conn trans =
 and handle_before_record srv conn n trans_addr =
   match trans_addr with
     | `Implied ->
+	if !debug then prerr_endline "Rpc_server: No filter 2 (implied address)";
 	()     (* Don't have the information to process filters *)
     | `Sockaddr peer ->
-	if !debug then prerr_endline "Rpc_server: Checking filter";
+	if !debug then prerr_endline "Rpc_server: Checking filter 2";
 	( match unroll_rule (get_rule conn srv peer) n with
 	    | `Accept -> ()
 	    | `Deny   -> terminate_connection srv conn

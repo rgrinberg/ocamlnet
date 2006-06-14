@@ -521,6 +521,7 @@ and next_incoming_message cl =
     | Some trans -> next_incoming_message' cl trans
 
 and next_incoming_message' cl trans =
+  trans # cancel_rd_polling();
   if cl.pending_calls <> SessionMap.empty && not trans#reading then (
     trans # start_reading
       ~when_done:(fun r ->
@@ -528,7 +529,7 @@ and next_incoming_message' cl trans =
       ()
   )
   else
-    if !debug then prerr_endline "Rpc_client: Stopping reading"
+    if !debug then prerr_endline "Rpc_client: Stopping reading";
 ;;
 
 
@@ -594,6 +595,8 @@ and next_outgoing_message' cl trans =
 		 call.timeout_group <- None;
 		 if !debug then prerr_endline "Rpc_client: Timeout handler";
 		 retransmit cl call;
+		 (* Maybe we have to cancel reading: *)
+		 next_incoming_message cl
 	      );
 	    call.timeout_group <- Some g
 	  );
@@ -625,7 +628,7 @@ check_for_output := next_outgoing_message ;;
 
 let shutdown_connector cl mplex =
   if !debug then prerr_endline "Rpc_client: shutdown_connector";
-  mplex # cancel_rw();
+  mplex # abort_rw();
   ( try
       mplex # start_shutting_down
 	~when_done:(fun exn_opt ->

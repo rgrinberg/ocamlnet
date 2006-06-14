@@ -100,8 +100,14 @@ object
       * It is an error to start writing several times.
      *)
 
-  method cancel_rw : unit -> unit
-    (** Cancels the current reader and/or writer. Note that there is no
+  method cancel_rd_polling : unit -> unit
+    (** Cancels polling for the next input message. This method must not be
+      * called from the [before_record] callback function. Polling can be
+      * resumed by calling [start_reading] again.
+     *)
+
+  method abort_rw : unit -> unit
+    (** Aborts the current reader and/or writer forever. Note that there is no
       * clean way of resuming reading and/or writing. The readers/writers
       * are not notified about cancellation.
      *)

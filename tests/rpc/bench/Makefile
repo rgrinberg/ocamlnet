@@ -1,4 +1,4 @@
-TOP_DIR = ../..
+TOP_DIR = ../../..
 include $(TOP_DIR)/Makefile.rules
 include $(TOP_DIR)/Makefile.xrules
 
@@ -8,28 +8,23 @@ RPCGEN_AUX_OPTIONS    = -int int32 -hyper int64
 RPCGEN_CLIENT_OPTIONS = -int int32 -hyper int64
 RPCGEN_SERVER_OPTIONS = -int int32 -hyper int64
 
+CLEAN_LIST += socket protosettings protoclient protoserver \
+	      *.astamp *.cstamp *.sstamp \
+	      proto_aux.ml proto_aux.mli \
+	      proto_clnt.ml proto_clnt.mli \
+	      proto_srv.ml proto_srv.mli
+
 all:
-	$(MAKE) generate
+	$(MAKE) gen
 	$(MAKE) depend
 	$(MAKE) -f Makefile.code all
 
 opt:
-	$(MAKE) generate
+	$(MAKE) gen
 	$(MAKE) depend
 	$(MAKE) -f Makefile.code opt
 
 test: all
 	./prototest all
 
-generate: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.sstamp)
-
-depend: *.ml *.mli
-	$(OCAMLDEP) *.ml *.mli >depend
-
-clean:
-	rm -f $(CLEAN_LIST) socket protosettings protoclient protoserver
-
-CLEAN: clean
-
-distclean: clean
-#	rm -f META
+gen: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.sstamp)

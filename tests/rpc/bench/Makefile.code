@@ -1,7 +1,7 @@
-TOP_DIR = ../..
+TOP_DIR = ../../..
 include $(TOP_DIR)/Makefile.rules
 
-PACKAGES = rpc,rpc-auth-dh,rpc-auth-local,unix
+REQUIRES = rpc,rpc-auth-dh,rpc-auth-local,unix
 
 OBJ = proto_aux.cmo proto_clnt.cmo proto_srv.cmo
 XOBJ = $(OBJ:.cmo=.cmx)

@@ -38,7 +38,8 @@ object
   method start_reading : 
     ?before_record:( int -> sockaddr -> unit ) ->
     when_done:( (packed_value * sockaddr) result_eof -> unit) -> unit -> unit
-  method cancel_rw : unit -> unit
+  method cancel_rd_polling : unit -> unit
+  method abort_rw : unit -> unit
   method skip_message : unit -> unit
   method writing : bool
   method start_writing :
@@ -73,7 +74,7 @@ object(self)
   method read_eof = mplex # read_eof
   method writing = mplex # writing
 
-  val mutable cancelled = false
+  val mutable aborted = false
   val mutable skip_message = false
 
   method start_reading ?before_record ~when_done () =
@@ -88,10 +89,10 @@ object(self)
 			      | Some f -> 
 				  f n peer
 				    (* It can happen that reading is
-                                       * cancelled in the meantime!
+                                       * aborted in the meantime!
                                      *)
 			  );
-			  if not cancelled then (
+			  if not aborted then (
 			    if skip_message then
 			      skip_message <- false
 			    else
@@ -136,12 +137,15 @@ object(self)
       0
       (String.length s)
 
+  method cancel_rd_polling () =
+    if mplex#reading then
+      mplex # cancel_reading()
 
   method skip_message () =
     skip_message <- true
 
-  method cancel_rw () =
-    cancelled <- true;
+  method abort_rw () =
+    aborted <- true;
     mplex # cancel_reading();
     mplex # cancel_writing()
     
@@ -211,7 +215,7 @@ object(self)
   method read_eof = mplex # read_eof
   method writing = mplex # writing
 
-  val mutable cancelled = false
+  val mutable aborted = false
   val mutable skip_message = false
 
   method start_reading ?(before_record = fun _ _ -> ()) ~when_done () =
@@ -317,19 +321,19 @@ object(self)
 	est_reading()
 
     and return_msg msg =
-      if not cancelled then (
+      if not aborted then (
 	let pv = packed_value_of_string msg in
-	when_done (`Ok(pv, `Implied))
+	when_done (`Ok(pv, peername))
       )
 
     and return_error e =
       rd_continuation <- None;
-      if not cancelled then
+      if not aborted then
 	when_done (`Error e)
 
     and return_eof () =
       rd_continuation <- None;
-      if not cancelled then
+      if not aborted then
 	when_done `End_of_file 
 
     in
@@ -349,17 +353,17 @@ object(self)
 			| None ->
 			    assert(n <= len);
 			    if n = len then (
-			      if not cancelled then
+			      if not aborted then
 				when_done (`Ok ())
 			    )
 			    else (
-			      if not cancelled then
+			      if not aborted then
 				est_writing s (pos+n)
 			    )
 			| Some Uq_engines.Cancelled ->
 			    ()  (* ignore *)
 			| Some error ->
-			    if not cancelled then
+			    if not aborted then
 			      when_done (`Error error)
 		   )
 	s
@@ -381,13 +385,17 @@ object(self)
     est_writing s 0
 
 
+  method cancel_rd_polling () =
+    if mplex#reading then
+      mplex # cancel_reading()
+
   method skip_message () =
     Queue.clear rd_queue;
     rd_queue_len <- 0;
     skip_message <- true
 
-  method cancel_rw () =
-    cancelled <- true;
+  method abort_rw () =
+    aborted <- true;
     mplex # cancel_reading();
     mplex # cancel_writing()
     
