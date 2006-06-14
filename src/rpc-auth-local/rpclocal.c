@@ -14,6 +14,7 @@
 #include <sys/uio.h>
 #include <string.h>
 #include <stdio.h>
+#include <limits.h>
 
 /**********************************************************************/
 /* From unixsupport.h                                                 */
@@ -157,7 +158,7 @@ value unix_peek_peer_credentials(value fd) {
 	};
 
 	memset(&msg, 0, sizeof msg);
-	crmsgsize = CMSG_SPACE(SOCKCREDSIZE(NGROUPS));
+	crmsgsize = CMSG_SPACE(SOCKCREDSIZE(NGROUPS_MAX));
 	crmsg = alloc(crmsgsize);
 
 	memset(crmsg, 0, crmsgsize);
