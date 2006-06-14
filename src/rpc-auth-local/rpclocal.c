@@ -159,26 +159,26 @@ value unix_peek_peer_credentials(value fd) {
 
 	memset(&msg, 0, sizeof msg);
 	crmsgsize = CMSG_SPACE(SOCKCREDSIZE(NGROUPS_MAX));
-	crmsg = alloc(crmsgsize);
+	crmsg = stat_alloc(crmsgsize);
 
 	memset(crmsg, 0, crmsgsize);
 	msg.msg_control = crmsg;
 	msg.msg_controllen = crmsgsize;
 
 	if (recvmsg(Int_val(fd), &msg, MSG_PEEK) < 0) {
-	    free(crmsg);
+	    stat_free(crmsg);
 	    uerror("recvmsg", Nothing);
 	};
 
 	if (msg.msg_controllen == 0 ||
 	    (msg.msg_flags & MSG_CTRUNC) != 0) {
-	    free(crmsg);
+	    stat_free(crmsg);
 	    raise_not_found();
 	};
 	cmp = CMSG_FIRSTHDR(&msg);
 	if (cmp->cmsg_level != SOL_SOCKET ||
 	    cmp->cmsg_type != SCM_CREDS) {
-	    free(crmsg);
+	    stat_free(crmsg);
 	    raise_not_found();
 	};
 
