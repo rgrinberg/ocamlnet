@@ -1439,11 +1439,31 @@ let anyway ~finally f arg =
 ;;
 
 
+type fd_style =
+    [ `Read_write
+    | `Recv_send of Unix.sockaddr
+    | `Recvfrom_sendto
+    ]
+
 class socket_multiplex_controller
          ?(close_inactive_descr = true)
          ?(supports_half_open_connection = false)
-         ?(use_rcv = false)
          fd esys : datagram_multiplex_controller =
+
+  let fd_style =
+    try 
+      let addr = Unix.getpeername fd in
+      (* fd is a connected socket *)
+      `Recv_send addr
+    with
+      | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
+	  (* fd is an unconnected socket *)
+	  `Recvfrom_sendto
+      | Unix.Unix_error(Unix.ENOTSOCK,_,_) -> 
+	  (* fd is not a socket *)
+	  `Read_write
+  in
+
 object(self)
   val mutable alive = true
   val mutable read_eof = false
@@ -1655,14 +1675,19 @@ object(self)
 		  let exn_opt, n, notify =
 		    try
 		      let n = 
-			if use_rcv then (
-			  let (n, a) = Unix.recvfrom fd s pos len [] in
-			  rcvd_from <- Some a;
-			  n
-			)
-			else
-			  Unix.read fd s pos len in
-		      if n = 0 && not use_rcv then (
+			match fd_style with
+			  | `Recv_send a ->
+			      let n = Unix.recv fd s pos len [] in
+			      rcvd_from <- Some a;
+			      n
+			  | `Recvfrom_sendto ->
+			      let (n, a) = Unix.recvfrom fd s pos len [] in
+			      rcvd_from <- Some a;
+			      n
+			  | `Read_write ->
+			      Unix.read fd s pos len
+		      in
+		      if n = 0 (* && not use_rcv *) then (
 			read_eof <- true;
 			need_linger <- false;
 			(Some End_of_file, 0, true)
@@ -1720,11 +1745,18 @@ object(self)
 		  let exn_opt, n, notify =
 		    try
 		      let n = 
-			match send_to with
-			  | None ->
+			match fd_style with
+			  | `Recv_send _ ->
+			      Unix.send fd s pos len []
+			  | `Recvfrom_sendto ->
+			      ( match send_to with
+				  | None ->
+				      failwith "socket_multiplex_controller: Unknown receiver of message to send"
+				  | Some a ->
+				      Unix.sendto fd s pos len [] a
+			      )
+			  | `Read_write ->
 			      Unix.single_write fd s pos len
-			  | Some a ->
-			      Unix.sendto fd s pos len [] a
 		      in
 		      (None, n, true)
 		    with
@@ -1827,7 +1859,7 @@ let create_multiplex_controller_for_datagram_socket
        ?close_inactive_descr fd esys =
   let mplex = 
     new socket_multiplex_controller
-      ?close_inactive_descr ~supports_half_open_connection:false ~use_rcv:true
+      ?close_inactive_descr ~supports_half_open_connection:false 
       fd esys in
   (mplex :> datagram_multiplex_controller)
 ;;
@@ -2299,7 +2331,7 @@ object(self)
  
           let (s_in_sub, s_in) = Unix.pipe() in
           let (s_out, s_out_sub) = Unix.pipe() in
-          let e1 = new copier (`Tridirectional(v, s_in, s_out)) ues in
+          let _e1 = new copier (`Tridirectional(v, s_in, s_out)) ues in
  
 	  Unix.set_close_on_exec s_in;
           Unix.set_close_on_exec s_out;
