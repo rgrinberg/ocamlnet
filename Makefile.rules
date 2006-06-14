@@ -46,7 +46,7 @@ $(ARCHIVE).cmxa: $(XOBJECTS) $(COBJECTS)
 # Files to remove everywhere by "make clean":
 
 CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa dll* packlist-* \
-	     ocamldoc.dump $(GENERATE)
+	     ocamldoc.dump META $(GENERATE)
 
 # Generic build rules:
 

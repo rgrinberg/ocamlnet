@@ -4,7 +4,7 @@ PKGNAME = rpc-auth-dh
 
 include $(TOP_DIR)/Makefile.rules
 
-GENERATE = rpc_key_aux.ml rpc_key_clnt.ml rpc_key_service.ml
+GENERATE = rpc_key_aux.ml rpc_key_clnt.ml rpc_key_service.ml META
 
 rpc_key_aux.ml: rpc_key.x
 	$(RPCGEN) -int int32 -hyper int64 -aux rpc_key.x

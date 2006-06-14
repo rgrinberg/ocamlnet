@@ -2,7 +2,7 @@ TOP_DIR=../..
 
 PKGNAME = rpc
 
-GENERATE = rpc_portmapper_aux.ml rpc_portmapper_clnt.ml
+GENERATE = rpc_portmapper_aux.ml rpc_portmapper_clnt.ml META
 
 RPCGEN = ../rpc-generator/ocamlrpcgen
 

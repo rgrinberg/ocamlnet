@@ -1,5 +1,5 @@
 TOP_DIR=../..
 
-GENERATE = netdate.ml netdb.ml netdb-packlist
+GENERATE = netdate.ml netdb.ml netdb-packlist META
 
 include Makefile.def
