@@ -1,7 +1,6 @@
 TOP_DIR=../..
 
 PKGNAME  = rpc-auth-local
-ARCHIVE  = rpc_auth_local
 OBJECTS  = rpc_auth_local.cmo
 COBJECTS = rpclocal.o
 OCAMLDOC = 

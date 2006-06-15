@@ -1,0 +1,682 @@
+#! /bin/sh
+
+# $Id$
+
+#######################################################################
+# Helpers:
+
+# Split $PATH into words:
+oldifs="$IFS"
+IFS="   :"
+spacepath=`echo $PATH`
+IFS="$oldifs"
+
+
+in_path () {
+    # Does $1 exist in $PATH?
+    for d in $spacepath; do
+        if test -x "$d/$1"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+
+get_path () {
+    for d in $spacepath; do
+        if test -x "$d/$1"; then
+            echo "$d/$1"
+            return
+        fi
+    done
+}
+
+#######################################################################
+# Defaults
+
+#--- Options ---
+# value 0: off
+# value 1: on
+# defaults:
+
+set_defaults () {
+    enable_gtk=0
+    enable_gtk2=0
+    enable_tcl=0
+    enable_ssl=0
+    with_nethttpd=0
+    with_rpc_auth_dh=0
+    bindir=`dirname $ocamlc`
+    tcl_defs=""
+    tcl_libs=""
+    adh_style=""
+}
+
+ocamlc=`get_path ocamlc`
+set_defaults
+
+version="2.0test1"
+exec_suffix=""
+
+#######################################################################
+# Option parsing
+
+ehelp_gtk="Enable/disable parts that depend on lablgtk"
+ehelp_gtk2="Enable/disable parts that depend on lablgtk2"
+ehelp_tcl="Enable/disable parts that depend on tcl/tk"
+ehelp_ssl="Enable/disable parts that depend on SSL"
+ehelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
+ehelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
+
+# Which options exist? eoptions for enable/disable, woptions for with/without:
+eoptions="gtk gtk2 tcl ssl"
+woptions="nethttpd rpc_auth_dh"
+
+# Packages to include anyway:
+requires="unix pcre"
+
+# Directory where to install data files:
+net_db_dir="<library directory>"
+net_db_dir_set=0
+
+check_library () {
+    # $1: the name of the library (findlib)
+#   # $2: a typical file in $incdirs
+#    if [ "$enable_findlib" -gt 0 ]; then
+	ocamlfind query "$1" >/dev/null 2>/dev/null
+	return
+#    else
+#	stdlib=`ocamlc -where`
+#	for dir in $incdirs; do
+#	    case "$dir" in
+#		+*)
+#		    dir=`echo "$dir" | sed -e "s|^\+|$stdlib/|"` ;;
+#	    esac
+#	    if [ -f "$dir/$2" ]; then
+#		return 0
+#	    fi 
+#	done
+	return 1   # not found
+#    fi
+}
+
+
+print_options () {
+	for opt in $eoptions; do
+		e="o=\$enable_$opt"
+		eval "$e"
+		uopt=`echo $opt | sed -e 's/_/-/g'`
+		if [ $o -gt 0 ]; then
+			echo "    -enable-$uopt"
+		else
+			echo "    -disable-$uopt"
+		fi
+	done
+	for opt in $woptions; do
+		e="o=\$with_$opt"
+		eval "$e"
+		uopt=`echo $opt | sed -e 's/_/-/g'`
+		if [ $o -gt 0 ]; then
+			echo "    -with-$uopt"
+		else
+			echo "    -without-$uopt"
+		fi
+	done
+	echo "    -bindir $bindir"
+	echo "    -datadir $net_db_dir"
+	if [ $enable_tcl -gt 0 ]; then
+            echo "    -equeue-tcl-defs \"$tcl_defs\""
+            echo "    -equeue-tcl-libs \"$tcl_libs\""
+	fi
+	if [ $with_rpc_auth_dh -gt 0 ]; then
+	    if [ -n "$adh_style" ]; then
+		echo "    -auth-dh-style $adh_style"
+	    fi
+	fi
+}
+
+
+usage () {
+	set_defaults
+	cat <<_EOF_ >&2
+usage: ./configure [ options ]
+
+_EOF_
+	for opt in $eoptions; do
+		e="help=\$ehelp_$opt"
+		eval "$e"
+		uopt=`echo $opt | sed -e 's/_/-/g'`
+		echo "-enable-$uopt:" >&2
+		echo "-disable-$uopt:" >&2
+		echo "        $help" >&2
+	done
+	for opt in $woptions; do
+		e="help=\$whelp_$opt"
+		eval "$e"
+		uopt=`echo $opt | sed -e 's/_/-/g'`
+		echo "-with-$uopt:" >&2
+		echo "-without-$uopt:" >&2
+		echo "        $help" >&2
+	done
+	cat <<_EOF_ >&2
+-bindir dir
+        Install binaries into this directory
+
+-datadir dir
+        Install the run-time data file into this directory
+
+-equeue-tcl-defs <opts>
+        Set C compiler options to find tcl.h (for -enable-tcl)
+
+-equeue-tcl-libs <opts>
+        Set C compiler options to link against libtcl (for -enable-tcl)
+
+-auth-dh-style (keyenvoy|unixdomain|tirpc)
+        Set style of keyserv connector (see README.authdh)
+
+Defaults are:
+
+_EOF_
+	print_options >&2
+	exit 1
+}
+
+
+check_eopt () {
+	for x in $eoptions; do
+		if [ "$x" = "$1" ]; then
+			return 0
+		fi
+	done
+	echo "Unknown option: $1" >&2
+	exit 1
+}
+
+
+check_wopt () {
+	for x in $woptions; do
+		if [ "$x" = "$1" ]; then
+			return 0
+		fi
+	done
+	echo "Unknown option: $1" >&2
+	exit 1
+}
+
+
+echo "Welcome to Ocamlnet version $version" >&2
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		-enable-*)
+			opt=`echo "$1" | sed -e 's/-enable-//' -e 's/-/_/g'`
+			check_eopt "$opt"
+			eval "enable_$opt=2"
+			shift
+			;;
+		-disable-*)
+			opt=`echo "$1" | sed -e 's/-disable-//' -e 's/-/_/g'`
+			check_eopt "$opt"
+			eval "enable_$opt=-1"
+			shift
+			;;
+		-with-*)
+			opt=`echo "$1" | sed -e 's/-with-//' -e 's/-/_/g'`
+			check_wopt "$opt"
+			eval "with_$opt=2"
+			shift
+			;;
+		-without-*)
+			opt=`echo "$1" | sed -e 's/-without-//' -e 's/-/_/g'`
+			check_wopt "$opt"
+			eval "with_$opt=-1"
+			shift
+			;;
+                -bindir)
+                        bindir="$2"
+                        shift
+                        shift
+                        ;;
+	        -datadir)
+		        net_db_dir="$2"
+			net_db_dir_set=1
+			shift; shift
+			;;
+                -equeue-tcl-defs)
+                        tcl_defs="$tcl_defs $2"
+                        shift
+                        shift
+                        ;;
+                -equeue-tcl-libs)
+                        tcl_libs="$tcl_libs $2"
+                        shift
+                        shift
+                        ;;
+                -auth-dh-style)
+                        adh_style="$2"
+                        shift
+                        shift
+                        ;;
+		-version)
+			echo "$version"
+			exit 0
+			;;
+		*)
+			usage
+	esac
+done
+
+######################################################################
+# Check ocamlfind
+
+printf "%s" "Checking for findlib... "
+if ocamlfind query stdlib >/dev/null 2>/dev/null; then
+    echo "found"
+    if [ "$net_db_dir_set" -eq 0 ]; then
+	net_db_dir=`ocamlfind printconf destdir`/netstring
+	net_db_dir_set=1
+    fi
+else
+    echo "not found"
+    echo "Make sure that ocamlfind is in your PATH, or download findlib"
+    echo "from www.ocaml-programming.de"
+    exit 1
+fi
+
+if [ "$net_db_dir_set" -eq 0 ]; then
+    net_db_dir="$libdir"
+    net_db_dir_set=1
+fi
+
+
+######################################################################
+# Does ocamlopt support multi-threading?
+
+printf "%s" "Checking multi-threading support... "
+mt_type=vm
+mt_switch="-vmthread"
+mt_comment="(unsupported)"
+mkdir -p tmp
+cat <<_EOF_ >tmp/t.ml
+let _ = Mutex.create();;
+_EOF_
+if ocamlopt -thread -o tmp/t threads.cmxa tmp/t.ml 2>/dev/null; then
+    if tmp/t 2>/dev/null; then
+	mt_type=posix
+	mt_switch="-thread"
+	mt_comment="(ok)"
+    fi
+fi
+echo "$mt_type $mt_comment"
+
+######################################################################
+# Check that pcre is available:
+
+printf "%s" "Checking for PCRE... "
+if check_library pcre pcre.cmi; then
+    echo "found"
+else
+    echo "not found"
+    echo "Sorry, installation is not possible without PCRE."
+    echo "Get the PCRE library from:"
+    echo "http://miss.wu-wien.ac.at/~mottl/ocaml_sources/"
+    exit 1
+fi
+
+######################################################################
+# Check OS
+
+with_rpc_auth_local=0
+with_rpc_xti=0
+
+printf "%s" "Checking operating system... "
+u=`uname`
+case "$u" in
+	CYGWIN*)
+		echo "Cygwin"
+		exec_suffix=".exe" ;;
+        Linux)
+	        echo "Linux"
+		with_rpc_auth_local=1
+		[ -n "$adh_style" ] || adh_style=unixdomain
+		;;
+        FreeBSD)
+	        echo "FreeBSD"
+		[ -n "$adh_style" ] || adh_style=unixdomain
+		;;
+        NetBSD)
+	        echo "NetBSD"
+		[ -n "$adh_style" ] || adh_style=unixdomain
+		;;
+        SunOS)
+	        case `uname -r` in
+		    [1234]*)
+		        echo "SunOS" ;;
+		    *)
+			echo "Solaris"
+			with_rpc_xti=1
+			[ -n "$adh_style" ] || adh_style=tirpc
+			;;
+		esac ;;
+	*)
+		echo "Generic" ;;
+esac
+
+if [ $with_rpc_auth_local -gt 0 ]; then
+    echo "    This OS supports passing credentials over Unix domain sockets"
+    echo "    Building rpc-auth-local"
+fi
+
+if [ $with_rpc_xti -gt 0 ]; then
+    echo "    This OS supports XTI networking"
+    echo "    Building rpc-xti"
+fi
+
+######################################################################
+# TCL
+
+with_equeue_tcl=0
+
+if [ $enable_tcl -gt 0 ]; then
+    printf "%s" "Checking switches for tcl.h... "
+
+    tcl_defs_1=""
+    for d in $tcl_defs; do
+        tcl_defs_1="$tcl_defs_1 -ccopt '$d'"
+    done
+
+    rm -rf tmp
+    mkdir -p tmp
+
+    cat <<EOF >tmp/t.c
+#include "tcl.h"
+
+main () {
+}
+EOF
+
+    if ( cd tmp; ocamlc $tcl_defs_1 -c t.c >/dev/null 2>/dev/null ) then
+        echo "ok"
+    else
+        echo "not ok"
+        echo
+        echo "Please check -equeue-tcl-defs!"
+        exit 1
+    fi
+
+    printf "%s" "Checking switches to link libtcl... "
+
+    cat <<EOF >tmp/t.c
+#include <stdlib.h>
+#include <stdio.h>
+#include "tcl.h"
+
+do_something () {
+    void (*x)(int);
+    x = Tcl_Exit;
+    exit(0);
+}
+EOF
+
+    cat <<EOF >tmp/t.ml
+exit 0
+EOF
+
+    if ( cd tmp
+         ocamlc $tcl_defs_1 -c t.c >/dev/null 2>/dev/null &&
+         ocamlc -c t.ml >/dev/null 2>/dev/null &&
+         ocamlc -o t -custom t.o t.cmo -cclib "$tcl_libs"
+       )
+    then
+        if tmp/t; then
+            echo "ok"
+        else
+            echo "not ok (check ldd output of tmp/t)"
+            echo
+            echo "Please check -equeue-tcl-libs!"
+            exit 1
+        fi
+    else
+        echo "not ok"
+        echo
+        echo "Please check -equeue-tcl-libs!"
+        exit 1
+    fi
+
+    with_equeue_tcl=1
+fi
+
+######################################################################
+# Check lablgtk
+
+with_equeue_gtk=0
+
+if [ $enable_gtk -gt 0 ]; then
+    printf "%s" "Checking for lablgtk... "
+    if ocamlfind query lablgtk >/dev/null 2>/dev/null; then
+        echo "found"
+	with_equeue_gtk=1
+    else
+        echo "not found"
+	echo "Required library lablgtk not found!"
+	exit 1
+    fi
+fi
+
+######################################################################
+# Check lablgtk2
+
+with_equeue_gtk2=0
+gtk2_io_add_watch_supports_lists=""
+
+if [ $enable_gtk2 -gt 0 ]; then
+    printf "%s" "Checking for lablgtk2... "
+    if ocamlfind query lablgtk2 >/dev/null 2>/dev/null; then
+        echo "found"
+    else
+        echo "not found"
+	echo "Required library lablgtk2 not found!"
+	exit 1
+    fi
+
+    printf "%s" "Checking whether lablgtk2 has GMain.Io.remove... "
+    mkdir -p tmp
+    cat <<EOF >tmp/gtk.ml
+let _ = GMain.Io.remove;;
+EOF
+
+    if ocamlfind ocamlc -package lablgtk2 -c tmp/gtk.ml >/dev/null 2>/dev/null;
+    then
+        echo "yes"
+    else
+        echo "no"
+        echo "Your version of lablgtk2 is too old!"
+	exit 1
+    fi
+    
+    printf "%s" "Checking whether lablgtk2 has GMain.Io.add_watch with list support... "
+    mkdir -p tmp
+    cat <<'EOF' >tmp/gtk.ml
+open GMain.Io
+let _ = (add_watch : cond:condition list -> callback:(condition list -> bool) -> ?prio:int -> channel -> id);;
+exit 0
+EOF
+    # Note: this newer API is never broken in the sense checked below, i.e.
+    # such lablgtk2 versions do not exist.
+    if ocamlfind ocamlc -package unix,lablgtk2 -linkpkg -o tmp/gtk tmp/gtk.ml >/dev/null 2>/dev/null && tmp/gtk; then
+        echo "yes"
+        gtk2_io_add_watch_supports_lists="-ppopt -DGTK2_IO_ADD_WATCH_SUPPORTS_LISTS"
+    else
+        echo "no"
+        printf "%s" "Checking whether lablgtk2's GMain.Io.add_watch is broken... "
+        mkdir -p tmp
+        cat <<'EOF' >tmp/gtk.ml
+GMain.Main.init();;
+let ch = GMain.Io.channel_of_descr (Unix.stdout) in
+let w = GMain.Io.add_watch
+          ~cond:`OUT ~callback:(fun () -> true) ch in
+(* add_watch is broken when it just returns Val_unit, and ok when it
+ * returns a positive int
+ *)
+if (Obj.magic w : int) > 0 then
+  exit 0
+else
+  exit 1
+EOF
+	if ocamlfind ocamlc -package unix,lablgtk2 -linkpkg -o tmp/gtk tmp/gtk.ml >/dev/null 2>/dev/null && tmp/gtk; then
+            echo "no"
+        else
+            echo "yes"
+            echo "You should apply the patch-ab-ml_glib.c to lablgtk2 to fix this!"
+	    exit 1
+        fi
+    fi
+
+    for f in Makefile uq_gtk.ml uq_gtk.mli; do
+	rm -f src/equeue-gtk2/$f
+	ln -s ../equeue-gtk/$f src/equeue-gtk2
+    done
+    
+    with_equeue_gtk2=1
+fi
+
+######################################################################
+# Check SSL
+
+with_equeue_ssl=0
+with_rpc_ssl=0
+
+if [ $enable_ssl -gt 0 ]; then
+    printf "%s" "Checking for ssl... "
+    if ocamlfind query ssl >/dev/null 2>/dev/null; then
+        echo "found"
+	with_equeue_ssl=1
+	with_rpc_ssl=1
+    else
+        echo "not found"
+	echo "Required library ssl not found!"
+	exit 1
+    fi
+fi
+
+######################################################################
+# Check SecureRPC
+
+adh_reqs=""
+
+if [ $with_rpc_auth_dh -gt 0 ]; then
+    echo  "Checking SecureRPC"
+    printf "    %s" "Checking for cryptgps... "
+    if ocamlfind query cryptgps >/dev/null 2>/dev/null; then
+        echo "found"
+    else
+        echo "not found"
+	echo "Required library cryptgps not found!"
+	exit 1
+    fi
+
+    if [ -z "$adh_style" ]; then
+	echo "    No -auth-dh-style passed and no OS default known. Falling back to keyenvoy"
+	adh_style="keyenvoy"
+    fi
+
+    if [ "$adh_style" = "tirpc" ]; then
+	if [ $with_rpc_xti -eq 0 ]; then
+	    echo "-auth-dh-style tirpc needs rpc-xti which is missing"
+	    exit 1
+	fi
+	adh_reqs="rpc-xti"
+    fi
+
+    echo "    SecureRPC is supported"
+fi
+
+######################################################################
+# Summary
+
+echo
+echo "Effective options:"
+print_options
+echo
+
+pkglist="equeue shell netstring rpc-generator rpc pop smtp netclient cgi netplex"
+full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh"
+for opt in $woptions rpc_auth_local rpc_xti equeue_tcl equeue_gtk equeue_gtk2 equeue_ssl rpc_ssl; do
+	e="o=\$with_$opt"
+	eval "$e"
+	if [ $o -gt 0 ]; then
+		uopt=`echo "$opt" | sed -e 's/_/-/g'`
+		pkglist="$pkglist $uopt"
+	fi
+done
+
+######################################################################
+# Write Makefile.conf
+
+echo "Writing Makefile.conf"
+cat <<_EOF_ >Makefile.conf
+# The Ocamlnet version
+VERSION = $version
+
+# The packages to build in the right order:
+PKGLIST = $pkglist
+
+# All packages:
+FULL_PKGLIST = $full_pkglist
+
+# Whether the OS needs an .exe suffix for executables:
+EXEC_SUFFIX = $exec_suffix
+
+# Required packages (findlib):
+REQUIRES = $requires
+
+# Additional options only for ocamlc:
+OCAMLC_OPTIONS =
+
+# Additional options only for ocamlopt:
+OCAMLOPT_OPTIONS =
+
+# Where the ocamlnet lookup tables are to be installed (both findlib
+# and non-findlib):
+NET_DB_DIR = $net_db_dir
+
+# Where binaries are installed:
+BINDIR = $bindir
+
+# Method of installation:
+INSTMETHOD = findlib
+
+# Multi-threading type:
+MT_TYPE = $mt_type
+
+# Compiler switch to enable multi-threading:
+THREAD = $mt_switch
+
+# For -enable-tcl:
+EQUEUE_TCL_DEFS = $tcl_defs_1
+EQUEUE_TCL_LIBS = $tcl_libs
+
+# For -enable-gtk2:
+GTK_EXTRA_DEFINES = $gtk2_io_add_watch_supports_lists
+
+# For -with-auth-dh:
+RPC_AUTH_DH_CONNECTOR = $adh_style
+AUTHDHREQS = $adh_reqs
+
+_EOF_
+
+######################################################################
+# Finish
+
+echo
+echo "Please check Makefile.conf."
+echo
+echo "You can now compile Ocamlnet by invoking"
+echo "   make all"
+echo "for the bytecode compiler, and optionally by invoking"
+echo "   make opt"
+echo "for the native-code compiler (if supported on your architecture)."
+echo "Finally, a"
+echo "   make install"
+echo "will install the package(s)."

@@ -25,9 +25,16 @@ COLLECT_FILES = $(TOOLS_DIR)/collect_files
 XOBJECTS = $(OBJECTS:.cmo=.cmx)
 ARCHIVE  ?= $(PKGNAME)
 
-all: $(ARCHIVE).cma $(ALL_EXTRA) $(ALLMT_EXTRA)
+.PHONY: all opt all-mt-vm opt-mt-vm all-mt-posix opt-mt-posix
 
-opt: $(ARCHIVE).cmxa $(OPT_EXTRA) $(OPTMT_EXTRA)
+all: $(ARCHIVE).cma $(ALL_EXTRA) all-mt-$(MT_TYPE)
+
+opt: $(ARCHIVE).cmxa $(OPT_EXTRA) opt-mt-$(MT_TYPE)
+
+all-mt-vm: $(ALLMT_EXTRA)
+all-mt-posix: $(ALLMT_EXTRA)
+opt-mt-vm:
+opt-mt-posix: $(OPTMT_EXTRA)
 
 $(ARCHIVE).cma: $(OBJECTS) $(COBJECTS)
 	if [ "X$(COBJECTS)" = "X" ]; then \
@@ -110,4 +117,5 @@ distclean::
 	rm -f $(CLEAN_LIST) META
 	rm -f *~ depend
 
+.PHONY: generate
 generate:: $(GENERATE)
