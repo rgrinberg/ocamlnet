@@ -166,8 +166,8 @@ value unix_peek_peer_credentials(value fd) {
 	memset(crmsg, 0, crmsgsize);
 	msg.msg_control = crmsg;
 	msg.msg_controllen = crmsgsize;
-	msg.iov = &iov;
-	msg.iovlen = 1;
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
 
 	iov.iov_base = &buf;
 	iov.iov_len = 1;
