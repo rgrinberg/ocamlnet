@@ -229,28 +229,45 @@ object(self)
       failwith "#start_shutting_down: still reading or writing";
     if shutting_down <> None then
       failwith "#start_shutting_down: already shutting down";
+    let n = ref 0 in
     self # nonblock_operation
       `Shutting_down
       (fun () ->
 	 try
-	   (* TODO: This is bogus: After only two trial we let the
-            * connection crash. Improve that such that shutdown is a
-            * real non-blocking operation.
-            *)
-	   let n = ref 0 in
-	   while 
-	     let (rcvd_shutdown, sent_shutdown) =
-	       Ssl_exts.get_shutdown ssl_sock in
-	     (not rcvd_shutdown || not sent_shutdown) && !n < 2
-	   do
-	     Ssl_exts.single_shutdown ssl_sock;
-	     incr n
-	   done;
-	   read_eof <- true;
-	   wrote_eof <- true;
-	   shutting_down <- None;
-	   state <- `Clean;
-	   (false, false, fun () -> when_done None)
+	   Ssl_exts.single_shutdown ssl_sock;
+	   incr n;
+
+	   let (rcvd_shutdown, sent_shutdown) =
+	     Ssl_exts.get_shutdown ssl_sock in
+	   if rcvd_shutdown then
+	     read_eof <- true;
+	   if sent_shutdown then
+	     wrote_eof <- true;
+
+	   if !n=2 && not (rcvd_shutdown && sent_shutdown) then (
+	     (* Unclean crash *)
+	     shutting_down <- None;
+	     state <- `Unclean;
+	     if rcvd_shutdown || sent_shutdown then
+	       (false, false, fun () -> when_done None)
+	     else
+	       (false, false, 
+		fun () -> when_done(Some(Failure "Unclean SSL shutdown")))
+
+	   )
+	   else
+	     match (rcvd_shutdown, sent_shutdown) with
+	       | (false, false) ->
+		   (* strange *)
+		   (false, true, fun () -> ())
+	       | (true, false) ->
+		   (false, true, fun () -> ())
+	       | (false, true) ->
+		   (true, false, fun () -> ())
+	       | (true, true) ->
+		   shutting_down <- None;
+		   state <- `Clean;
+		   (false, false, fun () -> when_done None)
 	 with
 	   | Ssl_exts.Shutdown_error Ssl.Error_want_read ->
 	       (true, false, fun () -> ())

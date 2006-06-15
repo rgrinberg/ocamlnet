@@ -11,6 +11,9 @@ val get_shutdown : Ssl.socket -> bool * bool
     * been sent.
    *)
 
+val get_rbio_eof : Ssl.socket -> bool
+  (** Returns whether EOF has been read by the rbio *)
+
 val single_shutdown : Ssl.socket -> unit
   (** Corresponds to SSL_shutdown: Closes one half of the SSL connection. 
    * If called for the first time, a "close notify" alert is sent to the

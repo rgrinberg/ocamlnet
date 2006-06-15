@@ -10,6 +10,7 @@
 #include <openssl/ssl.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
+#include <openssl/bio.h>
 #include <unistd.h>
 
 
@@ -60,6 +61,24 @@ CAMLprim value ocaml_ssl_get_shutdown(value socket)
   Store_field(ret, 1, sent);
 
   CAMLreturn(ret);
+}
+
+
+CAMLprim value ocaml_ssl_get_rbio_eof(value socket) 
+{
+    CAMLparam1(socket);
+    CAMLlocal1(ret);
+    BIO *b;
+    int eof;
+
+    ssl_socket_t *ssl = ssl_socket_of_block(socket);
+    b = SSL_get_rbio(ssl->handler);
+    if (b == NULL) 
+	failwith("Ssl.get_rbio_eof: No rbio found");
+    eof = BIO_eof(b);
+    ret = Val_bool(eof);
+
+    CAMLreturn(ret);
 }
 
 

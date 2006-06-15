@@ -8,6 +8,8 @@ let _ =
 
 external get_shutdown : Ssl.socket -> bool * bool = "ocaml_ssl_get_shutdown"
 
+external get_rbio_eof : Ssl.socket -> bool = "ocaml_ssl_get_rbio_eof"
+
 external single_shutdown : Ssl.socket -> unit = "ocaml_ssl_single_shutdown"
 
 type ssl_mode =

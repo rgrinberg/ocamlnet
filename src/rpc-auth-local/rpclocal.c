@@ -139,7 +139,9 @@ value unix_peek_peer_credentials(value fd) {
 #ifdef LOCAL_CREDS
     /* NetBSD */
     /* The following code has been copied from libc: rpc/svc_vc.c
-     * It is untested.
+     * TODO: The following code does not work. No idea why.
+     * msg_controllen is always 0. Maybe the socket option must be
+     * set earlier (but that would be very strange).
      */
     {
 	int one = 1;
