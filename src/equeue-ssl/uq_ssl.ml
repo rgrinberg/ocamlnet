@@ -405,7 +405,7 @@ object(self)
 	  self # retry_nonblock_operations true false
 
       | Unixqueue.Output_readiness(g, _) when g = group ->
-	  self # retry_nonblock_operations true false
+	  self # retry_nonblock_operations false true
 
       | Unixqueue.Timeout (g, op) when g = group ->
 	  ( match disconnecting with
