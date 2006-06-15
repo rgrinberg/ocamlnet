@@ -36,6 +36,7 @@ object
   method reading : bool
   method read_eof : bool
   method start_reading : 
+    ?peek: (unit -> unit) ->
     ?before_record:( int -> sockaddr -> unit ) ->
     when_done:( (packed_value * sockaddr) result_eof -> unit) -> unit -> unit
   method cancel_rd_polling : unit -> unit
@@ -77,8 +78,9 @@ object(self)
   val mutable aborted = false
   val mutable skip_message = false
 
-  method start_reading ?before_record ~when_done () =
+  method start_reading ?peek ?before_record ~when_done () =
     mplex # start_reading
+      ?peek
       ~when_done:(fun exn_opt n ->
 		    match exn_opt with
 		      | None ->
@@ -218,10 +220,11 @@ object(self)
   val mutable aborted = false
   val mutable skip_message = false
 
-  method start_reading ?(before_record = fun _ _ -> ()) ~when_done () =
+  method start_reading ?peek ?(before_record = fun _ _ -> ()) ~when_done () =
     let rec est_reading() =
       rd_continuation <- None;
       mplex # start_reading
+	?peek
 	~when_done:(fun exn_opt n ->
 		      match exn_opt with
 			| None ->

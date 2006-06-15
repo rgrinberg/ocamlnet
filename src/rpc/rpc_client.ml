@@ -545,7 +545,7 @@ let rec handle_outgoing_message cl call r =
     | `Ok () ->
 	if !debug then prerr_endline "Rpc_client: message writing finished";
 	let cont = call.when_sent() in
-	if not cont then
+	if not cont || call.call_timeout = 0.0 then
 	  remove_pending_call cl call;
 	!check_for_input cl;
 	next_outgoing_message cl
@@ -587,7 +587,12 @@ and next_outgoing_message' cl trans =
 
 	  (* If there should be a timeout handler, add it: *)
 
-	  if call.call_timeout >= 0.0 then (
+	  if call.call_timeout > 0.0 then (
+	    (* Note: Case call_timeout = 0.0 is handled elsewhere *)
+	    (* CHECK: What happens when the timeout comes before the message
+             * is fully written? (Low priority because for stream connections
+             * a timeout is usually not set.)
+             *)
 	    stop_retransmission_timer cl call;  (* To be sure! *)
 	    let g = new_group cl.esys in
 	    Unixqueue.once cl.esys g call.call_timeout

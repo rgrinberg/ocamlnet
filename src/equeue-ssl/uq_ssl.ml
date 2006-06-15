@@ -120,7 +120,7 @@ object(self)
     accepting <- true;
 
 
-  method start_reading ~when_done s pos len =
+  method start_reading ?(peek = fun() -> ()) ~when_done s pos len =
     if pos < 0 || len < 0 || pos + len > String.length s then
       invalid_arg "#start_reading";
     if state <> `Client && state <> `Server then
@@ -133,6 +133,8 @@ object(self)
       `Reading
       (fun () ->
 	 try
+	   (* peek(); *)
+	   (* [peek] is used by auth-local. It does not work for SSL. *)
 	   let n = Ssl_exts.single_read ssl_sock s pos len in
 	   reading <- None;
 	   assert(n > 0);
@@ -231,12 +233,18 @@ object(self)
       `Shutting_down
       (fun () ->
 	 try
+	   (* TODO: This is bogus: After only two trial we let the
+            * connection crash. Improve that such that shutdown is a
+            * real non-blocking operation.
+            *)
+	   let n = ref 0 in
 	   while 
 	     let (rcvd_shutdown, sent_shutdown) =
 	       Ssl_exts.get_shutdown ssl_sock in
-	     not rcvd_shutdown || not sent_shutdown
+	     (not rcvd_shutdown || not sent_shutdown) && !n < 2
 	   do
-	     Ssl_exts.single_shutdown ssl_sock
+	     Ssl_exts.single_shutdown ssl_sock;
+	     incr n
 	   done;
 	   read_eof <- true;
 	   wrote_eof <- true;

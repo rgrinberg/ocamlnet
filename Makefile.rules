@@ -91,7 +91,9 @@ uninstall-findlib:
 	$(OCAMLFIND) remove $(PKGNAME)
 
 META: META.in
-	sed -e 's/@VERSION@/$(VERSION)/' META.in >META
+	sed -e 's/@VERSION@/$(VERSION)/' \
+	    -e 's/@AUTHDHREQS@/$(AUTHDHREQS)/' \
+		META.in >META
 
 #----------------------------------------------------------------------
 # general rules:

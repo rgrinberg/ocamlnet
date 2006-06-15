@@ -34,6 +34,12 @@ object
 		 | Not_found ->
 		     (* Some other failure *)
 		     None
+		 | Unix.Unix_error(Unix.EAGAIN,_,_) ->
+		     (* peek_peer_credentials expects that there is a message
+                      * to read. EAGAIN is raised if we call it in the wrong
+                      * moment.
+                      *)
+		     None
 	       end
 	   | _ ->
 	       None
@@ -42,6 +48,7 @@ object
   method authenticate _ _ _ _ _ _ _ _ _ = ()
 
 end
+
 
 
 let server_auth_method() = new server_auth_method

@@ -2,14 +2,25 @@
 
 set -e
 
+ssl=""
+proto="-tcp -udp -unix"
+if [ "X$1" = "X-ssl" ]; then
+    ssl="-ssl"
+    proto="-tcp -unix"
+    shift
+fi
+
 # Start the test server:
-./protoserver -tcp -udp -unix >protosettings 
+./protoserver $ssl $proto >protosettings 
 
 # Read the settings:
+tcp_port=0
+udp_port=0
+unix_path=/dummy
 source ./protosettings
 
 # Stop the test server when this script exits:
 trap "kill -2 $pid" EXIT
 
 # Start the test client:
-./protoclient -tcp_port $tcp_port -udp_port $udp_port -unix_path $unix_path "$@"
+./protoclient $ssl -tcp_port $tcp_port -udp_port $udp_port -unix_path $unix_path "$@"

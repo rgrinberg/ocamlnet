@@ -9,7 +9,7 @@ RPCGEN_CLIENT_OPTIONS = -int int32 -hyper int64
 RPCGEN_SERVER_OPTIONS = -int int32 -hyper int64
 
 CLEAN_LIST += socket protosettings protoclient protoserver \
-	      *.astamp *.cstamp *.sstamp \
+	      *.astamp *.cstamp *.s2stamp \
 	      proto_aux.ml proto_aux.mli \
 	      proto_clnt.ml proto_clnt.mli \
 	      proto_srv.ml proto_srv.mli
@@ -27,4 +27,4 @@ opt:
 test: all
 	./prototest all
 
-gen: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.sstamp)
+gen: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.s2stamp)

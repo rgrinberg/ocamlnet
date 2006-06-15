@@ -983,6 +983,7 @@ object
     (** True iff there is a reader *)
 
   method start_reading : 
+    ?peek:(unit -> unit) ->
     when_done:(exn option -> int -> unit) -> string -> int -> int -> unit
     (** Start reading from the connection. When data is available, the
       * [when_done] callback is invoked. The int is the number of read
@@ -995,6 +996,9 @@ object
       * after [when_done] has been invoked.
       *
       * It is an error to start reading several times.
+      *
+      * The function [peek] is called immediately before data is read in
+      * from the underlying communication channel.
      *)
 
   method cancel_reading : unit -> unit

@@ -984,6 +984,7 @@ object
   method event_system : Unixqueue.event_system
   method reading : bool
   method start_reading : 
+    ?peek:(unit -> unit) ->
     when_done:(exn option -> int -> unit) -> string -> int -> int -> unit
   method cancel_reading : unit -> unit
   method writing : bool
@@ -1501,7 +1502,7 @@ object(self)
   initializer
     Unix.set_nonblock fd
 
-  method start_reading ~when_done s pos len =
+  method start_reading ?(peek = fun ()->()) ~when_done s pos len =
     if pos < 0 || len < 0 || pos + len > String.length s then
       invalid_arg "#start_reading";
     if reading <> None then
@@ -1512,14 +1513,14 @@ object(self)
       failwith "#start_reading: inactive connection";
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_in fd, -1.0);
-    reading <- Some(when_done, s, pos, len);
+    reading <- Some(when_done, peek, s, pos, len);
     disconnecting <- None
 
   method cancel_reading () =
     match reading with
       | None ->
 	  ()
-      | Some(f_when_done, _, _, _) ->
+      | Some(f_when_done, _, _, _, _) ->
 	  self # really_cancel_reading();
 	  anyway
 	    ~finally:self#check_for_disconnect
@@ -1671,7 +1672,8 @@ object(self)
       | Unixqueue.Input_arrived(g, _) when g = group ->
 	  ( match reading with
 	      | None -> ()
-	      | Some (f_when_done, s, pos, len) ->
+	      | Some (f_when_done, peek, s, pos, len) ->
+		  peek();
 		  let exn_opt, n, notify =
 		    try
 		      let n = 

@@ -203,28 +203,25 @@ let proc_auth_dh session user =
 ;;
 
 
-let install_server esys conn proto mode =
+let install_server esys proto mode =
   let srv =
-    S.create_async_server
-      ~proc_ping
-      ~proc_revert
-      ~proc_batch_in
-      ~proc_batch_out
-      ~proc_retransmit1
-      ~proc_retransmit2
-      ~proc_install_dropping_filter
-      ~proc_install_rejecting_filter
-      ~proc_install_denying_filter
-      ~proc_install_dropping_filter_with_limit
-      ~proc_auth_sys
-      ~proc_enable_auth_local
-      ~proc_auth_local
-      ~proc_auth_dh
-      conn
-      proto
-      mode
-      esys
-  in
+    Rpc_server.create2 mode esys in
+  S.bind_async
+    ~proc_ping
+    ~proc_revert
+    ~proc_batch_in
+    ~proc_batch_out
+    ~proc_retransmit1
+    ~proc_retransmit2
+    ~proc_install_dropping_filter
+    ~proc_install_rejecting_filter
+    ~proc_install_denying_filter
+    ~proc_install_dropping_filter_with_limit
+    ~proc_auth_sys
+    ~proc_enable_auth_local
+    ~proc_auth_local
+    ~proc_auth_dh
+    srv;
   Rpc_server.set_auth_methods srv auth_methods;
 
   ( match Rpc_server.get_main_socket_name srv with
@@ -246,8 +243,8 @@ let start_servers esys server_spec_list =
 
   let server_list =
     List.map
-      (fun (conn,proto,mode) ->
-	 install_server esys conn proto mode
+      (fun (proto,mode) ->
+	 install_server esys proto mode
       )
       server_spec_list
   in
@@ -304,6 +301,7 @@ let main() =
   let want_tcp = ref false in
   let want_udp = ref false in
   let want_unix = ref false in
+  let enable_ssl = ref false in
   Arg.parse
       [ "-tcp", Arg.Set want_tcp,
 	     "            Listen on a TCP socket";
@@ -311,22 +309,35 @@ let main() =
 	     "            Listen on a UDP socket";
 	"-unix", Arg.Set want_unix,
 	      "           Listen on a Unix Domain Socket";
+	"-ssl", Arg.Set enable_ssl,
+	     "            Enable SSL (incompatible with -udp)";
       ]
       (fun s -> raise(Arg.Bad("Unexpected argument")))
       "Usage: protoserver [ options ]";
+  if !want_udp && !enable_ssl then
+    failwith "-udp and -ssl are incompatible";
+  let socket_config =
+    if !enable_ssl then (
+      Ssl.init();
+      let ctx = 
+	Ssl.create_server_context Ssl.TLSv1 "testserver.crt" "testserver.key" in
+      Rpc_ssl.ssl_server_socket_config ctx
+    )
+    else
+      Rpc_server.default_socket_config in
   let server_spec_list =
     (if !want_tcp then
-       [ Rpc_server.Localhost 0, Rpc.Tcp, Rpc.Socket ]
+       [ Rpc.Tcp, `Socket(Rpc.Tcp, Rpc_server.Localhost 0, socket_config) ]
      else [])
     @
     (if !want_udp then
-       [ Rpc_server.Localhost 0, Rpc.Udp, Rpc.Socket ]
+       [ Rpc.Udp, `Socket(Rpc.Udp, Rpc_server.Localhost 0, socket_config) ]
      else [])
     @
     (if !want_unix then
        let name = Unix.getcwd() ^ "/" ^ "socket" in
        (try Sys.remove name with _ -> ());
-       [ Rpc_server.Unix name, Rpc.Tcp, Rpc.Socket ]
+       [ Rpc.Tcp, `Socket(Rpc.Tcp, Rpc_server.Unix name, socket_config ) ]
      else [])
   in
 

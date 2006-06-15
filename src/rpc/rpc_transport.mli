@@ -65,6 +65,7 @@ object
     (** Whether the EOF marker has been read *)
 
   method start_reading : 
+    ?peek:( unit -> unit) ->
     ?before_record:( int -> sockaddr -> unit ) ->
     when_done:( (packed_value * sockaddr) result_eof -> unit) -> unit -> unit
     (** Start reading from the connection. When a whole message has been
@@ -74,6 +75,9 @@ object
       * after [when_done] has been invoked.
       *
       * It is an error to start reading several times.
+      *
+      * [peek]: This function is called immediately before a data chunk is
+      * read from the underlying data connection.
       *
       * [before_record]: If passed, this function is called back whenever
       * a record of data is started. The integer is the estimated size of the

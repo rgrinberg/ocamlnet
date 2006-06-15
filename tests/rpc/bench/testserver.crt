@@ -1,0 +1,68 @@
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 8 (0x8)
+        Signature Algorithm: md5WithRSAEncryption
+        Issuer: O=Gerd Stolpmann, CN=CA
+        Validity
+            Not Before: Jun 14 22:56:51 2006 GMT
+            Not After : Jun 11 22:56:52 2016 GMT
+        Subject: CN=testserver
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+            RSA Public Key: (1024 bit)
+                Modulus (1024 bit):
+                    00:c8:25:10:8f:e7:57:ec:5c:62:87:e0:47:fd:3f:
+                    24:69:af:c1:14:bb:74:a0:f1:93:8d:ee:b5:8b:de:
+                    a4:4e:2f:eb:1d:42:11:0c:f2:7a:95:94:c4:6f:21:
+                    11:e9:a5:f4:9d:da:29:1e:ae:c9:f2:57:cc:46:f7:
+                    db:de:83:95:7e:3f:ab:bc:18:57:8f:87:a7:09:ad:
+                    ed:51:6f:6a:39:dd:78:bd:c5:3c:58:07:7a:66:0c:
+                    e8:69:15:8c:6f:6b:1f:d2:0c:88:df:28:46:74:45:
+                    99:6f:92:a7:61:bf:d5:c7:09:46:96:83:46:4f:c5:
+                    86:2f:6a:3f:f3:e8:e0:f7:bb
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Authority Key Identifier: 
+                keyid:E6:65:75:8C:76:46:8B:F3:52:1C:D1:AE:DA:A4:35:C9:6F:47:D2:47
+
+            X509v3 Extended Key Usage: 
+                TLS Web Server Authentication, TLS Web Client Authentication, Microsoft Server Gated Crypto, Netscape Server Gated Crypto
+            X509v3 Basic Constraints: critical
+                CA:FALSE
+    Signature Algorithm: md5WithRSAEncryption
+        76:1c:85:b4:92:bb:f5:0a:f2:16:2d:4f:08:e1:79:87:3a:05:
+        cd:8e:07:8d:c1:a2:26:1a:67:aa:e9:aa:a7:7e:10:2e:5a:0a:
+        cf:a6:4e:4b:67:e3:cb:49:2d:9a:e1:75:78:67:af:5b:68:d8:
+        e3:67:f0:ae:8c:48:1f:57:d6:17:b2:4e:c4:e9:27:4e:5c:74:
+        1a:4b:7e:6d:53:f9:5d:f4:2e:48:8d:a1:ea:3f:93:2a:67:74:
+        90:6f:8d:57:91:24:b6:b0:ce:b9:3d:07:fa:5f:48:98:75:bf:
+        0a:31:fc:47:49:bd:85:61:fe:8b:51:58:49:61:ee:a0:e7:11:
+        0e:a5
+-----BEGIN CERTIFICATE-----
+MIICGDCCAYGgAwIBAgIBCDANBgkqhkiG9w0BAQQFADAmMRcwFQYDVQQKEw5HZXJk
+IFN0b2xwbWFubjELMAkGA1UEAxMCQ0EwHhcNMDYwNjE0MjI1NjUxWhcNMTYwNjEx
+MjI1NjUyWjAVMRMwEQYDVQQDEwp0ZXN0c2VydmVyMIGfMA0GCSqGSIb3DQEBAQUA
+A4GNADCBiQKBgQDIJRCP51fsXGKH4Ef9PyRpr8EUu3Sg8ZON7rWL3qROL+sdQhEM
+8nqVlMRvIRHppfSd2ikersnyV8xG99veg5V+P6u8GFePh6cJre1Rb2o53Xi9xTxY
+B3pmDOhpFYxvax/SDIjfKEZ0RZlvkqdhv9XHCUaWg0ZPxYYvaj/z6OD3uwIDAQAB
+o2cwZTAfBgNVHSMEGDAWgBTmZXWMdkaL81Ic0a7apDXJb0fSRzA0BgNVHSUELTAr
+BggrBgEFBQcDAQYIKwYBBQUHAwIGCisGAQQBgjcKAwMGCWCGSAGG+EIEATAMBgNV
+HRMBAf8EAjAAMA0GCSqGSIb3DQEBBAUAA4GBAHYchbSSu/UK8hYtTwjheYc6Bc2O
+B43BoiYaZ6rpqqd+EC5aCs+mTktn48tJLZrhdXhnr1to2ONn8K6MSB9X1heyTsTp
+J05cdBpLfm1T+V30LkiNoeo/kypndJBvjVeRJLawzrk9B/pfSJh1vwox/EdJvYVh
+/otRWElh7qDnEQ6l
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIB9DCCAV2gAwIBAgIBADANBgkqhkiG9w0BAQQFADAmMRcwFQYDVQQKEw5HZXJk
+IFN0b2xwbWFubjELMAkGA1UEAxMCQ0EwHhcNMDIxMDIyMTgyODMwWhcNMTIxMDE5
+MTgyODMwWjAmMRcwFQYDVQQKEw5HZXJkIFN0b2xwbWFubjELMAkGA1UEAxMCQ0Ew
+gZ8wDQYJKoZIhvcNAQEBBQADgY0AMIGJAoGBAKF0o99G9dtuZLixWMAtv+oMdgbd
+5jnliu1c4RuS0QMaSGNOcm4FwsL3WW03ZKa6SFR3QC7TkF9WNbWUuWq56HoZ1bcJ
+DtrdHkARFGTS/nMjv9oLN0SUgvWBa3J5soZs9Ulv9l1d1/W4lwXIN/shjcN6LOqD
+9fufQ7BHu7sIRo9VAgMBAAGjMjAwMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYE
+FOZldYx2RovzUhzRrtqkNclvR9JHMA0GCSqGSIb3DQEBBAUAA4GBAHGjBJugMVxY
+lxPHG+f2W79MG6Bj4QWfkc5n6b/VonxiSanWe9p3nyECaZr8kzAPQQe7aMkdm9qh
+c6W2GCYjFSsr5qXu+5XcxiEhftfxq9/+OZCxZY2t4tMltx0ixEyt5t8MS+4M16GH
+8NQnOpGvvZ7LmXqwXwdbHSrT4RoQcZXr
+-----END CERTIFICATE-----

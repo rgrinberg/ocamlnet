@@ -628,6 +628,7 @@ and next_incoming_message srv conn =
 
 and next_incoming_message' srv conn trans =
   trans # start_reading
+    ~peek:(fun () -> peek_credentials srv conn)
     ~when_done:(fun r -> handle_incoming_message srv conn r)
     ()
 
@@ -653,7 +654,7 @@ and handle_before_record srv conn n trans_addr =
 	)
 
 and peek_credentials srv conn =
-  if not conn.peeked && srv.prot = Tcp then begin
+  if not conn.peeked && srv.prot = Tcp && srv.auth_peekers <> [] then begin
     (* This is used by AUTH_LOCAL to get the credentials of the peer. Thus
      * we need the file descriptor. Without descriptor, we just cannot
      * authenticate!
@@ -689,7 +690,6 @@ and peek_credentials srv conn =
 	     | _ -> ()
 	)
 	srv.auth_peekers;
-      conn.peeked <- true;
     with
 	Exit ->
 	  conn.peeked <- true;
@@ -814,6 +814,7 @@ let create2_multiplexer_endpoint ?fd mplex =
   let conn = connection srv mplex in
   srv.main_socket_name <- mplex # getsockname;
   conn.fd <- fd;
+  (* Try to peek credentials. This can be too early, however. *)
   peek_credentials srv conn;
   next_incoming_message srv conn;
   srv
@@ -867,6 +868,9 @@ let create2_socket_server ?(config = default_socket_config)
 		    ~is_done:(fun mplex ->
 				let conn = connection srv mplex in
 				conn.fd <- Some slave_fd;
+				(* Try to peek credentials. This can be too
+                                 * early, however.
+				 *)
 				peek_credentials srv conn;
 				next_incoming_message srv conn;
 				accept_connections acc
@@ -953,6 +957,9 @@ let create2_socket_server ?(config = default_socket_config)
 	  ~is_done:(fun mplex ->
 		      let conn = connection srv mplex in
 		      conn.fd <- Some fd;
+		      (* Try to peek credentials. This can be too early, 
+                       * however. 
+		       *)
 		      peek_credentials srv conn;
 		      next_incoming_message srv conn;
 		   )

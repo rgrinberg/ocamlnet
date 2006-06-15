@@ -13,6 +13,7 @@ let esys = Unixqueue.create_unix_event_system();;
 let tcp_port = ref 0;;
 let udp_port = ref 0;;
 let unix_path = ref "";;
+let enable_ssl = ref false ;;
 
 let tests = ref [];;
 
@@ -22,22 +23,30 @@ let register_test name f =
 
 
 let register_test_triple ?(tcp=true) ?(udp=true) ?(unix=true) name f =
+  let socket_config =
+    if !enable_ssl then
+      let ctx = Ssl.create_client_context Ssl.TLSv1 in
+      Rpc_ssl.ssl_client_socket_config ctx
+    else
+      Rpc_client.default_socket_config in
   if tcp then begin
     register_test ("tcp_" ^ name)
       (fun () ->
-	 let client = C.create_client ~esys
-		      (Rpc_client.Inet("localhost", !tcp_port))
-			Rpc.Tcp
+	 let client = C.create_client2 ~esys
+	              (`Socket(Rpc.Tcp, 
+			       Rpc_client.Inet("localhost", !tcp_port),
+			       socket_config))
 	 in
 	 f client
       )
   end;
-  if udp then begin
+  if udp && not !enable_ssl then begin
     register_test ("udp_" ^ name)
       (fun () ->
-	 let client = C.create_client ~esys
-		      (Rpc_client.Inet("localhost", !udp_port))
-			Rpc.Udp
+	 let client = C.create_client2 ~esys
+	              (`Socket(Rpc.Udp, 
+			       Rpc_client.Inet("localhost", !udp_port),
+			       socket_config))
 	 in
 	 f client
       )
@@ -45,9 +54,10 @@ let register_test_triple ?(tcp=true) ?(udp=true) ?(unix=true) name f =
   if unix then begin
     register_test ("unix_" ^ name)
       (fun () ->
-	 let client = C.create_client ~esys
-		      (Rpc_client.Unix !unix_path)
-			Rpc.Tcp
+	 let client = C.create_client2 ~esys
+	              (`Socket(Rpc.Tcp, 
+			       Rpc_client.Unix !unix_path,
+			       socket_config))
 	 in
 	 f client
       )
@@ -335,46 +345,60 @@ let register_auth_dh () =
 let main() =
   (* Register tests: *)
 
-  register_ping();
-  register_revert();
-  register_batch_in();
-  register_batch_out();
-  register_retransmit();
-  register_dropping_filter();
-  register_rejecting_filter();
-  register_denying_filter();
-  register_dropping_filter_with_limit();
-  register_auth_sys();
-  register_auth_local();
-  register_auth_dh();
+  let do_register() =
+    register_ping();
+    register_revert();
+    register_batch_in();
+    register_batch_out();
+    register_retransmit();
+    register_dropping_filter();
+    register_rejecting_filter();
+    register_denying_filter();
+    register_dropping_filter_with_limit();
+    register_auth_sys();
+    register_auth_local();
+    register_auth_dh();
+  in    
 
   (* Parse command line: *)
 
   let tests_to_do = ref [] in
   let print_test_names = ref false in
+  let args = ref [] in
   Arg.parse
-      [ "-tcp_port", Arg.Int (fun n -> tcp_port := n),
-	          "<n>          Set the TCP port of the test server";
-	"-udp_port", Arg.Int (fun n -> udp_port := n),
-	          "<n>          Set the UDP port of the test server";
-	"-unix_path", Arg.String (fun s -> unix_path := s),
-	           "<path>      Set the path name of the Unix domain socket";
-	"-print", Arg.Set print_test_names,
-	       "                Print the available tests";
-      ]
-      (fun s ->
-	 match s with
-	     "all" ->
-	       tests_to_do := List.rev !tests
-	   | name ->
-	       let f =
-		 try List.assoc name !tests
-		 with Not_found ->
-		   raise(Arg.Bad("No such test: " ^ name))
-	       in
-	       tests_to_do := !tests_to_do @ [ name, f ]
-      )
-      "Usage: protoclient [ options ] test ...";
+    [ "-tcp_port", Arg.Int (fun n -> tcp_port := n),
+      "<n>          Set the TCP port of the test server";
+      "-udp_port", Arg.Int (fun n -> udp_port := n),
+      "<n>          Set the UDP port of the test server";
+      "-unix_path", Arg.String (fun s -> unix_path := s),
+      "<path>      Set the path name of the Unix domain socket";
+      "-ssl", Arg.Set enable_ssl,
+      "                  Enable SSL (incompatible with UDP)";
+      "-print", Arg.Set print_test_names,
+      "                Print the available tests";
+    ]
+    (fun s -> args := !args @ [s])
+    "Usage: protoclient [ options ] test ...";
+
+  if !enable_ssl then
+    Ssl.init();
+
+  do_register();
+
+  List.iter
+    (fun s ->
+       match s with
+	   "all" ->
+	     tests_to_do := List.rev !tests
+	 | name ->
+	     let f =
+	       try List.assoc name !tests
+	       with Not_found ->
+		 raise(Arg.Bad("No such test: " ^ name))
+	     in
+	     tests_to_do := !tests_to_do @ [ name, f ]
+    )
+    !args;
 
   if !print_test_names then begin
     printf "Available tests:\n";
@@ -392,6 +416,8 @@ let main() =
     prerr_endline "No tests selected.";
     exit 1
   end;
+
+  Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
 
   List.iter
     (fun (name,f) ->
