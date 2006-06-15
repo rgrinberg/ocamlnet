@@ -148,6 +148,8 @@ value unix_peek_peer_credentials(value fd) {
         void *crmsg = NULL;
         struct sockcred *sc;
         socklen_t crmsgsize;
+	struct iovec iov;
+	char buf;
 
 	if (setsockopt(Int_val(fd),
 		       SOL_SOCKET,
@@ -164,6 +166,11 @@ value unix_peek_peer_credentials(value fd) {
 	memset(crmsg, 0, crmsgsize);
 	msg.msg_control = crmsg;
 	msg.msg_controllen = crmsgsize;
+	msg.iov = &iov;
+	msg.iovlen = 1;
+
+	iov.iov_base = &buf;
+	iov.iov_len = 1;
 
 	if (recvmsg(Int_val(fd), &msg, MSG_PEEK) < 0) {
 	    stat_free(crmsg);
