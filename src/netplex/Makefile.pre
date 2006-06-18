@@ -1,12 +1,13 @@
 TOP_DIR=../..
 
 PKGNAME = netplex
-
 GENERATE = netplex_ctrl_aux.ml netplex_ctrl_clnt.ml netplex_ctrl_srv.ml META
-
+PACKLIST = netplex-packlist
 RPCGEN = ../rpc-generator/ocamlrpcgen
 
 include $(TOP_DIR)/Makefile.rules
+
+CLEAN_LIST += netplex-admin$(EXEC_SUFFIX)
 
 netplex_ctrl_aux.ml: netplex_ctrl.x
 	$(RPCGEN) -aux netplex_ctrl.x -int unboxed

@@ -47,7 +47,7 @@ OCAMLC_OPTIONS_FOR_netstring_mt.ml = $(THREAD)
 OCAMLOPT_OPTIONS_FOR_netstring_mt.ml = $(THREAD)
 
 INSTOTHER = install-netdb
-UNINSTOTHER = uninstall-netdb
+PACKLIST = netdb-packlist
 
 BUILD_EXTRA = netaccel.cma  netaccel_link.cmo \
 	      $(PMAP:.pmap=.cmo) netmappings_min.cmo
@@ -108,21 +108,9 @@ netdb-packlist: netdb_done
 
 .PHONY: install-netdb
 install-netdb:
-	mkdir -p $(NET_DB_DIR)
-	cp netdb/*.netdb $(NET_DB_DIR)
-	@echo "Installed .netdb files into $(NET_DB_DIR)"
-
-.PHONY: uninstall-netdb
-uninstall-netdb:
-	if [ "$(INSTMETHOD)" = "findlib" ]; then                              \
-		if packlist=`ocamlfind query $(PKGNAME)`/netdb-packlist; then \
-		    if [ -f "$$packlist" ]; then                              \
-			files=`cat $$packlist` &&                             \
-			rm -f $$files;                                        \
-			echo "Removed .netdb files";                          \
-		    fi;                                                       \
-		fi;                                                           \
-	fi
+	mkdir -p $(DESTDIR)$(NET_DB_DIR)
+	cp netdb/*.netdb $(DESTDIR)$(NET_DB_DIR)
+	@echo "Installed .netdb files into $(DESTDIR)$(NET_DB_DIR)"
 
 tools_done:
 	$(MAKE) -C tools
@@ -133,8 +121,7 @@ netdate.ml: netdate.mlp
 
 include $(TOP_DIR)/Makefile.rules
 
-CLEAN_LIST += tools_done netdb_done netdb-packlist netdb.ml netdate.ml \
-	 	$(PMAP:.pmap=.ml)
+CLEAN_LIST += tools_done netdb_done netdb.ml netdate.ml $(PMAP:.pmap=.ml)
 
 clean::
 	test ! -d mappings || rm -f $(PMAP)

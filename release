@@ -1,0 +1,33 @@
+#! /bin/sh
+
+set -e
+
+version=`./configure -version 2>/dev/null`
+destdir="ocamlnet-$version"
+
+mkdir -p packages
+rm -rf "packages/$destdir"
+makepkg -spec ocamlnet.files -intree . -outtree "packages/$destdir"
+(cd packages; tar czf "$destdir.tar.gz" "$destdir")
+echo "Wrote packages/$destdir.tar.gz"
+
+# Checking for svn:
+
+status=$(svn status | grep -v '^\?' || true )
+
+if [ -n "$status" ]; then
+    echo "Error: svn status not clean"
+    exit 1
+else
+    printf "Tag revision (y/n)? "
+    read answer
+    case "$answer" in
+	y|Y|yes|YES)
+	    svn cp https://gps.dynxs.de/svn/lib-ocamlnet2/trunk/code https://gps.dynxs.de/svn/lib-ocamlnet2/tags/rpc-$version
+	    echo "New tag: https://gps.dynxs.de/svn/lib-ocamlnet2/tags/ocamlnet-$version"
+	    ;;
+	*)
+	    echo "Nothing tagged."
+	    ;;
+    esac
+fi

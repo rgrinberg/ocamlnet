@@ -1,0 +1,319 @@
+# SYNTAX OF ocamlnet.files: 
+#
+# d DIRPATH
+# 
+# include this subdirectory
+#
+# f FILEPATH
+#
+# include this file (or symlink)
+#
+# x FILEPATH
+#
+# exclude this file
+#
+# p DIRPATH/FILEPATTERN
+#
+# include all files of the directory that match the regular expression
+# FILEPATTERN (Str-type regexp)
+#
+# w DIRPATH/FILEPATTERN
+#
+# output a warning if one of the matching files matches
+#
+# Exclusions must be mentioned before inclusions.
+
+#f README
+f LICENSE
+f LICENSE.GPL
+#f CHANGES
+f Makefile
+f Makefile.rules
+f Makefile.xrules
+f configure
+
+d src
+
+d tools
+f tools/collect_files
+
+d src/netstring
+f src/netstring/META.in
+f src/netstring/Makefile
+f src/netstring/Makefile.pre
+f src/netstring/Makefile.def
+# Include all .ml, .mli files, but not the modules currently being developed
+x src/netstring/nethtml_scanner.ml
+x src/netstring/netmessage.mli
+x src/netstring/netiso2022.ml
+# Make sure these exist:
+f src/netstring/netmappings_iso.pmap
+f src/netstring/netmappings_jp.pmap
+f src/netstring/netmappings_other.pmap
+x src/netstring/netmappings_iso.ml
+x src/netstring/netmappings_jp.ml
+x src/netstring/netmappings_other.ml
+f src/netstring/netmappings_min.ml
+# The pattern:
+p src/netstring/.*\.ml
+p src/netstring/.*\.mli
+# Also include netdate.mlp:
+f src/netstring/netdate.mlp
+f src/netstring/nethtml_scanner.mll
+f src/netstring/netdb.mlp
+x src/netstring/netdb.ml
+f src/netstring/netaccel_c.c
+
+# src/netstring/doc: not yet ready
+# src/netstring/mappings: not necessary
+# src/netstring/tests: not necessary
+
+d src/netstring/tools
+f src/netstring/tools/Makefile
+d src/netstring/tools/unimap_to_ocaml
+f src/netstring/tools/unimap_to_ocaml/Makefile
+f src/netstring/tools/unimap_to_ocaml/unimap_to_ocaml.ml
+
+d src/cgi
+f src/cgi/META.in
+f src/cgi/Makefile
+f src/cgi/Makefile.pre
+p src/cgi/.*\.ml
+p src/cgi/.*\.mli
+
+d src/pop
+f src/pop/META.in
+f src/pop/Makefile
+f src/pop/Makefile.pre
+p src/pop/.*\.ml
+p src/pop/.*\.mli
+
+d src/smtp
+f src/smtp/META.in
+f src/smtp/Makefile
+f src/smtp/Makefile.pre
+p src/smtp/.*\.ml
+p src/smtp/.*\.mli
+
+d src/nethttpd
+f src/nethttpd/META.in
+f src/nethttpd/Makefile
+f src/nethttpd/Makefile.pre
+f src/nethttpd/LICENSE
+p src/nethttpd/.*\.ml
+p src/nethttpd/.*\.mli
+
+d src/equeue
+f src/equeue/META.in
+f src/equeue/Makefile
+f src/equeue/Makefile.pre
+p src/equeue/.*\.ml
+p src/equeue/.*\.mli
+
+d src/equeue-gtk
+f src/equeue-gtk/META.in
+f src/equeue-gtk/Makefile
+f src/equeue-gtk/Makefile.pre
+f src/equeue-gtk/Makefile.gtk
+p src/equeue-gtk/.*\.ml
+p src/equeue-gtk/.*\.mli
+
+d src/equeue-gtk2
+f src/equeue-gtk2/META.in
+f src/equeue-gtk2/Makefile.pre
+f src/equeue-gtk2/Makefile.gtk
+p src/equeue-gtk2/.*\.ml
+p src/equeue-gtk2/.*\.mli
+
+d src/equeue-tcl
+f src/equeue-tcl/META.in
+f src/equeue-tcl/Makefile
+f src/equeue-tcl/Makefile.pre
+p src/equeue-tcl/.*\.ml
+p src/equeue-tcl/.*\.mli
+p src/equeue-tcl/.*\.c
+p src/equeue-tcl/.*\.h
+
+d src/equeue-ssl
+f src/equeue-ssl/META.in
+f src/equeue-ssl/Makefile
+f src/equeue-ssl/Makefile.pre
+p src/equeue-ssl/.*\.ml
+p src/equeue-ssl/.*\.mli
+p src/equeue-ssl/.*\.c
+p src/equeue-ssl/.*\.h
+
+d src/shell
+f src/shell/META.in
+f src/shell/Makefile
+f src/shell/Makefile.pre
+p src/shell/.*\.ml
+p src/shell/.*\.mli
+p src/shell/.*\.c
+
+d src/netclient
+f src/netclient/META.in
+f src/netclient/Makefile
+f src/netclient/Makefile.pre
+p src/netclient/.*\.ml
+p src/netclient/.*\.mli
+
+d src/netplex
+f src/netplex/META.in
+f src/netplex/Makefile
+f src/netplex/Makefile.pre
+p src/netplex/.*\.ml
+p src/netplex/.*\.mli
+f src/netplex/netplex_ctrl.x
+x src/netplex/netplex_ctrl_aux.ml
+x src/netplex/netplex_ctrl_aux.mli
+x src/netplex/netplex_ctrl_clnt.ml
+x src/netplex/netplex_ctrl_clnt.mli
+x src/netplex/netplex_ctrl_srv.ml
+x src/netplex/netplex_ctrl_srv.mli
+x src/netplex/netplex_vexec.mli
+
+d src/rpc
+f src/rpc/META.in
+f src/rpc/Makefile
+f src/rpc/Makefile.pre
+p src/rpc/.*\.ml
+p src/rpc/.*\.mli
+f src/rpc/rpc_portmapper.x
+x src/rpc/rpc_portmapper_aux.ml
+x src/rpc/rpc_portmapper_aux.mli
+x src/rpc/rpc_portmapper_clnt.ml
+x src/rpc/rpc_portmapper_clnt.mli
+
+d src/rpc-generator
+f src/rpc-generator/META.in
+f src/rpc-generator/Makefile
+f src/rpc-generator/Makefile.pre
+p src/rpc-generator/.*\.ml
+p src/rpc-generator/.*\.mli
+p src/rpc-generator/.*\.mll
+p src/rpc-generator/.*\.mly
+x src/rpc-generator/lexer.ml
+x src/rpc-generator/parser.ml
+
+d src/rpc-auth-dh
+f src/rpc-auth-dh/META.in
+f src/rpc-auth-dh/Makefile
+f src/rpc-auth-dh/Makefile.pre
+p src/rpc-auth-dh/.*\.ml
+p src/rpc-auth-dh/.*\.mli
+f src/rpc-auth-dh/rpc_key.x
+x src/rpc-auth-dh/rpc_key_aux.ml
+x src/rpc-auth-dh/rpc_key_aux.mli
+x src/rpc-auth-dh/rpc_key_clnt.ml
+x src/rpc-auth-dh/rpc_key_clnt.mli
+f src/rpc-auth-dh/rpc_key_service.mlp
+x src/rpc-auth-dh/rpc_key_service.ml
+
+d src/rpc-auth-local
+f src/rpc-auth-local/META.in
+f src/rpc-auth-local/Makefile
+f src/rpc-auth-local/Makefile.pre
+p src/rpc-auth-local/.*\.ml
+p src/rpc-auth-local/.*\.mli
+p src/rpc-auth-local/.*\.c
+
+d src/rpc-ssl
+f src/rpc-ssl/META.in
+f src/rpc-ssl/Makefile
+f src/rpc-ssl/Makefile.pre
+p src/rpc-ssl/.*\.ml
+p src/rpc-ssl/.*\.mli
+
+d src/rpc-xti
+f src/rpc-xti/META.in
+f src/rpc-xti/Makefile
+f src/rpc-xti/Makefile.pre
+p src/rpc-xti/.*\.ml
+p src/rpc-xti/.*\.mli
+p src/rpc-xti/.*\.c
+
+d examples
+d examples/cgi
+
+d examples/cgi/cgi
+f examples/cgi/cgi/Makefile
+f examples/cgi/cgi/add.ml
+f examples/cgi/cgi/counter.ml
+f examples/cgi/cgi/filemanager.ml
+f examples/cgi/cgi/mailbox.ml
+
+d examples/cgi/jserv
+f examples/cgi/jserv/README.jserv
+f examples/cgi/jserv/README.httpd.conf
+f examples/cgi/jserv/README.properties
+f examples/cgi/jserv/Makefile
+f examples/cgi/jserv/add_sequential.ml
+f examples/cgi/jserv/add_forking.ml
+f examples/cgi/jserv/add_procpool.ml
+
+d examples/cgi/fcgi
+f examples/cgi/fcgi/Makefile
+f examples/cgi/fcgi/add_fastcgi.ml
+
+d examples/cgi/fcgi_raw
+f examples/cgi/fcgi_raw/Makefile
+f examples/cgi/fcgi_raw/fcgi_raw.ml
+
+d examples/pop
+f examples/pop/Makefile
+f examples/pop/mbox_list.ml
+
+d examples/nethttpd
+f examples/nethttpd/README
+f examples/nethttpd/Makefile
+f examples/nethttpd/easy_daemon.ml
+f examples/nethttpd/easy_engine.ml
+f examples/nethttpd/easy_reactor.ml
+f examples/nethttpd/file_engine.ml
+f examples/nethttpd/file_mt_reactor.ml
+f examples/nethttpd/file_reactor.ml
+f examples/nethttpd/proxy_engine.ml
+f examples/nethttpd/netplex.ml
+
+d examples/rpc
+
+d examples/rpc/queues
+f examples/rpc/queues/Makefile
+f examples/rpc/queues/Makefile.code
+f examples/rpc/queues/Makefile.auth_dh
+f examples/rpc/queues/Makefile.auth_sys
+f examples/rpc/queues/Makefile.auth_ssl
+f examples/rpc/queues/README
+f examples/rpc/queues/qclient.ml
+f examples/rpc/queues/qclient_auth_dh.ml
+f examples/rpc/queues/qclient_auth_ssl.ml
+f examples/rpc/queues/qclient_auth_sys.ml
+f examples/rpc/queues/qclient_main.ml
+f examples/rpc/queues/qserver.ml
+f examples/rpc/queues/qserver_auth_dh.ml
+f examples/rpc/queues/qserver_auth_ssl.ml
+f examples/rpc/queues/qserver_auth_sys.ml
+f examples/rpc/queues/qserver_main.ml
+f examples/rpc/queues/queues.x
+
+d examples/rpc/finder
+f examples/rpc/finder/Makefile
+f examples/rpc/finder/Makefile.code
+f examples/rpc/finder/README
+f examples/rpc/finder/finder_service.x
+f examples/rpc/finder/finder_client.ml
+f examples/rpc/finder/finder_daemon.ml
+f examples/rpc/finder/netplex.cfg
+
+#d doc
+#d doc/html
+#d doc/html/intro
+#p doc/html/intro/.*\.html
+#p doc/html/intro/.*\.css
+#p doc/html/intro/.*\.png
+#d doc/html/refman
+#p doc/html/refman/.*\.html
+#p doc/html/refman/.*\.css
+
+# other doc: not yet ready

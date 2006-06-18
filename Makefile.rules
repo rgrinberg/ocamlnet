@@ -53,7 +53,7 @@ $(ARCHIVE).cmxa: $(XOBJECTS) $(COBJECTS)
 # Files to remove everywhere by "make clean":
 
 CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa dll* packlist-* \
-	     ocamldoc.dump META $(GENERATE)
+	     ocamldoc.dump META $(PACKLIST) $(GENERATE)
 
 # Generic build rules:
 
@@ -83,19 +83,28 @@ ocamldoc.dump: $(DOBJECTS)
 # Install rules:
 
 .PHONY: install
-install: install-$(INSTMETHOD) $(INSTOTHER)
+install: install-$(INSTMETHOD) $(INSTOTHER) $(PACKLIST)
 
 .PHONY: uninstall
 uninstall: $(UNINSTOTHER) uninstall-$(INSTMETHOD) 
 
 .PHONY: install-findlib
 install-findlib: META
-	files=`$(COLLECT_FILES) *.mli *.cmi *.cma *.cmxa *.a META $(INSTALL_EXTRA)` && \
+	files=`$(COLLECT_FILES) *.mli *.cmi *.cma *.cmxa *.a dll* META $(INSTALL_EXTRA)` && \
 	$(OCAMLFIND) install $(PKGNAME) $$files
 
 .PHONY: uninstall-findlib
 uninstall-findlib:
 	$(OCAMLFIND) remove $(PKGNAME)
+	if [ -n "$(PACKLIST)" ]; then                                         \
+	        if packlist=`ocamlfind query $(PKGNAME)`/$(PACKLIST); then    \
+	            if [ -f "$$packlist" ]; then                              \
+	                files=`cat $$packlist` &&                             \
+	                rm -f $$files;                                        \
+	                echo "$$files" | xargs echo "Removed ";               \
+	            fi;                                                       \
+	        fi;                                                           \
+	fi
 
 META: META.in
 	sed -e 's/@VERSION@/$(VERSION)/' \

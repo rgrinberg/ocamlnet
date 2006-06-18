@@ -14,20 +14,32 @@ DOBJECTS = netplex_types.mli netplex_mp.mli netplex_mt.mli netplex_log.mli \
 INCLUDES += -I ../equeue -I ../rpc -I ../shell -I ../netstring
 # Note: Instead of shell use unix-exts
 
-ALL_EXTRA = netplex-admin
+ALL_EXTRA = netplex-admin$(EXEC_SUFFIX) netplex-packlist
+INSTALL_EXTRA = netplex-packlist
 
 PP_OPTIONS = -syntax camlp4o -package camlp4
 
 OCAMLC_OPTIONS_FOR_netplex_mt.ml = $(THREAD)
 OCAMLOPT_OPTIONS_FOR_netplex_mt.ml = $(THREAD)
 
+INSTOTHER = install-netplex-admin
+PACKLIST = netplex-packlist
+
 include $(TOP_DIR)/Makefile.rules
 
-netplex-admin: netplex.cma netplex_admin.cmo
+netplex-admin$(EXEC_SUFFIX): netplex.cma netplex_admin.cmo
 	$(OCAMLC) -o netplex-admin -custom \
 		unix.cma equeue.cma netstring.cma rpc.cma shell.cma \
 		netplex.cma netplex_admin.cmo
 
-CLEAN_LIST += netplex-admin
+.PHONY: install-netplex-admin uninstall-netplex-admin
+
+install-netplex-admin:
+	mkdir -p $(DESTDIR)$(BINDIR)
+	cp netplex-admin$(EXEC_SUFFIX) $(DESTDIR)$(BINDIR)
+	@echo "Installed netplex-admin$(EXEC_SUFFIX) into $(DESTDIR)$(BINDIR)"
+
+netplex-packlist:
+	echo $(BINDIR)/netplex-admin >netplex-packlist
 
 include depend
