@@ -57,7 +57,7 @@ set_defaults () {
 ocamlc=`get_path ocamlc`
 set_defaults
 
-version="2.2test1"
+version="2.2test2"
 exec_suffix=""
 
 #######################################################################
@@ -612,6 +612,8 @@ full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2
 if [ $disable_core -gt 0 ]; then
     # Omit the core packages:
     pkglist=""
+    with_rpc_auth_local=0
+    with_rpc_xti=0
 fi
 
 for opt in $woptions rpc_auth_local rpc_xti equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl; do
