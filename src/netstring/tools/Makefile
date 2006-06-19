@@ -1,10 +1,10 @@
 all:
-	$(MAKE) -C unimap_to_ocaml
+	cd unimap_to_ocaml && $(MAKE) unimap_to_ocaml
 
 clean:
 
 CLEAN: clean
-	$(MAKE) -C unimap_to_ocaml CLEAN
+	cd unimap_to_ocaml && $(MAKE) CLEAN
 
 distclean: clean
 	$(MAKE) -C unimap_to_ocaml distclean

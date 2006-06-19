@@ -4,7 +4,7 @@ PKGNAME  = pop
 OBJECTS  = netpop.cmo
 OCAMLDOC = netpop.mli
 
-INCLUDES += -I ../netstring
+INCLUDES += $(INC_NETSTRING)
 
 include $(TOP_DIR)/Makefile.rules
 

@@ -5,7 +5,7 @@ ARCHIVE  = rpc_ssl
 OBJECTS  = rpc_ssl.cmo
 DOBJECTS = rpc_ssl.mli
 
-INCLUDES += -I ../rpc -I ../equeue -I ../equeue-ssl
+INCLUDES += $(INC_RPC) $(INC_EQUEUE) $(INC_EQUEUE_SSL)
 
 include $(TOP_DIR)/Makefile.rules
 

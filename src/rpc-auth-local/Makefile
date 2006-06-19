@@ -6,7 +6,7 @@ COBJECTS = rpclocal.o
 OCAMLDOC = 
 ARCHIVE = rpc_auth_local
 
-INCLUDES += -I ../rpc
+INCLUDES += $(INC_RPC)
 
 include $(TOP_DIR)/Makefile.rules
 

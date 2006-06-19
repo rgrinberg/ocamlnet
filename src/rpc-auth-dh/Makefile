@@ -8,7 +8,7 @@ DOBJECTS =
 
 include $(TOP_DIR)/Makefile.rules
 
-INCLUDES += -I ../rpc -I ../equeue
+INCLUDES += $(INC_RPC) $(INC_EQUEUE)
 REQUIRES += cryptgps
 
 include depend

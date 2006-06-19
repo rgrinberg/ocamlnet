@@ -9,7 +9,7 @@ COBJECTS = tclqueue.o
 LINK_OPTIONS = $(EQUEUE_TCL_LIBS)
 CC_OPTIONS = $(EQUEUE_TCL_DEFS)
 
-INCLUDES += -I ../equeue
+INCLUDES += $(INC_EQUEUE)
 
 include $(TOP_DIR)/Makefile.rules
 

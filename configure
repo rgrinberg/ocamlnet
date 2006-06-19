@@ -51,6 +51,7 @@ set_defaults () {
     tcl_defs=""
     tcl_libs=""
     adh_style=""
+    disable_core=0
 }
 
 ocamlc=`get_path ocamlc`
@@ -213,6 +214,11 @@ while [ "$#" -gt 0 ]; do
 			opt=`echo "$1" | sed -e 's/-enable-//' -e 's/-/_/g'`
 			check_eopt "$opt"
 			eval "enable_$opt=2"
+			shift
+			;;
+	        -disable-core)
+		        # Intentionally undocumented.
+		        disable_core=1
 			shift
 			;;
 		-disable-*)
@@ -450,13 +456,13 @@ fi
 ######################################################################
 # Check lablgtk
 
-with_equeue_gtk=0
+with_equeue_gtk1=0
 
 if [ $enable_gtk -gt 0 ]; then
     printf "%s" "Checking for lablgtk... "
     if ocamlfind query lablgtk >/dev/null 2>/dev/null; then
         echo "found"
-	with_equeue_gtk=1
+	with_equeue_gtk1=1
     else
         echo "not found"
 	echo "Required library lablgtk not found!"
@@ -535,7 +541,7 @@ EOF
 
     for f in Makefile uq_gtk.ml uq_gtk.mli; do
 	rm -f src/equeue-gtk2/$f
-	ln -s ../equeue-gtk/$f src/equeue-gtk2
+	ln -s ../equeue-gtk1/$f src/equeue-gtk2
     done
     
     with_equeue_gtk2=1
@@ -601,8 +607,14 @@ print_options
 echo
 
 pkglist="equeue shell netstring rpc-generator rpc pop smtp netclient cgi netplex"
-full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh"
-for opt in $woptions rpc_auth_local rpc_xti equeue_tcl equeue_gtk equeue_gtk2 equeue_ssl rpc_ssl; do
+full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh"
+
+if [ $disable_core -gt 0 ]; then
+    # Omit the core packages:
+    pkglist=""
+fi
+
+for opt in $woptions rpc_auth_local rpc_xti equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl; do
 	e="o=\$with_$opt"
 	eval "$e"
 	if [ $o -gt 0 ]; then

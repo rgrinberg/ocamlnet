@@ -1,6 +1,7 @@
 TOP_DIR=../..
 
-PKGNAME = cgi
+PRE = 1
+PKGNAME = smtp
 GENERATE = META
 
 include $(TOP_DIR)/Makefile.rules

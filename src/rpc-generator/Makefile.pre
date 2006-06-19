@@ -1,8 +1,11 @@
 TOP_DIR=../..
 
+PRE = 1
 PKGNAME = rpc-generator
 GENERATE = rtypes.ml rtypes.mli parser.ml META
 PACKLIST = rpcgen-packlist
+INSTALL_EXTRA = rpcgen-packlist
+INSTOTHER = install-rpcgen
 
 include $(TOP_DIR)/Makefile.rules
 
@@ -13,3 +16,9 @@ rtypes.ml: ../rpc/rtypes.ml
 
 rtypes.mli: ../rpc/rtypes.mli
 	cp ../rpc/rtypes.mli .
+
+.PHONY: install-rpcgen
+install-rpcgen:
+	mkdir -p $(DESTDIR)$(BINDIR)
+	cp ocamlrpcgen$(EXEC_SUFFIX) $(DESTDIR)$(BINDIR)
+	@echo "Installed ocamlrpcgen$(EXEC_SUFFIX) into $(DESTDIR)$(BINDIR)"

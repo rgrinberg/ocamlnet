@@ -1,5 +1,6 @@
 TOP_DIR=../..
 
+PRE = 1
 PKGNAME = rpc-auth-dh
 GENERATE = rpc_key_aux.ml rpc_key_clnt.ml rpc_key_service.ml META
 

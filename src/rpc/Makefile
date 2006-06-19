@@ -13,7 +13,7 @@ DOBJECTS = rtypes.mli xdr.mli rpc.mli rpc_common.mli \
            rpc_server.mli rpc_auth_sys.mli
 OCAMLOPT_OPTIONS += -inline 10
 
-INCLUDES += -I ../equeue
+INCLUDES += $(INC_EQUEUE)
 
 include $(TOP_DIR)/Makefile.rules
 

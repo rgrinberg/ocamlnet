@@ -1,6 +1,9 @@
 TOP_DIR=../..
 
+PRE = 1
 PKGNAME = equeue
 GENERATE = META
+
+INSTALL_EXTRA = unixqueue_mt.cmo unixqueue_mt.cmx unixqueue_mt.o
 
 include $(TOP_DIR)/Makefile.rules

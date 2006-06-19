@@ -4,7 +4,7 @@ PKGNAME  = smtp
 OBJECTS  = netsmtp.cmo
 DOBJECTS = netsmtp.mli
 
-INCLUDES += -I ../netstring
+INCLUDES += $(INC_NETSTRING)
 
 include $(TOP_DIR)/Makefile.rules
 

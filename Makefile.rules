@@ -20,6 +20,15 @@ OCAMLDOC  = ocamldoc
 TOOLS_DIR = $(TOP_DIR)/tools
 COLLECT_FILES = $(TOOLS_DIR)/collect_files
 
+# To be overridden by the command line:
+INC_NETSTRING  = -I ../netstring
+INC_EQUEUE     = -I ../equeue
+INC_EQUEUE_SSL = -I ../equeue-ssl
+INC_CGI        = -I ../cgi
+INC_NETPLEX    = -I ../netplex
+INC_RPC        = -I ../rpc
+INC_SHELL      = -I ../shell
+
 # Standard definitions and rules
 
 XOBJECTS = $(OBJECTS:.cmo=.cmx)
@@ -83,10 +92,19 @@ ocamldoc.dump: $(DOBJECTS)
 # Install rules:
 
 .PHONY: install
-install: install-$(INSTMETHOD) $(INSTOTHER) $(PACKLIST)
+install:
+	@$(MAKE) -f Makefile.pre realinstall
+
+.PHONY: realinstall
+realinstall: install-$(INSTMETHOD) $(INSTOTHER) $(PACKLIST)
+
 
 .PHONY: uninstall
-uninstall: $(UNINSTOTHER) uninstall-$(INSTMETHOD) 
+uninstall: 
+	@$(MAKE) -f Makefile.pre realuninstall
+
+.PHONY: realuninstall
+realuninstall: $(UNINSTOTHER) uninstall-$(INSTMETHOD) 
 
 .PHONY: install-findlib
 install-findlib: META
@@ -114,7 +132,7 @@ META: META.in
 #----------------------------------------------------------------------
 # general rules:
 
-depend:: *.ml *.mli
+depend: *.ml *.mli
 	$(OCAMLDEP) *.ml *.mli >depend || { rm -f depend; exit 1; }
 
 .PHONY: clean
@@ -127,4 +145,8 @@ distclean::
 	rm -f *~ depend
 
 .PHONY: generate
-generate:: $(GENERATE)
+generate:
+	@$(MAKE) -f Makefile.pre realgenerate
+
+.PHONY: realgenerate
+realgenerate:: $(GENERATE)

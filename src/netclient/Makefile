@@ -12,7 +12,7 @@ OPTMT_EXTRA = http_client_mt.cmx
 OCAMLC_OPTIONS_FOR_http_client_mt.ml = $(THREAD)
 OCAMLOPT_OPTIONS_FOR_http_client_mt.ml = $(THREAD)
 
-INCLUDES = -I ../equeue -I ../netstring
+INCLUDES = $(INC_EQUEUE) $(INC_NETSTRING)
 
 include $(TOP_DIR)/Makefile.rules
 

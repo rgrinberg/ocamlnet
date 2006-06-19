@@ -6,7 +6,7 @@ OBJECTS  = ssl_exts.cmo uq_ssl.cmo
 DOBJECTS = uq_ssl.mli
 COBJECTS = ssl_exts_stubs.o
 
-INCLUDES += -I ../equeue
+INCLUDES += $(INC_EQUEUE)
 
 include $(TOP_DIR)/Makefile.rules
 

@@ -110,13 +110,13 @@ f src/equeue/Makefile.pre
 p src/equeue/.*\.ml
 p src/equeue/.*\.mli
 
-d src/equeue-gtk
-f src/equeue-gtk/META.in
-f src/equeue-gtk/Makefile
-f src/equeue-gtk/Makefile.pre
-f src/equeue-gtk/Makefile.gtk
-p src/equeue-gtk/.*\.ml
-p src/equeue-gtk/.*\.mli
+d src/equeue-gtk1
+f src/equeue-gtk1/META.in
+f src/equeue-gtk1/Makefile
+f src/equeue-gtk1/Makefile.pre
+f src/equeue-gtk1/Makefile.gtk
+p src/equeue-gtk1/.*\.ml
+p src/equeue-gtk1/.*\.mli
 
 d src/equeue-gtk2
 f src/equeue-gtk2/META.in

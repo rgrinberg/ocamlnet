@@ -18,6 +18,7 @@ PKGLIST ?= netstring cgi
 all:
 	for pkg in $(PKGLIST); do \
 		( cd src/$$pkg && $(MAKE) -f Makefile.pre generate ) || exit; \
+		( cd src/$$pkg && $(MAKE) -f Makefile.pre depend ) || exit; \
 		( cd src/$$pkg && $(MAKE) all ) || exit; \
 	done
 
@@ -25,6 +26,7 @@ all:
 opt:
 	for pkg in $(PKGLIST); do \
 		( cd src/$$pkg && $(MAKE) -f Makefile.pre generate ) || exit; \
+		( cd src/$$pkg && $(MAKE) -f Makefile.pre depend ) || exit; \
 		( cd src/$$pkg && $(MAKE) opt ) || exit; \
 	done
 
@@ -33,7 +35,7 @@ opt:
 .PHONY: install
 install:
 	for pkg in $(PKGLIST); do \
-		( cd src/$$pkg && $(MAKE) install ) || exit; \
+		( cd src/$$pkg && $(MAKE) -f Makefile.pre install ) || exit; \
 	done
 
 .PHONY: uninstall

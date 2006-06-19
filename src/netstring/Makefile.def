@@ -113,7 +113,7 @@ install-netdb:
 	@echo "Installed .netdb files into $(DESTDIR)$(NET_DB_DIR)"
 
 tools_done:
-	$(MAKE) -C tools
+	cd tools && $(MAKE)
 	touch tools_done
 
 netdate.ml: netdate.mlp

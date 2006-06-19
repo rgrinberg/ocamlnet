@@ -6,7 +6,7 @@ OBJECTS  = rpc_xti_client.cmo
 COBJECTS = rpcxti.o
 DOBJECTS = 
 
-INCLUDES += -I ../rpc
+INCLUDES += $(INC_RPC)
 
 include $(TOP_DIR)/Makefile.rules
 
