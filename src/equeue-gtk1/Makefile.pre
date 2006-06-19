@@ -1,7 +1,7 @@
 TOP_DIR=../..
 
 PRE = 1
-PKGNAME = equeue-gtk
+PKGNAME = equeue-gtk1
 GENERATE = META
 
 include ./Makefile.gtk
