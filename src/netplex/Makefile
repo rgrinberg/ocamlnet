@@ -1,7 +1,7 @@
 TOP_DIR=../..
 
 PKGNAME  = netplex
-OBJECTS  = netplex_mp.cmo netplex_mt.cmo netplex_log.cmo \
+OBJECTS  = netplex_mp.cmo netplex_log.cmo \
 	   netplex_ctrl_aux.cmo netplex_ctrl_clnt.cmo netplex_ctrl_srv.cmo \
 	   netplex_container.cmo netplex_sockserv.cmo netplex_workload.cmo \
 	   netplex_controller.cmo netplex_config.cmo \
@@ -14,8 +14,9 @@ DOBJECTS = netplex_types.mli netplex_mp.mli netplex_mt.mli netplex_log.mli \
 INCLUDES += -I ../equeue -I ../rpc -I ../shell -I ../netstring
 # Note: Instead of shell use unix-exts
 
-ALL_EXTRA = netplex-admin$(EXEC_SUFFIX) netplex-packlist
-INSTALL_EXTRA = netplex-packlist
+ALL_EXTRA = netplex-admin$(EXEC_SUFFIX) netplex-packlist netplex_mt.cmo
+OPT_EXTRA = netplex_mt.cmx
+INSTALL_EXTRA = netplex-packlist netplex_mt.cmo netplex_mt.cmx netplex_mt.o
 
 PP_OPTIONS = -syntax camlp4o -package camlp4
 
