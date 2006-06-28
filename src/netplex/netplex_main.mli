@@ -21,6 +21,7 @@ val foreground : cmdline_config -> bool
 
 val startup : 
       ?late_initializer:(config_file -> controller -> unit) ->
+      ?config_parser:(string -> config_file) ->
       parallelizer ->
       logger_factory list ->
       workload_manager_factory list ->
@@ -34,5 +35,8 @@ val startup :
     * The [late_initializer] is called after the Netplex controller has been
     * fully initialized, and before the main event loop is entered. You can
     * perform here further initializations, e.g. starting helper threads.
+    *
+    * The [config_parser] is by default [Netplex_config.read_config_file].
+    * You can override it by whatever parser you would like to use.
    *)
 

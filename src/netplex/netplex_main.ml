@@ -75,9 +75,9 @@ let rec run ctrl =
 
 
 let startup ?(late_initializer = fun _ _ -> ())
+            ?(config_parser = Netplex_config.read_config_file)
             par c_logger_cf c_wrkmg_cf c_proc_cf cf =
-  let config_file =
-    Netplex_config.read_config_file cf.config_filename in
+  let config_file = config_parser cf.config_filename in
   
   let netplex_config =
     Netplex_config.read_netplex_config
