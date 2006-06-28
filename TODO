@@ -1,0 +1,8 @@
+Constant workload manager:
+
+	Do not use param "jobs" but "threads" to specifiy the number of 
+	threads. (Bg: Multiplexed services can have more jobs than threads.)
+
+protocol.path:
+
+	Create directories as needed
