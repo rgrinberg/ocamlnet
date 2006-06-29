@@ -6,3 +6,15 @@ Constant workload manager:
 protocol.path:
 
 	Create directories as needed
+
+Http_client.pipeline:
+	
+	method event_system
+
+rpc_factory:
+
+	Pass hook functions in
+
+Command line options of netplex:
+
+	Possibility to set default values to different things
