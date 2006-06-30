@@ -1,0 +1,10 @@
+*.cmi
+*.cmo
+*.cma
+*.cmx
+*.cmxa
+*.annot
+*.exe
+*.opt
+*.com
+TAGS

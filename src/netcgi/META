@@ -1,0 +1,7 @@
+# Specifications for the Benchmark module             -*-shell-script-*-
+name = "netcgi"
+version = "0.5"
+description = "Connectors for GCI, FCGI, AJP, and Apache modules"
+requires = "unix"
+archive(byte) = "netcgi.cma netcgi_mod.cma"
+archive(native) = "netcgi.cmxa"

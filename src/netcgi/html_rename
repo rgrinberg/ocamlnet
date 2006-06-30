@@ -1,0 +1,67 @@
+#!/usr/bin/ocamlrun ocaml
+(* 	$Id: html_rename,v 1.4 2005/09/05 14:53:44 chris_77 Exp $	 *)
+
+#load "str.cma";;
+
+(* Generated documentation directory *)
+let doc = "doc"
+
+(* Change .cgi into -cgi for filenames (and thus links) because
+   otherwise SF mistakenly considers them as CGI scripts *)
+let change_suffix suff0 suff1 =
+  let change f =
+    if Filename.check_suffix f suff0 then
+      Sys.rename f ((Filename.chop_suffix f suff0) ^ suff1) in
+  Array.iter (fun f -> change (Filename.concat doc f)) (Sys.readdir doc)
+
+let change_link suff0 suff1 =
+  let re0 = Str.regexp_string suff0 in
+  let change f0 =
+    let f1 = (f0 ^ ".tmp") in
+    let fh0 = open_in f0 and fh1 = open_out f1 in
+    (try while true do
+       let l = input_line fh0 in
+       output_string fh1 (Str.global_replace re0 suff1 l ^ "\n")
+     done
+     with End_of_file -> ());
+    close_in fh0;
+    close_out fh1;
+    Sys.rename f1 f0 in
+  Array.iter (fun f -> change (Filename.concat doc f)) (Sys.readdir doc)
+
+let () =
+  let change s0 s1 = change_suffix s0 s1;  change_link s0 s1 in
+  change ".cgi.html" "-cgi.html";
+  change ".CGI.html" "-CGI.html"
+
+
+(* Append the Sourceforge logo to all files. *)
+
+let sflogo = "<br /><br /><br /><br />
+<a href=\"http://sourceforge.net\"><img
+ style=\"float: right;\"
+ src=\"http://sflogo.sourceforge.net/sflogo.php?group_id=117069&amp;type=2\"
+ alt=\"SourceForge.net Logo\" border=\"0\" height=\"37\" width=\"125\"></a>"
+
+let () =
+  let body = Str.regexp_string "</body>" in
+  let logo = sflogo ^ "\n</body >\n" (* space => make it idempotent *) in
+  let insert_logo f0 =
+    let f1 = f0 ^ ".tmp" in
+    let fh0 = open_in f0 and fh1 = open_out f1 in
+    (try while true do
+       let l = input_line fh0 in
+       output_string fh1 (Str.global_replace body logo l ^ "\n")
+     done
+     with End_of_file -> ());
+    close_in fh0;
+    close_out fh1;
+    Sys.rename f1 f0 in
+  Array.iter (fun f -> insert_logo(Filename.concat doc f)) (Sys.readdir doc)
+
+
+(*
+  Local Variables:
+  mode: tuareg
+  End:
+*)

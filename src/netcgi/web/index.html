@@ -1,0 +1,92 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"
+	  "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+  <head>
+    <title>OCamlNet</title>
+    <link rel="stylesheet" type="text/css" href="index.css">
+    <meta name="description" content="OCaml connectors for web applications">
+  </head>
+
+  <body>
+    <div id="title">
+      <p><img src="images/OCamlNet.png" /></p>
+    </div>
+
+    <div id="menu">
+      <p>Home</p>
+      <p>Tutorial</p>
+      <p><a href="doc/">API</a></p>
+      <p>Download</p>
+      <p><a href="src/netcgi/">Source code</a></p>
+    </div>
+
+    <div id="main">
+
+      <h1>Netcgi</h1>
+
+      Dynamic web applications are made of scripts/programs whose
+      output is sent to the user.  These scripts need a connection
+      with the web server in order to get the parameters and return
+      the data.
+      <a
+      href="../doc/Netcgi.html"><span class="module">Netcgi</span></a>
+      is a mature implementation of the following connectors:
+      <ul>
+	<li><a href="http://www.w3.org/CGI/"
+	       ><span class="desc">CGI/1.1</span></a>: The <i>Common
+	       Gateway Interface</i> is a very simple connector but
+	       suffers from performance problems as the script is
+	       started from scratch for each request.  That also means
+	       that the script cannot cache database connections which
+	       are expensive to set up.  CGI is a good choice however
+	       to test your scripts or for web sites that only need to
+	       handle a few requests a second (it is supported by all
+	       webservers).
+
+	<li><a href="http://www.fastcgi.com/"
+	       ><span class="desc">FastCGI</span></a>: FCGI scripts
+	       can be either started by the web server or started "by
+	       hand" possibly on a machine different from the web
+	       server.  In both cases, the script is always running
+	       (which allows caching), the web server connecting to it
+	       for each request.
+
+	<li><a
+	       href="http://www.jajakarta.org/tomcat/tomcat-jk2/en/docs/common/AJPv13.html"
+	       ><span class="desc">AJP&nbsp;1.3</span></a>: AJP is very
+	       similar to FCGI except that the scripts (often
+	       called <i>servlets</i> in this context in the Java
+	       world) are usually started independently of the web
+	       server.
+
+	<li><a href="http://httpd.apache.org/docs/1.3/misc/API.html"
+	       ><span class="desc">Apache API</span></a>: This
+	  connector is a binding to the Apache API which works
+	  with Apache 1.3 and Apache 2.* (although there are some
+	  <a
+	  href="http://merjis.com/developers/mod_caml/apache_2.0">issues</a>
+	  with the latter).  This is a port from
+	  <a
+	  href="http://merjis.com/developers/mod_caml/">mod_caml</a>,
+	  hence his name.  This connector is very fast.  However, your
+	  scripts can only be compiled into bytecode (because they are
+	  linked into the webserver at runtime with <tt>Dynlink</tt>)
+	  and of course it only works with Apache.
+      </ul>
+
+
+      <h1>Netstring</h1>
+
+
+
+      <h1>Netpop</h1>
+
+
+
+      <h1>Netclient</h1>
+
+
+<!--       <a href="http://iserverd.khstu.ru/oscar/">OSCAR</a> (ICQ) -->
+    </div>
+  </body>
+</html>

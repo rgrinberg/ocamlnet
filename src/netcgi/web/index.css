@@ -1,0 +1,80 @@
+/* Stylesheet for "OCamlNet" */
+
+body {
+  background: #e8eafa;
+  color: black;
+  font-family: arial, helvetica, sans-serif;
+  margin-top: 1em;
+}
+
+a {
+  color: #ba5835;
+  text-decoration : none;
+}
+
+a:hover {
+  border-bottom: 1px dashed;
+}
+
+a:active {
+  color: red;
+}
+
+h1 {
+  text-align: left;
+  top: 0px;
+  left: 0px;
+  font-size: 150%;
+  width: 100%;
+}
+
+h2 {
+  top: 3px;
+  left: 0px;
+  font-size: 120%;
+  width: 100%;
+  border-bottom: 1px solid black;
+}
+
+img {
+  border: 0px;
+}
+
+/* title */
+#title {
+  vertical-align: top;
+  text-align: center;
+  border-bottom: 1px solid #000;
+}
+
+/* menu */
+#menu {
+  float: left;
+  width: 15%;
+  vertical-align: top;
+  background-color: #cfdfe7;
+  margin-left: 1px 1%;
+  padding: 1%;
+}
+
+#menu p {
+  margin-top: 5px;
+  margin-bottom: 3px;
+}
+
+#menu img {
+  float: right;
+}
+
+/* main */
+#main {
+  float: left;
+  width: 75%;
+  padding: 2%;
+}
+
+
+.desc {
+/*   color: blue; */
+  font-weight: bold;
+}

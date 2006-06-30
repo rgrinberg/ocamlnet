@@ -1,0 +1,9 @@
+*.cmi
+*.cmo
+*.cma
+*.cmx
+*.cmxa
+*.annot
+Makefile.pub
+doc
+TAGS

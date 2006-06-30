@@ -1,0 +1,45 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage{hyperref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\setlength{\parindent}{0pt}
+\addtolength{\voffset}{-20ex}
+
+\newcommand{\submiturl}{http://localhost/cgi/fdf\string_cgi.com}
+
+\hypersetup{
+  pdfpagemode=None,
+  pdfauthor={Christophe Troestler},
+  pdftitle={Form FDF update},
+  pdfstartview=FitH
+}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+
+\begin{Form}[method=post, action={\submiturl}]
+  \TextField[name=date,
+  backgroundcolor={0.6 0.6 1.},bordercolor={0 0 0}]{Date~:}\\[2\jot]
+  \TextField[name=time,
+  backgroundcolor={0.6 0.6 1.},bordercolor={0 0 0}]{Time~:}\\[2\jot]
+  % 
+  As of now, \texttt{Netcgi} treats \texttt{application/vnd.fdf}
+  data as a single \texttt{BODY} argument that is not parsed.
+  Here is its value~:
+  \\[1\jot]
+  \TextField[name=args, width=0.8\linewidth, height=40ex, charsize=8pt,
+  readonly, multiline,
+  backgroundcolor={0.6 0.6 1.},bordercolor={0 0 0},
+  value={Not submitted yet.}]{\texttt{BODY}~:}
+  \\[2\jot]
+  \Submit[bordercolor={0 0 1}]{\textit{Update}}\quad
+  \Reset[bordercolor={0 0 1}]{\textit{Clear}}\\[2\jot]
+\end{Form}
+By pressing ``Update'' the above form data will be sent to
+\begin{center}
+  \texttt{\submiturl}  
+\end{center}
+which will send back a FDF data to update the above fields.
+
+\end{document}
