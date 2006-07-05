@@ -11,6 +11,8 @@ Http_client.pipeline:
 	
 	method event_system
 
+	reset() does not work properly
+
 rpc_factory:
 
 	Pass hook functions in
@@ -23,6 +25,8 @@ Container:
 
 	[lookup] returns the wrong sockets
 
+	log messages in pre_finish_hook do not reach the logger!
+
 Arch:
 
 	Avoid name service hacks
@@ -33,6 +37,8 @@ Shutdown:
 
 	Killing the master process should forward the signal to the
 	children.
+
+	rpc_factory: shutdown should at least shut down the rpc server
 	
 Fix:
 	In Netplex_controller.controller_processor#process:
