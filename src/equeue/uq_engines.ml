@@ -2431,22 +2431,34 @@ object(self)
     (* Poll until the socket becomes readable, then accept it *)
     if acc_engine <> None then
       failwith "Uq_engines.direct_socket_acceptor: Already waiting for connection";
-    let eng = new poll_engine [ Unixqueue.Wait_in sock, (-1.0) ] ues in
-    let acc_eng =
-      new map_engine 
-	~map_done:(fun _ ->
-		     let (sock',_) = Unix.accept sock in
-		     Unix.set_nonblock sock';
-		     acc_engine <- None;
-		     `Done(sock', getpeerspec Unix.SOCK_STREAM sock')
-		  )
-	~map_error:(fun x ->
-		      acc_engine <- None;
-		      `Error x)
-	~map_aborted:(fun () ->
-			acc_engine <- None;
-			`Aborted)
-	(eng :> Unixqueue.event engine) in
+
+    let rec accept_eng() =
+      let eng = new poll_engine [ Unixqueue.Wait_in sock, (-1.0) ] ues in
+      new seq_engine
+	eng
+	(fun _ ->
+	   try
+	     let (sock',_) = Unix.accept sock in
+	     Unix.set_nonblock sock';
+	     acc_engine <- None;
+	     new const_engine 
+	       (`Done(sock', getpeerspec Unix.SOCK_STREAM sock'))
+	       ues
+	   with
+	     | Unix.Unix_error( (Unix.EAGAIN | Unix.EINTR), _, _) ->
+		 accept_eng()
+
+	     | error ->
+		 new const_engine (`Error error) ues
+	)
+    in
+
+    let acc_eng = accept_eng() in
+    when_state
+      ~is_error:(fun x -> acc_engine <- None)
+      ~is_aborted:(fun () -> acc_engine <- None)
+      acc_eng;
+
     acc_engine <- Some acc_eng;
     acc_eng
 
