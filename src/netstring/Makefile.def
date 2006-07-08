@@ -117,7 +117,7 @@ tools_done:
 	touch tools_done
 
 netdate.ml: netdate.mlp
-	$(CAMLP4) pa_o.cmo pa_op.cmo pr_o.cmo -impl $< > $@
+	$(CAMLP4) pa_o.cmo pa_op.cmo pr_o.cmo -impl netdate.mlp > netdate.ml
 
 include $(TOP_DIR)/Makefile.rules
 
