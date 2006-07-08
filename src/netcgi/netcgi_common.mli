@@ -429,7 +429,8 @@ val cgi_with_args :
       any function, so it is easy to use this to construct extensions
       of the [cgi] class (as needed by some connectors).  The
       arguments of the cgi object are taken from the environment [env]
-      (for HEAD, GET, DELETE) or from the [in_chan] (for POST, PUT).
+      (for HEAD, GET, DELETE) or from the [in_chan] (for POST, PUT)
+      and processed according to [arg_store].
 
       @raise HTTP if the data does not conform the standards or it not
       allowed. *)

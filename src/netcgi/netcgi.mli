@@ -609,9 +609,9 @@ object
         This method is not registered in the garbage collector, and it
         is a bad idea to do so.  However, all connectors offered in
         Netcgi automatically call [#finalize] at the end of the
-        request cycle (even if its terminated by an uncaught
-        exception) so you do not have to worry much about calling it
-        yourself.  *)
+        request cycle (even when its terminated by an uncaught exception
+        when [#config.default_exn_handler] is true) so you do not have
+        to worry much about calling it yourself.  *)
 
 
   (** {3 Self-referencing URL} *)
@@ -792,9 +792,9 @@ object
 
   method at_exit : (unit -> unit) -> unit
     (** [#at_exit f] registers the function [f] to be executed when
-	[#finalize] is called (which is the case the request
-	finishes).  The functions are executed in the reverse order in
-	which they were entered. *)
+	[#finalize] is called (which is done automatically when the
+	request finishes).  The functions are executed in the reverse
+	order in which they were registered. *)
 end
 
 
@@ -809,23 +809,24 @@ type output_type =
   ]
   (** The ouput type determines how generated data is buffered.
       - [`Direct sep]: Data written to the output channel of the
-      activation object is not collected in a transaction buffer, but
-      directly sent to the browser (the normal I/O buffering is still
-      active, however, so call [#flush] to ensure that data is really
-      sent).  The method [#commit_work] of the output channel is the
-      same as [#flush].  The method [#rollback_work] causes that the
-      string [sep] is sent, meant as a separator between the already
-      generated output, and the now following error message.
+        activation object is not collected in a transaction buffer, but
+        directly sent to the browser (the normal I/O buffering is still
+        active, however, so call [#flush] to ensure that data is really
+        sent).  The method [#commit_work] of the output channel is the
+        same as [#flush].  The method [#rollback_work] causes that the
+        string [sep] is sent, meant as a separator between the already
+        generated output, and the now following error message.
+
       - [`Transactional f]: A transactional channel [tc] is created
-      from the real output channel [ch] by calling [f cfg ch] (here,
-      [cfg] is the CGI configuration).  The channel [tc] is propagated
-      as the output channel of the activation object. This means that
-      the methods [commit_work] and [rollback_work] are implemented by
-      [tc], and the intended behaviour is that data is buffered in a
-      special transaction buffer until [commit_work] is called.  This
-      invocation forces the buffered data to be sent to the
-      browser. If, however, [rollback_work] is called, the buffer is
-      cleared.
+        from the real output channel [ch] by calling [f cfg ch] (here,
+        [cfg] is the CGI configuration).  The channel [tc] is propagated
+        as the output channel of the activation object. This means that
+        the methods [commit_work] and [rollback_work] are implemented by
+        [tc], and the intended behaviour is that data is buffered in a
+        special transaction buffer until [commit_work] is called.  This
+        invocation forces the buffered data to be sent to the
+        browser. If, however, [rollback_work] is called, the buffer is
+        cleared.
 
       Two important examples for [`Transactional] are:
       - The transaction buffer is implemented in memory:

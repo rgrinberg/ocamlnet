@@ -76,6 +76,7 @@ let rec handle_connection fd ~config output_type arg_store exn_handler f =
          (in_obj :> Netchannels.in_obj_channel) arg_store in
        (try
           f (cgi:Netcgi.cgi);
+          cgi#out_channel#commit_work();
           cgi#finalize()
         with e when config.default_exn_handler ->
           cgi#finalize(); raise e);

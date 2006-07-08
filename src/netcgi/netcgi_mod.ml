@@ -515,7 +515,7 @@ let run ?(config=Netcgi.default_config)
 		"Netcgi_mod.run should only be called once!",
 		"Multiple entry points in the script."));
   let script r =
-    (* mod_caml scpecific environment -- including output object *)
+    (* mod_caml specific environment -- including output object *)
     let env = new cgi_environment ~config r in
     exn_handler_default env ~exn_handler
       (fun () ->
@@ -532,6 +532,7 @@ let run ?(config=Netcgi.default_config)
 	     cgi_with_args (new cgi_mod r) env output_type in_obj arg_store in
            (try
 	      f cgi;
+              cgi#out_channel#commit_work();
 	      cgi#finalize()
             with e when config.default_exn_handler ->
               cgi#finalize(); raise e);

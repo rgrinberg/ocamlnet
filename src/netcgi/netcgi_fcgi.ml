@@ -585,6 +585,7 @@ let rec handle_connection fd ~max_conns ~external_server ~config
 	                  env output_type in_obj arg_store) in
 	     (try
 	        f cgi;
+                cgi#out_channel#commit_work();
 	        cgi#finalize()
 	      with e when config.default_exn_handler ->
                 cgi#finalize(); raise e);

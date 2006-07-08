@@ -55,6 +55,7 @@ let run ?(config=Netcgi.default_config)
        let cgi = cgi_with_args (new cgi) env output_type in_obj arg_store in
        (try
           f (cgi:Netcgi.cgi);
+          cgi#out_channel#commit_work();
           cgi#finalize()
         with e when config.default_exn_handler ->
           cgi#finalize(); raise e);
