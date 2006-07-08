@@ -134,6 +134,8 @@ let rpc_factory
 
 	    method supported_ptypes = 
 	      [ `Multi_processing; `Multi_threading ]
+
+	    method global_exception_handler _ = false
 	  end
 	)
     end

@@ -628,6 +628,8 @@ object(self)
 
   method post_finish_hook _ _ _ = ()
 
+  method global_exception_handler exn = true
+
 end ;;
 
 

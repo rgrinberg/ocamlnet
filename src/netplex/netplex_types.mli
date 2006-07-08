@@ -248,6 +248,13 @@ object
 
   method supported_ptypes : parallelization_type list
     (** The supported parallelization types *)
+
+  method global_exception_handler : exn -> bool
+    (** This method is called when an uncaught exception would otherwise
+      * terminate the container. It can return [true] to indicate that
+      * the container continues running.
+     *)
+
 end
 
 and container =

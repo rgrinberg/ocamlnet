@@ -44,6 +44,7 @@ object(self)
   method pre_finish_hook _ = ()
   method post_finish_hook _ _ _ = ()
   method supported_ptypes = [ `Multi_processing ; `Multi_threading ]
+  method global_exception_handler _ = false
 end
 
 let nethttpd_processor mk_config srv =
