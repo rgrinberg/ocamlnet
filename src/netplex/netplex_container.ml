@@ -48,7 +48,7 @@ object(self)
     self # protect "post_start_hook"
       (sockserv # processor # post_start_hook) (self : #container :> container);
     self # setup_polling();
-    self # protect "run" Unixqueue.run esys;
+    self # protect_run();
     self # protect "pre_finish_hook"
       (sockserv # processor # pre_finish_hook) (self : #container :> container);
     rpc <- None
@@ -65,6 +65,21 @@ object(self)
 		    self # log `Crit (label ^ ": Exception " ^ 
 				       Printexc.to_string error)
 	    )
+
+  method private protect_run () =
+    try 
+      Unixqueue.run esys
+    with
+      | error ->
+	  ( match rpc with
+	      | None -> ()  (* no way to report this error *)
+	      | Some r ->
+		  self # log `Crit ("run: Exception " ^ 
+				      Printexc.to_string error)
+	  );
+	  let b = sockserv # processor # global_exception_handler error in
+	  if b then self # protect_run()
+
 
   method private setup_polling() =
     match rpc with
