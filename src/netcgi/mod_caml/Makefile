@@ -43,7 +43,6 @@ mod_caml_config.ml: mod_caml_config.ml.in
 500mod_caml.info: 500mod_caml.info.in
 	$(SED) -e 's,@APACHELIBDIR@,$(APACHELIBDIR),g' < $< > $@
 
-
 mod_caml.so: mod_caml_c.o apache_c.o wrappers.o $(ALL_CMOS)
 	$(OCAMLC)  -o $@ -linkall -custom $(OCAMLCFLAGS) $(ALL_CMAS) $^ \
 	  -cclib '$(CFLAGS) $(LDFLAGS_SHLIB) $(OCAMLLIBS)'
@@ -79,9 +78,7 @@ depend: .depend
 	rm -f .depend
 	ocamldep *.mli *.ml > $@
 
-ifeq ($(wildcard .depend),.depend)
 include .depend
-endif
 
 
 # Cleaning
