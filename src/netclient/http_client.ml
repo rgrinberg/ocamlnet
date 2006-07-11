@@ -3925,6 +3925,8 @@ class pipeline =
 	failed_connections = 0;
       }
 
+    method event_system = esys
+
     method set_event_system new_esys =
       esys <- new_esys;
       Hashtbl.clear connections;

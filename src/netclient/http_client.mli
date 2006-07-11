@@ -843,7 +843,13 @@ class pipeline :
      * or server which is compatible with the [Unixqueue] design.
      *)
 
+    method event_system : Unixqueue.event_system
+      (** Returns the event system *)
+
     method set_event_system : Unixqueue.event_system -> unit
+      (** Sets the event system. Must be called before the first call
+        * is added
+        *)
 
     method connection_cache : connection_cache
       (** The current connection cache. By default, a private

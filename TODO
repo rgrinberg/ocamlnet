@@ -9,8 +9,6 @@ protocol.path:
 
 Http_client.pipeline:
 	
-	method event_system
-
 	reset() does not work properly
 
 rpc_factory:
@@ -46,8 +44,3 @@ Fix:
 	In Netplex_controller.controller_processor#process:
 	proc_send_admin_message calls forward_message instead of
 	forward_admin_message
-
-Logger: multi_file
-	does not prepend the directory
-
-
