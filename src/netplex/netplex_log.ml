@@ -221,7 +221,7 @@ object(self)
 		 | Not_found ->
 		     let ch =
 	               open_out_gen 
-			 [ Open_wronly; Open_append; Open_creat ] 0o666 file in
+			 [ Open_wronly; Open_append; Open_creat ] 0o666 full_path in
 		     Hashtbl.add channels full_path ch;
 		     ch
 	     in
