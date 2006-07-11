@@ -3389,8 +3389,11 @@ class connection the_esys
 	for i = 1 to n_read - n_write do
 	  let m_trans = Q.take read_queue in
 	  let m = m_trans # message in
+	  (* Increase error counter *)
+	  let e = m # private_api # get_error_counter in
+	  m # private_api # set_error_counter (e+1);
 	  (* Test: Are reconnections allowed? *)
-	  if m # private_api # get_error_counter <= options.maximum_message_errors then begin
+	  if e+1 <= options.maximum_message_errors then begin
 	    let do_reconnect =
 	      match m # get_reconnect_mode with
 		| Send_again -> true
