@@ -3479,9 +3479,22 @@ class connection the_esys
 	       | _ ->
 		   ()
 	   );
-	   self # critical_postprocessing m;     (* because m is dropped *)
 	)
-	q'
+	q';
+
+      let do_callbacks() =
+	Q.iter
+	  (fun m ->
+	     self # critical_postprocessing m;     (* because m is dropped *)
+	  )
+	  q'
+      in
+
+      if critical_section then
+	let g = Unixqueue.new_group esys in
+	Unixqueue.once esys g 0.0 do_callbacks
+      else
+	do_callbacks()
 
 
     method clear_write_queue() =
@@ -3805,19 +3818,43 @@ class connection the_esys
       self # abort_connection;
 
       (* Discard all messages on the queues. *)
-      
       self # clear_read_queue No_reply;
       self # clear_write_queue();
-      
+
       (* Reset state variables *)
 
       totally_failed_connections <- 0;
 
-      (* If there were 'add' invocations from callbacks, move these additions
-       * to the real queues now.
+      (* If there were 'add' invocations from callbacks, delete these additions
+       * now
        *)
-      self # leave_critical_section;
+      let q = Queue.create() in
+      Queue.iter
+	(fun trans ->
+	   Queue.push trans q;
+	   let m = trans # message in
+	   match m # status with
+	     | `Unserved ->
+		 m # private_api # set_error_exception No_reply;
+	     | _ -> 
+		 ()
+	)
+	deferred_additions;
+      Queue.clear deferred_additions;
 
+      (* Because [reset] might be called from a critical section, defer
+       * callbacks (see also [clear_read_queue])
+       *)
+      let g = Unixqueue.new_group esys in
+      Unixqueue.once
+	esys g 0.0
+	(fun () ->
+	   Queue.iter
+	     (fun trans ->
+		self # critical_postprocessing trans
+	     )
+	     q
+	)
 
   end
 ;;
@@ -3959,12 +3996,15 @@ class pipeline =
 	     !cl)
 	connections;
 
+(*
+   - well, this _should_ do nothing
       List.iter
 	(fun fd -> 
 	   conn_cache # forget_connection fd;
 	   Unix.close fd;
 	)
 	(conn_cache # find_my_connections (self :> < >));
+ *)
 
       self # reset_counters()
       
