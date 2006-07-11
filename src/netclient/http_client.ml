@@ -3437,6 +3437,12 @@ class connection the_esys
 	  else (
 	    (* drop this message because of too many errors *)
 	    (* We do not reconnect, so postprocess now. *)
+	    ( match m # status with
+		| `Unserved ->
+		    m # private_api # set_error_exception No_reply;
+		| _ -> 
+		    ()
+	    );
 	    self # critical_postprocessing m_trans;
 	  )
 	done;
