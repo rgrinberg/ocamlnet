@@ -6,5 +6,6 @@
 *.annot
 *.a
 .depend
+depend
 doc
 TAGS

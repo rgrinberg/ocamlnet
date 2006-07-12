@@ -6,5 +6,9 @@
 *.annot
 *.so
 .depend
+depend
+config.h
+mod_caml_config.ml
+500mod_caml.info
 doc
 TAGS

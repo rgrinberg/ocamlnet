@@ -45,6 +45,7 @@ set_defaults () {
     enable_gtk2=0
     enable_tcl=0
     enable_ssl=0
+    enable_modcaml=1
     with_nethttpd=0
     with_rpc_auth_dh=0
     bindir=`dirname $ocamlc`
@@ -67,11 +68,12 @@ ehelp_gtk="Enable/disable parts that depend on lablgtk"
 ehelp_gtk2="Enable/disable parts that depend on lablgtk2"
 ehelp_tcl="Enable/disable parts that depend on tcl/tk"
 ehelp_ssl="Enable/disable parts that depend on SSL"
-ehelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
-ehelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
+ehelp_modcaml="Enable/disable Apache mod connector"
+whelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
+whelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
 
 # Which options exist? eoptions for enable/disable, woptions for with/without:
-eoptions="gtk gtk2 tcl ssl"
+eoptions="gtk gtk2 tcl ssl modcaml"
 woptions="nethttpd rpc_auth_dh"
 
 # Packages to include anyway:
@@ -599,6 +601,33 @@ if [ $with_rpc_auth_dh -gt 0 ]; then
 fi
 
 ######################################################################
+# Check Apache
+
+if [ $enable_modcaml -gt 0 ]; then
+    echo -n "Apache mod connector... "
+
+    apxs=`which apxs`
+    apache=/usr/sbin/apache
+    if [ -x "$apxs" ] && [ -x "$apache" ]; then
+	apache_major=`$apache -v | head -n1 | sed -e "s,.*/\([1-9]\).*,\1,"`
+	apache_libdir="`$apxs -q LIBEXECDIR`"
+	apache_incdir="`$apxs -q INCLUDEDIR`"
+	apache_confdir="`$apxs -q SYSCONFDIR`"
+	apache_ldflags_shlib="`$apxs -q LDFLAGS_SHLIB`"
+	apache_cc="`$apxs -q CC`"
+	apache_cflags="-I \$(APACHE_INCDIR) \
+	  `$apxs -q CFLAGS` `$apxs -q CFLAGS_SHLIB`"
+	apache_ocamllibdir=`ocamlfind printconf destdir`
+	echo "enabled (Apache $apache_major)"
+    else
+	apache_major=
+	with_modcaml=0
+	echo "disabled (apxs or apache not found)"
+    fi
+
+fi
+
+######################################################################
 # Summary
 
 echo
@@ -606,7 +635,7 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="equeue shell netstring rpc-generator rpc pop smtp netclient cgi netplex"
+pkglist="equeue shell netstring rpc-generator rpc pop smtp netclient cgi netcgi netplex"
 full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh"
 
 if [ $disable_core -gt 0 ]; then
@@ -677,6 +706,17 @@ GTK_EXTRA_DEFINES = $gtk2_io_add_watch_supports_lists
 # For -with-auth-dh:
 RPC_AUTH_DH_CONNECTOR = $adh_style
 AUTHDHREQS = $adh_reqs
+
+# For -with-modcaml
+APACHE_MAJOR = $apache_major
+APACHE_LIBDIR = $apache_libdir
+APACHE_OCAMLLIBS = -lcamlrun -ltermcap -lunix -lstr
+APACHE_INCDIR = $apache_incdir
+APACHE_CONFDIR = $apache_confdir
+APACHE_LDFLAGS_SHLIB = $apache_ldflags_shlib
+APACHE_CC = $apache_cc
+APACHE_CFLAGS = $apache_cflags
+APACHE_OCAMLLIBDIR = $apache_ocamllibdir
 
 _EOF_
 
