@@ -2,6 +2,7 @@
 
 open Netplex_types
 open Netplex_ctrl_aux
+open Printf
 
 
 let ast_re = Pcre.regexp "[*]";;
@@ -31,6 +32,7 @@ type ext_cont_state =
       mutable cont_state : container_state;
       mutable rpc : Rpc_server.t;
       mutable sys_rpc : Rpc_server.t;
+      mutable par_thread : par_thread;
       mutable poll_call : (Rpc_server.session * 
 			     (Netplex_ctrl_aux.t_Control'V1'poll'res -> unit)
 			  ) option;
@@ -138,21 +140,24 @@ object(self)
 	sockserv
 	(controller :> controller)
 	(container :> container_id);
-      par # start_thread
-	(fun () ->
-	   ( try 
-	       container # start fd_clnt sys_fd_clnt
-	     with 
-	       | error ->
-		   (* It is difficult to get this error written to a log file *)
-		   prerr_endline ("Netplex Catastrophic Error: " ^ Printexc.to_string error);
-		   ()
-	   );
-	   Unix.close fd_clnt;  (* indicates successful termination *)
-	   Unix.close sys_fd_clnt 
-	)
-	()
-	fd_list;
+      let par_thread =
+	par # start_thread
+	  (fun () ->
+	     ( try 
+		 container # start fd_clnt sys_fd_clnt
+	       with 
+		 | error ->
+		     (* It is difficult to get this error written to a log file *)
+		     prerr_endline ("Netplex Catastrophic Error: " ^ Printexc.to_string error);
+		     ()
+	     );
+	     Unix.close fd_clnt;  (* indicates successful termination *)
+	     Unix.close sys_fd_clnt 
+	  )
+	  ()
+	  fd_list
+	  sockserv#name
+	  controller#logger in
       if par # ptype = `Multi_processing then (
 	Unix.close fd_clnt;
 	Unix.close sys_fd_clnt;
@@ -184,6 +189,7 @@ object(self)
 	  cont_state = `Starting;
 	  rpc = rpc;
 	  sys_rpc = sys_rpc;
+	  par_thread = par_thread;
 	  poll_call = None;
 	  messages = Queue.create();
 	  admin_messages = Queue.create();
@@ -194,6 +200,7 @@ object(self)
       Rpc_server.set_onclose_action rpc 
 	(fun _ ->
 	   (* Called back when fd_clnt is closed by the container *)
+	   par_thread # watch_shutdown controller#event_system;
 	   clist <- List.filter (fun c' -> c' != c) clist;
 	   sockserv # processor # post_finish_hook 
 	     sockserv
@@ -415,12 +422,15 @@ object(self)
       clist
 
   method forward_admin_message msg =
-    List.iter
-      (fun c ->
-	 Queue.push msg c.admin_messages;
-	 self # check_for_poll_reply c
-      )
-      clist
+    if msg.msg_name = "threadlist" then
+      self # threadlist()
+    else
+      List.iter
+	(fun c ->
+	   Queue.push msg c.admin_messages;
+	   self # check_for_poll_reply c
+	)
+	clist
 
   val lev_trans =
     [ log_emerg, `Emerg;
@@ -442,6 +452,18 @@ object(self)
       ~level
       ~message
 	  (* This call is not replied! *)
+
+  method private threadlist() =
+    List.iter
+      (fun c ->
+	 let msg = 
+	   sprintf "%20s %s" c.par_thread#info_string sockserv#name in
+	 controller # logger # log
+	   ~component:"netplex.controller"
+	   ~level:`Notice
+	   ~message:msg
+      )
+      clist
 
 end
 
@@ -477,9 +499,15 @@ object
 
   method init() = ()
 
-  method start_thread : 't . ('t -> unit) -> 't -> 'x -> unit =
-    fun f arg l ->
-      f arg
+  method start_thread : 't . ('t -> unit) -> 't -> 'x -> string -> logger -> par_thread =
+    fun f arg l srv_name logger ->
+      f arg;
+      ( object
+	  method ptype = `Multi_threading
+	  method info_string = "Process " ^ string_of_int (Unix.getpid())
+	  method watch_shutdown _ = ()
+	end
+      )
 
 end
 
@@ -600,7 +628,7 @@ object(self)
 					   re sockserv#name 0
 				       with
 					 | Some _ ->
-					     ctrl # forward_message msg
+					     ctrl # forward_admin_message msg
 					 | None -> ()
 				    )
 				    controller#ext_services

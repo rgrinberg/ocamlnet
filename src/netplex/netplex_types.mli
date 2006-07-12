@@ -326,6 +326,18 @@ end
 ;;
 
 
+class type par_thread =
+object
+  method ptype : parallelization_type
+
+  method info_string : string
+    (** Outputs the process or thread ID *)
+
+  method watch_shutdown : Unixqueue.unix_event_system -> unit
+    (** Called by the controller if it thinks the container is down *)
+end
+
+
 class type parallelizer =
 object
   method ptype : parallelization_type
@@ -333,7 +345,8 @@ object
   method init : unit -> unit
     (** Initializes the main process for usage with this parallelizer *)
 
-  method start_thread : 't . ('t -> unit) -> 't -> Unix.file_descr list -> unit
+  method start_thread : 
+         't . ('t -> unit) -> 't -> Unix.file_descr list -> string -> logger -> par_thread
     (** [start_thread f arg l]: Starts a new thread or process and calls
       * [f arg] in that context. The list of file descriptors [l] is ensured
       * to be shared with the main process.

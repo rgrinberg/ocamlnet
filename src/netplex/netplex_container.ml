@@ -219,23 +219,29 @@ object(self)
     match sys_rpc with
       | None -> ()
       | Some r ->
-	  let lev = 
-	    match level with
-	      | `Emerg -> log_emerg
-	      | `Alert -> log_alert
-	      | `Crit -> log_crit
-	      | `Err -> log_err
-	      | `Warning -> log_warning
-	      | `Notice -> log_notice
-	      | `Info -> log_info
-	      | `Debug -> log_debug in
-	  Rpc_client.add_call
-	    ~when_sent:(fun () -> false)
-	    r
-	    "log"
-	    (_of_System'V1'log'arg(lev,message))
-	    (fun _ -> ());
-	  Unixqueue.run sys_esys
+	  ( try
+	      let lev = 
+		match level with
+		  | `Emerg -> log_emerg
+		  | `Alert -> log_alert
+		  | `Crit -> log_crit
+		  | `Err -> log_err
+		  | `Warning -> log_warning
+		  | `Notice -> log_notice
+		  | `Info -> log_info
+		  | `Debug -> log_debug in
+	      Rpc_client.add_call
+		~when_sent:(fun () -> false)
+		r
+		"log"
+		(_of_System'V1'log'arg(lev,message))
+		(fun _ -> ());
+	      Unixqueue.run sys_esys
+	    with
+	      | error ->
+		  prerr_endline("Netplex Catastrophic Error: Unable to send log message - exception " ^ Printexc.to_string error);
+		  prerr_endline("Log message is: " ^ message)
+	  )
 
   method lookup service protocol =
     match sys_rpc with
