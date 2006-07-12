@@ -51,6 +51,8 @@ object
 (*
 	    Sys.set_signal Sys.sigchld Sys.Signal_default;
  *)
+	    Sys.set_signal Sys.sigterm Sys.Signal_default;
+
 	    Unix.close fd_rd;
 	    (* We close all file descriptors except those in [l]. Note that
              * this is important for proper function of the main process
