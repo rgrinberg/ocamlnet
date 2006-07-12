@@ -4,6 +4,7 @@
 *.cmx
 *.cmxa
 *.annot
-Makefile.pub
+*.a
+.depend
 doc
 TAGS

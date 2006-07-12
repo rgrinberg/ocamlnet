@@ -7,4 +7,5 @@
 *.exe
 *.opt
 *.com
+.depend
 TAGS
