@@ -81,6 +81,23 @@ f src/cgi/Makefile.pre
 p src/cgi/.*\.ml
 p src/cgi/.*\.mli
 
+d src/netcgi
+f src/netcgi/Makefile
+f src/netcgi/Makefile.pre
+f src/netcgi/META.in
+p src/netcgi/.*\.ml
+p src/netcgi/.*\.mli
+d src/netcgi/mod_caml
+f src/netcgi/mod_caml/500mod_caml.info.in
+f src/netcgi/mod_caml/Makefile
+f src/netcgi/mod_caml/Makefile.pre
+p src/netcgi/mod_caml/.*\.c
+p src/netcgi/mod_caml/.*\.h
+f src/netcgi/mod_caml/mod_caml_config.ml.in
+x src/netcgi/mod_caml/mod_caml_config.ml
+p src/netcgi/mod_caml/.*\.ml
+p src/netcgi/mod_caml/.*\.mli
+
 d src/pop
 f src/pop/META.in
 f src/pop/Makefile
