@@ -278,6 +278,9 @@ object(self)
     (* Maybe we are restarting or shutting down. If this is the last
      * container of the service, continue this action:
      *)
+    self # nocontainer_action()
+
+  method private nocontainer_action() =
     if clist = [] then (
       match state with
 	| `Restarting flag ->
@@ -317,7 +320,9 @@ object(self)
 	 c.cont_state <- `Shutting_down;
 	 self # check_for_poll_reply c
       )
-      clist
+      clist;
+    (* Maybe clist is already empty... *)
+    self # nocontainer_action()
 
 
   method private adjust() =
