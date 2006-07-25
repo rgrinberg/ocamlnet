@@ -1,0 +1,18 @@
+To build the test bench with the non-installed ocamlnet, do:
+
+make OCAMLRPCGEN=../../../src/rpc-generator/ocamlrpcgen OCAMLPATH=../../../src
+
+To run it, do:
+
+./prototest all
+
+There are two additional tests:
+
+./protoserver -non-responsive -conf proto.conf.1
+./protoserver -cont-failure -conf proto.conf.1
+
+The first one simulates a container that does not start up. You should see
+attempts to restart it after 60 seconds (in the log file). The second test
+simultaes a container that immediately crashes after start up. This container
+is disabled.
+
