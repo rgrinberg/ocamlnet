@@ -470,18 +470,20 @@ object(self)
     let path = ref None in
     List.iter
       (fun (sockserv, _, _) ->
-	 List.iter
-	   (fun p ->
-	      Array.iter
-		(fun addr ->
-		   match addr with
-		     | Unix.ADDR_UNIX p -> 
-			 path := Some p
-		     | _ -> ()
-		)
-		p # addresses
-	   )
-	   sockserv # socket_service_config # protocols
+	 if sockserv#name = srv_name then
+	   List.iter
+	     (fun p ->
+		if p#name = proto_name && !path = None then
+		  Array.iter
+		    (fun addr ->
+		       match addr with
+			 | Unix.ADDR_UNIX p -> 
+			     path := Some p
+			 | _ -> ()
+		    )
+		    p # addresses
+	     )
+	     sockserv # socket_service_config # protocols
       )
       controller#services;
     reply !path
