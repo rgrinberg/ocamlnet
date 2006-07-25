@@ -91,6 +91,8 @@ object
 	  Unix.close fd_rd;
 
 	  ( object
+	      val mutable waited = false
+
 	      method ptype = `Multi_processing
 	      method info_string = "Process " ^ string_of_int pid
 	      method watch_shutdown esys =
@@ -117,7 +119,8 @@ object
 		    if p = 0 then  (* p=0: not yet terminated *)
 		      true
 		    else
-		      ( match s with
+		      ( waited <- true;
+			match s with
 			  | Unix.WEXITED 0 ->
 			      remove(); false
 			  | Unix.WEXITED n ->
@@ -152,7 +155,7 @@ object
 		       if watch() then watch_loop()
 		    )
 		in
-		if watch() then watch_loop()
+		if not waited && watch() then watch_loop()
 	    end
 	  )
 	  

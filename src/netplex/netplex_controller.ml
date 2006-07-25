@@ -45,9 +45,15 @@ type ext_cont_state =
 
 type action =
     [ `None
+	(* No container exists/no notification in progress *)
     | `Selected of ext_cont_state
+	(* The scheduler selected this container for the next [accept] *)
     | `Notified of ext_cont_state
+	(* The container even knows it is selected for [accept] *)
     | `Deselected of ext_cont_state
+	(* The container was notified and must be actively deselected
+         * because of restart/shutdown
+         *)
     ]
 
 
@@ -59,6 +65,10 @@ object(self)
   val mutable state = (`Disabled : socket_state)
   val mutable clist = []
   val mutable action = (`None : action)
+  val mutable n_failures = 0
+    (* The number of processes in [`Starting] state that never started to
+     * poll. Used to detect massive numbers of start-up failures.
+     *)
 
   method state = state
 
@@ -68,6 +78,7 @@ object(self)
   method enable() =
     match state with
       | `Disabled ->
+	  n_failures <- 0;
 	  state <- `Enabled;
 	  self # schedule()
       | `Enabled ->
@@ -197,42 +208,90 @@ object(self)
 	  t_accept = 0.0;
 	} in
       self # bind_server rpc sys_rpc c;
+      clist <- c :: clist;
       Rpc_server.set_onclose_action rpc 
 	(fun _ ->
-	   (* Called back when fd_clnt is closed by the container *)
 	   par_thread # watch_shutdown controller#event_system;
-	   clist <- List.filter (fun c' -> c' != c) clist;
-	   sockserv # processor # post_finish_hook 
-	     sockserv
-	     (controller :> controller)
-	     (container :> container_id);
-	   wrkmng # adjust 
-	     sockserv (self : #socket_controller :> socket_controller);
-	   let reschedule =
-	     match action with
-	       | `Selected c' when c == c' -> true
-	       | `Notified c' when c == c' -> true
-	       | `Deselected c' when c == c' -> true
-	       | _ -> false in
-	   if reschedule then (
-	     action <- `None;
-	     self # schedule()
-	   );
-	   if clist = [] then (
-	     match state with
-	       | `Restarting flag ->
-		   state <- `Disabled;
-		   if flag then self # enable()
-	       | `Down ->
-		   rm_service 
-		     (self : #extended_socket_controller
-		      :> extended_socket_controller);
-	       | _ ->
-		   ()
-	   );
+	   self # onclose_action c container
 	);
-      clist <- c :: clist
+      (* Watch the new container. If it does not call [poll] within 60 seconds,
+       * drop the process/thread.
+       *)
+      let g = Unixqueue.new_group controller#event_system in
+      Unixqueue.once controller#event_system g 60.0
+	(fun () ->
+	   if List.memq c clist && c.cont_state = `Starting then (
+	     (* After 60 seconds still starting. This is a bad process! *)
+	     controller # logger # log
+	       ~component:sockserv#name
+	       ~level:`Crit
+	       ~message:"Container process/thread does not start up within 60 seconds";
+	     (* Immediate measure: Remove it from the list of containers *)
+	     clist <- List.filter (fun c' -> c' != c) clist;
+	     (* [watch_shutdown] will kill the process if possible *)
+	     par_thread # watch_shutdown controller#event_system;
+	     
+	     (* No need to call onclose_action. This _will_ be done if the
+              * process is finally dead.
+              *)
+	   )
+	)
     done
+
+
+  method private onclose_action c container =
+    (* Called back when fd_clnt is closed by the container, i.e. when
+     * the container process terminates (normally/crashing)
+     *)
+    if c.cont_state = `Starting then
+      n_failures <- n_failures + 1;
+    clist <- List.filter (fun c' -> c' != c) clist;
+    ( try
+	sockserv # processor # post_finish_hook 
+	  sockserv
+	  (controller :> controller)
+	  (container :> container_id)
+      with
+	| error ->
+	    controller # logger # log
+	      ~component:sockserv#name
+	      ~level:`Crit
+	      ~message:("post_finish_hook: Exception " ^ 
+			  Printexc.to_string error)
+    );
+    (* Maybe we have to start new containers: *)
+    self # adjust();
+    (* Maybe the dead container was selected for accepting connections.
+     * In this case, reschedule:
+     *)
+    let reschedule =
+      match action with
+	| `Selected c' when c == c' -> true
+	| `Notified c' when c == c' -> true
+	| `Deselected c' when c == c' -> true
+	| _ -> false in
+    if reschedule then (
+      action <- `None;
+      self # schedule()
+	(* Note: [schedule] is a no-op if the service is not enabled *)
+    );
+    (* Maybe we are restarting or shutting down. If this is the last
+     * container of the service, continue this action:
+     *)
+    if clist = [] then (
+      match state with
+	| `Restarting flag ->
+	    (* Set to [`Disabled] and re-enable: *)
+	    state <- `Disabled;
+	    if flag then self # enable()
+	| `Down ->
+	    rm_service 
+	      (self : #extended_socket_controller
+	       :> extended_socket_controller);
+	| _ ->
+	    ()
+    )
+    
 
   method stop_containers l =
     List.iter
@@ -259,7 +318,28 @@ object(self)
 	 self # check_for_poll_reply c
       )
       clist
-    
+
+
+  method private adjust() =
+    if n_failures >= 10 then (
+      controller # logger # log
+	~component:sockserv#name
+	~level:`Alert
+	~message:("Disabling service after 10 startup failures");
+      state <- `Disabled;
+    )
+    else (
+      try
+	wrkmng # adjust 
+	  sockserv (self : #socket_controller :> socket_controller)
+      with
+	| error ->
+	    controller # logger # log
+	      ~component:sockserv#name
+	      ~level:`Crit
+	      ~message:("Exception in workload manager, function adjust: " ^ 
+			  Printexc.to_string error)
+    )
 
   method private schedule() =
     (* Determine the next container that will have the chance to accept a 
@@ -267,8 +347,7 @@ object(self)
      *)
     if state = `Enabled && action = `None then (
       if clist = [] then
-	wrkmng # adjust 
-	  sockserv (self : #socket_controller :> socket_controller);
+	self # adjust();
       let best = ref None in
       List.iter
 	(fun c ->
@@ -319,6 +398,8 @@ object(self)
 	    last_reply `event_none
     );
     c.poll_call <- Some (sess, reply);
+    if c.cont_state = `Starting then
+      n_failures <- 0;
     if c.cont_state <> `Shutting_down then 
       c.cont_state <- `Accepting(n, c.t_accept);
     self # schedule();
@@ -359,8 +440,7 @@ object(self)
 		    reply `event_accept;
 		    c.poll_call <- None;
 		    action <- `Notified c;
-		    wrkmng # adjust 
-		      sockserv (self : #socket_controller :> socket_controller)
+		    self # adjust();
 		| `Deselected c' when c' == c ->
 		    reply `event_noaccept;
 		    c.poll_call <- None;
