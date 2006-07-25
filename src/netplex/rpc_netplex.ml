@@ -87,6 +87,7 @@ let rpc_factory
 	in
 
 	let port = ref None in
+	let srv_list = ref [] in
 
 	( object(self)
 	    inherit Netplex_kit.processor_base (hooks custom_cfg) as super
@@ -101,6 +102,17 @@ let rpc_factory
 		pmap_unregister sockserv progs_and_versions port;
 	      super # post_add_hook sockserv
 
+	    method shutdown () =
+	      List.iter
+		(fun srv ->
+		   Rpc_server.stop_server 
+		     ~graceful:true
+		     srv)
+		!srv_list;
+	      srv_list := [];
+	      super # shutdown()
+		
+
 	    method process ~when_done container fd proto =
 	      let esys = container # event_system in
 	      let mplex_eng = sconf # multiplexing 
@@ -110,6 +122,7 @@ let rpc_factory
 			    let srv = 
 			      Rpc_server.create2 
 				(`Multiplexer_endpoint mplex) esys in
+			    srv_list := srv :: !srv_list;
 			    Rpc_server.set_exception_handler srv
 			      (fun err ->
 				 container # log
@@ -118,6 +131,10 @@ let rpc_factory
 				      Printexc.to_string err));
 			    Rpc_server.set_onclose_action 
 			      srv (fun _ ->
+				     srv_list :=
+				       List.filter
+					 (fun srv' -> srv != srv)
+					 !srv_list;
 				     let g = Unixqueue.new_group esys in
 				     Unixqueue.once esys g 0.0 when_done);
 			    setup srv custom_cfg)
