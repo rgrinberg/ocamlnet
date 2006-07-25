@@ -1,5 +1,18 @@
 (* $Id$ *)
 
+
+type param_value =
+    [ `String of string
+    | `Int of int
+    | `Float of float
+    | `Bool of bool
+    ]
+
+type param_value_or_any =
+    [ param_value
+    | `Any of exn
+    ]
+
 type level =
     [ `Emerg | `Alert | `Crit | `Err | `Warning | `Notice | `Info | `Debug ]
 
@@ -51,10 +64,12 @@ type container_state =
 class type controller = 
 object
   method ptype : parallelization_type
+    (** The actually effective parallelization type *)
 
   method controller_config : controller_config
 
   method services : (socket_service * socket_controller * workload_manager) list
+    (** The list of controlled services *)
 
   method add_service : socket_service -> workload_manager -> unit
     (** Adds a new service. Containers for these services will be started
@@ -62,8 +77,12 @@ object
      *)
 
   method logger : logger
+    (** The logger *)
 
   method event_system : Unixqueue.unix_event_system
+    (** The event system used by the controller. It {b must not} be used
+     * from a container.
+     *)
 
   method restart : unit -> unit
     (** Initiates a restart of all containers: All threads/processes are
@@ -182,7 +201,7 @@ object
 
 end
 
-and processor =
+and processor_hooks =
 object
   method post_add_hook : socket_service -> unit
     (** A user-supplied function that is called after the service has been
@@ -219,6 +238,37 @@ object
       * controller.
      *)
 
+  method receive_message :
+            container -> string -> string array -> unit
+    (** This function is called when a broadcast message is received.
+      * The first string is the name of the message, and the array are
+      * the arguments.
+     *)
+
+  method receive_admin_message :
+            container -> string -> string array -> unit
+    (** This function is called when a broadcast admin message is received.
+      * The first string is the name of the message, and the array are
+      * the arguments.
+     *)
+
+  method shutdown : unit -> unit
+    (** A user-supplied function that is called when a shutdown notification
+      * arrives.
+     *)
+
+  method global_exception_handler : exn -> bool
+    (** This method is called when an uncaught exception would otherwise
+      * terminate the container. It can return [true] to indicate that
+      * the container continues running.
+     *)
+
+end
+
+and processor =
+object
+  inherit processor_hooks
+
   method process : 
            when_done:(unit -> unit) ->
            container -> Unix.file_descr -> string -> unit
@@ -235,31 +285,17 @@ object
       * The string argument is the protocol name.
      *)
 
-  method receive_message :
-            container -> string -> string array -> unit
-
-  method receive_admin_message :
-            container -> string -> string array -> unit
-
-  method shutdown : unit -> unit
-    (** A user-supplied function that is called when a shutdown notification
-      * arrives.
-     *)
-
   method supported_ptypes : parallelization_type list
     (** The supported parallelization types *)
-
-  method global_exception_handler : exn -> bool
-    (** This method is called when an uncaught exception would otherwise
-      * terminate the container. It can return [true] to indicate that
-      * the container continues running.
-     *)
 
 end
 
 and container =
 object
   method socket_service : socket_service
+
+  method ptype : parallelization_type
+    (** The parallelization type actually used for this container *)
 
   method event_system : Unixqueue.unix_event_system
     (** The event system the container uses *)
@@ -298,6 +334,15 @@ object
 
   method log : level -> string -> unit
     (** Sends a log message to the controller. *)
+
+  method var : string -> param_value_or_any
+    (** Returns the value of a container variable or [Not_found]. Container
+      * variables can be used by the user of a container to store additional
+      * values in the container. These values exist once per thread/process.
+      *)
+
+  method set_var : string -> param_value_or_any -> unit
+    (** Sets the value of a container variable *)
 
 end
 
@@ -361,13 +406,6 @@ type config_tree =
 	(* (relative_name, contents) *)
     | `Parameter of address * string * param_value
 	(* (relative_name, contents) *)
-    ]
-
-and param_value =
-    [ `String of string
-    | `Int of int
-    | `Float of float
-    | `Bool of bool
     ]
 
 and address = < >

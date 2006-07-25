@@ -1,8 +1,10 @@
 (* $Id$ *)
 
 let rpc_factory 
-      ?(socket_config = fun _ -> Rpc_server.default_socket_config)
       ~configure
+      ?(socket_config = fun _ -> Rpc_server.default_socket_config)
+      ?(hooks = fun _ -> new Netplex_kit.empty_processor_hooks())
+      ?(supported_ptypes = [ `Multi_processing; `Multi_threading ])
       ~name
       ~setup
       () =
@@ -87,18 +89,17 @@ let rpc_factory
 	let port = ref None in
 
 	( object(self)
+	    inherit Netplex_kit.processor_base (hooks custom_cfg) as super
+
 	    method post_add_hook sockserv =
 	      if use_portmapper then 
-		pmap_register sockserv progs_and_versions port
+		pmap_register sockserv progs_and_versions port;
+	      super # post_add_hook sockserv
 
 	    method post_rm_hook sockserv =
 	      if use_portmapper then 
-		pmap_unregister sockserv progs_and_versions port
-
-	    method pre_start_hook _ _ _ = ()
-	    method post_start_hook _ = ()
-	    method pre_finish_hook _ = ()
-	    method post_finish_hook _ _ _ = ()
+		pmap_unregister sockserv progs_and_versions port;
+	      super # post_add_hook sockserv
 
 	    method process ~when_done container fd proto =
 	      let esys = container # event_system in
@@ -127,15 +128,9 @@ let rpc_factory
 			  )
 		mplex_eng
 
-	    method receive_message _ _ _ = ()
-	    method receive_admin_message _ _ _ = ()
-
-	    method shutdown() = ()
-
 	    method supported_ptypes = 
-	      [ `Multi_processing; `Multi_threading ]
+	      supported_ptypes
 
-	    method global_exception_handler _ = false
 	  end
 	)
     end

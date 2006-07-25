@@ -12,10 +12,13 @@ object(self)
   val mutable sys_rpc = None
   val mutable nr_conns = 0
   val mutable engines = []
+  val mutable vars = Hashtbl.create 10 
 
   method socket_service = sockserv
 
   method event_system = esys
+
+  method ptype = ptype
 
   method start fd_clnt sys_fd_clnt =
     if rpc <> None then
@@ -258,6 +261,12 @@ object(self)
 	      msg_arguments = msg_arguments
 	    } in
 	  Netplex_ctrl_clnt.System.V1.send_message r (pat, msg)
+
+  method var name =
+    Hashtbl.find vars name
+
+  method set_var name value =
+    Hashtbl.replace vars name value
 
 end
 

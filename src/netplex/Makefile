@@ -5,11 +5,11 @@ OBJECTS  = netplex_mp.cmo netplex_log.cmo \
 	   netplex_ctrl_aux.cmo netplex_ctrl_clnt.cmo netplex_ctrl_srv.cmo \
 	   netplex_container.cmo netplex_sockserv.cmo netplex_workload.cmo \
 	   netplex_controller.cmo netplex_config.cmo \
-           netplex_main.cmo rpc_netplex.cmo
+           netplex_main.cmo netplex_kit.cmo rpc_netplex.cmo
 DOBJECTS = netplex_types.mli netplex_mp.mli netplex_mt.mli netplex_log.mli \
 	   netplex_controller.mli netplex_container.mli \
 	   netplex_sockserv.mli netplex_workload.mli netplex_main.mli \
-	   netplex_config.mli rpc_netplex.mli
+	   netplex_config.mli netplex_kit.mli rpc_netplex.mli
 
 INCLUDES += $(INC_EQUEUE) $(INC_RPC) $(INC_SHELL) $(INC_NETSTRING)
 # Note: Instead of shell use unix-exts
