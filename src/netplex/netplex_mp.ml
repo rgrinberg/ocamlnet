@@ -91,7 +91,7 @@ object
 	  Unix.close fd_rd;
 
 	  ( object
-	      val mutable waited = false
+	      val mutable watching = false
 
 	      method ptype = `Multi_processing
 	      method info_string = "Process " ^ string_of_int pid
@@ -103,7 +103,7 @@ object
 		  pid_list <- 
 		    List.filter (fun p -> p <> pid) pid_list in
 
-		let rec watch() =
+		let watch() =
 		  incr cnt;
 		  if !cnt = 5 then (
 		    logger # log 
@@ -119,10 +119,10 @@ object
 		    if p = 0 then  (* p=0: not yet terminated *)
 		      true
 		    else
-		      ( waited <- true;
+		      ( remove();
 			match s with
 			  | Unix.WEXITED 0 ->
-			      remove(); false
+			      false
 			  | Unix.WEXITED n ->
 			      logger # log 
 				~component:"netplex.controller"
@@ -130,7 +130,7 @@ object
 				~message:(sprintf
 					    "Process %d for service %s terminated with exit code %d"
 					    pid srv_name n);
-			      remove(); false
+			      false
 			  | Unix.WSIGNALED n ->
 			      logger # log 
 				~component:"netplex.controller"
@@ -138,13 +138,13 @@ object
 				~message:(sprintf
 					    "Process %d for service %s terminated with signal %d"
 					    pid srv_name n);
-			      remove(); false
+			      false
 			  | _ ->
 			      assert false
 		      )
 		  with
 		    | Unix.Unix_error(Unix.EINTR,_,_) ->
-			watch()
+			true
 		    | Unix.Unix_error(Unix.EAGAIN,_,_) ->
 			true
 		in
@@ -155,7 +155,10 @@ object
 		       if watch() then watch_loop()
 		    )
 		in
-		if not waited && watch() then watch_loop()
+		if not watching then (
+		  watching <- true;
+		  if watch() then  watch_loop()
+		)
 	    end
 	  )
 	  
