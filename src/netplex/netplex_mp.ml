@@ -110,7 +110,7 @@ object
 		      ~component:"netplex.controller"
 		      ~level:`Alert
 		      ~message:(sprintf
-				  "Process %d for service %s seems to be dead, killing it now"
+				  "Process %d for service %s seems to be non-responsive, killing it now"
 				  pid srv_name);
 		    Unix.kill pid Sys.sigterm
 		  );

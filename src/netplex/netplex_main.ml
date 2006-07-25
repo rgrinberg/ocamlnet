@@ -9,12 +9,19 @@ type cmdline_config =
       mutable foreground : bool;
     }
 
-let args () =
+let create ?(config_filename = "/etc/netplex.conf")
+           ?(pidfile = None)
+           ?(foreground = false) () =
+  { config_filename = config_filename;
+    pidfile = pidfile;
+    foreground = foreground
+  }
+
+
+let args ?(defaults = create()) () =
   let config =
-    { config_filename = "/etc/netplex.conf";
-      pidfile = None;
-      foreground = false;
-    } in
+    (* copy of defaults: *)
+    { defaults with foreground = defaults.foreground  } in
 
   let spec =
     [ "-conf",

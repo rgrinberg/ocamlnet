@@ -19,7 +19,7 @@ val constant_workload_manager_factory : workload_manager_factory
     *
     * {[ workload_manager {
     *      type = "constant";
-    *      jobs = <n>;
+    *      threads = <n>;
     *    }
     * ]}
    *)

@@ -35,16 +35,23 @@ object
   method name = "constant"
   method create_workload_manager ctrl_cfg cf addr =
     cf # restrict_subsections addr [];
-    cf # restrict_parameters addr [ "type"; "jobs" ];
+    cf # restrict_parameters addr [ "type"; "jobs"; "threads" ];
     let n =
       try
 	cf # int_param
-	  (cf # resolve_parameter addr "jobs")
+	  (cf # resolve_parameter addr "threads")
       with
 	| Not_found ->
-	    failwith ("Constant workload manager needs parameter 'jobs'") in
+	    ( try
+		cf # int_param
+		  (cf # resolve_parameter addr "jobs")
+		  (* Accept [jobs] for some time *)
+	      with
+		| Not_found ->
+		    failwith ("Constant workload manager needs parameter 'threads'")
+	    ) in
     if n < 1 then
-      failwith ("Parameter " ^ cf#print addr ^ ".jobs must be > 0");
+      failwith ("Parameter " ^ cf#print addr ^ ".threads must be > 0");
     create_constant_workload_manager n
 end
 

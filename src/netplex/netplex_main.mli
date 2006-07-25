@@ -4,11 +4,21 @@ open Netplex_types
 
 type cmdline_config
 
-val args : unit -> ((Arg.key * Arg.spec * Arg.doc) list * cmdline_config)
+val args : 
+       ?defaults:cmdline_config ->
+       unit -> ((Arg.key * Arg.spec * Arg.doc) list * cmdline_config)
   (** let (opt_list, cmdline_cfg) = args():
     * Returns [opt_list] for inclusion in the [Arg.parse] option list.
-    * The effects are stored in the [cmdline_cfg] value.
+    * The effects made available by the returned [cmdline_cfg] value.
+    * 
+    * @param defaults The default argument values
    *)
+
+val create : ?config_filename:string ->
+             ?pidfile:string option ->
+             ?foreground:bool ->
+             unit -> cmdline_config
+  (** Creates the command-line configuration object *)
 
 val config_filename : cmdline_config -> string
   (** Returns the filename of the configuration file *)
