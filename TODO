@@ -1,3 +1,8 @@
+Overall:
+	Documentation:
+	- ocamldoc
+	- other
+
 Constant workload manager:
 
 	Do not use param "jobs" but "threads" to specifiy the number of 
@@ -11,9 +16,7 @@ Http_client.pipeline:
 	
 	reset() does not work properly
 
-rpc_factory:
-
-	Pass hook functions in
+	[Tue Jul 11 14:56:31 2006] [myspace.crawler] [crit] run: Exception Failure("Http_client: HTTP call is unserved, no response yet")
 
 Command line options of netplex:
 
@@ -23,8 +26,6 @@ Container:
 
 	[lookup] returns the wrong sockets
 
-	log messages in pre_finish_hook do not reach the logger!
-
 Arch:
 
 	Avoid name service hacks
@@ -33,14 +34,6 @@ Shutdown:
 
 	does not work if components open TCP conns to themselves.
 
-	Killing the master process should forward the signal to the
-	children.
-
 	rpc_factory: shutdown should at least shut down the rpc server
 
 	mehrstufiger Shutdown
-	
-Fix:
-	In Netplex_controller.controller_processor#process:
-	proc_send_admin_message calls forward_message instead of
-	forward_admin_message
