@@ -146,7 +146,6 @@ object(self)
 	     )
 	  ) in
       let container = sockserv # create_container par#ptype sockserv in
-      (* CHECK: ptype *)
       sockserv # processor # pre_start_hook 
 	sockserv
 	(controller :> controller)
@@ -599,7 +598,7 @@ object
 end
 
 
-class controller_processor controller : processor =
+class controller_processor setup controller : processor =
   let find_service name =
     let (sockserv, sockctrl, _) =
       List.find (fun (s,_,_) -> s#name = name) controller # ext_services in
@@ -614,6 +613,8 @@ class controller_processor controller : processor =
 	  `code_error (Printexc.to_string error)
   in
 object(self)
+  inherit Netplex_kit.empty_processor_hooks()
+
   method supported_ptypes = [ `Multi_processing; `Multi_threading ]
 
   method process ~when_done cont fd proto =
@@ -723,25 +724,8 @@ object(self)
       rpc;
     Rpc_server.set_onclose_action rpc (fun _ -> 
 					 when_done();
-				      )
-
-  method receive_message _ _ _ = ()
-
-  method receive_admin_message _ _ _ = ()
-
-  method shutdown() = ()
-
-  method post_add_hook _ = ()
-
-  method post_rm_hook _ = ()
-
-  method pre_start_hook _ _ _ = ()
-
-  method post_start_hook _ = ()
-
-  method pre_finish_hook _ = ()
-
-  method post_finish_hook _ _ _ = ()
+				      );
+    setup rpc
 
   method global_exception_handler exn = true
 
@@ -756,8 +740,8 @@ let try_mkdir f =
 ;;
 
 
-class controller_sockserv controller : socket_service =
-  let processor = new controller_processor controller in
+class controller_sockserv setup controller : socket_service =
+  let processor = new controller_processor setup controller in
   let dir = controller#controller_config#socket_directory in
   let dir' = Filename.concat dir "netplex.controller" in
   let socket_name = Filename.concat dir' "admin" in
@@ -770,7 +754,7 @@ class controller_sockserv controller : socket_service =
 	  [ object
 	      method name = "admin"
 	      method addresses = [| Unix.ADDR_UNIX socket_name |]
-	      method lstn_backlog = 5
+	      method lstn_backlog = 50
 	      method lstn_reuseaddr = true
 	      method configure_slave_socket _ = ()
 	    end
@@ -797,6 +781,7 @@ object(self)
   val esys = Unixqueue.create_unix_event_system()
   val mutable services = []
   val mutable shutting_down = false
+  val mutable admin_setups = []
 
   initializer (
     par # init();
@@ -806,6 +791,9 @@ object(self)
       (* Forward messages sent to the logger during [create_logger]. *)
     let my_sockserv = 
       new controller_sockserv 
+	(fun rpc ->
+	   List.iter (fun f -> f rpc) admin_setups
+	)
 	(self : #extended_controller :> extended_controller) in
     let my_wrkmng =
       Netplex_workload.create_constant_workload_manager 1 in
@@ -851,6 +839,9 @@ object(self)
     wrkmng # hello (self : #controller :> controller);
     sockserv # processor # post_add_hook sockserv;
     sockctrl # enable();
+
+  method add_admin setup =
+    admin_setups <- setup :: admin_setups
 
   method private rm_service sockctrl =
     let sockserv = ref None in

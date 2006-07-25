@@ -76,6 +76,17 @@ object
       * soon.
      *)
 
+  method add_admin : (Rpc_server.t -> unit) -> unit
+    (** [add_admin setup]: Allows to bind another RPC program to the admin
+      * socket. The function [setup] will be called whenever a connection
+      * to the admin socket is established, and this function can call
+      * [Rpc_server.bind] to bind another RPC program. By default, only
+      * the [Admin] interface is available as described in [netplex_ctrl.x].
+      *
+      * Note that this RPC server runs in the scope of the controller! No
+      * additional process or thread is created.
+     *)
+
   method logger : logger
     (** The logger *)
 
