@@ -9,3 +9,5 @@ include ./Makefile.gtk
 PP_OPTIONS = -syntax camlp4o -package camlp4.macro $(GTK_DEFINES)
 
 include $(TOP_DIR)/Makefile.rules
+
+CLEAN_LIST += uq_gtk.ml uq_gtk.mli Makefile

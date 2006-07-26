@@ -3,7 +3,17 @@ Overall:
 	- ocamldoc
 	- other
 
+
+	- Improve Netplex .mli docs
+
+	- rpc*
+	- netclient
+
 Integration of new netcgi
+
+	- nethttpd still depends on old cgi. makes it difficult to mix
+	  nethttpd and new cgi
+
 
 Http_client.pipeline:
 	

@@ -11,7 +11,8 @@ unihan_extract: unihan_extract.ml
 		unihan_extract.ml
 
 clean:
-	rm -f *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa
+	rm -f *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa \
+	unimap_to_ocaml unihan_extract
 
 CLEAN: clean
 

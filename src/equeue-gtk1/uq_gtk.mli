@@ -3,6 +3,8 @@
 open Equeue
 open Unixqueue
 
+(** Integration with lablgtk/lablgtk2 event systems *)
+
 (** This module provides integration of Unixqueue event systems with the
  * Glib event queue (and, as a consequence, with the lablgtk event queue).
  *

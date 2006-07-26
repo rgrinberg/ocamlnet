@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+(** Main program for Netplex servers *)
+
 open Netplex_types
 
 type cmdline_config
@@ -7,7 +9,7 @@ type cmdline_config
 val args : 
        ?defaults:cmdline_config ->
        unit -> ((Arg.key * Arg.spec * Arg.doc) list * cmdline_config)
-  (** let (opt_list, cmdline_cfg) = args():
+  (** [let (opt_list, cmdline_cfg) = args()]:
     * Returns [opt_list] for inclusion in the [Arg.parse] option list.
     * The effects made available by the returned [cmdline_cfg] value.
     * 

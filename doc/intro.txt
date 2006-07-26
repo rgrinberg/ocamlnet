@@ -1,0 +1,194 @@
+OcamlNet consists of several libraries:
+
+- [netstring]
+- [cgi]
+- [nethttpd]
+- [pop]
+- [smtp]
+
+In order to explore these libraries, it is recommended to read the
+module {!Netchannels} first, as the object channels defined in this
+module are a very basic structure, and used by most other modules.
+There is also a {!Netchannels.tutorial}.
+
+{2:netstring The [netstring] library}
+
+[netstring] focuses on string processing functions.
+
+{!modules: 
+   Netconversion
+   Netchannels
+   Netstream
+   Mimestring
+   Netmime
+   Netsendmail
+   Neturl
+   Netaddress
+   Netbuffer
+   Netdate
+   Netencoding
+   Netulex
+   Netaccel
+   Netaccel_link
+   Nethtml
+   Nethttp
+   Netstring_str
+   Netstring_pcre
+   Netstring_mt
+   Netmappings
+   Netaux}
+
+{2:cgi The [cgi] library}
+
+This is the aged [cgi] library whose features are frozen. A description
+of its interfaces can be found {{:cgi/index.html} here}.
+
+
+{2:netcgi The [netcgi] library}
+
+This is the revised library for Web applications, now called [netcgi].
+
+{!modules:
+    Netcgi
+    Netcgi_common
+    Netcgi_cgi
+    Netcgi_fcgi
+    Netcgi_ajp
+    Netcgi_scgi
+    Netcgi_test
+    Netcgi_mod
+    Netcgi_modtpl
+    Netcgi_dbi}
+
+{2:nethttpd The [nethttpd] library}
+
+The [nethttpd] library is a Web server component written in O'Caml. 
+For a full web server, you'll also need {!Intro.netplex}.
+
+{!modules:
+   Nethttpd_types
+   Nethttpd_kernel
+   Nethttpd_reactor
+   Nethttpd_engine
+   Nethttpd_services
+   Nethttpd_plex}
+
+{3:nethttpd_intro Guides}
+
+- {!module:Nethttpd_intro}: Overview over the HTTP daemon
+
+{2:netplex The [netplex] library}
+
+The [netplex] library is a protocol-independent server framework. 
+Especially, it can be used in conjunction with {!Intro.nethttpd} to
+build web servers, and with {!Intro.rpc} to build RPC servers.
+
+{!modules:
+    Netplex_types
+    Netplex_config
+    Netplex_controller
+    Netplex_container
+    Netplex_sockserv
+    Netplex_workload
+    Netplex_kit
+    Netplex_log
+    Netplex_main
+    Netplex_mp
+    Netplex_mt
+    Rpc_netplex}
+    
+{3:nethttpd_intro Guides}
+
+- {!module:Netplex_intro}: Introduction into [Netplex]
+
+
+{2:equeue The [equeue] library}
+
+[equeue] is a fundamental library for event queues. It is mainly used
+by a number of other libraries of Ocamlnet to parallelize network code
+(so-called multiplexing).
+
+{!modules:
+   Equeue
+   Unixqueue
+   Unixqueue_mt
+   Uq_engines
+   Uq_socks5}
+
+{3:equeue_intro Guides}
+
+- {!module:Equeue_intro}: Introduction into programming with [equeue]
+
+{3:equeue_gtk The [equeue-gtk1] and [equeue-gtk2] extensions}
+
+Extensions for [equeue] to integrate the event queue into user interfaces
+made with lablgtk and lablgtk2
+
+{!modules:
+  Uq_gtk}
+
+{3:equeue_ssl The [equeue-ssl] extension}
+
+Extensions for [equeue] to support SSL
+
+{!modules:
+   Uq_ssl}
+
+{3:equeue_tcl The [equeue-tcl] extension}
+
+Extension for [equeue] to integrate the event queue into user interfaces
+made with labltk
+
+{!modules:
+  Uq_tcl}
+
+{2:pop The [pop] library}
+
+This is a simple POP 3 client.
+
+{!modules:
+    Netpop}
+
+{2:smtp The [smtp] library}
+
+This is a simple SMTP client.
+
+{!modules:
+    Netsmtp}
+
+{2:shell The [shell] library}
+
+The [shell] library allows you to start external commands. It is integrated
+into [equeue].
+
+{!modules:
+    Shell
+    Shell_sys
+    Shell_uq
+    Shell_mt
+    Unix_exts}
+
+{3:shell_intro Guides}
+
+- {!module:Shell_intro}: Motivation for [shell]
+
+{2 Index}
+
+{!indexlist}
+
+{2 Authors}
+
+The Ocamlnet libraries have been initially written by Gerd Stolpmann and
+Patrick Doane.
+
+Contributions by
+
+- Nicolas George: Netdate
+- Eric Stokes: FastCGI support
+- Pierre Habouzit: SMTP client
+- Christophe Troestler: Revised version of [netcgi]
+
+Sponsorships by
+
+- Baretta s.r.l: Nethttpd
+- California State University: SSL support for RPC, Netplex

@@ -1,0 +1,344 @@
+{1 Introduction into Netplex}
+
+Netplex is a generic (stream) server framework. This means, Netplex
+does a lot of things for a network service that are always the same,
+regardless of the kind of service:
+
+- Creation of server sockets
+- Accepting new network connections
+- Organizing multiple threads of execution - either by multiple 
+  processes, multiple POSIX threads, or multiplexing
+- Workload management
+- Writing log files
+- Broadcasting messages to all server components
+- Support for a configuration file format
+
+Netplex currently only supports stream sockets (TCP or Unix Domain).
+
+Ocamlnet already includes Netplex adapters for Nethttpd (the HTTP daemon), 
+and RPC servers. It is likely that more adapters for other network
+protocols will follow.
+
+Netplex can bundle several network services into a single system of
+components. For example, you could have an RPC service that can be
+managed over a web interface provided by Nethttpd. Actually, Netplex
+focuses on such systems of interconnected components. RPC plays a
+special role in such systems because this is the network protocol
+the components use to talk to each other. It is also internally
+used by Netplex for its administrative tasks.
+
+{2 Terminology}
+
+In the Netplex world the following words are preferred to refer to
+the parts of a Netplex system:
+
+- The {b Netplex controller} is the core component of Netplex.
+  The controller opens sockets and manages how new connections
+  are accepted. For every socket, the controller determines 
+  which {b Netplex container} will accept the next connection
+  that is tried to be established. Furthermore, the controller
+  manages the startup and shutdown of the Netplex system.
+
+- The {b Netplex services} are the user-defined components 
+  of a Netplex system. Every service runs in its own process(es)
+  (if multi-processing is selected) or in its own thread(s)
+  (for POSIX multi-threading). It is up to the user to define
+  what a service is.
+
+- The {b Netplex protocols} are the languages spoken by the
+  services. A protocol is bound to one or more sockets.
+  This means that a service is implemented by a number of
+  protocols. 
+
+- The {b Netplex containers} are processes or threads that may
+  execute a certain service. Every container is bound to a
+  specific service. It is possible that only one container
+  is used for a particular service, but one can also configure
+  that containers are dynamically started and stopped as the
+  workload of the system changes.
+
+{2 A Simple Web Server}
+
+In order to create a web server, this main program and the following
+configuration file are sufficient. (You find an extended example in
+the "examples/nethttpd" directory of the Ocamlnet tarball.)
+
+{[
+let main() =
+  (* Create a parser for the standard Netplex command-line arguments: *)
+  let (opt_list, cmdline_cfg) = Netplex_main.args() in
+
+  (* Parse the command-line arguments: *)
+  Arg.parse
+    opt_list
+    (fun s -> raise (Arg.Bad ("Don't know what to do with: " ^ s)))
+    "usage: netplex [options]";
+
+  (* Select multi-processing: *)
+  let parallelizer = Netplex_mp.mp() in  
+
+  (* Start the Netplex system: *)
+  Netplex_main.startup
+    parallelizer
+    Netplex_log.logger_factories
+    Netplex_workload.workload_manager_factories
+    [ Nethttpd_plex.nethttpd_factory() ]
+    cmdline_cfg
+;;
+
+Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
+start();;
+]}
+
+The configuration file:
+
+{[
+netplex {
+  controller {
+    max_level = "debug";    (* Log level *)
+    logging {
+      type = "stderr";      (* Log to stderr *)
+    }
+  };
+  service {
+    name = "My HTTP file service";
+    protocol {
+      (* This section creates the socket *)
+      name = "http";
+      address {
+        type = "internet";
+        bind = "0.0.0.0:80";  (* Port 80 on all interfaces *)
+      };
+    };
+    processor {
+      (* This section specifies how to process data of the socket *)
+      type = "nethttpd";
+      host {
+        (* Think of Apache's "virtual hosts" *)
+        pref_name = "localhost";
+        pref_port = 80;
+        names = "*:0";   (* Which requests are matched here: all *)
+        uri {
+          path = "/";
+          service {
+            type = "file";
+            docroot = "/usr";
+            media_types_file = "/etc/mime.types";
+            enable_listings = true;
+          }
+        };
+      };
+    };
+    workload_manager {
+      type = "dynamic";
+      max_jobs_per_thread = 1;  (* Everything else is senseless *)
+      min_free_jobs_capacity = 1;
+      max_free_jobs_capacity = 1;
+      max_threads = 20;
+    };
+  }
+}
+]}
+
+As you can see, the main program is extremely simple. Netplex includes
+support for command-line parsing, and the rest deals with the question
+which Netplex modules are made accessible for the configuration file.
+
+Here, we have:
+
+- The multi-execution provider is [Netplex_mp.mp] which implements
+  multi-processing. (Btw, multi-processing is the preferred 
+  parallelizing technique in Netplex.) Replace it with
+  [Netplex_mt.mt] to get multi-threading.
+- The [Netplex_log.logger_factories] are the list of all predefined
+  logging mechanisms. The configuration file can select one of these
+  mechanisms.
+- The [Netplex_workload.workload_manager_factories] are the list of 
+  all predefined worload management mechanisms. The configuration
+  file can select one of these mechanisms per service.
+- Finally, we pass [Nethttpd_plex.nethttpd_factory] as the only
+  service processor.
+
+The configuration file consists of nested sections whose extents are
+denoted by curly braces. The sections are partly defined by Netplex
+itself (e.g. the controller section and the workload manager section),
+and partly by the service provider (almost everything inside 
+"processor"). That means that the components of a Netplex system
+pick "their" part from the configuration file, and that, depending
+on which components are linked into this system, the config files
+may look very different.
+
+Here, we have:
+
+- The [controller] section sets the log level and the logging method.
+  The latter is done by naming one of the logger factories as 
+  logging [type]. If the factory needs more parameters to create
+  the logger, these can be set inside the [logging] section.
+- For every [service] there is a [name] (can be freely chosen), one
+  or several [protocol]s, a [processor], and a [workload_manager].
+  The [protocol] section declare which protocols are available and
+  to which sockets they are bound. Here, the "http" protocol (name can again
+  be freely chosen) is reachable over TCP port 80 on all network
+  interfaces. By having multiple [address] sections, one can bind
+  the same protocol to multiple sockets.
+- The [processor] section specifies the [type] and optionally a 
+  lot of parameters (which may be structured into several sections).
+  By setting [type] to "nethttpd" we select the
+  [Nethttpd_plex.nethttpd_factory] to create the processor 
+  (because "nethttpd" is the default name for this factory).
+  This factory now interprets the other parameters of the [processor]
+  section. Here, a static HTTP server is defined that uses /usr
+  as document root.
+- Finally, the [workload_manager] section says how to deal with
+  parallely arriving requests. The [type] selects the dynamic
+  workload manager which is configured by the other parameters.
+  Roughly said, one container (i.e. process) is created in advance
+  for the next network connection ("pre-fork"), and the upper limit
+  of containers is 20.
+
+{2 Running This Example}
+
+If you start this program without any arguments, it will immediately
+fail because it wants to open [/etc/netplex.conf] - this is the 
+default name for the configuration file. Use [-conf] to pass the
+real name of the above file.
+
+Netplex creates a directory for its internal processing, and this is
+by default [/tmp/.netplex]. You can change this directory by 
+having a [socket_directory] parameter in the [controller] section.
+In this directory, you can find:
+
+- A directory [netplex.controller] which refers to the controller
+  component.
+- For every service another directory containing local run-time files.
+  The directory has the same name as the service.
+
+Netplex comes with a generic administration command called
+[netplex-admin]. You can use it to send control messages to Netplex
+systems. For example,
+
+{[ netplex-admin -list ]}
+
+outputs the list of services. With 
+
+{[ netplex-admin -shutdown ]}
+
+the system is (gracefully) shut down. It is also possible to broadcast
+messages to all components:
+
+{[ netplex-admin name arg1 arg2 ... ]}
+
+It is up to the components to interpret these messages.
+
+{2 Defining Custom Processors}
+
+Using predefined processor factories like [Nethttpd_plex.nethttpd_factory]
+is very easy. Fortunately, it is not very complicated to define a
+custom adapter that makes an arbitrary network service available as
+Netplex processor.
+
+In principle, you must define a class for the type 
+[Netplex_types.processor] and the corresponding factory implementing
+the type [Netplex_types.processor_factory]. To do the first,
+simply inherit from [Netplex_kit.processor_base] and override the
+methods that should do something instead of nothing. For example,
+to define a service that outputs the line "Hello world" on the
+TCP connection, define:
+
+{[ 
+class hello_world_processor : processor =
+  let empty_hooks = new Netplex_kit.empty_processor_hooks() in
+object(self)
+  inherit Netplex_kit.processor_base empty_hooks
+
+  method process ~when_done container fd proto_name =
+    let ch = Unix.out_channel_of_file_descr fd in
+    output_string ch "Hello world\n";
+    close_out ch;
+    when_done()
+
+  method supported_ptypes = [ `Multi_processing; `Multi_threading ]
+end
+]}
+
+The method [process] is called whenever a new connection is made.
+The [container] is the object representing the container where the
+execution happens ([process] is always called from the container).
+In [fd] the file descriptor is passed that is the (already accepted)
+connection. In [proto_name] the protocol name is passed - here it is
+unused, but it is possible to process the connection in a way that
+depends on the name of the protocol.
+
+The argument [when_done] is very important. It {b must} be called by
+[process]! For a synchronous processor like this one it is simply called
+before [process] returns to the caller.
+
+For an asynchronous processor (i.e. a processor that handles several
+connections in parallel in the same process/thread), [when_done] must
+be called when the connection is fully processed. This may be at any
+time in the future.
+
+The class [hello_world_processor] can now be turned into a factory:
+
+{[
+class hello_world_factory : processor_factory =
+object(self) 
+  method name = "hello_world"
+  method create ctrl_cfg cfg_file cfg_addr =
+    new hello_world_processor
+end
+]}
+
+As you see, one can simply choose a [name]. This is the type of
+the [processor] section in the configuration file, i.e. you need
+
+{[
+  ...
+  service {
+    name = "hello world sample";
+    ...
+    processor {
+      type = "hello_world"
+    };
+    ...
+  }
+  ...
+]}
+
+to activate this factory for a certain service definition.
+
+The [create] method simply creates an object of your class. The
+argument [ctrl_cfg] is the configuration of the controller (e.g.
+you find there the name of the socket directory). In [cfg_file]
+the object is passed that accesses the configuration file as
+tree of parameters. In [cfg_addr] the address of the [processor]
+section is made available, so you can look for additional 
+configuration parameters.
+
+You may wonder why it is necessary to first create [empty_hooks].
+The hook methods are often overridden by the user of processor
+classes. In order to simplify this, it is common to allow the 
+user to pass a hook object to the processor object:
+
+{[ 
+class hello_world_processor hooks : processor =
+object(self)
+  inherit Netplex_kit.processor_base hooks
+
+  method process ~when_done container fd proto_name = ...
+  method supported_ptypes = ...
+end
+]}
+
+Now, the user can simply define hooks as in
+
+{[
+class my_hooks =
+object(self)
+  inherit Netplex_kit.empty_processor_hooks()
+
+  method post_start_hook container = ...
+end
+]}
+
+and pass such a hook object into the factory.

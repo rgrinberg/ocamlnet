@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+(** Types for [Netplex] *)
+
 
 type param_value =
     [ `String of string

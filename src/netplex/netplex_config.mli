@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+(** Read the configuration file *)
+
 open Netplex_types
 
 exception Config_error of string

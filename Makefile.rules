@@ -15,7 +15,7 @@ OCAMLYACC = ocamlyacc
 OCAMLLEX  = ocamllex
 CAMLP4    = camlp4
 OCAMLMKLIB = ocamlmklib
-OCAMLDOC  = ocamldoc
+OCAMLDOC  = $(OCAMLFIND) ocamldoc
 
 TOOLS_DIR = $(TOP_DIR)/tools
 COLLECT_FILES = $(TOOLS_DIR)/collect_files
@@ -62,7 +62,7 @@ $(ARCHIVE).cmxa: $(XOBJECTS) $(COBJECTS)
 # Files to remove everywhere by "make clean":
 
 CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa dll* packlist-* \
-	     ocamldoc.dump META $(PACKLIST) $(GENERATE)
+	     ocamldoc.dump META depend $(PACKLIST) $(GENERATE)
 
 # Generic build rules:
 
@@ -87,7 +87,7 @@ CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa dll* packlist-* \
 	$(OCAMLC) -c -ccopt -O $(CC_OPTIONS) $(CC_OPTIONS_FOR_$<) $<
 
 ocamldoc.dump: $(DOBJECTS)
-	ocamldoc -dump ocamldoc.dump -stars $(INCLUDES) $(OCAMLDOC_OPTIONS) $(DOBJECTS)
+	$(OCAMLDOC) -dump ocamldoc.dump -stars $(INCLUDES) -package "$(REQUIRES)" $(PP_OPTIONS) $(OCAMLDOC_OPTIONS) $(DOBJECTS) || { rm -f ocamldoc.dump; exit 1; }
 
 # Install rules:
 
@@ -138,6 +138,10 @@ depend: *.ml *.mli
 .PHONY: clean
 clean::
 	rm -f $(CLEAN_LIST)
+
+.PHONY: clean-doc
+clean-doc::
+	rm -f ocamldoc.dump
 
 .PHONY: distclean
 distclean::

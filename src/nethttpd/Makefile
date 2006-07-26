@@ -4,8 +4,9 @@ PKGNAME  = nethttpd
 OBJECTS  = nethttpd_types.cmo nethttpd_kernel.cmo nethttpd_reactor.cmo \
 	  nethttpd_engine.cmo nethttpd_services.cmo nethttpd_plex.cmo
 
-OCAMLDOC = nethttpd_types.mli nethttpd_kernel.mli nethttpd_reactor.mli \
-	  nethttpd_engine.mli nethttpd_services.mli nethttpd_plex.mli
+DOBJECTS = nethttpd_types.mli nethttpd_kernel.mli nethttpd_reactor.mli \
+	  nethttpd_engine.mli nethttpd_services.mli nethttpd_plex.mli \
+	  nethttpd_intro.txt
 
 INCLUDES += $(INC_EQUEUE) $(INC_NETSTRING) $(INC_CGI) $(INC_NETPLEX)
 PP_OPTIONS = -package "camlp4, camlp4.macro" -syntax "camlp4o"

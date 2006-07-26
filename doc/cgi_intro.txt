@@ -1,0 +1,14 @@
+{2:cgi The [cgi] library}
+
+This is the aged [cgi] library whose features are frozen. A new version
+is developed as {{:../index.html#cgi} [netcgi] library}.
+
+{!modules:
+   Netcgi_env
+   Netcgi_types
+   Netcgi
+   Netcgi_jserv
+   Netcgi_jserv_ajp12
+   Netcgi_jserv_app
+   Netcgi_fcgi_10
+   Netcgi_fcgi}

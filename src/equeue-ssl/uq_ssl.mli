@@ -21,7 +21,8 @@ object
   method ssl_socket : Ssl.socket
 
   method ssl_socket_state : [ `Unset | `Client | `Server | `Unclean | `Clean ]
-    (** - [`Unset]: A fresh socket
+    (** Returns the socket state:
+      * - [`Unset]: A fresh socket
       * - [`Client]: A socket playing the SSL client role
       * - [`Server]: A socket playing the SSL server role
       * - [`Unclean]: The socket state is unclean. The socket is no longer usable.

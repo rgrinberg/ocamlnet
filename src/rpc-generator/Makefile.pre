@@ -9,7 +9,7 @@ INSTOTHER = install-rpcgen
 
 include $(TOP_DIR)/Makefile.rules
 
-CLEAN_LIST += ocamlrpcgen$(EXEC_SUFFIX)
+CLEAN_LIST += ocamlrpcgen$(EXEC_SUFFIX) parser.mli
 
 rtypes.ml: ../rpc/rtypes.ml
 	cp ../rpc/rtypes.ml .

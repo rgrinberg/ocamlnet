@@ -13,7 +13,8 @@ PP_OPTIONS = -syntax camlp4o -package camlp4
 
 include $(TOP_DIR)/Makefile.rules
 
-CLEAN_LIST += netplex-admin$(EXEC_SUFFIX)
+CLEAN_LIST += netplex-admin$(EXEC_SUFFIX) \
+	      netplex_ctrl_aux.mli netplex_ctrl_clnt.mli netplex_ctrl_srv.mli
 
 netplex_ctrl_aux.ml: netplex_ctrl.x
 	$(RPCGEN) -aux netplex_ctrl.x -int unboxed
@@ -30,3 +31,6 @@ install-netplex-admin:
 	mkdir -p $(DESTDIR)$(BINDIR)
 	cp netplex-admin$(EXEC_SUFFIX) $(DESTDIR)$(BINDIR)
 	@echo "Installed netplex-admin$(EXEC_SUFFIX) into $(DESTDIR)$(BINDIR)"
+
+clean::
+	cd tests && $(MAKE) clean

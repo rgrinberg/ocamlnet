@@ -31,6 +31,14 @@ opt:
 	done
 
 
+.PHONY: doc
+doc:
+	for pkg in $(PKGLIST); do \
+		( cd src/$$pkg && $(MAKE) ocamldoc.dump ) || exit; \
+	done
+	cd doc; $(MAKE) doc
+
+
 # The following PHONY rule is important for Cygwin:
 .PHONY: install
 install:
@@ -51,6 +59,15 @@ clean:
 		test ! -f $$pkg/Makefile || \
 			( cd $$pkg && $(MAKE) -f Makefile.pre clean); \
 	done
+	cd doc && $(MAKE) clean
+
+.PHONY: clean-doc
+clean-doc:
+	for pkg in src/*/.; do \
+		test ! -f $$pkg/Makefile || \
+			( cd $$pkg && $(MAKE) -f Makefile.pre clean-doc); \
+	done
+	cd doc && $(MAKE) clean-doc
 
 .PHONY: CLEAN
 CLEAN: clean

@@ -2,7 +2,7 @@ TOP_DIR=../..
 
 PKGNAME  = pop
 OBJECTS  = netpop.cmo
-OCAMLDOC = netpop.mli
+DOBJECTS = netpop.mli
 
 INCLUDES += $(INC_NETSTRING)
 

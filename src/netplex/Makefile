@@ -9,7 +9,8 @@ OBJECTS  = netplex_mp.cmo netplex_log.cmo \
 DOBJECTS = netplex_types.mli netplex_mp.mli netplex_mt.mli netplex_log.mli \
 	   netplex_controller.mli netplex_container.mli \
 	   netplex_sockserv.mli netplex_workload.mli netplex_main.mli \
-	   netplex_config.mli netplex_kit.mli rpc_netplex.mli
+	   netplex_config.mli netplex_kit.mli rpc_netplex.mli \
+	   netplex_intro.txt
 
 INCLUDES += $(INC_EQUEUE) $(INC_RPC) $(INC_SHELL) $(INC_NETSTRING)
 # Note: Instead of shell use unix-exts

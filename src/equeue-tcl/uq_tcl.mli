@@ -3,6 +3,8 @@
 open Equeue
 open Unixqueue
 
+(** Integration with the labltk event system *)
+
 (** This module provides integration of Unixqueue event systems with the
  * TCL event queue (and, as a consequence, with the labltk event queue).
  *)
