@@ -3,37 +3,10 @@ Overall:
 	- ocamldoc
 	- other
 
-Constant workload manager:
-
-	Do not use param "jobs" but "threads" to specifiy the number of 
-	threads. (Bg: Multiplexed services can have more jobs than threads.)
-
-protocol.path:
-
-	Create directories as needed
+Integration of new netcgi
 
 Http_client.pipeline:
 	
 	reset() does not work properly
 
 	[Tue Jul 11 14:56:31 2006] [myspace.crawler] [crit] run: Exception Failure("Http_client: HTTP call is unserved, no response yet")
-
-Command line options of netplex:
-
-	Possibility to set default values to different things
-
-Container:
-
-	[lookup] returns the wrong sockets
-
-Arch:
-
-	Avoid name service hacks
-
-Shutdown:
-
-	does not work if components open TCP conns to themselves.
-
-	rpc_factory: shutdown should at least shut down the rpc server
-
-	mehrstufiger Shutdown

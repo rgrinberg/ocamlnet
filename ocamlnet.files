@@ -26,6 +26,7 @@
 #f README
 f LICENSE
 f LICENSE.GPL
+f LICENSE.LGPL
 #f CHANGES
 f Makefile
 f Makefile.rules
@@ -189,6 +190,7 @@ x src/netplex/netplex_ctrl_clnt.mli
 x src/netplex/netplex_ctrl_srv.ml
 x src/netplex/netplex_ctrl_srv.mli
 x src/netplex/netplex_vexec.mli
+f src/netplex/netplex_intro.txt
 
 d src/rpc
 f src/rpc/META.in

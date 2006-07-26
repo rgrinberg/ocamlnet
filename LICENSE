@@ -6,7 +6,7 @@ These license conditions apply to the libraries:
 - equeue-gtk2
 - equeue-ssl
 - equeue-tcl
-- netcgi
+- netcgi (except mod_caml part)
 - netclient
 - netplex
 - netstring

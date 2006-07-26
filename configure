@@ -53,6 +53,8 @@ set_defaults () {
     tcl_libs=""
     adh_style=""
     disable_core=0
+    apxs=""
+    apache=""
 }
 
 ocamlc=`get_path ocamlc`
@@ -137,6 +139,12 @@ print_options () {
 		echo "    -auth-dh-style $adh_style"
 	    fi
 	fi
+	if [ -n "$apxs" ]; then
+	    echo "    -apxs $apxs"
+	fi
+	if [ -n "$apache" ]; then
+	    echo "    -apache $apache"
+	fi
 }
 
 
@@ -177,6 +185,12 @@ _EOF_
 
 -auth-dh-style (keyenvoy|unixdomain|tirpc)
         Set style of keyserv connector (see README.authdh)
+
+-apxs /path/to/apxs
+        Set which apxs to use for -enable-modcaml
+
+-apache /path/to/apache
+        Set which apache executable to use for -enable-modcaml
 
 Defaults are:
 
@@ -263,6 +277,16 @@ while [ "$#" -gt 0 ]; do
                         ;;
                 -auth-dh-style)
                         adh_style="$2"
+                        shift
+                        shift
+                        ;;
+                -apxs)
+                        apxs="$2"
+                        shift
+                        shift
+                        ;;
+                -apache)
+                        apache="$2"
                         shift
                         shift
                         ;;
@@ -606,8 +630,15 @@ fi
 if [ $enable_modcaml -gt 0 ]; then
     echo -n "Apache mod connector... "
 
-    apxs=`which apxs`
-    apache=/usr/sbin/apache
+    if [ -z "$apxs" ]; then
+	# guess
+	apxs=`get_path apxs`
+    fi
+    if [ -z "$apache" ]; then
+	# guess
+	apache=`get_path apache`
+    fi
+
     if [ -x "$apxs" ] && [ -x "$apache" ]; then
 	apache_major=`$apache -v | head -n1 | sed -e "s,.*/\([1-9]\).*,\1,"`
 	apache_libdir="`$apxs -q LIBEXECDIR`"
@@ -621,7 +652,7 @@ if [ $enable_modcaml -gt 0 ]; then
 	echo "enabled (Apache $apache_major)"
     else
 	apache_major=
-	with_modcaml=0
+	enable_modcaml=0
 	echo "disabled (apxs or apache not found)"
     fi
 
@@ -707,7 +738,7 @@ GTK_EXTRA_DEFINES = $gtk2_io_add_watch_supports_lists
 RPC_AUTH_DH_CONNECTOR = $adh_style
 AUTHDHREQS = $adh_reqs
 
-# For -with-modcaml
+# For -enable-modcaml
 APACHE_MAJOR = $apache_major
 APACHE_LIBDIR = $apache_libdir
 APACHE_OCAMLLIBS = -lcamlrun -ltermcap -lunix -lstr
