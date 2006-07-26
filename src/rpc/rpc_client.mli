@@ -134,6 +134,9 @@ val create :
    * work). For Udp, there is a timeout of 15 seconds and a maximum
    * of 3 retransmissions (i.e. a total of 4 transmission trials).
    *
+   * Unlike [create2], servers made with [create] always use blocking
+   * [connect] for backwards compatibility.
+   *
    * @param program_number Overrides the program number in [Rpc_program.t]
    *
    * @param version_number Overrides the version number in [Rpc_program.t]
@@ -152,8 +155,7 @@ object
    (** [non_blocking_connect]: Whether the remote service is connected
     *   in the background. In this case, [create2] immediately returns,
     *   and it is already possible to add procedure calls. However, these
-    *   calls are deferred until the connection is established. This
-    *   parameter defaults to [false] for backward compatibility.
+    *   calls are deferred until the connection is established.
     *)
   method multiplexing :
     close_inactive_descr:bool ->
@@ -164,10 +166,16 @@ end
 
 
 val default_socket_config : socket_config
-  (** Default configuration *)
+  (** Default configuration with [non_blocking_connect] = true *)
 
 class default_socket_config : socket_config
   (** Default configuration as class *)
+
+val blocking_socket_config : socket_config
+  (** Configuration with [non_blocking_connect] = false *)
+
+class blocking_socket_config : socket_config
+  (** blocking [connect] configuration as class *)
 
 type mode2 =
     [ `Socket_endpoint of protocol * Unix.file_descr 

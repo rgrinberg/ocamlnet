@@ -681,6 +681,7 @@ object
 end
 
 let default_socket_config = new default_socket_config
+let blocking_socket_config = new blocking_socket_config
 
 type mode2 =
     [ `Socket_endpoint of protocol * Unix.file_descr 
