@@ -8,7 +8,8 @@ OBJECTS  = netcgi_common.cmo netcgi.cmo \
 
 DOBJECTS = netcgi_common.mli netcgi.mli \
 	netcgi_ajp.mli netcgi_scgi.mli netcgi_cgi.mli \
-	netcgi_fcgi.mli  netcgi_dbi.mli netcgi_modtpl.mli
+	netcgi_fcgi.mli  netcgi_dbi.mli netcgi_modtpl.mli \
+	netcgi_porting.txt
 #	netcgi_test.mli
 
 INCLUDES += $(INC_NETSTRING)

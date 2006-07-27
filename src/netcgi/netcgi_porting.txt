@@ -1,0 +1,186 @@
+{1 Porting [cgi] programs to [netcgi]}
+
+The library [netcgi] is a revised version of the old [cgi] library.
+As any software, [cgi] aged, and suffered more and more from
+inadequate interfaces. Because of this it became necessary to
+improve the interfaces from grounds up. The result is [netcgi],
+a new major version that tries to continue the good parts of
+[cgi] while replacing its problematic edges.
+
+When this text is written, [netcgi] is still being developed, and
+subject of discussion.
+
+{2 Why porting?}
+
+It is not possible to use [cgi] and [netcgi] at the same time in the
+same application. This means that one cannot gradually upgrade from
+[cgi] to [netcgi] by using more and more of the [netcgi] features.
+Instead of this, it is necessary to {b switch} from [cgi] to [netcgi]
+at one point in the lifetime of the web application.
+
+The main benefit is that you have access to the newest [netcgi]
+features. There are already a number of connectors that are not
+present in [cgi]. Furthermore, new features will only be added
+to [netcgi]. Because the [Nethttpd] library also uses [netcgi]
+in Ocamlnet 2, you must switch if you link [Nethttpd] to your
+program.
+
+However, if your application is already at or near its end of lifetime,
+there is no need to port it to [netcgi]. The [cgi] library will
+remain in Ocamlnet 2, and bugs will be fixed.
+
+{2 Module Organization}
+
+The new organization is very simple:
+
+- {!Netcgi} defines all basic types. Previously, this was done in the
+  two modules [Netcgi_env] and [Netcgi_types]
+- For every connector c there is one module [Netcgi_]c implementing
+  it. Especially the classic CGI connector is now in [Netcgi_cgi].
+  Previously, the CGI connector was defined in [Netcgi], and there
+  used to be several modules per connector.
+- {!Netcgi_common} defines service functions to define new connectors.
+
+There is also a module {!Netcgi_compat} trying to ease porting. See
+below for a discussion.
+
+{2 Interface Changes}
+
+Most of the types remain the same, or almost the same. A few changes
+have been done:
+
+- {b Immutability of arguments:} A {!Netcgi.cgi_argument} is no longer writable.
+  Furthermore, the list of arguments in a {!Netcgi.cgi_activation} can no longer
+  be modified. There are some new service functions to modify lists
+  of arguments in case one needs such a list.
+- {b Enhanced cookie API:} Cookie formats newer than the old Netscape
+  format are supported. Old and new cookie types can be transformed
+  into each other. See the module {!Netcgi.Cookie}.
+- {b Exception Handling:} The {!Netcgi_common.HTTP} exception can be used to exit
+  from a processor at any time. There is the notion of an exception
+  handler for web-related exceptions.
+- {b Simplified Environments:} The CGI environments
+  {!Netcgi.cgi_environment} have been simplified.
+  It is only distinguished between two states: Output headers have been/
+  have not been sent. Other processing states are hidden by the
+  implementation.
+- {b Improved finalization:} All CGI arguments are finalized at the
+  end of the request ensuring that temporary files are deleted.
+  It is also possible to register further finalizers using the 
+  {!Netcgi.cgi_activation.at_exit}
+  method.
+
+The connectors, however, are now created in very different ways. This
+is mainly driven by uniformity: There should be a method of creating
+web connectors that works for every kind of connector. Because of this,
+the code instantiating connectors in application must always be changed
+so it matches the new, uniform conventions. Fortunately, this code is usually
+not very extensive.
+
+{2 Porting strategies}
+
+{3 Strategy: Use new API}
+
+In the long term this is the best strategy. In principle, one has to
+distinguish between
+
+- program parts that access [netcgi] values, and
+- program parts that connect the [netcgi] application with the web
+  server.
+
+Porting the first parts is fairly simple, because the types of the
+[netcgi] values do not change much. For example, the function
+[web_page] for [cgi]
+
+{[ 
+(* This is [cgi] code! *)
+let web_page (cgi : Netcgi_types.cgi_activation) =
+  let webarg = cgi # argument_value "webarg" in
+  cgi # set_header();
+  cgi # output # output_string ("The argument is: " ^ webarg)
+]}
+
+would read in the version for [netcgi] as follows:
+
+{[ 
+(* This is [netcgi] code! *)
+let web_page (cgi : Netcgi.cgi_activation) =
+  let webarg = cgi # argument_value "webarg" in
+  cgi # set_header();
+  cgi # output # output_string ("The argument is: " ^ webarg)
+]}
+
+The {b only} change is that the type [cgi_activation] is now defined
+in the module [Netcgi] and no longer in [Netcgi_types]. It is expected
+that this simple way of porting applies to almost all parts of
+[netcgi] applications.
+
+By the way, the type [cgi_activation] can now be abbreviated as [cgi],
+as this is the type name that needs to be written down most
+frequently.
+
+{4 The new CGI connector}
+
+In [cgi], the CGI connector is selected by instantiating the class
+[Netcgi.std_activation], as in:
+
+{[
+(* This is [cgi] code! *)
+let cgi = new Netcgi.std_activation() in 
+process cgi
+]}
+
+It is assumed that [process] is a function taking a [cgi_activation]
+as argument, and processing the request.
+
+The corresponding [netcgi] call is:
+
+{[
+(* This is [netcgi] code! *)
+Netcgi_cgi.run process
+]}
+
+As you see, {!Netcgi_cgi.run} is now responsible for calling [process].
+
+{4 The new FastCGI connector}
+
+In [cgi] there are several ways of using FastCGI. The most common is
+to call [Netcgi_fcgi.serv] as in:
+
+{[
+(* This is [cgi] code! *)
+Netcgi_fcgi.serv process optype
+]}
+
+It is assumed that [process] is a function taking a [cgi_activation]
+as argument, and processing the request. [optype] is a valid
+operating type.
+
+The corresponding [netcgi] call is:
+
+{[
+(* This is [netcgi] code! *)
+let process' cgi = process (cgi :> Netcgi.cgi_activation) in
+Netcgi_fcgi.run ~output_type:optype process'
+]}
+
+Note that the argument of [process'] is a slightly extended version
+of [cgi_activation], so you usually need the coercion to cut off the
+additional part of the object interface.
+
+{4 The new AJP connector}
+
+TO BE WRITTEN
+
+{3 Strategy: Use [Netcgi_compat]}
+
+TO BE WRITTEN
+
+{3 Strategy: Postpone porting effort}
+
+TO BE WRITTEN
+
+Disadvantages:
+
+- [Nethttpd] is not available
+- New connectors are not available

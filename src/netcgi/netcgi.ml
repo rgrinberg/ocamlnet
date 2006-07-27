@@ -225,6 +225,9 @@ object
 end
 
 
+class type cgi_activation = cgi
+
+
 (* Connectors *)
 
 type output_type = Netcgi_common.output_type

@@ -43,6 +43,9 @@ There is also a {!Netchannels.tutorial}.
 This is the aged [cgi] library whose features are frozen. A description
 of its interfaces can be found {{:cgi/index.html} here}.
 
+Note that it is not possible to use [cgi] and [netcgi] at the same
+time.
+
 
 {2:netcgi The [netcgi] library}
 
@@ -59,6 +62,13 @@ This is the revised library for Web applications, now called [netcgi].
     Netcgi_mod
     Netcgi_modtpl
     Netcgi_dbi}
+
+Note that it is not possible to use [cgi] and [netcgi] at the same
+time.
+
+{3:netcgi_intro Guides}
+
+- {!module:Netcgi_porting}: Porting [cgi] programs to [netcgi]
 
 {2:nethttpd The [nethttpd] library}
 

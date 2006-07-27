@@ -568,7 +568,7 @@ type cache_control = [ `No_cache | `Max_age of int | `Unspecified ]
 
 
 
-(** Object symbolizing a CGI-like request.
+(** Object symbolizing a CGI-like request/response cycle.
 
     This is the minimal set of services a connector must provide.
     Additional methods may be defined for specific connectors.  *)
@@ -796,6 +796,10 @@ object
 	request finishes).  The functions are executed in the reverse
 	order in which they were registered. *)
 end
+
+
+class type cgi_activation = cgi
+  (** Alternate, more descriptive name for [cgi] *)
 
 
 
