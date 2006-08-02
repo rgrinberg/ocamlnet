@@ -1,5 +1,0 @@
-LoadModule: caml_module @APACHELIBDIR@/mod_caml.so
-Directives:
- CamlLoad
- CamlHandler
-Description: Cgi scripts, apache handlers,... in OCaml
