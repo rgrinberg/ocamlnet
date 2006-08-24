@@ -511,32 +511,30 @@ object (self)
 end ;;
 
 
-exception Once of Unixqueue.group;;
-
-
 class ['t] const_engine target_state ues =
-  let catch_eng_ref = ref (new poll_engine [] ues) in
-  let catch_eng =
-    new poll_engine 
-      ~extra_match:(fun x ->
-		      match x with
-			  Once g when g = !catch_eng_ref#group ->
-			    true
-			    (* So the state of catch_eng changes to `Done *)
-			| _ ->
-			    false
-		   )
-      []
-      ues in
-  let _ = 
-    catch_eng_ref := catch_eng;
-    Unixqueue.add_event ues (Unixqueue.Extra (Once (catch_eng#group)));
-  in
+  (* Simply create a poll engine, and add a timeout event for its group.
+   * The poll engine accepts all events of that group and switches to
+   * `Done.
+   *)
+  let eng =
+    new poll_engine [] ues in
+  let g =
+    eng # group in
+  let wid =
+    Unixqueue.new_wait_id ues in
+  let () =
+    Unixqueue.add_event ues (Unixqueue.Timeout(g, Unixqueue.Wait wid)) in
   [Unixqueue.event, 't] map_engine 
     ~map_done:(fun _ -> target_state)
-    (catch_eng :> Unixqueue.event engine)
+    (eng :> Unixqueue.event engine)
 ;;
 
+
+
+(* TODO: Avoid the usage of Extra events here. Extra events are more
+ * expensive than other events because all handlers see them.
+ * Can be substituted with Timeout events.
+ *)
 
 exception Receiver_attn of Unixqueue.group ;;
 let receiver_attn g = Unixqueue.Extra(Receiver_attn g);;
