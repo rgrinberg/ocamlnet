@@ -404,15 +404,15 @@ let abbr_month_names =
 let format_to out_ch ~fmt date =
   let add_char c = out_ch#output_char c
   and add_string s = out_ch#output_string s in
-  let fail () = invalid_arg "Parse.format_date" in
+  let fail () = invalid_arg "Netdate.format_to" in
   let add_digits w b n =
-    if n > b * 10 then fail ();
+    if n >= b * 10 then fail ();
     let rec aux b n =
       add_char (char_of_int (48 + n / b));
       if b >= 10 then aux (b / 10) (n mod b) in
     if w then (
       let rec aux_spaces b =
-	if n > b || b < 10 then (
+	if n >= b || b < 10 then (
 	  aux b n
 	) else (
 	  add_char ' ';
@@ -544,25 +544,3 @@ let mk_mail_date ?zone t =
 let mk_usenet_date ?zone t =
   format "%A, %d-%b-%y %H:%M:%S %z" (create ?zone t)
 ;;
-
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 2.1  2001/10/17 04:42:33  pdoane
- * Use camlp4 for streams
- *
- * Revision 2.2  2001/09/29 15:26:53  pdoane
- * New date parsing/formatting routines
- *
- * Revision 2.1  2001/09/14 14:22:34  stolpmann
- * 	Initial revision (sourceforge)
- *
- *
- * ======================================================================
- * Revision 1.1  2001/08/30 19:50:42  gerd
- * 	Initial revision.
- *
- * 
- *)
