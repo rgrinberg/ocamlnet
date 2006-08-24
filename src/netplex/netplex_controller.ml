@@ -405,6 +405,9 @@ object(self)
     if c.cont_state = `Starting then
       n_failures <- 0;
     if c.cont_state <> `Shutting_down then 
+      (* PROBLEM: If n is updated, we should call [adjust] asap. Before
+       * [schedule]!
+       *)
       c.cont_state <- `Accepting(n, c.t_accept);
     self # schedule();
     self # check_for_poll_reply c
@@ -445,6 +448,9 @@ object(self)
 		    c.poll_call <- None;
 		    action <- `Notified c;
 		    self # adjust();
+		    (* PROBLEM: This adjust call is bogus because the 
+                     * number of connections is not yet updated.
+                     *)
 		| `Deselected c' when c' == c ->
 		    reply `event_noaccept;
 		    c.poll_call <- None;
@@ -461,7 +467,9 @@ object(self)
 	  if c.cont_state <> `Shutting_down then
 	    c.cont_state <- `Busy;
 	  action <- `None;
+(* DISCUSS: Call [adjust] here? *)
 	  self # schedule()
+
       | _ -> ();
 	  (* This call is not replied! *)
 

@@ -6,7 +6,7 @@ object(self)
 
   method multiplexing ~close_inactive_descr prot fd esys =
     if prot <> Rpc.Tcp then
-      new Uq_engines.const_engine
+      new Uq_engines.epsilon_engine
 	(`Error (Failure "SSL encapsulation is only possible for stream sockets"))
 	esys
     else
@@ -50,7 +50,7 @@ object(self)
 
   method multiplexing ~close_inactive_descr prot fd esys =
     if prot <> Rpc.Tcp then
-      new Uq_engines.const_engine
+      new Uq_engines.epsilon_engine
 	(`Error (Failure "SSL encapsulation is only possible for stream sockets"))
 	esys
     else

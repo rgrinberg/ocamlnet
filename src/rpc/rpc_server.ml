@@ -814,9 +814,19 @@ let create2_multiplexer_endpoint ?fd mplex =
   let conn = connection srv mplex in
   srv.main_socket_name <- mplex # getsockname;
   conn.fd <- fd;
-  (* Try to peek credentials. This can be too early, however. *)
-  peek_credentials srv conn;
-  next_incoming_message srv conn;
+  (* Start serving not before the event loop is entered. *)
+  Unixqueue.once 
+    mplex#event_system
+    (Unixqueue.new_group mplex#event_system)
+    0.0
+    (fun () ->
+       (* Try to peek credentials. This can be too early, however. *)
+       if conn.trans <> None then (
+	 peek_credentials srv conn;
+	 next_incoming_message srv conn;
+       )
+	 (* else: server might have been closed *)
+    );
   srv
 ;;
 
@@ -835,9 +845,17 @@ let mplex_of_fd ~close_inactive_descr prot fd esys =
 class default_socket_config : socket_config = 
 object
   method listen_options = default_listen_options
+
   method multiplexing ~close_inactive_descr prot fd esys =
     let mplex = mplex_of_fd ~close_inactive_descr prot fd esys in
-    new Uq_engines.const_engine (`Done mplex) esys
+    let eng = new Uq_engines.epsilon_engine (`Done mplex) esys in
+
+    when_state
+      ~is_aborted:(fun () -> mplex # inactivate())
+      ~is_error:(fun _ -> mplex # inactivate())
+      eng;
+
+    eng
 end
 
 

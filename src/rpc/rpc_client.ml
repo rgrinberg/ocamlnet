@@ -670,7 +670,12 @@ object
   method non_blocking_connect = true
   method multiplexing ~close_inactive_descr prot fd esys =
     let mplex = mplex_of_fd ~close_inactive_descr prot fd esys in
-    new Uq_engines.const_engine (`Done mplex) esys
+    let eng = new Uq_engines.epsilon_engine (`Done mplex) esys in
+    Uq_engines.when_state
+      ~is_aborted:(fun () -> mplex # inactivate())
+      ~is_error:(fun _ -> mplex # inactivate())
+      eng;
+    eng
 end
 
 
@@ -840,12 +845,12 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
     match mode with
       | `Socket_endpoint(prot,fd) ->
 	  let m = mplex_of_fd ~close_inactive_descr:true prot fd esys in
-	  (prot, new Uq_engines.const_engine (`Done m) esys)
+	  (prot, new Uq_engines.epsilon_engine (`Done m) esys)
       | `Multiplexer_endpoint(mplex) ->
 	  if mplex # event_system != esys then
             failwith "Rpc_client.create2: Multiplexer is attached to the wrong event system";
 	  (mplex # protocol,
-	   new Uq_engines.const_engine (`Done mplex) esys)
+	   new Uq_engines.epsilon_engine (`Done mplex) esys)
        | `Socket(prot,conn,conf) ->
 	   let stype = 
 	     match prot with Tcp -> Unix.SOCK_STREAM | Udp -> Unix.SOCK_DGRAM in
@@ -862,12 +867,12 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
 	      |	Descriptor fd -> 
 		  let m = 
 		    mplex_of_fd ~close_inactive_descr:false prot fd esys in
-		  (prot, new Uq_engines.const_engine (`Done m) esys)
+		  (prot, new Uq_engines.epsilon_engine (`Done m) esys)
 	      |	Dynamic_descriptor f ->
 		  let fd = f() in
 		  let m = 
 		    mplex_of_fd ~close_inactive_descr:true prot fd esys in
-		  (prot, new Uq_engines.const_engine (`Done m) esys)
+		  (prot, new Uq_engines.epsilon_engine (`Done m) esys)
 	      | Portmapped host ->
 		  (prot, open_socket (`Portmapped(prot,host)) prot conf)
 	   )

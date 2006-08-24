@@ -511,7 +511,7 @@ object (self)
 end ;;
 
 
-class ['t] const_engine target_state ues =
+class ['t] epsilon_engine target_state ues =
   (* Simply create a poll engine, and add a timeout event for its group.
    * The poll engine accepts all events of that group and switches to
    * `Done.
@@ -2293,29 +2293,42 @@ object (self)
 		  let s = Unix.socket Unix.PF_INET stype 0 in
 		  setup_socket s stype (Unix.ADDR_INET(addr,port)) opts;
 	  in
-	  if is_connected then (
-	    let status =
-	      try 
-		ignore(Unix.getpeername s); 
-		`Done(`Socket(s, getsockspec stype s))
-	      with
-		  error -> `Error error in
-	    new const_engine status ues
-	  )
-	  else (
-	    (* Now wait until the socket is writeable *)
-	    let e = new poll_engine [ Unixqueue.Wait_out s, (-1.0) ] ues in
-	    (* CHECK: timeout value? *)
-	    
-	    new map_engine
-	      ~map_done:(fun _ ->
-			   `Done(`Socket(s, getsockspec stype s)))
-	      (e :> Unixqueue.event engine)
-	  )
+	  let conn_eng =
+	    if is_connected then (
+	      let status =
+		try 
+		  ignore(Unix.getpeername s); 
+		  `Done(`Socket(s, getsockspec stype s))
+		with
+		    error -> `Error error in
+	      new epsilon_engine status ues
+	    )
+	    else (
+	      (* Now wait until the socket is writeable *)
+	      let e = new poll_engine [ Unixqueue.Wait_out s, (-1.0) ] ues in
+	      (* CHECK: timeout value? *)
+	      
+	      new map_engine
+		~map_done:(fun _ ->
+			     `Done(`Socket(s, getsockspec stype s)))
+		(e :> Unixqueue.event engine)
+	    ) in
+	  (* It is possible that somebody aborts conn_eng. In this case,
+           * the socket must be closed. Same when we enter an error state.
+           *)
+	  when_state
+	    ~is_aborted:(fun () -> Unix.close s)
+	    ~is_error:(fun _ -> Unix.close s)
+	    conn_eng;
+	  (* conn_eng is what the user sees: *)
+	  conn_eng
+
       | _ ->
 	  raise Addressing_method_not_supported
 end ;;
 
+
+(* TODO: Close u, v on abort/error *)
 
 class command_socket_connector () : client_socket_connector =
 object(self)
@@ -2336,7 +2349,7 @@ object(self)
 	  Unix.set_close_on_exec s_in;
           Unix.set_close_on_exec s_out;
 
-	  let e2 = new const_engine (`Done ()) ues in
+	  let e2 = new epsilon_engine (`Done ()) ues in
 	    
 	  new map_engine
 	    ~map_done:(fun _ ->
@@ -2430,25 +2443,23 @@ object(self)
     if acc_engine <> None then
       failwith "Uq_engines.direct_socket_acceptor: Already waiting for connection";
 
-    let rec accept_eng() =
+    let accept_eng() =
       let eng = new poll_engine [ Unixqueue.Wait_in sock, (-1.0) ] ues in
-      new seq_engine
+      new map_engine
+	~map_done:(fun _ ->
+		     try
+		       let (sock',_) = Unix.accept sock in
+		       Unix.set_nonblock sock';
+		       acc_engine <- None;
+		       `Done(sock', getpeerspec Unix.SOCK_STREAM sock')
+		     with
+		       | Unix.Unix_error( (Unix.EAGAIN | Unix.EINTR), _, _) ->
+			   eng # restart();
+			   `Working 0
+		       | error ->
+			   `Error error
+		  )
 	eng
-	(fun _ ->
-	   try
-	     let (sock',_) = Unix.accept sock in
-	     Unix.set_nonblock sock';
-	     acc_engine <- None;
-	     new const_engine 
-	       (`Done(sock', getpeerspec Unix.SOCK_STREAM sock'))
-	       ues
-	   with
-	     | Unix.Unix_error( (Unix.EAGAIN | Unix.EINTR), _, _) ->
-		 accept_eng()
-
-	     | error ->
-		 new const_engine (`Error error) ues
-	)
     in
 
     let acc_eng = accept_eng() in
@@ -2510,7 +2521,14 @@ object(self)
 	  raise Addressing_method_not_supported
     in
     let acc = new direct_socket_acceptor sock ues in
-    new const_engine (`Done acc) ues
+    let eng = new epsilon_engine (`Done acc) ues in
+
+    when_state
+      ~is_aborted:(fun () -> Unix.close sock)
+      ~is_error:(fun _ -> Unix.close sock)
+      eng;
+
+    eng
 end
 ;;
 
@@ -2616,5 +2634,12 @@ let datagram_provider ?proxy dgtype ues =
 	in
 	let wsock =
 	  new direct_datagram_socket dgtype (sdom,stype,sproto) in
-	new const_engine (`Done wsock) ues
+	let eng = new epsilon_engine (`Done wsock) ues in
+
+	when_state
+	  ~is_aborted:(fun () -> wsock # shut_down())
+	  ~is_error:(fun _ -> wsock # shut_down())
+	  eng;
+
+	eng
 ;;

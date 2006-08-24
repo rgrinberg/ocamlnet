@@ -177,9 +177,15 @@ class ['a,'b] map_engine : map_done:('a -> 'b engine_state) ->
    *)
 
 
-class ['t] const_engine : 't engine_state -> Unixqueue.event_system -> ['t] engine
+class ['t] epsilon_engine : 't engine_state -> Unixqueue.event_system -> ['t] engine
   (** This engine transitions from its initial state [`Working 0] in one
    * step to the passed constant state.
+   *
+   * In previous versions of this library the class was called [const_engine].
+   * However, this is not a constant thing. In particular, it is possible
+   * that this engine is aborted, so the passed state is not reached.
+   * To avoid programming errors because of the misnomer, this class has been
+   * renamed.
    *)
 
 

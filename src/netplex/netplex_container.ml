@@ -154,6 +154,16 @@ object(self)
 		let e = acc # accept() in
 		Uq_engines.when_state
 		  ~is_done:(fun (fd_slave,_) ->
+			      (* The first engine accepted a connection. It is
+                               * possible that other descriptors are ready
+                               * for being accepted at this time. By disabling
+                               * accepting, we ensure that these engines
+                               * are aborted and the events are ignored.
+                               * It is essential that the direct_socket_acceptor
+                               * accepts in one step so intermediate states
+                               * are impossible.
+                               *)
+			      self # disable_accepting();
 			      self # accepted fd_slave proto
 			   )
 		  ~is_error:(fun err ->
@@ -177,7 +187,6 @@ object(self)
     match rpc with
       | None -> assert false
       | Some r ->
-	  self # disable_accepting();
 	  Rpc_client.add_call
 	    ~when_sent:(fun () ->
 			  nr_conns <- nr_conns + 1;
