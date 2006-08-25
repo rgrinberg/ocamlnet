@@ -63,6 +63,20 @@ type container_state =
     * - [`Busy]: The container does not accept connections
    *)
 
+type capacity =
+    [ `Normal_quality of int
+    | `Low_quality of int
+    | `Unavailable
+    ]
+  (** How many connections a container can accept in addition to the
+    * existing connections:
+    * - [`Normal_quality n]: It can accept n connections with normal
+    *   service quality, [n > 0]
+    * - [`Low_quality n]: It can accept n connections with low
+    *   service quality (e.g. because it is already quite loaded), [n > 0]
+    * - [`Unavailable]: No capacity free
+   *)
+
 class type controller = 
 object
   method ptype : parallelization_type
@@ -379,7 +393,16 @@ object
       *   decided which container will have the chance to accept in the
       *   round
       * - after the shutdown of a container
+      *
+      * Of course, the workload manager is free to adjust the load
+      * at any other time, too, not only when [adjust] is called.
      *)
+
+  method capacity : container_id -> container_state -> capacity
+    (** Computes the capacity, i.e. the number of jobs a certain container
+      * can accept in addition to the existing load.
+     *)
+
 end
 ;;
 

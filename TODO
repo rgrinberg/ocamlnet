@@ -9,6 +9,22 @@ Overall:
 	- rpc*
 	- netclient
 
+Details:
+	container # is_first_container
+
+Equeue:
+	Fix command engines as commented in the code.
+
+Netplex:
+	- option to set SO_KEEPALIVE in the config file
+
+Rpc_server:
+	- set SO_KEEPALIVE for Tcp connections by default
+	- report socket type (Tcp/Udp) for sessions
+	- server connection timeout option
+	- if port <> 0, set SO_REUSEADDR by default
+
+
 Integration of new netcgi
 
 	- nethttpd still depends on old cgi. makes it difficult to mix

@@ -57,6 +57,25 @@ type action =
     ]
 
 
+let cap_gt cap1 cap2 =
+  (* cap1 has more capacity than cap2 *)
+  match cap1 with
+    | `Unavailable -> false
+    | `Low_quality n1 ->
+	( match cap2 with
+	    | `Unavailable -> true
+	    | `Low_quality n2 -> n1 > n2
+	    | _ -> false
+	)
+    | `Normal_quality n1 ->
+	( match cap2 with
+	    | `Unavailable -> true
+	    | `Low_quality _ -> true
+	    | `Normal_quality n2 -> n1 > n2
+	)
+;;
+
+
 class std_socket_controller ?(no_disable = false)
                             rm_service (par: parallelizer) 
                             controller sockserv wrkmng
@@ -352,7 +371,7 @@ object(self)
     if state = `Enabled && action = `None then (
       if clist = [] then
 	self # adjust();
-      let best = ref None in
+      let best = ref (None, `Unavailable) in
       List.iter
 	(fun c ->
 	   match c.cont_state with
@@ -360,22 +379,23 @@ object(self)
 	     | `Starting -> ()  (* ignore *)
 	     | `Shutting_down -> ()  (* ignore *)
 	     | `Accepting(n, t_last) ->
-		 ( match !best with
-		     | None -> best := Some c
-		     | Some c' ->
-			 ( match c'.cont_state with
-			     | `Accepting(n', t_last') ->
-				 if n < n' || (n = n' && t_last < t_last') then
-				   best := Some c
-			     | _ -> assert false
-			 )
+		 let cap = 
+		   wrkmng # capacity 
+		     (c.container :> container_id) c.cont_state in
+		 if cap <> `Unavailable then (
+		   match !best with
+		     | None, _ -> 
+			 best := (Some c, cap)
+		     | Some c', cap' ->
+			 if cap_gt cap cap' then
+			   best := (Some c, cap)
 		 )
 	)
 	clist;
       ( match !best with
-	  | None -> 
+	  | None, _ -> 
 	      ()   (* All containers are busy! *)
-	  | Some c ->
+	  | Some c, _ ->
 	      action <- `Selected c;
 	      self # check_for_poll_reply c
       )
@@ -404,11 +424,16 @@ object(self)
     c.poll_call <- Some (sess, reply);
     if c.cont_state = `Starting then
       n_failures <- 0;
-    if c.cont_state <> `Shutting_down then 
-      (* PROBLEM: If n is updated, we should call [adjust] asap. Before
-       * [schedule]!
-       *)
+    if c.cont_state <> `Shutting_down then (
+      (* If n is updated, we must call [adjust] asap. Before [schedule]! *)
+      ( match c.cont_state with
+	  | `Accepting(n_old, _) ->
+	      if n_old <> n then self # adjust()
+	  | _ ->
+	      self # adjust()
+      );
       c.cont_state <- `Accepting(n, c.t_accept);
+    );
     self # schedule();
     self # check_for_poll_reply c
 
@@ -467,7 +492,12 @@ object(self)
 	  if c.cont_state <> `Shutting_down then
 	    c.cont_state <- `Busy;
 	  action <- `None;
-(* DISCUSS: Call [adjust] here? *)
+	  (* We call [adjust] here even although this can make workload
+           * management much harder, because many containers are only
+           * `Busy for a short time. However, it were possible that 
+           * required containers are not started if we would not do it.
+           *)
+	  self # adjust();
 	  self # schedule()
 
       | _ -> ();

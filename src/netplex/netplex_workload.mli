@@ -32,15 +32,25 @@ object
       * can only handle one connection at a time this number must be 1.
      *)
 
+  method recommended_jobs_per_thread : int
+    (** The number of jobs every thread can execute with normal
+      * service quality. Must be less than or equal to
+      * [max_jobs_per_thread]
+     *)
+
   method min_free_job_capacity : int
     (** The manager starts as many threads as required to ensure that this
-      * number of jobs can be executed.
+      * number of jobs can be executed. Must be at least 1.
      *)
 
   method max_free_job_capacity : int
     (** If more job capacity is available than this number, threads are
-      * terminated.
+      * terminated. Must be greater than or equal to 
+      * [min_free_job_capacity].
      *)
+
+  method inactivity_timeout : int
+    (** After this number of seconds a free thread can be terminated *)
 
   method max_threads : int
     (** The manager does not start more threads than this number *)
