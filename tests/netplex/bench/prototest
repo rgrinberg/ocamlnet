@@ -4,11 +4,16 @@ set -e
 
 sed -e 's:\$PWD:'"$PWD:g" proto.conf > proto.conf.1
 
+rm -f proto.log
+
 # Start the test server:
 ./protoserver -conf proto.conf.1 -pid $PWD/proto.pid
 
 # Stop the test server when this script exits:
 trap "kill -15 $(cat proto.pid)" EXIT
+
+# Give the server time to start up
+sleep 1
 
 # Start the test client:
 ./protoclient "$@"

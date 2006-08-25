@@ -27,7 +27,7 @@ object(self)
     match s with
       | `Accepting(n,_) -> `Normal_quality (max_int - n)
       | `Busy -> `Unavailable
-      | `Starting -> `Unavailable
+      | `Starting _ -> `Unavailable
       | `Shutting_down -> `Unavailable
 
 end
@@ -87,6 +87,7 @@ module ContMap = Map.Make(ContId)
 class dynamic_workload_manager config : workload_manager =
 object(self)
   val mutable esys = lazy(assert false)
+  val mutable logger = lazy(assert false)
 
   val mutable inactivated_conts = ContMap.empty
     (* Maps container_ids to Unixqueue groups. These containers are inactive
@@ -96,6 +97,7 @@ object(self)
 
   method hello controller =
     esys <- lazy(controller # event_system);
+    logger <- lazy(controller # logger);
     ()
       (* TODO: Announce the availability of admin messages *)
 
@@ -111,6 +113,7 @@ object(self)
       | `Enabled ->
 	  (* Determine total capacity of the current Netplex state: *)
 	  let container_state = sockctrl # container_state in
+	  let all_threads = List.length container_state in
 	  let number_threads = 
 	    List.length
 	      (List.filter
@@ -129,18 +132,31 @@ object(self)
 	  (* Determine used capacity: *)
 	  let used_cap =
 	    List.fold_left
-	      (fun acc (_,s) ->
-		 match s with
-		   | `Accepting(n,_) -> 
-		       acc + (min n config#recommended_jobs_per_thread)
-		   | `Busy -> acc + config#recommended_jobs_per_thread
-		   | `Starting -> acc
-		   | `Shutting_down -> acc)
+	      (fun acc (cid,s) ->
+		 if ContMap.mem cid inactivated_conts then
+		   acc
+		 else
+		   match s with
+		     | `Accepting(n,_) -> 
+			 acc + (min n config#recommended_jobs_per_thread)
+		     | `Busy -> acc + config#recommended_jobs_per_thread
+		     | `Starting _ -> acc
+		     | `Shutting_down -> acc)
 	      0
 	      container_state in
 
 	  (* Free capacity: *)
 	  let free_cap = total_cap - used_cap in
+
+	  if !Netplex_log.debug_scheduling then (
+	    (Lazy.force logger) # log 
+	      ~component:"netplex.controller"
+	      ~level:`Debug
+	      ~message:(Printf.sprintf
+			  "Workload mng for %s: number_threads=%d active_threads=%d total_cap=%d used_cap=%d"
+			  sockserv#name number_threads active_threads
+			  total_cap used_cap)
+	  );
 
 	  (* Now decide... *)
 	  if free_cap < config#min_free_job_capacity then (
@@ -148,8 +164,8 @@ object(self)
 	    let needed_threads = 
 	      (needed_cap - 1 ) / config#recommended_jobs_per_thread + 1 in
 	    let needed_threads' =
-	      max 0 ((min (number_threads+needed_threads) config#max_threads) -
-		       number_threads) in
+	      max 0 ((min (all_threads+needed_threads) config#max_threads) -
+		       all_threads) in
 	    self # activate_containers sockctrl needed_threads'
 	  )
 	  else 
@@ -231,7 +247,7 @@ object(self)
 	      `Unavailable
 
 	| `Busy -> `Unavailable
-	| `Starting -> `Unavailable
+	| `Starting _ -> `Unavailable
 	| `Shutting_down -> `Unavailable
 
 end

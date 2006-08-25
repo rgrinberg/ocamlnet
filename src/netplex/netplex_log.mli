@@ -68,3 +68,9 @@ val multi_file_logger_factory : logger_factory
 
 val logger_factories :  logger_factory list
   (** All built-in logger factories *)
+
+
+val debug_scheduling : bool ref
+  (** If set to true, the controller and a few other components output
+    * a lot of debug messages, mostly scheduling-related.
+   *)

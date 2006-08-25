@@ -320,3 +320,5 @@ let logger_factories =
     multi_file_logger_factory;
     stderr_logger_factory
   ]
+
+let debug_scheduling = ref false

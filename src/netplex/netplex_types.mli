@@ -53,7 +53,7 @@ type container_id = < >
 type container_state =
     [ `Accepting of int * float
     | `Busy
-    | `Starting
+    | `Starting of float
     | `Shutting_down
     ]
   (** The container state for workload management:
@@ -61,6 +61,9 @@ type container_state =
     *   It currently processes [n] connections. The last connection was
     *   accepted at time [t] (seconds since the epoch).
     * - [`Busy]: The container does not accept connections
+    * - [`Starting t]: The container was started at time [t] and is not
+    *   yet ready.
+    * - [`Shutting_down]: The container is being shutted down.
    *)
 
 type capacity =

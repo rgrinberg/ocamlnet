@@ -5,6 +5,8 @@ open Netplex_ctrl_aux
 open Printf
 
 
+let debug_scheduling = Netplex_log.debug_scheduling
+
 let ast_re = Pcre.regexp "[*]";;
 
 let regexp_of_pattern s =
@@ -76,10 +78,21 @@ let cap_gt cap1 cap2 =
 ;;
 
 
+let debug_log controller s =
+  controller # logger # log 
+    ~component:"netplex.controller"
+    ~level:`Debug
+    ~message:s
+
+let debug_logf controller msgf =
+  Printf.kprintf (debug_log controller) msgf
+
+
 class std_socket_controller ?(no_disable = false)
                             rm_service (par: parallelizer) 
                             controller sockserv wrkmng
       : extended_socket_controller =
+  let name = sockserv # name in
 object(self)
   val mutable state = (`Disabled : socket_state)
   val mutable clist = []
@@ -97,6 +110,8 @@ object(self)
   method enable() =
     match state with
       | `Disabled ->
+	  if !debug_scheduling then
+	    debug_logf controller "Service %s: Enabling" name;
 	  n_failures <- 0;
 	  state <- `Enabled;
 	  self # schedule()
@@ -105,6 +120,8 @@ object(self)
       | `Restarting true ->
 	  ()
       | `Restarting false ->
+	  if !debug_scheduling then
+	    debug_logf controller "Service %s: Will enable after restart is complete" name;
 	  state <- `Restarting true
       | _ ->
 	  failwith "#enable: service is already down"
@@ -116,6 +133,8 @@ object(self)
       | `Disabled ->
 	  ()
       | `Enabled ->
+	  if !debug_scheduling then
+	    debug_logf controller "Service %s: Disabling" name;
 	  state <- `Disabled;
 	  ( match action with
 	      | `None
@@ -128,6 +147,8 @@ object(self)
 		  ()
 	  )
       | `Restarting true ->
+	  if !debug_scheduling then
+	    debug_logf controller "Service %s: Will disable after restart is complete" name;
 	  state <- `Restarting false
       | `Restarting false ->
 	  ()
@@ -135,6 +156,8 @@ object(self)
 	  ()
 
   method restart() =
+    if !debug_scheduling then
+      debug_logf controller "Service %s: Restarting" name;
     let flag =
       match state with
 	| `Disabled -> false
@@ -147,10 +170,15 @@ object(self)
 
   method shutdown() =
     (* TODO: Close socket/remove socket file *)
+    if !debug_scheduling then
+      debug_logf controller "Service %s: Shutdown" name;
     state <- `Down;
     self # stop_all_containers();
 
   method start_containers n =
+    if !debug_scheduling then
+      debug_logf controller "Service %s: Starting %d new containers" name n;
+    let threads = ref [] in
     for k = 1 to n do
       let (fd_clnt, fd_srv) = 
 	Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
@@ -191,6 +219,7 @@ object(self)
 	Unix.close fd_clnt;
 	Unix.close sys_fd_clnt;
       );
+      threads := par_thread :: !threads;
       let rpc =
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, fd_srv))
@@ -215,7 +244,7 @@ object(self)
 			 Printexc.to_string err));
       let c =
 	{ container = (container :> container_id);
-	  cont_state = `Starting;
+	  cont_state = `Starting (Unix.gettimeofday());
 	  rpc = rpc;
 	  sys_rpc = sys_rpc;
 	  par_thread = par_thread;
@@ -238,7 +267,9 @@ object(self)
       let g = Unixqueue.new_group controller#event_system in
       Unixqueue.once controller#event_system g 60.0
 	(fun () ->
-	   if List.memq c clist && c.cont_state = `Starting then (
+	   let is_starting =
+	     match c.cont_state with `Starting _ -> true | _ -> false in
+	   if List.memq c clist && is_starting then (
 	     (* After 60 seconds still starting. This is a bad process! *)
 	     controller # logger # log
 	       ~component:sockserv#name
@@ -253,7 +284,11 @@ object(self)
               * process is finally dead.
               *)
 	   )
-	)
+	);
+      if !debug_scheduling then
+	debug_logf controller "Service %s: Started %s" 
+	  name 
+	  (String.concat "," (List.map (fun p -> p#info_string) !threads));
     done
 
 
@@ -261,7 +296,9 @@ object(self)
     (* Called back when fd_clnt is closed by the container, i.e. when
      * the container process terminates (normally/crashing)
      *)
-    if c.cont_state = `Starting then
+    let is_starting =
+      match c.cont_state with `Starting _ -> true | _ -> false in
+    if is_starting then
       n_failures <- n_failures + 1;
     clist <- List.filter (fun c' -> c' != c) clist;
     ( try
@@ -318,6 +355,9 @@ object(self)
     List.iter
       (fun c ->
 	 if List.mem (c.container :> container_id) l then (
+	   if !debug_scheduling then
+	     debug_logf controller "Service %s: Stopping container %s" 
+	       name c.par_thread#info_string;
 	   c.shutting_down <- true;
 	   c.cont_state <- `Shutting_down;
 	   ( match action with
@@ -334,6 +374,9 @@ object(self)
     action <- `None;
     List.iter
       (fun c ->
+	 if !debug_scheduling then
+	   debug_logf controller "Service %s: Stopping container %s" 
+	     name c.par_thread#info_string;
 	 c.shutting_down <- true;
 	 c.cont_state <- `Shutting_down;
 	 self # check_for_poll_reply c
@@ -353,6 +396,8 @@ object(self)
     )
     else (
       try
+	if !debug_scheduling then
+	  debug_logf controller "Service %s: Adjusting workload" name;
 	wrkmng # adjust 
 	  sockserv (self : #socket_controller :> socket_controller)
       with
@@ -372,11 +417,14 @@ object(self)
       if clist = [] then
 	self # adjust();
       let best = ref (None, `Unavailable) in
+      let now = Unix.gettimeofday() in
+      let have_young_starters = ref false in
       List.iter
 	(fun c ->
 	   match c.cont_state with
 	     | `Busy -> ()  (* ignore *)
-	     | `Starting -> ()  (* ignore *)
+	     | `Starting t -> 
+		 if now -. t < 1.0 then have_young_starters := true
 	     | `Shutting_down -> ()  (* ignore *)
 	     | `Accepting(n, t_last) ->
 		 let cap = 
@@ -394,10 +442,31 @@ object(self)
 	clist;
       ( match !best with
 	  | None, _ -> 
+	      if !debug_scheduling then
+		debug_logf controller "Service %s: All containers busy" name;
 	      ()   (* All containers are busy! *)
-	  | Some c, _ ->
-	      action <- `Selected c;
-	      self # check_for_poll_reply c
+	  | Some c, best_cap ->
+	      (* If there are starting processes that are younger than 1 sec,
+               * and the best container is already overloaded, we do not
+               * select any container. This choice would be very bad, and
+               * we do not have logic to correct it once the starting processes
+               * are ready. So defer scheduling for a small period of time.
+               *)
+	      let bad_best_cap =
+		match best_cap with `Low_quality _ -> true | _ -> false in
+
+	      if !have_young_starters && bad_best_cap then (
+		if !debug_scheduling then
+		  debug_logf controller "Service %s: Not selecting any container because of temporary overload"
+		    name;
+	      )
+	      else (
+		if !debug_scheduling then
+		  debug_logf controller "Service %s: Selecting %s (bad=%b)"
+		    name c.par_thread#info_string bad_best_cap;
+		action <- `Selected c;
+		self # check_for_poll_reply c
+	      )
       )
     )
 
@@ -419,20 +488,31 @@ object(self)
     ( match c.poll_call with
 	| None -> ()
 	| Some (last_sess, last_reply) ->
+	    if !debug_scheduling then
+	      debug_logf controller "Service %s: %s <- Event_none"
+		name c.par_thread#info_string;
 	    last_reply `event_none
     );
+
+    if !debug_scheduling then
+      debug_logf controller "Service %s: %s -> poll(%d)"
+	name c.par_thread#info_string n;
+
+    let is_starting =
+      match c.cont_state with `Starting _ -> true | _ -> false in
     c.poll_call <- Some (sess, reply);
-    if c.cont_state = `Starting then
+    if is_starting then
       n_failures <- 0;
     if c.cont_state <> `Shutting_down then (
       (* If n is updated, we must call [adjust] asap. Before [schedule]! *)
-      ( match c.cont_state with
+      let old_state = c.cont_state in
+      c.cont_state <- `Accepting(n, c.t_accept);
+      ( match old_state with
 	  | `Accepting(n_old, _) ->
 	      if n_old <> n then self # adjust()
 	  | _ ->
 	      self # adjust()
       );
-      c.cont_state <- `Accepting(n, c.t_accept);
     );
     self # schedule();
     self # check_for_poll_reply c
@@ -443,15 +523,24 @@ object(self)
       | Some (sess, reply) ->
 	  if not (Queue.is_empty c.messages) then (
 	    let msg = Queue.take c.messages in
+	    if !debug_scheduling then
+	      debug_logf controller "Service %s: %s <- Event_received_message"
+		name c.par_thread#info_string;
 	    reply (`event_received_message msg);
 	    c.poll_call <- None
 	  )
 	  else if not (Queue.is_empty c.admin_messages) then (
 	    let msg = Queue.take c.admin_messages in
+	    if !debug_scheduling then
+	      debug_logf controller "Service %s: %s <- Event_received_admin_message"
+		name c.par_thread#info_string;
 	    reply (`event_received_admin_message msg);
 	    c.poll_call <- None
 	  )
 	  else if c.shutting_down then (
+	    if !debug_scheduling then
+	      debug_logf controller "Service %s: %s <- Event_shutdown"
+		name c.par_thread#info_string;
 	    reply `event_shutdown;
 	    c.poll_call <- None;
 	    ( match action with
@@ -469,6 +558,9 @@ object(self)
 	  else 
 	    ( match action with
 		| `Selected c' when c' == c ->
+		    if !debug_scheduling then
+		      debug_logf controller "Service %s: %s <- Event_accept"
+			name c.par_thread#info_string;
 		    reply `event_accept;
 		    c.poll_call <- None;
 		    action <- `Notified c;
@@ -477,6 +569,9 @@ object(self)
                      * number of connections is not yet updated.
                      *)
 		| `Deselected c' when c' == c ->
+		    if !debug_scheduling then
+		      debug_logf controller "Service %s: %s <- Event_noaccept"
+			name c.par_thread#info_string;
 		    reply `event_noaccept;
 		    c.poll_call <- None;
 		    action <- `None;
@@ -486,6 +581,9 @@ object(self)
 	    )
 	      
   method private accepted c sess arg reply =
+    if !debug_scheduling then
+      debug_logf controller "Service %s: %s -> accepted() (won't be replied)"
+	name c.par_thread#info_string;
     match action with
       | `Notified c' when c' == c ->
 	  c.t_accept <- Unix.gettimeofday();
@@ -628,7 +726,7 @@ object
       f arg;
       ( object
 	  method ptype = `Multi_threading
-	  method info_string = "Process " ^ string_of_int (Unix.getpid())
+	  method info_string = "CtrlProcess " ^ string_of_int (Unix.getpid())
 	  method watch_shutdown _ = ()
 	end
       )
