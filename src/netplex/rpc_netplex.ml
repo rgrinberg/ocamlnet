@@ -133,7 +133,7 @@ let rpc_factory
 			      srv (fun _ ->
 				     srv_list :=
 				       List.filter
-					 (fun srv' -> srv != srv)
+					 (fun srv' -> srv' != srv)
 					 !srv_list;
 				     let g = Unixqueue.new_group esys in
 				     Unixqueue.once esys g 0.0 when_done);

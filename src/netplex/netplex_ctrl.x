@@ -79,6 +79,13 @@ program Control {
          * response for performance reasons.
          */
 
+	/* IDEA: Sometimes it is preferrable that [accepted] is called
+         * in a synchronous way. This can be faster when there are a
+         * lot of parallel jobs to do in the container. However, then
+         * the problem arises how to ensure that the controller processes
+         * the [accepted] call before the next [poll] call. 
+	 */
+
     } = 1;
 
 } = 1;

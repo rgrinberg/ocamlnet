@@ -2,6 +2,17 @@
 
 open Netplex_types
 
+let debug_log logger_lz s =
+  (Lazy.force logger_lz) # log 
+    ~component:"netplex.controller"
+    ~level:`Debug
+    ~message:s
+
+let debug_logf logger_lz msgf =
+  Printf.kprintf (debug_log logger_lz) msgf
+
+
+
 class constant_workload_manager num_threads : workload_manager =
 object(self)
   method hello controller =
@@ -90,25 +101,35 @@ object(self)
   val mutable logger = lazy(assert false)
 
   val mutable inactivated_conts = ContMap.empty
-    (* Maps container_ids to Unixqueue groups. These containers are inactive
-     * (they do not have jobs), and are going to be shut down. The group
+    (* Maps container_ids to Unixqueue groups. These containers are scheduled
+     * for inactivation, and are going to be shut down. The group, if present,
      * refers to the inactivity timer.
+     *
+     * Note that these containers may be idle or busy. Inactivation means
+     * that they won't be selected by the scheduler again, and that it is
+     * hoped that they become idle soon. It is possible that these containers
+     * are reactivated again if the load goes up.
+     *
+     * When these containers are finally idle, the inactivity timer is started.
+     * If they remain idle, they will be shut down when the timer expires.
      *)
 
   method hello controller =
     esys <- lazy(controller # event_system);
     logger <- lazy(controller # logger);
     ()
-      (* TODO: Announce the availability of admin messages *)
 
   method shutdown() =
     ContMap.iter
-      (fun _ g -> Unixqueue.clear (Lazy.force esys) g)
+      (fun _ g_opt -> 
+	 match g_opt with
+	   | None -> ()
+	   | Some g -> Unixqueue.clear (Lazy.force esys) g)
       inactivated_conts;
     inactivated_conts <- ContMap.empty;
     ()
 
-  method adjust sockserv sockctrl =
+  method adjust (sockserv : socket_service) (sockctrl : socket_controller) =
     match sockctrl # state with
       | `Enabled ->
 	  (* Determine total capacity of the current Netplex state: *)
@@ -149,13 +170,10 @@ object(self)
 	  let free_cap = total_cap - used_cap in
 
 	  if !Netplex_log.debug_scheduling then (
-	    (Lazy.force logger) # log 
-	      ~component:"netplex.controller"
-	      ~level:`Debug
-	      ~message:(Printf.sprintf
-			  "Workload mng for %s: number_threads=%d active_threads=%d total_cap=%d used_cap=%d"
-			  sockserv#name number_threads active_threads
-			  total_cap used_cap)
+	    debug_logf logger
+	      "Dyn workload mng %s: total_threads=%d avail_threads=%d total_cap=%d used_cap=%d"
+	      sockserv#name all_threads active_threads
+	      total_cap used_cap
 	  );
 
 	  (* Now decide... *)
@@ -166,7 +184,7 @@ object(self)
 	    let needed_threads' =
 	      max 0 ((min (all_threads+needed_threads) config#max_threads) -
 		       all_threads) in
-	    self # activate_containers sockctrl needed_threads'
+	    self # activate_containers sockserv sockctrl needed_threads'
 	  )
 	  else 
 	    if free_cap > config#max_free_job_capacity then (
@@ -174,41 +192,59 @@ object(self)
 	      let exceeding_threads = 
 		exceeding_cap / config # recommended_jobs_per_thread in
 	      if exceeding_threads > 0 then (
-		(* Try to stop exceeding_thread containers. First look
-                 * for idle containers.
+		(* Try to stop exceeding_thread containers. Look for
+                 * the containers with the least numbers of jobs.
                  *)
-		let idle_conts =
-		  List.filter
-		    (fun (cid, s) ->
-		       not (ContMap.mem cid inactivated_conts) &&
-			 match s with
-			   | `Accepting(0,_) -> true
-			   | _ -> false)
+		let weight s =
+		  match s with
+		    | `Accepting(n,_) -> n
+		    | `Starting _ -> 0
+		    | `Busy -> max_int
+		    | `Shutting_down -> max_int in
+		let sorted_conts =
+		  List.sort
+		    (fun (cid1,s1) (cid2,s2) ->
+		       let n1 = weight s1 in
+		       let n2 = weight s2 in
+		       n1 - n2)
 		    container_state in
 		let n = ref 0 in
 		List.iter
-		  (fun (cid,_) ->
-		     if !n < exceeding_threads then (
-		       incr n;
-		       self # inactivate_container sockctrl cid
+		  (fun (cid,s) ->
+		     let already_inactivated =
+		       ContMap.mem cid inactivated_conts in
+		     if !n < exceeding_threads && not already_inactivated then (
+		       match s with
+			 | `Accepting(_,_)
+			 | `Starting _ ->
+			     incr n;
+			     self # inactivate_container sockserv sockctrl cid
+			 | _ -> ()
 		     )
 		  )
-		  idle_conts
+		  sorted_conts
 	      )
-	    )
+	    );
+
+	  self # inactivation_check sockserv sockctrl
 
       | _ ->
-	  ()
+	  self # inactivation_check sockserv sockctrl
 
-  method private activate_containers sockctrl n =
+
+  method private activate_containers sockserv sockctrl n =
     let n = ref n in
     (* First re-activate the inactivated containers: *)
     let l = ref [] in
     ContMap.iter
-      (fun cid g ->
+      (fun cid g_opt ->
 	 if !n > 0 then (
+	   decr n;
 	   l := cid :: !l;
-	   Unixqueue.clear (Lazy.force esys) g;
+	   match g_opt with
+	     | None -> ()
+	     | Some g ->
+		 Unixqueue.clear (Lazy.force esys) g;
 	 )
       )
       inactivated_conts;
@@ -216,21 +252,65 @@ object(self)
       (fun cid ->
 	 inactivated_conts <- ContMap.remove cid inactivated_conts)
       !l;
+    if !Netplex_log.debug_scheduling && !l <> [] then (
+      debug_logf logger
+	"Dyn workload mng %s: Reclaiming %d inactivated containers"
+	sockserv#name (List.length !l)
+    );
     (* If needed, start further containers: *)
     if !n > 0 then
       sockctrl # start_containers !n
 
+	(* Note that the activation may not do enough because inactivated
+         * containers can be quite busy. The next [adjust] call will fix
+         * this.
+         *)
 
-  method private inactivate_container sockctrl cid =
-    let esys = Lazy.force esys in
-    let g = Unixqueue.new_group esys in
-    inactivated_conts <- ContMap.add cid g inactivated_conts;
-    Unixqueue.once
-      esys g (float config#inactivity_timeout)
-      (fun () ->
-	 inactivated_conts <- ContMap.remove cid inactivated_conts;
-	 sockctrl # stop_containers [cid]
+
+  method private inactivate_container sockserv sockctrl cid =
+    inactivated_conts <- ContMap.add cid None inactivated_conts;
+
+    if !Netplex_log.debug_scheduling then (
+      debug_logf logger
+	"Dyn workload mng %s: Inactivating 1 container"
+	sockserv#name
+    );
+
+
+  method private inactivation_check sockserv sockctrl =
+    (* Check whether there are inactivated containers without timer that
+     * have become idle in the meantime. For these containers, start the
+     * inactivation timer.
+     *)
+    let container_state = sockctrl # container_state in
+    List.iter
+      (fun (cid, s) ->
+	 try
+	   let g_opt = ContMap.find cid inactivated_conts in
+	   match (g_opt, s) with
+	     | None, `Accepting(0,_) ->
+		 if !Netplex_log.debug_scheduling then (
+		   debug_logf logger
+		     "Dyn workload mng %s: Inactivated container becomes idle"
+		     sockserv#name
+		 );
+		 let esys = Lazy.force esys in
+		 let g = Unixqueue.new_group esys in
+		 Unixqueue.once
+		   esys g (float config#inactivity_timeout)
+		   (fun () ->
+		      inactivated_conts <- ContMap.remove cid inactivated_conts;
+		      sockctrl # stop_containers [cid]
+		   );
+		 inactivated_conts <- ContMap.add cid (Some g) inactivated_conts
+	     | _ ->
+		 ()
+	 with
+	   | Not_found -> ()
       )
+      container_state
+
+
 
   method capacity cid s =
     if ContMap.mem cid inactivated_conts then 
@@ -249,6 +329,7 @@ object(self)
 	| `Busy -> `Unavailable
 	| `Starting _ -> `Unavailable
 	| `Shutting_down -> `Unavailable
+
 
 end
 

@@ -644,15 +644,51 @@ object(self)
       clist
 
   method forward_admin_message msg =
-    if msg.msg_name = "threadlist" then
-      self # threadlist()
-    else
-      List.iter
-	(fun c ->
-	   Queue.push msg c.admin_messages;
-	   self # check_for_poll_reply c
-	)
-	clist
+    match msg.msg_name with
+      | "netplex.threadlist" ->
+	  self # threadlist()
+      | "netplex.logger.set_max_level"
+	  when sockserv#name = "netplex.controller" ->
+	  ( try
+	      let s_level = 
+		match msg.msg_arguments with
+		  | [| s |] -> s
+		  | [| |] -> failwith "Missing argument"
+		  | _  -> failwith "Too many arguments" in
+	      let level = Netplex_log.level_of_string s_level in
+	      controller # logger # set_max_level level
+	    with
+	      | Failure s ->
+		  controller # logger # log 
+		    ~component:sockserv#name
+		    ~level:`Err
+		    ~message:("netplex.logger.set_max_level: " ^ s)
+	  )
+      | "netplex.logger.debug_scheduling"
+	  when sockserv#name = "netplex.controller" ->
+	  ( try
+	      let s_switch = 
+		match msg.msg_arguments with
+		  | [| s |] -> s
+		  | [| |] -> failwith "Missing argument"
+		  | _  -> failwith "Too many arguments" in
+	      let switch = bool_of_string s_switch in
+	      Netplex_log.debug_scheduling := switch
+	    with
+	      | Failure s ->
+		  controller # logger # log 
+		    ~component:sockserv#name
+		    ~level:`Err
+		    ~message:("netplex.logger.debug_scheduling: " ^ s)
+	  )
+
+      | _ ->
+	  List.iter
+	    (fun c ->
+	       Queue.push msg c.admin_messages;
+	       self # check_for_poll_reply c
+	    )
+	    clist
 
   val lev_trans =
     [ log_emerg, `Emerg;
@@ -679,7 +715,20 @@ object(self)
     List.iter
       (fun c ->
 	 let msg = 
-	   sprintf "%20s %s" c.par_thread#info_string sockserv#name in
+	   sprintf "%20s: %s (%s)%s" 
+	     c.par_thread#info_string sockserv#name
+	     ( match c.cont_state with
+		 | `Accepting(n,_) -> string_of_int n ^ " jobs, accepting"
+		 | `Busy -> "busy"
+		 | `Starting _ -> "starting"
+		 | `Shutting_down -> "shutdown"
+	     )
+	     ( match action with
+		 | `Selected c' when c' == c -> " (selected)"
+		 | `Notified c' when c' == c -> " (selected*)"
+		 | `Deselected c' when c' == c -> " (deselected)"
+		 | _ -> ""
+	     ) in
 	 controller # logger # log
 	   ~component:"netplex.controller"
 	   ~level:`Notice
@@ -892,6 +941,7 @@ class controller_sockserv setup controller : socket_service =
 	      method addresses = [| Unix.ADDR_UNIX socket_name |]
 	      method lstn_backlog = 50
 	      method lstn_reuseaddr = true
+	      method so_keepalive = true
 	      method configure_slave_socket _ = ()
 	    end
 	  ]

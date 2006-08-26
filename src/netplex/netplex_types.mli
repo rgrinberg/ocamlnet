@@ -203,6 +203,8 @@ object
     (** The backlog (argument of Unix.listen) *)
   method lstn_reuseaddr : bool
     (** Whether to reuse ports immediately *)
+  method so_keepalive : bool
+    (** Whether to set the keep-alive socket option *)
   method configure_slave_socket : Unix.file_descr -> unit
     (** A user-supplied function to configure slave sockets (after [accept]).
       * The function is called from the process/thread of the container.

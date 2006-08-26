@@ -30,6 +30,7 @@ val read_netplex_config :
     *              name = "name_of_protocol";
     *              lstn_backlog = <n>;
     *              lstn_reuseaddr = <bool>;
+    *              so_keepalive = <bool>;
     *              address {
     *                  type = "local";
     *                  path = "socketname";

@@ -485,7 +485,9 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 		cf # restrict_subsections protaddr [ "address" ];
 		cf # restrict_parameters protaddr [ "name";
 						    "lstn_backlog";
-						    "lstn_reuseaddr" ];
+						    "lstn_reuseaddr";
+						    "so_keepalive"
+						  ];
 
 		let prot_name =
 		  try
@@ -497,10 +499,15 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 		  try
 		    cf # int_param (cf # resolve_parameter protaddr "lstn_backlog") 
 		  with
-		    | Not_found -> 5 in
+		    | Not_found -> 20 in
 		let lstn_reuseaddr =
 		  try
 		    cf # bool_param (cf # resolve_parameter protaddr "lstn_reuseaddr") 
+		  with
+		    | Not_found -> true in
+		let so_keepalive =
+		  try
+		    cf # bool_param (cf # resolve_parameter protaddr "so_keepalive") 
 		  with
 		    | Not_found -> true in
 		let addresses =
@@ -514,6 +521,7 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 		    method addresses = Array.of_list addresses
 		    method lstn_backlog = lstn_backlog
 		    method lstn_reuseaddr = lstn_reuseaddr
+		    method so_keepalive = so_keepalive
 		    method configure_slave_socket _ = ()
 		  end
 		)

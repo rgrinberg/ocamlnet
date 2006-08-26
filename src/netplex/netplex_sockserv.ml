@@ -16,6 +16,7 @@ let open_sockets prots =
 		    (Unix.domain_of_sockaddr addr) Unix.SOCK_STREAM 0 in
 		fdlist := s :: !fdlist;
 		Unix.setsockopt s Unix.SO_REUSEADDR proto#lstn_reuseaddr;
+		Unix.setsockopt s Unix.SO_KEEPALIVE proto#so_keepalive;
 		( match addr with
 		    | Unix.ADDR_UNIX path ->
 			( try Unix.unlink path with _ -> () )
