@@ -440,4 +440,13 @@ val get_auth_method : session -> auth_method
   (** Returns the method that was used to authenticate the user. *)
 
 val verbose : bool -> unit
-  (** Set whether you want debug messages or not *)
+  (** Set whether you want debug messages to stderr or not *)
+
+val debug_internals_log : (string -> unit) option ref
+val debug_service_log : (string -> unit) option ref
+  (** These are the two debug logging facilities. "Internals" is for debugging
+    * Rpc_server, "service" is for debugging how the user code interacts
+    * with Rpc_server.
+    *
+    * The [verbose] function simply sets these functions.
+   *)

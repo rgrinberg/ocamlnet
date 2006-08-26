@@ -74,3 +74,11 @@ val rpc_factory :
     * by the service. By default, both multi-processing and multi-threading
     * are included in this list.
    *)
+
+
+val debug_rpc_internals : bool ref
+val debug_rpc_service : bool ref
+  (** These variables control debugging of [Rpc_server]. If set, the
+     * debug messages are sent to the Netplex logger. These variables must
+     * be set before an RPC connection is accepted.
+   *)
