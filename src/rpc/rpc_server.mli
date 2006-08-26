@@ -246,6 +246,13 @@ val get_main_socket_name : t -> Unix.sockaddr
    * This function fails if the main file descriptor is not a socket.
    *)
 
+val get_protocol : t -> protocol
+  (** Return whether Tcp or Udp *)
+
+val get_srv_event_system : t -> Unixqueue.unix_event_system
+  (** Returns the event system *)
+
+
 type rule =
     [ `Deny
     | `Drop
@@ -331,6 +338,9 @@ val set_onclose_action : t -> (connection_id -> unit) -> unit
    * not be executed for closed sockets in general (closed master socket,
    * closed datagram socket).
    *)
+
+val set_timeout : t -> float -> unit
+  (** Sets the timeout for the transport. *)
 
 val stop_server : ?graceful:bool -> t -> unit
   (** Stops the server: If a TCP server socket is listening, it is immediately

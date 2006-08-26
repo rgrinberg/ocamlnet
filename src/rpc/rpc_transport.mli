@@ -135,6 +135,11 @@ object
       * It is no error if no shutdown is in progress.
      *)
 
+  method set_timeout : notify:(unit -> unit) -> float -> unit
+    (** If there is no read or write activity for the passed number of
+      * seconds, the [notify] callback is invoked.
+     *)
+
   method inactivate : unit -> unit
     (** Inactivates the connection immediately, and releases any resources
       * the controller is responsible for (e.g. closes file descriptors). 

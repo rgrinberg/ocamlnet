@@ -149,7 +149,8 @@ type t =
 	mutable auth_methods : (string, t pre_auth_method) Hashtbl.t;
 	mutable auth_peekers : (auth_peeker * t pre_auth_method) list;
 	mutable connections : connection list;
-	mutable master_acceptor : server_socket_acceptor option
+	mutable master_acceptor : server_socket_acceptor option;
+	mutable transport_timeout : float
       }
 
 and connection =
@@ -781,6 +782,7 @@ let create2_srv prot esys =
     auth_peekers = [];
     connections = [];
     master_acceptor = None;
+    transport_timeout = (-1.0);
   }
 ;;
 
@@ -808,6 +810,11 @@ let connection srv mplex =
 ;;
 
 
+let on_trans_timeout srv conn () =
+  terminate_any srv conn
+;;
+
+
 let create2_multiplexer_endpoint ?fd mplex =
   let prot = mplex#protocol in
   let srv  = create2_srv prot mplex#event_system in
@@ -822,6 +829,9 @@ let create2_multiplexer_endpoint ?fd mplex =
     (fun () ->
        (* Try to peek credentials. This can be too early, however. *)
        if conn.trans <> None then (
+	 if srv.transport_timeout >= 0.0 then
+	   mplex # set_timeout 
+	     ~notify:(on_trans_timeout srv conn) srv.transport_timeout;
 	 peek_credentials srv conn;
 	 next_incoming_message srv conn;
        )
@@ -886,6 +896,10 @@ let create2_socket_server ?(config = default_socket_config)
 		    ~is_done:(fun mplex ->
 				let conn = connection srv mplex in
 				conn.fd <- Some slave_fd;
+				if srv.transport_timeout >= 0.0 then
+				  mplex # set_timeout 
+				    ~notify:(on_trans_timeout srv conn) 
+				    srv.transport_timeout;
 				(* Try to peek credentials. This can be too
                                  * early, however.
 				 *)
@@ -912,7 +926,9 @@ let create2_socket_server ?(config = default_socket_config)
 	0
     in
     try
-      Unix.setsockopt s Unix.SO_REUSEADDR config#listen_options.lstn_reuseaddr;
+      Unix.setsockopt s Unix.SO_REUSEADDR 
+	(config#listen_options.lstn_reuseaddr || port <> 0);
+      Unix.setsockopt s Unix.SO_KEEPALIVE true;
       Unix.bind
 	s
 	(Unix.ADDR_INET (addr, port));
@@ -975,6 +991,10 @@ let create2_socket_server ?(config = default_socket_config)
 	  ~is_done:(fun mplex ->
 		      let conn = connection srv mplex in
 		      conn.fd <- Some fd;
+		      if srv.transport_timeout >= 0.0 then
+			mplex # set_timeout 
+			  ~notify:(on_trans_timeout srv conn) 
+			  srv.transport_timeout;
 		      (* Try to peek credentials. This can be too early, 
                        * however. 
 		       *)
@@ -1310,6 +1330,10 @@ let get_conn_socket_name conn_id = conn_id # socket_name
 
 let get_conn_peer_name conn_id = conn_id # peer_name
 
+let get_protocol srv = srv.prot
+
+let get_srv_event_system srv = srv.esys
+
 let get_main_socket_name srv =
   match srv.main_socket_name with
     | `Implied -> failwith "Cannot determine main socket name"
@@ -1407,6 +1431,9 @@ let set_auth_methods srv l =
     l;
   srv.auth_methods <- h;
   srv.auth_peekers <- !p
+
+let set_timeout srv tmo =
+  srv.transport_timeout <- tmo
 
 let stop_server ?(graceful = false) srv =
 if !debug then prerr_endline ("Rpc_server: Stopping" ^

@@ -48,13 +48,14 @@ object
   method start_shutting_down :
     when_done:(unit result -> unit) -> unit -> unit
   method cancel_shutting_down : unit -> unit
+  method set_timeout : notify:(unit -> unit) -> float -> unit
   method inactivate : unit -> unit
 end
 
 
 class datagram_rpc_multiplex_controller sockname peername_opt peer_user_name_opt
         (mplex : Uq_engines.datagram_multiplex_controller) esys 
-      : rpc_multiplex_controller=
+      : rpc_multiplex_controller =
 object(self)
   val rd_buffer = String.create 16384
     (* Max. size of an Internet datagram is 64 K. See RFC 760. However,
@@ -82,6 +83,7 @@ object(self)
     mplex # start_reading
       ?peek
       ~when_done:(fun exn_opt n ->
+		    self # timer_event `Stop `R;
 		    match exn_opt with
 		      | None ->
 			  let peer = `Sockaddr (mplex # received_from) in
@@ -91,7 +93,7 @@ object(self)
 			      | Some f -> 
 				  f n peer
 				    (* It can happen that reading is
-                                       * aborted in the meantime!
+                                     * aborted in the meantime!
                                      *)
 			  );
 			  if not aborted then (
@@ -112,7 +114,8 @@ object(self)
 		    )
       rd_buffer
       0
-      (String.length rd_buffer)
+      (String.length rd_buffer);
+    self # timer_event `Start `R
   
   method start_writing ~when_done pv addr =
     ( match addr with
@@ -124,6 +127,7 @@ object(self)
     let s = string_of_packed_value pv in
     mplex # start_writing
       ~when_done:(fun exn_opt n ->
+		    self # timer_event `Stop `W;
 		    match exn_opt with
 		      | None ->
 			  if n = String.length s then
@@ -137,7 +141,8 @@ object(self)
 		 )
       s
       0
-      (String.length s)
+      (String.length s);
+    self # timer_event `Start `W
 
   method cancel_rd_polling () =
     if mplex#reading then
@@ -154,17 +159,62 @@ object(self)
   method start_shutting_down ~when_done () =
     mplex # start_shutting_down
       ~when_done:(fun exn_opt ->
+		    self # timer_event `Stop `D;
 		    match exn_opt with
 		      | None -> when_done (`Ok ())
 		      | Some error -> when_done (`Error error)
 		 )
-      ()
+      ();
+    self # timer_event `Start `D
 
   method cancel_shutting_down () =
+    self # timer_event `Stop `D;
     mplex # cancel_shutting_down()
 
   method inactivate () =
+    self # stop_timer();
     mplex # inactivate()
+
+  val mutable timer = None
+  val mutable timer_r = `Stop
+  val mutable timer_w = `Stop
+  val mutable timer_d = `Stop
+  val mutable timer_group = None
+
+  method set_timeout ~notify tmo =
+    timer <- Some(notify, tmo)
+
+  method private timer_event start_stop which =
+    ( match timer with
+	| None -> ()
+	| Some(notify, tmo) ->
+	    ( match which with
+		| `R -> timer_r <- start_stop
+		| `W -> timer_w <- start_stop
+		| `D -> timer_d <- start_stop
+	    );
+	    self # stop_timer();
+	    if timer_r = `Start || timer_w = `Start || timer_d = `Start then (
+	      let g = Unixqueue.new_group esys in
+	      timer_group <- Some g;
+	      Unixqueue.once esys g tmo
+		(fun () -> 
+		   timer_group <- None;
+		   notify()
+		)
+	    );
+    )
+
+
+  method private stop_timer() =
+    ( match timer_group with
+	| None -> ()
+	| Some g -> Unixqueue.clear esys g
+    );
+    timer_group <- None;
+    timer_r <- `Stop;
+    timer_w <- `Stop;
+    timer_d <- `Stop
 
 
 end
@@ -226,6 +276,7 @@ object(self)
       mplex # start_reading
 	?peek
 	~when_done:(fun exn_opt n ->
+		      self # timer_event `Stop `R;
 		      match exn_opt with
 			| None ->
 			    process 0 n
@@ -241,7 +292,8 @@ object(self)
 		   )
 	rd_buffer
 	0
-	(String.length rd_buffer)
+	(String.length rd_buffer);
+      self # timer_event `Start `R
 
     and process pos len =
       if len > 0 then (
@@ -352,6 +404,7 @@ object(self)
       let len = String.length s - pos in
       mplex # start_writing
 	~when_done:(fun exn_opt n ->
+		      self # timer_event `Stop `W;
 		      match exn_opt with
 			| None ->
 			    assert(n <= len);
@@ -371,7 +424,8 @@ object(self)
 		   )
 	s
 	pos
-	(String.length s - pos)
+	(String.length s - pos);
+      self # timer_event `Start `W
     in
 
     ( match addr with
@@ -405,18 +459,62 @@ object(self)
   method start_shutting_down ~when_done () =
     mplex # start_shutting_down
       ~when_done:(fun exn_opt ->
+		    self # timer_event `Stop `D;
 		    match exn_opt with
 		      | None -> when_done (`Ok ())
 		      | Some error -> when_done (`Error error)
 		 )
-      ()
+      ();
+    self # timer_event `Start `D
 
   method cancel_shutting_down () =
+    self # timer_event `Stop `D;
     mplex # cancel_shutting_down()
 
   method inactivate () =
+    self # stop_timer();
     mplex # inactivate()
 
+  val mutable timer = None
+  val mutable timer_r = `Stop
+  val mutable timer_w = `Stop
+  val mutable timer_d = `Stop
+  val mutable timer_group = None
+
+  method set_timeout ~notify tmo =
+    timer <- Some(notify, tmo)
+
+  method private timer_event start_stop which =
+    ( match timer with
+	| None -> ()
+	| Some(notify, tmo) ->
+	    ( match which with
+		| `R -> timer_r <- start_stop
+		| `W -> timer_w <- start_stop
+		| `D -> timer_d <- start_stop
+	    );
+	    self # stop_timer();
+	    if timer_r = `Start || timer_w = `Start || timer_d = `Start then (
+	      let g = Unixqueue.new_group esys in
+	      timer_group <- Some g;
+	      Unixqueue.once esys g tmo
+		(fun () -> 
+		   timer_group <- None;
+		   notify()
+		)
+	    );
+    )
+
+
+  method private stop_timer() =
+    ( match timer_group with
+	| None -> ()
+	| Some g -> Unixqueue.clear esys g
+    );
+    timer_group <- None;
+    timer_r <- `Stop;
+    timer_w <- `Stop;
+    timer_d <- `Stop
 
 end
 
