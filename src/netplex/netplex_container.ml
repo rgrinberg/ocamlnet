@@ -4,6 +4,15 @@ open Netplex_types
 open Netplex_ctrl_aux
 open Printf
 
+let debug_containers = Netplex_log.debug_containers
+
+let debug_log log s =
+  log `Debug s
+
+let debug_logf log msgf =
+  Printf.kprintf (debug_log log) msgf
+
+
 class std_container ?(esys = Unixqueue.create_unix_event_system()) 
                     ptype sockserv =
 object(self)
@@ -23,6 +32,8 @@ object(self)
   method start fd_clnt sys_fd_clnt =
     if rpc <> None then
       failwith "#start: already started";
+    if !debug_containers then
+      debug_logf self#log "Container %d: Starting (start)" (Oo.id self);
     ( match ptype with
 	| `Multi_processing ->
 	    ( match sockserv # socket_service_config # change_user_to with
@@ -48,13 +59,20 @@ object(self)
 	     ~esys:sys_esys
 	     (Rpc_client.Descriptor sys_fd_clnt)
 	     Rpc.Tcp);
+    if !debug_containers then
+      debug_logf self#log "Container %d: Starting (post_start)" (Oo.id self);
     self # protect "post_start_hook"
       (sockserv # processor # post_start_hook) (self : #container :> container);
     self # setup_polling();
     self # protect_run();
+    if !debug_containers then
+      debug_logf self#log "Container %d: Finishing (pre_finish)" (Oo.id self);
     self # protect "pre_finish_hook"
       (sockserv # processor # pre_finish_hook) (self : #container :> container);
-    rpc <- None
+    rpc <- None;
+    if !debug_containers then
+      debug_logf self#log "Container %d: Finishing (finish)" (Oo.id self);
+
 
   method private protect : 's. string -> ('s -> unit) -> 's -> unit =
     fun label f arg ->
@@ -191,6 +209,8 @@ object(self)
 	    ~when_sent:(fun () ->
 			  nr_conns <- nr_conns + 1;
 			  let when_done_called = ref false in
+			  if !debug_containers then
+			    debug_logf self#log "Container %d: Accepted connection (total: %d)" (Oo.id self) nr_conns;
 			  self # protect
 			    "process"
 			    (sockserv # processor # process
@@ -199,6 +219,9 @@ object(self)
 					       nr_conns <- nr_conns - 1;
 					       when_done_called := true;
 					       self # setup_polling();
+					       if !debug_containers then
+						 debug_logf self#log "Container %d: Done with connection (total %d)" (Oo.id self) nr_conns;
+
 					     )
 					  )
 			       (self : #container :> container)

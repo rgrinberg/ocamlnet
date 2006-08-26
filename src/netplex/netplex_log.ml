@@ -322,3 +322,5 @@ let logger_factories =
   ]
 
 let debug_scheduling = ref false
+
+let debug_containers = ref false

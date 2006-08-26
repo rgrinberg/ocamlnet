@@ -6,6 +6,7 @@ open Printf
 
 
 let debug_scheduling = Netplex_log.debug_scheduling
+let debug_containers = Netplex_log.debug_containers
 
 let ast_re = Pcre.regexp "[*]";;
 
@@ -193,6 +194,9 @@ object(self)
 	     )
 	  ) in
       let container = sockserv # create_container par#ptype sockserv in
+      if !debug_containers then
+	debug_logf controller "Service %s: Container %d: Starting (pre_start)"
+	  name (Oo.id container);
       sockserv # processor # pre_start_hook 
 	sockserv
 	(controller :> controller)
@@ -201,7 +205,7 @@ object(self)
 	par # start_thread
 	  (fun () ->
 	     ( try 
-		 container # start fd_clnt sys_fd_clnt
+		 container # start fd_clnt sys_fd_clnt;
 	       with 
 		 | error ->
 		     (* It is difficult to get this error written to a log file *)
@@ -301,6 +305,9 @@ object(self)
     if is_starting then
       n_failures <- n_failures + 1;
     clist <- List.filter (fun c' -> c' != c) clist;
+    if !debug_containers then
+      debug_logf controller "Service %s: Container %d: Finishing (post_finish)"
+	name (Oo.id container);
     ( try
 	sockserv # processor # post_finish_hook 
 	  sockserv
@@ -664,7 +671,7 @@ object(self)
 		    ~level:`Err
 		    ~message:("netplex.logger.set_max_level: " ^ s)
 	  )
-      | "netplex.logger.debug_scheduling"
+      | "netplex.debug_scheduling"
 	  when sockserv#name = "netplex.controller" ->
 	  ( try
 	      let s_switch = 
@@ -679,7 +686,24 @@ object(self)
 		  controller # logger # log 
 		    ~component:sockserv#name
 		    ~level:`Err
-		    ~message:("netplex.logger.debug_scheduling: " ^ s)
+		    ~message:("netplex.debug_scheduling: " ^ s)
+	  )
+      | "netplex.debug_containers"
+	  when sockserv#name = "netplex.controller" ->
+	  ( try
+	      let s_switch = 
+		match msg.msg_arguments with
+		  | [| s |] -> s
+		  | [| |] -> failwith "Missing argument"
+		  | _  -> failwith "Too many arguments" in
+	      let switch = bool_of_string s_switch in
+	      Netplex_log.debug_containers := switch
+	    with
+	      | Failure s ->
+		  controller # logger # log 
+		    ~component:sockserv#name
+		    ~level:`Err
+		    ~message:("netplex.debug_containers: " ^ s)
 	  )
 
       | _ ->

@@ -74,3 +74,8 @@ val debug_scheduling : bool ref
   (** If set to true, the controller and a few other components output
     * a lot of debug messages, mostly scheduling-related.
    *)
+
+val debug_containers : bool ref
+  (** If set to true, the containers output when they are started and
+    * stopped, and when new connections are accepted.
+   *)
