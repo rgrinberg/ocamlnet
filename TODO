@@ -16,16 +16,21 @@ Equeue:
 	Fix command engines as commented in the code.
 
 Netplex:
-	- accepted() von Control nach System? Ganz anderer Mechanismus?
-
-Rpc_server:
-	- Improved debugging
+	- Move accepted() from Control to System? Implement totally different
+	  mechanisms?
 
 Integration of new netcgi
 
-	- nethttpd still depends on old cgi. makes it difficult to mix
-	  nethttpd and new cgi
+	- Test nethttpd when linked with netcgi
+	- Move new cookie implementation to Nethttp, and make it a 
+	  class
+	- Faster URL encoding functions can be moved to Netencoding.
+	- Write Netplex drivers for fcgi, ajp, (scgi?).
 
+Documentation:
+
+	- Check for texts not yet converted to ocamldoc
+	- Continue Netcgi_porting
 
 Http_client.pipeline:
 	

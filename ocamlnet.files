@@ -88,16 +88,16 @@ f src/netcgi/Makefile.pre
 f src/netcgi/META.in
 p src/netcgi/.*\.ml
 p src/netcgi/.*\.mli
-d src/netcgi/mod_caml
-f src/netcgi/mod_caml/500mod_caml.info.in
-f src/netcgi/mod_caml/Makefile
-f src/netcgi/mod_caml/Makefile.pre
-p src/netcgi/mod_caml/.*\.c
-p src/netcgi/mod_caml/.*\.h
-f src/netcgi/mod_caml/mod_caml_config.ml.in
-x src/netcgi/mod_caml/mod_caml_config.ml
-p src/netcgi/mod_caml/.*\.ml
-p src/netcgi/mod_caml/.*\.mli
+#d src/netcgi/mod_caml
+#f src/netcgi/mod_caml/500mod_caml.info.in
+#f src/netcgi/mod_caml/Makefile
+#f src/netcgi/mod_caml/Makefile.pre
+#p src/netcgi/mod_caml/.*\.c
+#p src/netcgi/mod_caml/.*\.h
+#f src/netcgi/mod_caml/mod_caml_config.ml.in
+#x src/netcgi/mod_caml/mod_caml_config.ml
+#p src/netcgi/mod_caml/.*\.ml
+#p src/netcgi/mod_caml/.*\.mli
 
 d src/pop
 f src/pop/META.in
@@ -293,6 +293,7 @@ f examples/nethttpd/file_engine.ml
 f examples/nethttpd/file_mt_reactor.ml
 f examples/nethttpd/file_reactor.ml
 f examples/nethttpd/proxy_engine.ml
+f examples/nethttpd/netplex.cfg
 f examples/nethttpd/netplex.ml
 
 d examples/rpc
@@ -325,14 +326,10 @@ f examples/rpc/finder/finder_client.ml
 f examples/rpc/finder/finder_daemon.ml
 f examples/rpc/finder/netplex.cfg
 
-#d doc
-#d doc/html
-#d doc/html/intro
-#p doc/html/intro/.*\.html
-#p doc/html/intro/.*\.css
-#p doc/html/intro/.*\.png
-#d doc/html/refman
-#p doc/html/refman/.*\.html
-#p doc/html/refman/.*\.css
-
-# other doc: not yet ready
+d doc
+d doc/html-main
+p doc/html-main/.*\.html
+p doc/html-main/.*\.css
+d doc/html-main/cgi
+p doc/html-main/cgi/.*\.html
+p doc/html-main/cgi/.*\.css
