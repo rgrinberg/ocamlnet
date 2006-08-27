@@ -1,7 +1,7 @@
 # Specifications for the Benchmark module                   -*-conf-*-
 #name = "netcgi"
 version = "@VERSION@"
-description = "Connectors for GCI, FCGI, AJP, and Apache modules"
-requires = "unix netcgi"
-archive(byte) = "netcgi.cma netcgi_mod.cma"
-archive(native) = "netcgi.cmxa netcgi_mod.cmxa"
+description = "Connectors for CGI, FCGI, AJP"
+requires = "unix netstring"
+archive(byte) = "netcgi.cma"
+archive(native) = "netcgi.cmxa"
