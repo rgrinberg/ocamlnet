@@ -22,7 +22,7 @@ val nethttpd_processor :
    *)
 
 val nethttpd_factory :
-      ?config_cgi:Netcgi_env.cgi_config -> 
+      ?config_cgi:Netcgi_compat.Netcgi_env.cgi_config -> 
       ?handlers:(string * 'a Nethttpd_services.dynamic_service) list ->
       unit ->
         Netplex_types.processor_factory

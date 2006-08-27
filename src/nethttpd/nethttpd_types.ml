@@ -29,7 +29,7 @@ exception Standard_response of http_status * http_header option * string option
 
 class type virtual v_extended_environment =
 object
-  inherit Netcgi_env.cgi_environment
+  inherit Netcgi_compat.Netcgi_env.cgi_environment
   method virtual server_socket_addr : Unix.sockaddr
   method virtual remote_socket_addr : Unix.sockaddr
 
@@ -53,9 +53,9 @@ end
 
 class virtual empty_environment =
 object(self)
-  val mutable config = Netcgi_env.default_config
-  val mutable in_state = (`Start : Netcgi_env.input_state)
-  val mutable out_state = (`Start : Netcgi_env.output_state)
+  val mutable config = Netcgi_compat.Netcgi_env.default_config
+  val mutable in_state = (`Start : Netcgi_compat.Netcgi_env.input_state)
+  val mutable out_state = (`Start : Netcgi_compat.Netcgi_env.output_state)
   val mutable in_header = new Netmime.basic_mime_header []
   val mutable out_header = new Netmime.basic_mime_header []
   val mutable properties = []
@@ -102,7 +102,7 @@ object(self)
                                    | _ -> failwith "Cannot interpret HTTPS property"
   method cgi_request_uri       = self # cgi_property ~default:"" "REQUEST_URI"
 
-  method protocol = (protocol : Netcgi_env.protocol)
+  method protocol = (protocol : Netcgi_compat.Netcgi_env.protocol)
 
   method send_output_header() = ()
 

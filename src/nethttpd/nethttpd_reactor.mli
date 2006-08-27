@@ -51,7 +51,7 @@ object
   method config_timeout : float
     (** General timeout until new data arrives.  (-1) means no timeout. *)
 
-  method config_cgi : Netcgi_env.cgi_config
+  method config_cgi : Netcgi_compat.Netcgi_env.cgi_config
     (** The CGI configuration to use in the Netcgi environment *)
 
   method config_error_response : int -> string

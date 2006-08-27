@@ -25,9 +25,14 @@ INC_NETSTRING  = -I ../netstring
 INC_EQUEUE     = -I ../equeue
 INC_EQUEUE_SSL = -I ../equeue-ssl
 INC_CGI        = -I ../cgi
+INC_NETCGI     = -I ../netcgi
 INC_NETPLEX    = -I ../netplex
 INC_RPC        = -I ../rpc
 INC_SHELL      = -I ../shell
+
+# Select either "cgi" or "netcgi" as default CGI implementation (this
+# is normally set in Makefile.config):
+INC_CGI_OR_NETCGI ?= $(INC_CGI)
 
 # Standard definitions and rules
 
@@ -127,6 +132,7 @@ uninstall-findlib:
 META: META.in
 	sed -e 's/@VERSION@/$(VERSION)/' \
 	    -e 's/@AUTHDHREQS@/$(AUTHDHREQS)/' \
+	    -e 's/@PREFERRED_CGI_PKG@/$(PREFERRED_CGI_PKG)/' \
 		META.in >META
 
 #----------------------------------------------------------------------

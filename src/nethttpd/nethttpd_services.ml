@@ -419,8 +419,8 @@ end
 
 
 type std_activation_options =
-   { stdactv_processing : (string -> Netmime.mime_header -> Netcgi.argument_processing) option;
-     stdactv_operating_type : Netcgi.operating_type option;
+   { stdactv_processing : (string -> Netmime.mime_header -> Netcgi_compat.Netcgi.argument_processing) option;
+     stdactv_operating_type : Netcgi_compat.Netcgi.operating_type option;
    } 
 
 
@@ -438,7 +438,7 @@ type 'a dynamic_service =
       dyn_uri : string option;
       dyn_translator : string -> string;
       dyn_accept_all_conditionals : bool;
-  } constraint 'a = # Netcgi_types.cgi_activation
+  } constraint 'a = # Netcgi_compat.Netcgi_types.cgi_activation
 
 let rec strip_prefix ~prefix l =
   match prefix, l with
@@ -456,28 +456,28 @@ let std_activation tag =
   match tag with
     | `Std_activation opts ->
 	(fun env ->
-	   new Netcgi.std_activation 
-	   ~env:(env :> Netcgi_env.cgi_environment)
+	   new Netcgi_compat.Netcgi.std_activation 
+	   ~env:(env :> Netcgi_compat.Netcgi_env.cgi_environment)
 	   ?processing:opts.stdactv_processing
 	   ?operating_type:opts.stdactv_operating_type
 	   ())
     | `Std_activation_unbuffered ->
 	(fun env ->
-	   new Netcgi.std_activation 
-	   ~env:(env :> Netcgi_env.cgi_environment)
+	   new Netcgi_compat.Netcgi.std_activation 
+	   ~env:(env :> Netcgi_compat.Netcgi_env.cgi_environment)
 	   ~operating_type:(`Direct "")
 	   ())
     | `Std_activation_buffered ->
 	(fun env ->
-	   new Netcgi.std_activation 
-	   ~env:(env :> Netcgi_env.cgi_environment)
-	   ~operating_type:Netcgi.buffered_transactional_optype
+	   new Netcgi_compat.Netcgi.std_activation 
+	   ~env:(env :> Netcgi_compat.Netcgi_env.cgi_environment)
+	   ~operating_type:Netcgi_compat.Netcgi.buffered_transactional_optype
 	   ())
     | `Std_activation_tempfile ->
 	(fun env ->
-	   new Netcgi.std_activation 
-	   ~env:(env :> Netcgi_env.cgi_environment)
-	   ~operating_type:Netcgi.tempfile_transactional_optype
+	   new Netcgi_compat.Netcgi.std_activation 
+	   ~env:(env :> Netcgi_compat.Netcgi_env.cgi_environment)
+	   ~operating_type:Netcgi_compat.Netcgi.tempfile_transactional_optype
 	   ())
 
 let dynamic_service_impl spec =
@@ -501,7 +501,7 @@ object(self)
 	with Failure _ -> raise Not_found in
 
       let req_method = env # cgi_request_method in
-      let allowed = (env # config).Netcgi_env.permitted_http_methods in
+      let allowed = (env # config).Netcgi_compat.Netcgi_env.permitted_http_methods in
       if not (List.mem req_method allowed) then (
 	let h = new Netmime.basic_mime_header [] in
 	set_allow h allowed;
@@ -591,7 +591,7 @@ type file_option =
     [ `Enable_gzip
     | `Enable_index_file of string list
     | `Enable_listings of 	
-	extended_environment -> Netcgi_types.cgi_activation -> file_service -> unit
+	extended_environment -> Netcgi_compat.Netcgi_types.cgi_activation -> file_service -> unit
     ]
 
 and file_service =
@@ -1009,7 +1009,7 @@ object(self)
 end
 
 
-let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi_types.cgi_activation) fs =
+let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi_compat.Netcgi_types.cgi_activation) fs =
   let dirname = env # cgi_path_translated in
   let col_name = 30 in
   let col_mtime = 20 in

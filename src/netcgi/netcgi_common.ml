@@ -1365,9 +1365,13 @@ end
    following ones; 2. it is a reminder to the user to think about this
    issue; 3. it is likely to show up in many apps, so having it here
    factors the code and is convenient. *)
+
+type arg_store_type =
+  [`Memory | `File | `Automatic | `Discard
+  | `Memory_max of float | `File_max of float | `Automatic_max of float]
+
 type arg_store = cgi_environment -> string -> Netmime.mime_header_ro ->
-      [`Memory | `File | `Automatic | `Discard
-      | `Memory_max of float | `File_max of float | `Automatic_max of float]
+                    arg_store_type
 
 
 (* [temp_file env] returns a function [unit -> string] to create

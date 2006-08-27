@@ -33,7 +33,7 @@ object
   inherit Nethttpd_kernel.http_protocol_config
   method config_timeout_next_request : float
   method config_timeout : float
-  method config_cgi : Netcgi_env.cgi_config
+  method config_cgi : Netcgi_compat.Netcgi_env.cgi_config
   method config_error_response : int -> string
   method config_log_error : 
     Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> http_header option -> string -> unit

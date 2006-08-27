@@ -1,5 +1,5 @@
 version = "@VERSION@"
-requires = "netstring,cgi,equeue,netplex"
+requires = "netstring,@PREFERRED_CGI_PKG@,equeue,netplex"
 description = "Ocamlnet - HTTP daemon"
 
 archive(byte) = "nethttpd.cma"

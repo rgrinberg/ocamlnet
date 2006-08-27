@@ -74,4 +74,5 @@ let start() =
 
 Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
 Netplex_log.debug_scheduling := true;
+Rpc_netplex.debug_rpc_service := true;
 start();;

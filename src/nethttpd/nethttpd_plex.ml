@@ -346,7 +346,7 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
     srv
 ;;
 
-class nethttpd_factory ?(config_cgi = Netcgi_env.default_config) 
+class nethttpd_factory ?(config_cgi = Netcgi_compat.Netcgi_env.default_config) 
                        ?(handlers=[]) () : processor_factory =
 object
   method name = "nethttpd"

@@ -43,7 +43,7 @@ sig
   type protocol = Nethttp.protocol
   type workaround =
       [ `Work_around_MSIE_Content_type_bug | `Work_around_backslash_bug  ]
-  type cgi_config = {
+  type cgi_config = Netcgi_env.cgi_config = {
     tmp_directory : string;
     tmp_prefix : string;
     permitted_http_methods : string list;
@@ -236,11 +236,34 @@ end
 
 module Netcgi :
 sig
+  type argument_processing =
+      [ `Memory
+      | `File
+      | `Automatic ]
+	
+  type operating_type =
+      [ `Direct of string (* separator *)
+      | `Transactional of
+          (Netcgi_env.cgi_config -> Netchannels.out_obj_channel ->
+             Netchannels.trans_out_obj_channel)
+      ]
+
   class simple_argument :
     ?ro:bool -> string -> string -> Netcgi_types.cgi_argument
 
   class mime_argument :
     ?work_around_backslash_bug:bool ->
   string -> Netmime.mime_message -> Netcgi_types.cgi_argument
+
+  class std_activation :
+    ?env:Netcgi_env.cgi_environment ->
+    ?processing:(string -> Netmime.mime_header -> argument_processing) ->
+    ?operating_type:operating_type ->
+    unit ->
+      Netcgi_types.cgi_activation
+
+  val buffered_transactional_optype : operating_type
+
+  val tempfile_transactional_optype : operating_type
 
 end

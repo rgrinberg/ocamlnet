@@ -16,14 +16,10 @@ Equeue:
 	Fix command engines as commented in the code.
 
 Netplex:
-	- option to set SO_KEEPALIVE in the config file
+	- accepted() von Control nach System? Ganz anderer Mechanismus?
 
 Rpc_server:
-	- set SO_KEEPALIVE for Tcp connections by default
-	- report socket type (Tcp/Udp) for sessions
-	- server connection timeout option
-	- if port <> 0, set SO_REUSEADDR by default
-
+	- Improved debugging
 
 Integration of new netcgi
 

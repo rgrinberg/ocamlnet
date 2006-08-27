@@ -343,9 +343,12 @@ type request_method = [`GET | `HEAD | `POST | `DELETE | `PUT of cgi_argument]
 
 val string_of_request_method : request_method -> string
 
-type arg_store = cgi_environment -> string -> Netmime.mime_header_ro ->
+type arg_store_type =
   [`Memory | `File | `Automatic | `Discard
   | `Memory_max of float | `File_max of float | `Automatic_max of float]
+
+type arg_store = cgi_environment -> string -> Netmime.mime_header_ro ->
+                   arg_store_type
   (** See {!Netcgi.arg_store}. *)
 
 

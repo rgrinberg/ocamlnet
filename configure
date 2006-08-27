@@ -45,9 +45,10 @@ set_defaults () {
     enable_gtk2=0
     enable_tcl=0
     enable_ssl=0
-    enable_modcaml=1
+    enable_modcaml=0
     with_nethttpd=0
     with_rpc_auth_dh=0
+    prefer_netcgi=0
     bindir=`dirname $ocamlc`
     tcl_defs=""
     tcl_libs=""
@@ -145,6 +146,9 @@ print_options () {
 	if [ -n "$apache" ]; then
 	    echo "    -apache $apache"
 	fi
+	if [ $prefer_netcgi -gt 0 ]; then
+	    echo "    -prefer-netcgi"
+	fi
 }
 
 
@@ -191,6 +195,10 @@ _EOF_
 
 -apache /path/to/apache
         Set which apache executable to use for -enable-modcaml
+
+-prefer-netcgi
+        Use netcgi as default CGI implementation instead of cgi.
+        This affects nethttpd.
 
 Defaults are:
 
@@ -290,6 +298,9 @@ while [ "$#" -gt 0 ]; do
                         shift
                         shift
                         ;;
+	        -prefer-netcgi)
+		        prefer_netcgi=1
+			shift ;;
 		-version)
 			echo "$version"
 			exit 0
@@ -630,32 +641,47 @@ fi
 if [ $enable_modcaml -gt 0 ]; then
     echo -n "Apache mod connector... "
 
-    if [ -z "$apxs" ]; then
-	# guess
-	apxs=`get_path apxs`
-    fi
-    if [ -z "$apache" ]; then
-	# guess
-	apache=`get_path apache`
-    fi
+    echo "CURRENTLY BROKEN - disabling for now"
 
-    if [ -x "$apxs" ] && [ -x "$apache" ]; then
-	apache_major=`$apache -v | head -n1 | sed -e "s,.*/\([1-9]\).*,\1,"`
-	apache_libdir="`$apxs -q LIBEXECDIR`"
-	apache_incdir="`$apxs -q INCLUDEDIR`"
-	apache_confdir="`$apxs -q SYSCONFDIR`"
-	apache_ldflags_shlib="`$apxs -q LDFLAGS_SHLIB`"
-	apache_cc="`$apxs -q CC`"
-	apache_cflags="-I \$(APACHE_INCDIR) \
-	  `$apxs -q CFLAGS` `$apxs -q CFLAGS_SHLIB`"
-	apache_ocamllibdir=`ocamlfind printconf destdir`
-	echo "enabled (Apache $apache_major)"
-    else
-	apache_major=
-	enable_modcaml=0
-	echo "disabled (apxs or apache not found)"
-    fi
+    enable_modcaml=0
 
+#     if [ -z "$apxs" ]; then
+# 	# guess
+# 	apxs=`get_path apxs`
+#     fi
+#     if [ -z "$apache" ]; then
+# 	# guess
+# 	apache=`get_path apache`
+#     fi
+
+#     if [ -x "$apxs" ] && [ -x "$apache" ]; then
+# 	apache_major=`$apache -v | head -n1 | sed -e "s,.*/\([1-9]\).*,\1,"`
+# 	apache_libdir="`$apxs -q LIBEXECDIR`"
+# 	apache_incdir="`$apxs -q INCLUDEDIR`"
+# 	apache_confdir="`$apxs -q SYSCONFDIR`"
+# 	apache_ldflags_shlib="`$apxs -q LDFLAGS_SHLIB`"
+# 	apache_cc="`$apxs -q CC`"
+# 	apache_cflags="-I \$(APACHE_INCDIR) \
+# 	  `$apxs -q CFLAGS` `$apxs -q CFLAGS_SHLIB`"
+# 	apache_ocamllibdir=`ocamlfind printconf destdir`
+# 	echo "enabled (Apache $apache_major)"
+#     else
+# 	apache_major=
+# 	enable_modcaml=0
+# 	echo "disabled (apxs or apache not found)"
+#     fi
+
+fi
+
+######################################################################
+# CGI or NETCGI
+
+preferred_cgi_pkg=cgi
+inc_cgi_or_netcgi='$(INC_CGI)'
+
+if [ $prefer_netcgi -gt 0 ]; then
+    preferred_cgi_pkg=netcgi
+    inc_cgi_or_netcgi='$(INC_NETCGI)'
 fi
 
 ######################################################################
@@ -748,6 +774,10 @@ APACHE_LDFLAGS_SHLIB = $apache_ldflags_shlib
 APACHE_CC = $apache_cc
 APACHE_CFLAGS = $apache_cflags
 APACHE_OCAMLLIBDIR = $apache_ocamllibdir
+
+# Preferred CGI implementation
+PREFERRED_CGI_PKG=$preferred_cgi_pkg
+INC_CGI_OR_NETCGI=$inc_cgi_or_netcgi
 
 _EOF_
 

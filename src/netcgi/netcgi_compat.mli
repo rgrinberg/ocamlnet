@@ -32,6 +32,11 @@
  * @version $Id: netcgi_compat.mli,v 1.7 2005/11/04 00:53:05 chris_77 Exp $
  *)
 
+exception Not_implemented of string
+  (** Raised by some functions/exceptions when a feature of the old model
+    * cannot be implemented in the new model or vice versa
+   *)
+
 module Netcgi_env :
 sig
   type input_mode = [ `Standard (* | `Direct *) ]
@@ -84,12 +89,16 @@ sig
 
   val default_config : cgi_config
 
-  val to_config : cgi_config -> Netcgi.config
-    (** {b Portage:} [to_config c] transform the old configuration [c]
+  val of_compat_config : cgi_config -> Netcgi.config
+    (** {b Portage:} [of_compat_config c] transform the old configuration [c]
 	into one suitable for the new interface. *)
 
+  val to_compat_config : Netcgi.config -> cgi_config
+    (** {b Portage:} [to_compat_config c] transform the new configuration [c]
+	into one suitable for the old interface. *)
 
-  class cgi_environment : Netcgi.cgi_environment ->
+
+  class type cgi_environment =
   object
     method config : cgi_config
 
@@ -162,8 +171,12 @@ sig
     method log_error : string -> unit
   end
 
-  val to_environment : cgi_environment -> Netcgi.cgi_environment
-    (** {b Portage:} [to_environment e] converts the old environment
+  val to_compat_environment : Netcgi.cgi_environment -> cgi_environment
+    (** {b Portage:} [to_compat_environment e] converts the new environment
+	[e] to the old interface. *)
+
+  val of_compat_environment : cgi_environment -> Netcgi.cgi_environment
+    (** {b Portage:} [of_compat_environment e] converts the old environment
 	[e] to the new interface. *)
 end
 
@@ -182,7 +195,7 @@ sig
       [cgi_argument] also defines a conversion function that allows to
       connect old scripts to the new infrastructure.  Finalizing
       [cgi_argument a] will also finalize [a].  *)
-  class cgi_argument : Netcgi.cgi_argument ->
+  class type cgi_argument =
   object
     method name : string
     method value : string
@@ -215,9 +228,14 @@ sig
       (** See [#set_value]. *)
   end
 
-  val to_argument : cgi_argument -> Netcgi.cgi_argument
-    (** {b Portage:} [to_argument a] converts an old style argument
-	[a] to a new style one.  Finalizing [to_argument a] will also
+  val to_compat_argument : Netcgi.cgi_argument ->  cgi_argument
+    (** {b Portage:} [to_compat_argument a] converts a new style argument
+	[a] to an old style one.  Finalizing [to_compat_argument a] will also
+	finalize [a].  *)
+
+  val of_compat_argument : cgi_argument -> Netcgi.cgi_argument
+    (** {b Portage:} [of_compat_argument a] converts an old style argument
+	[a] to a new style one.  Finalizing [of_compat_argument a] will also
 	finalize [a].  *)
 
 
@@ -246,7 +264,7 @@ sig
       [cgi_activation] also defines a conversion function that allows
       to connect old scripts to the new infrastructure.  Renamed
       simply [cgi] as this is the main cgi-like abstraction.  *)
-  class cgi_activation : Netcgi.cgi ->
+  class type cgi_activation =
   object
     method environment : Netcgi_env.cgi_environment
     method request_method : request_method
@@ -310,19 +328,46 @@ sig
     method finalize : unit -> unit
   end
 
-  val to_cgi : cgi_activation -> Netcgi.cgi
-    (** {b Portage:} [to_cgi] converts an old style cgi_activation to
-	a new CGI-like object. *)
+  val to_compat_activation : Netcgi.cgi -> cgi_activation
+    (** {b Portage:} [to_compat_activation] converts a new style 
+        cgi object to an old cgi_activation object. *)
+
+  val of_compat_activation : cgi_activation -> Netcgi.cgi
+    (** {b Portage:} [of_compat_activation] converts an old style 
+        cgi_activation to a new CGI-like object. *)
 end
 
 module Netcgi :
 sig
+  type argument_processing =
+      [ `Memory
+      | `File
+      | `Automatic ]
+	
+  type operating_type =
+      [ `Direct of string (* separator *)
+      | `Transactional of
+          (Netcgi_env.cgi_config -> Netchannels.out_obj_channel ->
+             Netchannels.trans_out_obj_channel)
+      ]
+
   class simple_argument :
     ?ro:bool -> string -> string -> Netcgi_types.cgi_argument
 
   class mime_argument :
     ?work_around_backslash_bug:bool ->
   string -> Netmime.mime_message -> Netcgi_types.cgi_argument
+
+  class std_activation :
+    ?env:Netcgi_env.cgi_environment ->
+    ?processing:(string -> Netmime.mime_header -> argument_processing) ->
+    ?operating_type:operating_type ->
+    unit ->
+      Netcgi_types.cgi_activation
+
+  val buffered_transactional_optype : operating_type
+
+  val tempfile_transactional_optype : operating_type
 
 end
 
