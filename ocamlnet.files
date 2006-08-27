@@ -326,6 +326,44 @@ f examples/rpc/finder/finder_client.ml
 f examples/rpc/finder/finder_daemon.ml
 f examples/rpc/finder/netplex.cfg
 
+d examples/equeue
+d examples/equeue/engines
+p examples/equeue/engines/.*\.ml
+d examples/equeue/filecopy
+p examples/equeue/filecopy/.*\.ml
+f examples/equeue/filecopy/Makefile
+d examples/equeue/filecopy_labltk
+p examples/equeue/filecopy_labltk/.*\.ml
+f examples/equeue/filecopy_labltk/Makefile
+f examples/equeue/filecopy_labltk/README
+d examples/equeue/filecopy_lablgtk
+p examples/equeue/filecopy_lablgtk/.*\.ml
+f examples/equeue/filecopy_lablgtk/Makefile
+f examples/equeue/filecopy_lablgtk/README
+d examples/equeue/multi-threaded
+p examples/equeue/multi-threaded/.*\.ml
+f examples/equeue/multi-threaded/Makefile
+d examples/equeue/preliminary
+p examples/equeue/preliminary/.*\.ml
+f examples/equeue/preliminary/Makefile
+d examples/equeue/simple
+p examples/equeue/simple/.*\.ml
+f examples/equeue/simple/Makefile
+d examples/equeue/ssl
+p examples/equeue/ssl/.*\.ml
+
+d examples/netclient
+d examples/netclient/simple
+p examples/netclient/simple/.*\.ml
+d examples/netclient/spider
+x examples/netclient/spider/scan.ml
+p examples/netclient/spider/.*\.ml
+p examples/netclient/spider/.*\.mli
+f examples/netclient/spider/Makefile
+d examples/netclient/telnet_labltk
+p examples/netclient/telnet_labltk/.*\.ml
+f examples/netclient/telnet_labltk/Makefile
+
 d doc
 d doc/html-main
 p doc/html-main/.*\.html
