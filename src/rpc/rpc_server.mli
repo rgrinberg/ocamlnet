@@ -337,6 +337,9 @@ val set_onclose_action : t -> (connection_id -> unit) -> unit
    * Note that this action only applies to closed connections. It will
    * not be executed for closed sockets in general (closed master socket,
    * closed datagram socket).
+   *
+   * If several onclose actions are set, they will be executed in reverse
+   * order.
    *)
 
 val set_timeout : t -> float -> unit

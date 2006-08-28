@@ -144,7 +144,7 @@ type t =
 	mutable prot : protocol;
 	mutable exception_handler : exn -> unit;
 	mutable unmap_port : (unit -> unit);
-	mutable onclose : (connection_id -> unit);
+	mutable onclose : (connection_id -> unit) list;
 	mutable filter : (Unix.sockaddr -> connection_id -> rule);
 	mutable auth_methods : (string, t pre_auth_method) Hashtbl.t;
 	mutable auth_peekers : (auth_peeker * t pre_auth_method) list;
@@ -624,11 +624,15 @@ let terminate_any srv conn =
 	srv.connections <- 
 	  List.filter (fun c -> c != conn) srv.connections;
 	if srv.prot = Tcp then (
-	  try
-	    srv.onclose conn.conn_id
-	  with
-	    | any ->
-		(try srv.exception_handler any with _ -> ())
+	  List.iter
+	    (fun action ->
+	       try
+		 action conn.conn_id
+	       with
+		 | any ->
+		     (try srv.exception_handler any with _ -> ())
+	    )
+	    srv.onclose
 	)
 
 
@@ -885,7 +889,7 @@ let create2_srv prot esys =
     prot = prot;
     exception_handler = default_exception_handler;
     unmap_port = (fun () -> ());
-    onclose = (fun _ -> ());
+    onclose = [];
     filter = (fun _ _ -> `Accept);
     auth_methods = none;
     auth_peekers = [];
@@ -1540,7 +1544,7 @@ let set_exception_handler srv eh =
   srv.exception_handler <- eh
 
 let set_onclose_action srv a =
-  srv.onclose <- a
+  srv.onclose <- a :: srv.onclose
 
 let set_session_filter_2 srv f =
   srv.filter <- f
