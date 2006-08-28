@@ -135,15 +135,10 @@ object(self)
 	  (* Determine total capacity of the current Netplex state: *)
 	  let container_state = sockctrl # container_state in
 	  let all_threads = List.length container_state in
-	  let number_threads = 
-	    List.length
-	      (List.filter
-		 (fun (cid,_) -> not (ContMap.mem cid inactivated_conts))
-		 container_state) in
 	  let active_threads =
 	    List.length
 	      (List.filter 
-		 (fun (cid,s) -> 
+		 (fun (cid,s,_) -> 
 		    not (ContMap.mem cid inactivated_conts) 
 		    && s <> `Shutting_down) 
 		 container_state) in
@@ -153,7 +148,7 @@ object(self)
 	  (* Determine used capacity: *)
 	  let used_cap =
 	    List.fold_left
-	      (fun acc (cid,s) ->
+	      (fun acc (cid,s,_) ->
 		 if ContMap.mem cid inactivated_conts then
 		   acc
 		 else
@@ -203,17 +198,19 @@ object(self)
 		    | `Shutting_down -> max_int in
 		let sorted_conts =
 		  List.sort
-		    (fun (cid1,s1) (cid2,s2) ->
+		    (fun (cid1,s1,_) (cid2,s2,_) ->
 		       let n1 = weight s1 in
 		       let n2 = weight s2 in
 		       n1 - n2)
 		    container_state in
 		let n = ref 0 in
 		List.iter
-		  (fun (cid,s) ->
+		  (fun (cid,s,selected) ->
 		     let already_inactivated =
 		       ContMap.mem cid inactivated_conts in
-		     if !n < exceeding_threads && not already_inactivated then (
+		     if !n < exceeding_threads && not already_inactivated 
+		        && not selected
+		     then (
 		       match s with
 			 | `Accepting(_,_)
 			 | `Starting _ ->
@@ -284,9 +281,10 @@ object(self)
      *)
     let container_state = sockctrl # container_state in
     List.iter
-      (fun (cid, s) ->
+      (fun (cid, s, selected) ->
 	 try
 	   let g_opt = ContMap.find cid inactivated_conts in
+	   assert(not selected);
 	   match (g_opt, s) with
 	     | None, `Accepting(0,_) ->
 		 if !Netplex_log.debug_scheduling then (

@@ -225,7 +225,10 @@ object
     (** Closes the socket service forever, and initiates a shutdown of all
       * containers serving this type of service.
      *)
-  method container_state : (container_id * container_state) list
+  method container_state : (container_id * container_state * bool) list
+    (* The bool says whether the container is selected to accept the
+     * next connection
+     *)
 
   method start_containers : int -> unit
 

@@ -106,7 +106,18 @@ object(self)
   method state = state
 
   method container_state =
-    List.map (fun c -> ( (c.container :> container_id), c.cont_state)) clist
+    List.map 
+      (fun c -> 
+	 ( (c.container :> container_id), 
+	   c.cont_state,
+	   match action with
+	     | `Selected c' when c' == c -> true
+	     | `Notified c' when c' == c -> true
+	     | `Deselected c' when c' == c -> true
+	     | _ -> false
+	 )
+      ) 
+      clist
 
   method enable() =
     match state with
