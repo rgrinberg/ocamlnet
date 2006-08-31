@@ -420,7 +420,9 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
   if cf # root_name <> "netplex" then
     failwith ("Not a netplex configuration file");
 
+  (* - Additional subsections of the root are intentionally allowed!
   cf # restrict_subsections cf#root_addr [ "controller"; "service" ];
+   *)
   cf # restrict_parameters cf#root_addr [];
 
   let ctrl_cfg = Netplex_controller.extract_config c_logger_cfg cf in
