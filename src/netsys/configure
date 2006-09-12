@@ -1,0 +1,47 @@
+#! /bin/sh
+
+netsys_link_options=""
+have_posix_shm=0
+
+printf "Checking for POSIX shared memory... "
+
+posix_shm_compile=0
+posix_shm_link_options=""
+rm -f configtests/posix_shm.err
+if (cd configtests; ocamlc -o posix_shm posix_shm.c main.ml -custom ) \
+      >>configtests/posix_shm.err 2>&1
+then
+    posix_shm_compile=1
+else
+    if (cd configtests; ocamlc -o posix_shm posix_shm.c main.ml -cclib -lrt -custom ) \
+	>>configtests/posix_shm.err 2>&1
+    then
+	posix_shm_compile=1
+	posix_shm_link_options="-lrt"
+    fi
+fi
+
+if [ $posix_shm_compile -gt 0 ]; then
+    if configtests/posix_shm >>configtests/posix_shm.err 2>&1; then
+	have_posix_shm=1
+	netsys_link_options="$netsys_link_options $posix_shm_link_options"
+    fi
+fi
+
+if [ $have_posix_shm -gt 0 ]; then
+    echo "found"
+    def_have_posix_shm="#define HAVE_POSIX_SHM"
+else
+    echo "not found"
+    def_have_posix_shm="#undef HAVE_POSIX_SHM"
+fi
+
+######################################################################
+
+cat <<EOF >Makefile.conf
+NETSYS_LINK_OPTIONS = $netsys_link_options
+EOF
+
+cat <<EOF >config.h
+$def_have_posix_shm
+EOF

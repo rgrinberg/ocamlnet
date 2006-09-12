@@ -61,12 +61,12 @@ object
              * Make sure we close [fd_wr] last! This tells the main process
              * that the critical section is over.
              *)
-	    let l' = List.map Unix_exts.int_of_file_descr (fd_wr :: l) in
-	    let fd_max = Unix_exts.sysconf_open_max() in
+	    let l' = List.map Netsys.int_of_file_descr (fd_wr :: l) in
+	    let fd_max = Netsys.sysconf_open_max() in
 	    for k = 3 to fd_max - 1 do  (* Note: Keep 0, 1, 2 open *)
 	      if not(List.mem k l') then
 		( try
-		    Unix.close (Unix_exts.file_descr_of_int k)
+		    Unix.close (Netsys.file_descr_of_int k)
 		  with
 		    | _ -> ()
 		)

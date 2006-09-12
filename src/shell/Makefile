@@ -1,12 +1,11 @@
 TOP_DIR=../..
 
 PKGNAME  = shell
-OBJECTS  = unix_exts.cmo shell_sys.cmo shell.cmo shell_uq.cmo 
-COBJECTS = unix_exts_c.o
-DOBJECTS = unix_exts.mli shell_sys.mli shell.mli shell_uq.mli \
+OBJECTS  = shell_sys.cmo shell.cmo shell_uq.cmo 
+DOBJECTS = shell_sys.mli shell.mli shell_uq.mli \
 	   shell_intro.txt
 
-INCLUDES += $(INC_EQUEUE)
+INCLUDES += $(INC_EQUEUE) $(INC_NETSYS)
 
 ALLMT_EXTRA = shell_mt.cmo
 OPTMT_EXTRA = shell_mt.cmx

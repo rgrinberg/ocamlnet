@@ -1,5 +1,5 @@
 description = "Ocamlnet - Unix shell functions"
-requires = "unix equeue"
+requires = "unix netsys equeue"
 version = "@VERSION@"
 archive(byte) = "shell.cma"
 archive(native) = "shell.cmxa"

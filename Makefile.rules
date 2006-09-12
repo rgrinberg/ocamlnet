@@ -21,6 +21,7 @@ TOOLS_DIR = $(TOP_DIR)/tools
 COLLECT_FILES = $(TOOLS_DIR)/collect_files
 
 # To be overridden by the command line:
+INC_NETSYS     = -I ../netsys
 INC_NETSTRING  = -I ../netstring
 INC_EQUEUE     = -I ../equeue
 INC_EQUEUE_SSL = -I ../equeue-ssl

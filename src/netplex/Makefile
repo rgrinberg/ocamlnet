@@ -12,8 +12,7 @@ DOBJECTS = netplex_types.mli netplex_mp.mli netplex_mt.mli netplex_log.mli \
 	   netplex_config.mli netplex_kit.mli rpc_netplex.mli \
 	   netplex_intro.txt
 
-INCLUDES += $(INC_EQUEUE) $(INC_RPC) $(INC_SHELL) $(INC_NETSTRING)
-# Note: Instead of shell use unix-exts
+INCLUDES += $(INC_EQUEUE) $(INC_RPC) $(INC_NETSTRING) $(INC_NETSYS)
 
 ALL_EXTRA = netplex-admin$(EXEC_SUFFIX) netplex-packlist 
 ALLMT_EXTRA = netplex_mt.cmo
@@ -30,7 +29,7 @@ include $(TOP_DIR)/Makefile.rules
 
 netplex-admin$(EXEC_SUFFIX): netplex.cma netplex_admin.cmo
 	$(OCAMLC) -o netplex-admin -custom \
-		unix.cma equeue.cma netstring.cma rpc.cma shell.cma \
+		unix.cma equeue.cma netstring.cma rpc.cma netsys.cma \
 		netplex.cma netplex_admin.cmo
 
 netplex-packlist:

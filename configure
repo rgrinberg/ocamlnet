@@ -417,6 +417,11 @@ if [ $with_rpc_xti -gt 0 ]; then
 fi
 
 ######################################################################
+# Netsys
+
+( cd src/netsys; ./configure )
+
+######################################################################
 # TCL
 
 with_equeue_tcl=0
@@ -692,7 +697,7 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="equeue shell netstring rpc-generator rpc pop smtp netclient cgi netcgi netplex"
+pkglist="netsys equeue shell netstring rpc-generator rpc pop smtp netclient cgi netcgi netplex"
 full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh"
 
 if [ $disable_core -gt 0 ]; then

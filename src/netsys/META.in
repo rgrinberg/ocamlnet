@@ -1,0 +1,5 @@
+description = "Ocamlnet - OS-specific functions"
+requires = "unix"
+version = "@VERSION@"
+archive(byte) = "netsys.cma"
+archive(native) = "netsys.cmxa"

@@ -8,7 +8,7 @@
  *)
 
 module U = Unix;;    (* such that I can type U.xxx instead of Unix.xxx *)
-module UX = Unix_exts;;
+module UX = Netsys;;
 
 let safe_close fd =
   (* Try to close, but don't fail if the descriptor is bad *)
