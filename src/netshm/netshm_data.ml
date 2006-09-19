@@ -132,7 +132,7 @@ let string_manager =
 	 let v =
 	   Bigarray.Array1.create Bigarray.int32 Bigarray.c_layout size in
 	 (* TODO: Check string size *)
-	 v.{ 0 } <- Int32.of_int size;
+	 v.{ 0 } <- Int32.of_int s_len;
 	 for k = 0 to size - 3 do
 	   let j = k lsl 2 in  (* k * 4 *)
 	   let c3 = Char.code s.[ j ] in
@@ -195,30 +195,32 @@ let string_manager =
 	 List.iter
 	   (fun v ->
 	      let l = Bigarray.Array1.dim v in
+	      let has_last_content_word = !pos = !size in
 	      pos := !pos - l;
-	      let is_last = !pos = 0 in
-	      let l' = if is_last then l-1 else l in
-      	      for k = 0 to l' - 1 do
-		let j = (!pos + k)  lsl 2 in
+	      let has_length_word = !pos = 0 in
+	      let loop_e = if has_last_content_word then l-2 else l-1 in
+	      let loop_s = if has_length_word then 1 else 0 in
+      	      for k = loop_s to loop_e do
+		let j = (!pos + k - 1) lsl 2 in
 		let x = v.{ k } in
 		let c3 = Int32.to_int(Int32.shift_right_logical x 24) in
 		let c2 = Int32.to_int(Int32.logand (Int32.shift_right_logical x 16) 0xffl) in
 		let c1 = Int32.to_int(Int32.logand (Int32.shift_right_logical x 8) 0xffl) in
 		let c0 = Int32.to_int(Int32.logand x 0xffl) in
-		s.[ j ] <- Char.chr c3;
+		s.[ j ]   <- Char.chr c3;
 		s.[ j+1 ] <- Char.chr c2;
 		s.[ j+2 ] <- Char.chr c1;
 		s.[ j+3 ] <- Char.chr c0
 	      done;
 
-	      if is_last then (
-		let j = (!pos + l-1) lsl 2 in
+	      if has_last_content_word then (
+		let j = (!pos + l-1 - 1) lsl 2 in
 		let x = v.{ l-1 } in
 		let c3 = Int32.to_int(Int32.shift_right_logical x 24) in
 		let c2 = Int32.to_int(Int32.logand (Int32.shift_right_logical x 16) 0xffl) in
 		let c1 = Int32.to_int(Int32.logand (Int32.shift_right_logical x 8) 0xffl) in
 		let c0 = Int32.to_int(Int32.logand x 0xffl) in
-		if j < s_len then s.[ j ] <- Char.chr c3;
+		if j   < s_len then s.[ j ]   <- Char.chr c3;
 		if j+1 < s_len then s.[ j+1 ] <- Char.chr c2;
 		if j+2 < s_len then s.[ j+2 ] <- Char.chr c1;
 		if j+3 < s_len then s.[ j+3 ] <- Char.chr c0
@@ -248,7 +250,7 @@ let pair_manager x_manager y_manager =
 	   vx
 	   (Bigarray.Array1.sub v 1 lx);
 	 Bigarray.Array1.blit
-	   vx
+	   vy
 	   (Bigarray.Array1.sub v (lx+1) ly);
 	 v
       );

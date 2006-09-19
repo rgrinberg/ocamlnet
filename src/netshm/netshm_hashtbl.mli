@@ -16,6 +16,9 @@ val manage : ?pagesize:int ->
     *
     * It is essential that the same data managers are passed as at the time
     * when the hash table was initialized.
+    *
+    * For example, to get a hash table from [int] to [string], use
+    * {[ manage Netshm_data.int_manager Netshm_data.string_manager lm sd ]}
    *)
 
 val add : ('a,'b) t -> 'a -> 'b -> unit
@@ -59,9 +62,17 @@ val iter : ('a -> 'b -> unit) -> ('a,'b) t -> unit
   * they are passed to [f] in reverse order of introduction, that is,
   * the most recent binding is passed first. 
   *
-  * While the iteration is in progress, the table is read-locked.
+  * While the iteration is in progress, the table is locked.
   * That means you cannot modify it during the iteration.
   *)
+
+val iter_keys : ('a -> unit) -> ('a,'b) t -> unit
+  (** [iter_keys f tbl] applies [f] to all keys in table [tbl]. If there
+    * are several bindings for a key, [f] is only called once.
+    *
+    * While the iteration is in progress, the table is locked.
+    * That means you cannot modify it during the iteration.
+   *)
 
 val fold : ('a -> 'b -> 'c -> 'c) -> ('a,'b) t -> 'c -> 'c
 (** [fold f tbl init] computes
@@ -74,7 +85,7 @@ val fold : ('a -> 'b -> 'c -> 'c) -> ('a,'b) t -> 'c -> 'c
   * they are passed to [f] in reverse order of introduction, that is,
   * the most recent binding is passed first. 
   *
-  * While the iteration is in progress, the table is read-locked.
+  * While the iteration is in progress, the table is locked.
   * That means you cannot modify it during the iteration.
   *)
 
@@ -87,6 +98,6 @@ val length : ('a,'b) t -> int
 
 
 val shm_table : ('a,'b) t -> Netshm.shm_table
-  (** Returns the low-level shared memory table used to implement hash
-    * tables
+  (** Returns the underlying shared memory table used to implement hash
+    * tables.
    *)

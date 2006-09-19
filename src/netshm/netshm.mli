@@ -110,7 +110,9 @@ exception Corrupt_file of string
   (** Raised when a violation of the segment format is detected *)
 
 exception Deadlock
-  (** Raised when a deadlock situation was detected *)
+  (** Raised when a deadlock situation was detected. Deadlocks can occur
+    * when the [group] function is used
+    *)
 
 val manage : ?pagesize:int -> 
              ?init:int -> 
@@ -139,6 +141,47 @@ val manage : ?pagesize:int ->
     * without needing expensive data reorganization.
    *)
 
+val group : shm_table -> ('a -> 'b ) -> 'a -> 'b
+  (** Execute a sequence of operations in a group:
+    *
+    * {[
+    * let r =
+    *    group table
+    *      (fun arg ->
+    *         operation1; operation2; ...)
+    *      arg
+    * ]}
+    *
+    * Operations can be any reading or writing functions from below. The
+    * effect is that the locking requirements of the operations are merged,
+    * so that no operation of another process can interfer with the grouped
+    * sequence. Note, however, that this gives no real atomicity as there
+    * is no way to roll back half-executed sequences.
+    *
+    * Groups can be nested.
+    *
+    * An example of [group] is to set a binding depending on the previous
+    * value of the binding. Here, we add 1:
+    *
+    * {[
+    * let add_one table =
+    *    group table
+    *      (fun key ->
+    *        let ba =
+    *          try find table key 
+    *          with Not_found -> 
+    *            Bigarray.Array1.create Bigarray.int32 Bigarray.c_layout 1 in
+    *        ba.{ 0 } <- Int32.succ ba.{ 0 };
+    *        replace table key ba
+    *      )
+    * ]}
+    *
+    * Grouping protects the update from modifications done by other processes
+    * at the same time. In particular, without grouping it can happen that
+    * another process also modifies the same value between [find] and
+    * [replace].
+   *)
+
 val add : shm_table -> int32 -> int32_array -> unit
   (** [add tbl key value]: Adds the binding of [key] to [value] to the
     * table. Previous bindings are not removed, but simply hidden.
@@ -156,28 +199,6 @@ val find_all : shm_table -> int32 -> int32_array list
   * bindings, in reverse order of introduction in the table. 
   *)
 
-exception Next
-exception Break
-val find_blocks : shm_table -> int32 -> (int32_array option -> unit) -> unit
-  (** [find_blocks tbl key f]: The values may be stored in several
-    * disk blocks. This interface allows one to access the values block by
-    * block. As [find_all], all bindings for [key] in [tbl] are determined.
-    * For every binding [value], the function [f] is invoked in a sequence
-    * [f (Some v1)], [f (Some v2)], ..., [f (Some vN)], [f None] 
-    * where
-    * [value] is the array concatenation of [v1], [v2], ..., [vN].
-    * The function [f] may raise the exception [Next] to go
-    * directly to the start of the next binding of [key].
-    * The exception [Break] stops the iteration immediately.
-    *
-    * Note that the [int32_array] fragments [vK] point to shared memory.
-    * Any assignment modifies the shared memory segment directly!
-    *
-    * While [f] is called for a certain binding, exactly this
-    * binding is read-locked.
-    * That means you cannot delete it during the runtime of [f].
-   *)
-
 val mem : shm_table -> int32 -> bool
 (** [mem tbl key] checks if [key] is bound in [tbl]. *)
 
@@ -193,17 +214,21 @@ val replace : shm_table -> int32 -> int32_array -> unit
   * a binding of [key] to [value] is added to [tbl].
  *)
 
+(*
 val rename : shm_table -> int32 -> int32 -> unit
   (** [rename tbl key1 key2]: Changes the key of the current binding of
     * [key1] such that it becomes the current binding of [key2]. Raises
     * [Not_found] if [key1] is unbound.
    *)
+ *)
 
+(*
 val swap : shm_table -> int32 -> int32 -> unit
   (** [swap tbl key1 key2]: determins the current bindings of [key1] and
     * [key2], and renames them to [key2] and [key1], respectively.
     * Raises [Not_found] if [key1] or [key2] is unbound.
    *)
+ *)
 
 val iter : (int32 -> int32_array -> unit) -> shm_table -> unit
 (** [iter f tbl] applies [f] to all bindings in table [tbl].
@@ -218,6 +243,14 @@ val iter : (int32 -> int32_array -> unit) -> shm_table -> unit
   * That means you cannot modify it during the iteration.
   *)
 
+val iter_keys : (int32 -> unit) -> shm_table -> unit
+  (** [iter_keys f tbl] applies [f] to all keys in table [tbl]. If there
+    * are several bindings for a key, [f] is only called once.
+    *
+    * While the iteration is in progress, the table is locked.
+    * That means you cannot modify it during the iteration.
+   *)
+
 val fold : (int32 -> int32_array -> 'a -> 'a) -> shm_table -> 'a -> 'a
 (** [fold f tbl init] computes
   * [(f kN dN ... (f k1 d1 init)...)],
@@ -229,7 +262,7 @@ val fold : (int32 -> int32_array -> 'a -> 'a) -> shm_table -> 'a -> 'a
   * they are passed to [f] in reverse order of introduction, that is,
   * the most recent binding is passed first. 
   *
-  * While the iteration is in progress, the table is read-locked.
+  * While the iteration is in progress, the table is locked.
   * That means you cannot modify it during the iteration.
   *)
 
@@ -241,3 +274,68 @@ val length : shm_table -> int
  *)
 
 
+(** {1 Enhanced API to shared memory tables} *)
+
+exception Next
+exception Break
+val read_blocks : shm_table -> int32 -> (int32_array option -> unit) -> unit
+  (** [find_blocks tbl key f]: The values may be stored in several
+    * disk blocks. This interface allows one to access the values block by
+    * block. As [find_all], all bindings for [key] in [tbl] are determined
+    * in reverse order, i.e. the newest binding first, the oldest last.
+    * For every binding [value], the function [f] is invoked in a sequence
+    * [f (Some v1)], [f (Some v2)], ..., [f (Some vN)], [f None] 
+    * where
+    * [value] is the array concatenation of [v1], [v2], ..., [vN].
+    * The function [f] may raise the exception [Next] to go
+    * directly to the start of the next binding of [key].
+    * The exception [Break] stops the iteration immediately.
+    *
+    * Note that the [int32_array] fragments [vK] point to shared memory.
+    * Any assignment would modify the shared memory segment directly!
+    * The binding is at that time, however, only read-locked, so this
+    * should be avoided.
+   *)
+
+type write_op = 
+    [ `Remove_binding ]
+ (* Future extensions:
+  * - `Truncate_binding of int
+  *)
+
+type ctrl_op =
+    [ `Nop | write_op ]
+
+val write_blocks : shm_table -> write_op list -> int32 -> 
+                   (int32_array option -> ctrl_op) -> unit
+  (** [write_blocks tbl ops key f]: Like [read_blocks] this function iterates
+    * over the blocks of all bindings for [key]. For every binding [value],
+    * the function [f] is invoked in a sequence
+    * [f (Some v1)], [f (Some v2)], ..., [f (Some vN)], [f None].
+    * Unlike [read_blocks] the function [f] returns a value.
+    * The last non-[`Nop] result value in this sequence determines the
+    * modification to carry out for the binding:
+    *
+    * - [`Remove_binding]: The whole binding is removed from the table.
+    *
+    * If all invocations of [f] just return [`Nop], no further modification
+    * is done.
+    *
+    * The modifications must be announced in the [ops] argument. It is
+    * not allowed that [f] returns a value not being a member of [ops]
+    * (except [`Nop]).
+    *
+    * It is possible to raise the special exceptions [Next] and [Break]
+    * just as for [read_blocks].
+    *
+    * Note that the [int32_array] fragments [vK] point to shared memory.
+    * Any assignment will modify the shared memory segment directly!
+    * The binding is at that time write-locked, so such assignments
+    * are protected against concurrent writes.
+   *)
+
+
+(* debug stuff *)
+val dump : shm_table -> unit
+val bigarray : int array -> int32_array
+val memory : shm_table -> (int32, Bigarray.int32_elt, Bigarray.c_layout) Bigarray.Array2.t

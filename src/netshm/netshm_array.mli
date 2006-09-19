@@ -53,11 +53,13 @@ val set : 'a t -> int -> 'a -> unit
     * use the notation [a.(k) <- x].
    *)
 
+(*
 val swap : 'a t -> int -> int -> unit
   (** [swap a j k]: Swaps the contents of the array elements [j] and [k].
     * This function is a lot more efficient than programming swapping with
     * [get] and [set].
    *)
+ *)
 
 val resize : 'a t -> int -> unit
   (** [resize a n]: Resizes the array to length [n]. If the array is enlarged
@@ -68,6 +70,6 @@ val default_value : 'a t -> 'a
   (** Returns the default value *)
 
 val shm_table : 'a t -> Netshm.shm_table
-  (** Returns the low-level shared memory table used to implement hash
+  (** Returns the underlying shared memory table used to implement hash
     * tables
    *)

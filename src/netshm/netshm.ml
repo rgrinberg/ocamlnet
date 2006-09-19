@@ -328,14 +328,20 @@ type lock_type = Read | Write
 
 exception Deadlock
 
+
+(* record_locking_descr represents the locking requirements. rld_table
+ * maps pages to a list of locking requirements for the pages. The
+ * strongest requirement is passed through to the lockf interface.
+ *)
+
 type record_locking_descr =
     { rld_sd : shm_descr;
-      mutable rld_table : (lock_type * int ref) IntMap.t;
-      rld_pagesize : int
+      mutable rld_table : (lock_type list ref) IntMap.t;
+      rld_pagesize : int;
     }
 
 
-let rec rl_new_lock rld page lt =
+let rec rl_do_lock rld page lt =
   let fd, is_open =
     match rld.rld_sd with
       | `POSIX(_,fd,is_open) -> fd, is_open
@@ -344,27 +350,32 @@ let rec rl_new_lock rld page lt =
     failwith "Netshm: Shared memory object is not open";
   try
     ignore(Unix.lseek fd (page * rld.rld_pagesize) Unix.SEEK_SET);
-    Unix.lockf fd Unix.F_LOCK 1;
-    rld.rld_table <- IntMap.add page (lt, ref 1) rld.rld_table
+    Unix.lockf fd (if lt = Read then Unix.F_RLOCK else Unix.F_LOCK) 1;
   with
     | Unix.Unix_error(Unix.EDEADLK,_,_) ->
 	raise Deadlock
     | Unix.Unix_error(Unix.EINTR,_,_) ->
-	rl_new_lock rld page lt
+	rl_do_lock rld page lt
 
 
 let rl_lock rld page lt =
   try
-    let (lt', nref) = IntMap.find page rld.rld_table in
-    if lt = Write || lt' = Write then
-      raise Deadlock;
-    incr nref
+    let lt_list = IntMap.find page rld.rld_table in
+    ( match lt with
+	| Read -> lt_list := Read :: !lt_list
+	| Write ->
+	    if not(List.mem Write !lt_list) then
+	      rl_do_lock rld page Write;
+	    lt_list := Write :: !lt_list
+    )
   with
     | Not_found ->
-	rl_new_lock rld page lt
+	rl_do_lock rld page lt;
+	rld.rld_table <- IntMap.add page (ref [ lt ]) rld.rld_table
 
 
 let rl_unlock rld page =
+  (* releases the last (most recent) lock requirement for [page] *)
   let fd, is_open =
     match rld.rld_sd with
       | `POSIX(_,fd,is_open) -> fd, is_open
@@ -372,17 +383,25 @@ let rl_unlock rld page =
   if not !is_open then
     failwith "Netshm: Shared memory object is not open";
   try
-    let (lt', nref) = IntMap.find page rld.rld_table in
-    decr nref;
-    if !nref = 0 then (
-      ignore(Unix.lseek fd (page * rld.rld_pagesize) Unix.SEEK_SET);
-      Unix.lockf fd Unix.F_ULOCK 1;
-      rld.rld_table <- IntMap.remove page rld.rld_table
+    let lt_list = IntMap.find page rld.rld_table in
+    ( match !lt_list with
+	| [ _ ] ->
+	    (* release lock entirely *)
+	    ignore(Unix.lseek fd (page * rld.rld_pagesize) Unix.SEEK_SET);
+	    Unix.lockf fd Unix.F_ULOCK 1;
+	    rld.rld_table <- IntMap.remove page rld.rld_table;
+	| Read :: lt_list' ->
+	    lt_list := lt_list'
+	| Write :: lt_list' ->
+	    if not(List.mem Write lt_list') then
+	      rl_do_lock rld page Read;   (* downgrade from Write to Read *)
+	    lt_list := lt_list'
+	| [] ->
+	    assert false
     )
   with
     | Not_found ->
 	()
-
 
 type locking_descr =
     [ `No_locking
@@ -398,8 +417,67 @@ let create_locking_descr sd pagesize lm =
 	`Record_locking
 	  { rld_sd = sd;
 	    rld_table = IntMap.empty;
-	    rld_pagesize = pagesize
+	    rld_pagesize = pagesize;
 	  }
+
+
+(* A groupable locking descriptor has the property that one can wrap
+ * several operations as a "group". The locks are not released while
+ * the operations of the group are executed. This has the effect that
+ * the group is executed atomically.
+ *)
+
+type groupable_locking_descr =
+    { gld : locking_descr;
+      mutable gld_groups : int;
+      mutable gld_deferred_unlocks : int list
+    }
+
+
+let gld_lock gld p ltype =
+  ( match gld.gld with
+      | `Record_locking rld ->
+	  rl_lock rld p ltype;
+      | `No_locking ->
+	  ()
+  );
+  if gld.gld_groups > 0 then
+    gld.gld_deferred_unlocks <- p :: gld.gld_deferred_unlocks
+;;
+
+
+let gld_unlock gld p =
+  if gld.gld_groups = 0 then (
+    match gld.gld with
+      | `Record_locking rld ->
+	  rl_unlock rld p
+      | `No_locking ->
+	  ()
+  );
+;;
+
+
+let gld_start gld =
+  gld.gld_groups <- gld.gld_groups + 1
+
+
+let gld_end gld =
+  gld.gld_groups <- gld.gld_groups - 1;
+  if gld.gld_groups = 0 then (
+    List.iter
+      (fun p ->
+	 gld_unlock gld p
+      )
+      gld.gld_deferred_unlocks;
+    gld.gld_deferred_unlocks <- []
+  )
+
+
+let create_gld sd pagesize lm =
+  { gld = create_locking_descr sd pagesize lm;
+    gld_groups = 0;
+    gld_deferred_unlocks = []
+  }
 
 
 (**********************************************************************)
@@ -408,10 +486,12 @@ let create_locking_descr sd pagesize lm =
 
 type shm_table = 
     { sd : shm_descr;
-      lm : locking_descr;
+      lm : groupable_locking_descr;
       mutable mem : (int32, Bigarray.int32_elt, Bigarray.c_layout) Bigarray.Array2.t;
       pagesize : int;   (* in words! *)
       dpage : int;  (* descriptor page *)
+      mutable self_locked : bool;
+          (* Whether locked against mutations by this process *)
     }
 
 type int32_array = 
@@ -472,30 +552,45 @@ let remap t pages =
 
 
 let lock_page t p ltype =
-  match t.lm with
-    | `Record_locking rld ->
-	rl_lock rld p ltype
-    | `No_locking ->
-	()
+  gld_lock t.lm p ltype
 ;;
 
 
 let unlock_page t p =
-  (* TODO *)
-  (* Note: it is assumed that unlocking a page multiple times is ok *)
-  match t.lm with
-    | `Record_locking rld ->
-	rl_unlock rld p
-    | `No_locking ->
-	()
+  gld_unlock t.lm p
 ;;
 
 
-let unlock_protect t p f arg =
+let unlock_protect t l f arg =
   try f arg
   with
-    | error -> unlock_page t p; raise error
+    | error -> List.iter (fun p -> unlock_page t p) l; raise error
 
+
+let self_locked t f arg =
+  let old = t.self_locked in
+  t.self_locked <- true;
+  try
+    let r = f arg in
+    t.self_locked <- old;
+    r
+  with
+    | error ->
+	t.self_locked <- old;
+	raise error
+
+
+let group t f arg =
+  try
+    gld_start t.lm;
+    let r = f arg in
+    gld_end t.lm;
+    r
+  with
+    | error ->
+	gld_end t.lm;
+	raise error
+      
 
 let hash_cell t k =
   (* Returns the k-th hash cell as pair (page, position), or Not_found *)
@@ -523,6 +618,10 @@ let hash_cell t k =
 ;;
 
 
+let quad_probing =
+  [| 0; 1; 4; 9; 16; 25; 36; 49; 64; 81 |]
+
+
 let rec hash_lookup t key seq spare_flag =
   (* Finds [key] in the hash table and returns the entry as triple
    * (page, position, found). [found] indicates whether the [key]
@@ -535,17 +634,28 @@ let rec hash_lookup t key seq spare_flag =
    * normal ones.
    *)
 
+  let remainder x y =
+    let r = Int32.rem x y in
+    if r >= 0l then
+      r
+    else
+      Int32.add y r in
+
   let total_pages = t.mem.{ t.dpage, 1 } in
   let ht_size = t.mem.{ t.dpage, 2 } in
   let (ht_page, ht_pos) = 
     try
-      let offset = (* CHECK: termination for n^2 hashing *)
-	match seq with
-	  | 0l -> 0l
-	  | 1l -> 1l
-	  | 2l -> 4l
-	  | _  -> Int32.mul seq seq in
-      hash_cell t (to_int (Int32.rem (Int32.add key offset) ht_size))
+      let offset =
+	(* The first ten positions in this probing sequence are the same as
+         * for quadratic probing. Then we simply continue with linear probing.
+         * This way, we get most of the good properties of quadratic hashing,
+         * but there is no size restriction on the table.
+         *)
+	if seq <= 9l then
+	  Int32.of_int quad_probing.( Int32.to_int seq )
+	else
+	  Int32.add 72l seq in
+      hash_cell t (to_int (remainder (Int32.add key offset) ht_size))
     with
       | Not_found ->
 	  raise(Corrupt_file "Too few hash table extents found") in
@@ -574,7 +684,6 @@ let rec hash_lookup t key seq spare_flag =
 let alloc_hash_extent t seq n =
   let q_ht = (t.pagesize-4) / 4 in  (* entries per ht page *)
   let total_pages = t.mem.{ t.dpage, 1 } in
-eprintf "total_pages=%ld\n%!" total_pages;
   let total_pages' = to_int total_pages + n in
   remap t total_pages';
   t.mem.{ t.dpage, 1 } <- of_int total_pages';
@@ -690,8 +799,8 @@ let hash_lookup_for_addition t key =
      *)
     let n_used  = to_int t.mem.{ t.dpage, 3 } in
     let n_total = to_int t.mem.{ t.dpage, 2 } in
-    if n_used * 3 > n_total then (
-      (* more than 1/3 is used, so resize *)
+    if n_used * 2 > n_total then (
+      (* more than 1/2 is used, so resize *)
       add_hash_extent t;
       refill_hash_table t;
 	(* Note: total_pages has changed! *)
@@ -706,139 +815,203 @@ let hash_lookup_for_addition t key =
 ;;
 
 
-let rec find_blocks_start_binding t key f total_pages unlock_pg cpage () =
-  lock_page t cpage Read;
-  if unlock_pg > 0 then unlock_page t unlock_pg;
+(* Iterate over all bindings for a given key *)
+
+type iterator =
+    { i_table : shm_table;
+      i_key : int32;
+      i_total_pages : int32;
+      mutable i_binding_pg : int;        (* 1st page of current binding *)
+      mutable i_next_binding_pg : int;   (* 1st page of next binding *)
+      mutable i_current_pg : int;        (* current page of current binding *)
+      mutable i_current : int32_array;   (* same, the page itself *)
+      mutable i_next_pg : int;           (* next page of current binding *)
+      mutable i_seq : int;               (* sequence number *)
+      mutable i_start_val : int;         (* start position of value fragment *)
+      mutable i_len_val : int;           (* length of value fragment *)
+      mutable i_rest_len_val : int;      (* rem. length of value after fragment *)
+    }
+
+(* Note: the iterator functions do not do any locking *)
+
+
+let start_binding it pg =
+  (* Go to the start of the binding at page [pg] *)
+  let current = Bigarray.Array2.slice_left it.i_table.mem pg in
+  let cp_magic      = current.{ 0 } in
+  let cp_key        = current.{ 1 } in
+  let cp_cpage'     = current.{ 2 } in
+  let cp_cpage_next = current.{ 3 } in
+  let cp_val_pos    = current.{ 4 } in
+  let cp_val_len    = current.{ 5 } in
+	 
+  if cp_magic <> content1_magic then
+    raise(Corrupt_file "Bad content1 magic");
+  if cp_key <> it.i_key then
+    raise(Corrupt_file "Wrong content page");
+  if cp_cpage' < 0l || cp_cpage' >= it.i_total_pages then
+    raise(Corrupt_file "Page pointer out of bounds");
+  if cp_cpage_next < 0l || cp_cpage' >= it.i_total_pages then
+    raise(Corrupt_file "Page pointer out of bounds");
+  if cp_val_pos < 0l || cp_val_len < 0l then
+    raise(Corrupt_file "Negative string pointers");
+	 
+  let ca_start = 6 in  (* first word of content area is at pos 6 *)
+  let ca_len = it.i_table.pagesize - ca_start in
+	 
+  let cp_cpage'     = to_int cp_cpage' in
+  let cp_cpage_next = to_int cp_cpage_next in
+  let cp_val_pos    = to_int cp_val_pos in
+  let cp_val_len    = to_int cp_val_len in
+  
+  if cp_val_pos >= ca_len then
+    raise(Corrupt_file
+	    "value does not start in first content page");
+
+  let len_val = min ca_len cp_val_len in
+
+  it.i_binding_pg <- pg;
+  it.i_next_binding_pg <- cp_cpage_next;
+  it.i_current_pg <- pg;
+  it.i_current <- current;
+  it.i_next_pg <- cp_cpage';
+  it.i_seq <- 0;
+  it.i_start_val <- cp_val_pos + ca_start;
+  it.i_len_val <- len_val;
+  it.i_rest_len_val <- cp_val_len - len_val;
+;;
+
+
+let create_iterator t key total_pages pg =
+  (* Create an iterator for the list of bindings starting at page [pg] *)
+  let current = Bigarray.Array2.slice_left t.mem pg in
+  let it =
+    { i_table = t;
+      i_key = key;
+      i_total_pages = total_pages;
+      i_binding_pg = 0;
+      i_next_binding_pg = 0;
+      i_current_pg = 0;
+      i_current = current;
+      i_next_pg = 0;
+      i_seq = 0;
+      i_start_val = 0;
+      i_len_val = 0;
+      i_rest_len_val = 0;
+    } in
+  start_binding it pg;
+  it
+;;
+
+
+let next_page it =
+  (* Switches to the next page of the current binding. 
+   * Precondition: it.i_next_pg <> 0
+   *)
+  let pg = it.i_next_pg in
+  assert(pg <> 0);
+
+  let current = Bigarray.Array2.slice_left it.i_table.mem pg in
+  let cp'_magic  = current.{ 0 } in
+  let cp'_key    = current.{ 1 } in
+  let cp'_cpage' = current.{ 2 } in
+  let cp'_seq    = current.{ 3 } in
+	       
+  if cp'_magic <> content2_magic then
+    raise(Corrupt_file "Bad content2 magic");
+  if cp'_key <> it.i_key then
+    raise(Corrupt_file "Wrong content page");
+  if cp'_cpage' < 0l || cp'_cpage' >= it.i_total_pages then
+    raise(Corrupt_file "Page pointer out of bounds");
+  if cp'_seq <> of_int (it.i_seq + 1) then
+    raise(Corrupt_file "Bad sequence number");
+
+  let ca_start = 4 in  (* first word of content area is at pos 4 *)
+  let ca_len = it.i_table.pagesize - ca_start in
+  let len_val = min ca_len it.i_rest_len_val in
+
+  it.i_current_pg <- pg;
+  it.i_current <- current;
+  it.i_next_pg <- to_int cp'_cpage';
+  it.i_seq <- it.i_seq + 1;
+  it.i_start_val <- ca_start;
+  it.i_len_val <- len_val;
+  it.i_rest_len_val <- it.i_rest_len_val - len_val
+;;
+
+
+let next_binding it =
+  start_binding it it.i_next_binding_pg
+;;
+
+
+
+(* the read_blocks implementation bases on iterators *)
+
+let rec read_blocks_start t key f total_pages prev_pg pg () =
+  lock_page t pg Read;
+  if prev_pg > 0 then unlock_page t prev_pg;
 
   let followup =
-    unlock_protect t cpage
+    unlock_protect t [ pg ]
       (fun () ->
-	 let cp_magic      = t.mem.{ cpage, 0 } in
-	 let cp_key        = t.mem.{ cpage, 1 } in
-	 let cp_cpage'     = t.mem.{ cpage, 2 } in
-	 let cp_cpage_next = t.mem.{ cpage, 3 } in
-	 let cp_val_pos    = t.mem.{ cpage, 4 } in
-	 let cp_val_len    = t.mem.{ cpage, 5 } in
-	 
-	 if cp_magic <> content1_magic then
-	   raise(Corrupt_file "Bad content1 magic");
-	 if cp_key <> key then
-	   raise(Corrupt_file "Wrong content page");
-	 if cp_cpage' < 0l || cp_cpage' >= total_pages then
-	   raise(Corrupt_file "Page pointer out of bounds");
-	 if cp_cpage_next < 0l || cp_cpage' >= total_pages then
-	   raise(Corrupt_file "Page pointer out of bounds");
-	 if cp_val_pos < 0l || cp_val_len < 0l then
-	   raise(Corrupt_file "Negative string pointers");
-	 
-	 let ca_start = 6 in  (* first word of content area is at pos 6 *)
-	 let ca_len = t.pagesize - ca_start in
-	 
-	 let cp_cpage'     = to_int cp_cpage' in
-	 let cp_cpage_next = to_int cp_cpage_next in
-	 let cp_val_pos    = to_int cp_val_pos in
-	 let cp_val_len    = to_int cp_val_len in
-	 
-	 if cp_val_pos >= ca_len then
-	   raise(Corrupt_file
-		   "value does not start in first content page");
-  
-	 find_blocks_extract_val
-	   t key f total_pages cpage
-	   cp_cpage' cp_cpage_next
-	   cp_val_pos cp_val_len
-	   cpage ca_start 0
+	 let it =
+	   create_iterator t key total_pages pg in
+
+	 read_blocks_extract it f pg
       )
       () in
   followup ()
   
-and find_blocks_extract_val
-      t key f total_pages unlock_pg
-      cp_cpage' cp_cpage_next 
-      val_pos val_len
-      cpage ca_start ca_offset () =
-  
-  (* val_pos: word position where val continues, relative to whole ca (!)
-   * val_len: words of val to do
-   * ca_start: word position where content area starts
-   * ca_offset: between first word of page ca and total ca
-   *)
-
+and read_blocks_extract it f pg () =
   let followup =
-    unlock_protect t unlock_pg
+    unlock_protect it.i_table [ pg ]
       (fun () ->
-
-	 let ca_len = t.pagesize - ca_start in
+	 let val_frag = 
+	   Bigarray.Array1.sub it.i_current it.i_start_val it.i_len_val in
 	 try
-	   if val_len > 0 then (
-	     (* Start or continue to read the value *)
-	     if val_pos < ca_offset then
-	       raise(Corrupt_file "Cannot find start of value");
-	     
-	     if val_pos < ca_offset+ca_len then (
-	       let val_page_pos = val_pos - ca_offset in
-	       let val_page_len = min val_len (ca_len - val_page_pos) in
-	       
-	       let mem_pg = Bigarray.Array2.slice_left t.mem cpage in
-	       let mem_val = 
-		 Bigarray.Array1.sub mem_pg (val_page_pos+ca_start) val_page_len in
-	       
-	       f (Some mem_val);
-	       
-	       (* Continue: *)
-	       find_blocks_extract_val
-		 t key f total_pages unlock_pg
-		 cp_cpage' cp_cpage_next 
-		 (val_pos + val_page_len) (val_len - val_page_len)
-		 cpage ca_start ca_offset
-	     )
-	     else (
-	       (* value is continued on next page *)
-	       let cp'_magic  = t.mem.{ cp_cpage', 0 } in
-	       let cp'_key    = t.mem.{ cp_cpage', 1 } in
-	       let cp'_cpage' = t.mem.{ cp_cpage', 2 } in
-	       let cp'_seq    = t.mem.{ cp_cpage', 3 } in
-	       
-	       if cp'_magic <> content2_magic then
-		 raise(Corrupt_file "Bad content2 magic");
-	       if cp'_key <> key then
-		 raise(Corrupt_file "Wrong content page");
-	       if cp'_cpage' < 0l || cp'_cpage' >= total_pages then
-		 raise(Corrupt_file "Page pointer out of bounds");
-	       (* TODO cp'_seq *)
-	       
-	       let cp'_cpage' = to_int cp'_cpage' in
-	       
-	       find_blocks_extract_val
-		 t key f total_pages unlock_pg
-		 cp'_cpage' cp_cpage_next 
-		 val_pos val_len
-		 cp_cpage' 4 (ca_offset + ca_len)
-	     )
+	   self_locked it.i_table 
+	     f (Some val_frag);
+
+	   if it.i_next_pg <> 0 then (
+	     next_page it;
+	     read_blocks_extract it f pg
 	   )
-	   else (  (* val_len = 0 *)
-	     f None; (* end of this binding *)
+	   else (
+	     self_locked it.i_table 
+	       f None;
 	     raise Next
 	   )
+
 	 with
 	   | Next ->
-	       if cp_cpage_next <> 0 then
-		 find_blocks_start_binding t key f total_pages unlock_pg cp_cpage_next
-	       else
-		 (fun () -> unlock_page t unlock_pg)
+	       read_blocks_next it f pg
 	   | Break ->
-	       (fun () -> unlock_page t unlock_pg)
+	       (fun () -> 
+		  unlock_page it.i_table pg)
       )
       () in
-
   followup()
+
+and read_blocks_next it f prev_pg () =
+  let pg = it.i_next_binding_pg in
+  if pg <> 0 then (
+    lock_page it.i_table pg Read;
+    unlock_page it.i_table prev_pg;
+
+    next_binding it;
+
+    read_blocks_extract it f pg ()
+  )
+  else
+    unlock_page it.i_table prev_pg
 ;;
 
 
-let find_blocks t key f =
+let read_blocks t key f =
   lock_page t t.dpage Read;
 
-  unlock_protect t t.dpage
+  unlock_protect t [ t.dpage ]
     (fun () ->
 
        let total_pages = t.mem.{ t.dpage, 1 } in
@@ -858,7 +1031,7 @@ let find_blocks t key f =
 	 else
 	   if ht_ptr > 0l && ht_ptr < total_pages then (
 	     (* The following call will unlock t.dpage *)
-	     find_blocks_start_binding 
+	     read_blocks_start
 	       t key f total_pages t.dpage (to_int ht_ptr) ()
 	   )
 	   else
@@ -878,7 +1051,7 @@ let find_all t key =
   let l = ref [] in
   let v = ref [] in
   let v_size = ref 0 in
-  find_blocks t key 
+  read_blocks t key 
     (fun val_frag_opt ->
        match val_frag_opt with
 	 | Some val_frag ->
@@ -911,7 +1084,7 @@ let find t key =
   let v = ref [] in
   let v_size = ref 0 in
   try
-    find_blocks t key 
+    read_blocks t key 
       (fun val_frag_opt ->
 	 match val_frag_opt with
 	   | Some val_frag ->
@@ -945,12 +1118,39 @@ let find t key =
 
 let mem t key =
   try
-    find_blocks t key 
+    read_blocks t key 
       (fun _ -> raise Exit);
     false
   with
     | Exit ->
 	true
+;;
+
+
+let iter_keys f t =
+  lock_page t t.dpage Read;
+
+  unlock_protect t [ t.dpage ]
+    (fun () ->
+
+       let total_pages = t.mem.{ t.dpage, 1 } in
+
+       if Bigarray.Array2.dim1 t.mem <> (to_int total_pages) then
+	 remap t (to_int total_pages);
+
+       iter_hash_table
+	 t
+	 (fun p q ->
+	    let ht_key = t.mem.{ p, q } in
+	    let ht_ptr = t.mem.{ p, q+1 } in
+	    if ht_ptr <> 0l && ht_ptr <> (-1l) then
+	      self_locked t 
+		f ht_key
+	 )
+    )
+    ();
+
+  unlock_page t t.dpage 
 ;;
 
 
@@ -984,7 +1184,7 @@ let iter f t =
 
   lock_page t t.dpage Read;
 
-  unlock_protect t t.dpage
+  unlock_protect t [ t.dpage ]
     (fun () ->
 
        let total_pages = t.mem.{ t.dpage, 1 } in
@@ -998,7 +1198,7 @@ let iter f t =
 	    let ht_key = t.mem.{ p, q } in
 	    let ht_ptr = t.mem.{ p, q+1 } in
 	    if ht_ptr <> 0l && ht_ptr <> (-1l) then (
-	      find_blocks_start_binding
+	      read_blocks_start
 		t ht_key (reassemble ht_key) total_pages 0 (to_int ht_ptr) () 
 	    )
 	 )
@@ -1024,7 +1224,7 @@ let length t =
   lock_page t t.dpage Read;
 
   let n =
-    unlock_protect t t.dpage
+    unlock_protect t [ t.dpage ]
       (fun () ->
 	 to_int t.mem.{ t.dpage, 4 } )
       () in
@@ -1054,9 +1254,12 @@ let get_page_from_free_list t =
 
 
 let add t key v =
+  if t.self_locked then
+    failwith "Netshm: Cannot modify table locked by caller";
+
   lock_page t t.dpage Write;
   
-  unlock_protect t t.dpage
+  unlock_protect t [ t.dpage ]
     (fun () ->
 
        let total_pages = t.mem.{ t.dpage, 1 } in
@@ -1093,6 +1296,8 @@ let add t key v =
 	 t.mem.{ t.dpage, 6 } <- 
 	   of_int (pages_in_free_list + pages_to_allocate)
        );
+
+       (* MAYBE TODO: Unlock before writing to content pages *)
 
        (* Write content pages: *)
        let val_idx = ref 0 in
@@ -1162,10 +1367,168 @@ let rec unalloc_pages_of_binding t cpage =
 ;;
 
 
-let remove t key =
-  lock_page t t.dpage Write;
+(* the write_blocks implementation bases on iterators *)
+
+type write_op = 
+    [ `Remove_binding ]
+
+type ctrl_op =
+    [ `Nop | write_op ]
+
+type op_announcement =
+    { op_remove_binding : bool }
+
+type pointer_to_binding =
+    [ `Prev_binding of int
+    | `Hash_entry of int * int
+    ]
+
+
+let remove_binding t key ptr pg =
+  let next_cpage = t.mem.{ pg, 3 } in
   
-  unlock_protect t t.dpage
+  ( match ptr with
+      | `Hash_entry(ht_page, ht_pos) ->
+	  t.mem.{ ht_page, ht_pos + 1 } <- (if next_cpage = 0l then
+					      (-1l)
+					    else
+					      next_cpage);
+      | `Prev_binding pg' ->
+	  t.mem.{ pg', 3 } <- next_cpage;
+	  
+  );
+
+  t.mem.{ t.dpage, 4 } <- Int32.pred t.mem.{ t.dpage, 4 };
+  (* Note: mem.{t.dpage, 3}, i.e. the number of used entries, does not change,
+   * even if the hash cell is set to (-1).
+   *)
+	      
+  unalloc_pages_of_binding t pg;
+
+  (* The new pointer to the next binding is the old after the deletion: *)
+  ptr
+;;
+
+
+let write_op it ops ptr op =
+  match op with
+    | `Nop -> 
+	`Prev_binding it.i_binding_pg
+    | `Remove_binding ->
+	if not ops.op_remove_binding then
+	  failwith "Netshm.write_blocks: Cannot do write operation unless announced";
+	remove_binding it.i_table it.i_key ptr it.i_binding_pg
+;;
+
+
+let rec write_blocks_start t ops key f total_pages (ptr : pointer_to_binding) pg () =
+  (* ptr: If [`Prev_binding pg], there is a previous binding that starts on
+   * page pg. If [`Hash_entry(pg,pos)] this is the first binding, and the
+   * hash entry on page [pg] and [pos] points to it.
+   *
+   * locking: the current, and if `Remove_binding is announced in ops, 
+   * the previous binding (if any) are write locked.
+   * Additionally, t.dpage is locked over the whole time, too.
+   *)
+  lock_page t pg Write;
+
+  let followup =
+    unlock_protect t [ pg ]
+      (fun () ->
+	 let it =
+	   create_iterator t key total_pages pg in
+
+	 write_blocks_extract it ops f ptr pg `Nop
+      )
+      () in
+  followup ()
+  
+and write_blocks_extract it ops f ptr pg old_op () =
+  let locked =
+    if ops.op_remove_binding then
+      match ptr with
+	| `Prev_binding pg' -> [ pg'; pg ]
+	| `Hash_entry(_,_)  -> [ pg ] 
+    else
+      [ pg ]
+  in
+    
+  let followup =
+    unlock_protect it.i_table locked
+      (fun () ->
+	 let val_frag = 
+	   Bigarray.Array1.sub it.i_current it.i_start_val it.i_len_val in
+	 let op = ref old_op in
+	 try
+	   let new_op = 
+	     self_locked it.i_table 
+	       f (Some val_frag) in
+	   if new_op <> `Nop then
+	     op := new_op;
+
+	   if it.i_next_pg <> 0 then (
+	     next_page it;
+	     write_blocks_extract it ops f ptr pg !op
+	   )
+	   else (
+	     let new_op = 
+	       self_locked it.i_table 
+		 f None in
+	     if new_op <> `Nop then
+	       op := new_op;
+	     raise Next
+	   )
+	 with
+	   | Next ->
+	       let ptr' =
+		 write_op it ops ptr !op in
+	       write_blocks_next it ops f ptr pg ptr'
+	   | Break ->
+	       let _ptr' =
+		 write_op it ops ptr !op in
+	       (fun () -> 
+		  unlock_page it.i_table pg)
+      )
+      ()in
+  followup()
+
+and write_blocks_next it ops f prev_ptr prev_pg ptr' () =
+  let pg = it.i_next_binding_pg in
+  if pg <> 0 then (
+    lock_page it.i_table pg Write;
+    if ops.op_remove_binding then 
+      ( match prev_ptr with
+	  | `Prev_binding pg' -> unlock_page it.i_table pg'
+	  | `Hash_entry(_,_)  -> ()
+      )
+    else
+      unlock_page it.i_table prev_pg;
+
+    next_binding it;
+
+    write_blocks_extract it ops f ptr' pg `Nop ()
+  )
+  else (
+    if ops.op_remove_binding then
+      ( match prev_ptr with
+	  | `Prev_binding pg' -> unlock_page it.i_table pg'
+	  | `Hash_entry(_,_)  -> ()
+      );
+    unlock_page it.i_table prev_pg
+  )
+;;
+
+
+let write_blocks t ops key f =
+  let ops' =
+    { op_remove_binding = List.mem `Remove_binding ops } in
+
+  if t.self_locked then
+    failwith "Netshm: Cannot modify table locked by caller";
+
+  lock_page t t.dpage Write;
+
+  unlock_protect t [ t.dpage ]
     (fun () ->
 
        let total_pages = t.mem.{ t.dpage, 1 } in
@@ -1175,56 +1538,52 @@ let remove t key =
 
        let (ht_page, ht_pos, ht_found) = hash_lookup t key 0l false in
        
-       if ht_found && t.mem.{ ht_page, ht_pos + 1 } <> (-1l) then (
-	 (* The binding exists *)
-
-	 let cpage = to_int t.mem.{ ht_page, ht_pos + 1 } in
-	 lock_page t cpage Write;
-
-	 unlock_protect t cpage
-	   (fun () ->
-
-	      if t.mem.{ cpage, 0 } <> content1_magic then
-		raise(Corrupt_file "Bad content1 magic");
-	      if t.mem.{ cpage, 1 } <> key then
-		raise(Corrupt_file "Pointer to wrong content page found");
-
-	      let next_cpage = t.mem.{ cpage, 3 } in
-	      
-	      t.mem.{ ht_page, ht_pos + 1 } <- (if next_cpage = 0l then
-						  (-1l)
-						else
-						  next_cpage);
-	 
-	      t.mem.{ t.dpage, 4 } <- Int32.pred t.mem.{ t.dpage, 4 };
-
-	      (* TODO: If there are too many (-1) entries, remanage ht *)
-	      
-	      unalloc_pages_of_binding t cpage;
+       if ht_found then (
+	 let ht_ptr = t.mem.{ ht_page, ht_pos+1 } in
+	 if ht_ptr = (-1l) then (
+	   (* key is unbound *)
+	   ()
+	 )
+	 else
+	   if ht_ptr > 0l && ht_ptr < total_pages then (
+	     let ptr = `Hash_entry(ht_page,ht_pos) in
+	     write_blocks_start
+	       t ops' key f total_pages ptr (to_int ht_ptr) ()
 	   )
-	   ();
-
-	 unlock_page t cpage;
+	   else
+	     raise(Corrupt_file "Bad page number found")
        )
     )
     ();
 
-  unlock_page t t.dpage
+  unlock_page t t.dpage;
+;;
+
+
+let remove t key =
+  let first = ref true in
+  write_blocks t [`Remove_binding] key
+    (fun _ -> 
+       if !first then (
+	 first := false;
+	 `Remove_binding
+       )
+       else
+	 raise Break)
 ;;
 
 
 let replace t key v =
-  (* This is the trivial implementation... Not really what we want. *)
-  remove t key;
-  add t key v
+  (* This is the trivial implementation... Not really what we want. Anything
+   * better that reuses the pages of the old binding is a lot of work...
+   *)
+  group t
+    (fun () ->
+       remove t key;
+       add t key v
+    )
+    ()
 ;;
-
-
-let rename t key1 key2 =
-  assert false (* TODO *)
-
-let swap t key1 key2 =
-  assert false (* TODO *)
 
 
 let manage ?(pagesize = 256) ?init lm sd =
@@ -1237,19 +1596,20 @@ let manage ?(pagesize = 256) ?init lm sd =
 
   if size_of_shm sd = 0 || init <> None then (
     (* re-initialize table *)
-    let ld = create_locking_descr sd pagesize lm in
+    let ld = create_gld sd pagesize lm in
     let t =
       { sd = sd;
 	lm = ld;
 	mem = dummy_int32matrix();
 	pagesize = pagesize;
 	dpage = 0;
+	self_locked = false;
       } in
     let n = 
       match init with
 	| None -> 1000
 	| Some n -> n in
-    let n_ht = n * 3 in   (* need 3 times more ht entries *)
+    let n_ht = n * 2 in   (* need 2 times more ht entries *)
     let q_ht = (pagesize-4) / 4 in  (* entries per ht page *)
     let p_ht = (n_ht - 1) / q_ht + 1 in
     (* number of hash table pages *)
@@ -1288,13 +1648,14 @@ let manage ?(pagesize = 256) ?init lm sd =
   )
   else (
     (* manage existing table *)
-    let ld = create_locking_descr sd pagesize lm in
+    let ld = create_gld sd pagesize lm in
     let t =
       { sd = sd;
 	lm = ld;
 	mem = dummy_int32matrix();
 	pagesize = pagesize;
 	dpage = 0;
+	self_locked = false;
       } in
     remap t 1;
     if (t.mem.{ 0, 0 } <> file_magic1 ||
@@ -1339,3 +1700,6 @@ let bigarray x =
   Bigarray.Array1.of_array Bigarray.int32 Bigarray.c_layout 
     (Array.map Int32.of_int x)
 ;;
+
+
+let memory t = t.mem

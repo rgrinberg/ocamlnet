@@ -41,7 +41,7 @@ let find t k =
   let h = t.key_hash_fn k in
   let data = ref [] in
   let v_opt = ref None in
-  find_blocks t.table h
+  read_blocks t.table h
     (fun data_frag_opt ->
        match data_frag_opt with
          | Some data_frag ->
@@ -49,7 +49,7 @@ let find t k =
 	     ( match decode_key !data with
 		 | None -> ()
 		 | Some k' ->
-		     if k <> k' then raise Netshm.Next
+		     if k <> k' then ( data := []; raise Netshm.Next )
 	     )
          | None ->
              (* Important: we must decode the data while the binding is
@@ -75,7 +75,7 @@ let find_all t k =
   let h = t.key_hash_fn k in
   let data = ref [] in
   let l = ref [] in
-  find_blocks t.table h
+  read_blocks t.table h
     (fun data_frag_opt ->
        match data_frag_opt with
          | Some data_frag ->
@@ -83,7 +83,7 @@ let find_all t k =
 	     ( match decode_key !data with
 		 | None -> ()
 		 | Some k' ->
-		     if k <> k' then raise Netshm.Next
+		     if k <> k' then ( data := []; raise Netshm.Next )
 	     )
          | None ->
              (* Important: we must decode the data while the binding is
@@ -91,7 +91,8 @@ let find_all t k =
               *)
 	     let (k',v) = t.key_val_manager.of_int32_array !data in
 	     assert (k = k');
-	     l := v :: !l
+	     l := v :: !l;
+	     data := []
     );
   List.rev !l
 ;;
@@ -105,7 +106,7 @@ let mem t k =
   let h = t.key_hash_fn k in
   let data = ref [] in
   let is_mem = ref false in
-  find_blocks t.table h
+  read_blocks t.table h
     (fun data_frag_opt ->
        match data_frag_opt with
          | Some data_frag ->
@@ -113,7 +114,7 @@ let mem t k =
 	     ( match decode_key !data with
 		 | None -> ()
 		 | Some k' ->
-		     if k <> k' then raise Netshm.Next
+		     if k <> k' then ( data := []; raise Netshm.Next )
 	     )
          | None ->
 	     is_mem := true;
@@ -124,12 +125,40 @@ let mem t k =
 
 
 let remove t k =
-  assert false  (* TODO, need Netshm.remove_several *)
+  let decode_key =
+    match t.key_only_manager.of_int32_array_prefix with
+      | None -> assert false
+      | Some f -> f in
+  let h = t.key_hash_fn k in
+  let data = ref [] in
+  let can_stop = ref false in
+  write_blocks t.table [`Remove_binding] h
+    (fun data_frag_opt ->
+       if !can_stop then raise Break;
+       match data_frag_opt with
+         | Some data_frag ->
+             data := data_frag :: !data;
+	     ( match decode_key !data with
+		 | None -> 
+		     `Nop
+		 | Some k' ->
+		     if k <> k' then ( data := []; raise Netshm.Next );
+		     can_stop := true;
+		     `Remove_binding
+	     )
+         | None ->
+	     assert false
+    )
+;;
 
 
 let replace t k v =
-  remove t k;
-  add t k v
+  Netshm.group t.table
+    (fun () ->
+       remove t k;
+       add t k v
+    ) 
+    ()
 
 
 let iter f t =
@@ -137,6 +166,39 @@ let iter f t =
     (fun _ data ->
        let (k,v) = t.key_val_manager.of_int32_array [ data ] in
        f k v
+    )
+    t.table
+;;
+
+
+let iter_keys f t =
+  let decode_key =
+    match t.key_only_manager.of_int32_array_prefix with
+      | None -> assert false
+      | Some f -> f in
+  let last_key = ref None in
+  let data = ref [] in
+  Netshm.iter_keys
+    (fun shm_key ->
+       Netshm.read_blocks
+	 t.table
+	 shm_key
+	 (fun data_frag_opt ->
+	    match data_frag_opt with
+              | Some data_frag ->
+		  data := data_frag :: !data;
+		  ( match decode_key !data with
+		      | None -> ()
+		      | Some k as sk ->
+			  if sk <> !last_key then
+			    f k;
+			  last_key := sk;
+			  data := [];
+			  raise Netshm.Next
+		  )
+              | None ->
+		  ()
+	 );
     )
     t.table
 ;;
