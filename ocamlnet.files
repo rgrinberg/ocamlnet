@@ -75,6 +75,27 @@ d src/netstring/tools/unimap_to_ocaml
 f src/netstring/tools/unimap_to_ocaml/Makefile
 f src/netstring/tools/unimap_to_ocaml/unimap_to_ocaml.ml
 
+d src/netsys
+f src/netsys/Makefile
+f src/netsys/Makefile.pre
+f src/netsys/META.in
+f src/netsys/configure
+f src/netsys/config_posix.h
+f src/netsys/config_win32.h
+d src/netsys/configtests
+f src/netsys/configtests/posix_shm.c
+f src/netsys/configtests/main.ml
+p src/netsys/.*\.ml
+p src/netsys/.*\.mli
+p src/netsys/.*\.c
+
+d src/netshm
+f src/netshm/Makefile
+f src/netshm/Makefile.pre
+f src/netshm/META.in
+p src/netshm/.*\.ml
+p src/netshm/.*\.mli
+
 d src/cgi
 f src/cgi/META.in
 f src/cgi/Makefile
