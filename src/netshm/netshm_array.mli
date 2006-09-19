@@ -11,7 +11,7 @@ val manage : ?pagesize:int ->
              Netshm.locking_method -> 
              Netshm.shm_descr ->
                'a t
-  (** Manages a shared memory segment as an array,
+  (** Manages a shared memory object as an array,
     * including the representation of arbitrary O'Caml values.
     * The first argument of type ['a] is the default value of the
     * array elements.
@@ -19,8 +19,8 @@ val manage : ?pagesize:int ->
     * This bases on [Netshm.manage], and the arguments [pagesize],
     * [locking_method] and [shm_descr] are documented there.
     *
-    * If an empty memory segment is managed, it is initialized as
-    * array with zero elements. If a non-empty memory segment is
+    * If an empty memory object is managed, it is initialized as
+    * array with zero elements. If a non-empty memory object is
     * managed, it must contain a valid array structure.
     * The size of the array is then the same as when the array
     * was managed the last time.

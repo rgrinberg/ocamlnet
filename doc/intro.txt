@@ -175,12 +175,34 @@ into [equeue].
     Shell
     Shell_sys
     Shell_uq
-    Shell_mt
-    Unix_exts}
+    Shell_mt}
 
 {3:shell_intro Guides}
 
 - {!module:Shell_intro}: Motivation for [shell]
+
+{2:netshm The [netshm] library}
+
+The [netshm] library manages a shared memory object either as hash table
+or array. It is designed to be used in multi-processing program architectures.
+
+{!modules:
+    Netshm
+    Netshm_data
+    Netshm_hashtbl
+    Netshm_array}
+
+{3:netshm_intro Guides}
+
+- {!module:Netshm_intro}: Shared Memory for IPC
+
+{2:netsys The [netsys] library}
+
+The [netsys] library contains a number of low-level functions used by
+other Ocamlnet libraries.
+
+{!modules:
+    Netsys}
 
 {2 Index}
 

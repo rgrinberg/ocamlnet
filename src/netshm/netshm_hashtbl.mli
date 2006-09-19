@@ -11,7 +11,7 @@ val manage : ?pagesize:int ->
              Netshm.locking_method -> 
              Netshm.shm_descr ->
                ('a,'b) t
-  (** Manages a shared memory segment as a hash table like [Netshm.manage],
+  (** Manages a shared memory object as a hash table like [Netshm.manage],
     * and additionally represent arbitrary O'Caml values.
     *
     * It is essential that the same data managers are passed as at the time

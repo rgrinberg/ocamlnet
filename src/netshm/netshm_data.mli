@@ -30,7 +30,7 @@ val int32_manager : int32 data_manager
   (** Represents an [int32] as one-element [int32_array] *)
 
 val int64_manager : int64 data_manager
-  (** Represents an [int32] as two-element [int32_array] *)
+  (** Represents an [int64] as two-element [int32_array] *)
 
 val nativeint_manager : nativeint data_manager
   (** Uses either [int32_manager] or [int64_manager] to represent [nativeint],
@@ -47,7 +47,8 @@ val int32_array_manager : Netshm.int32_array data_manager
 
 val string_manager : string data_manager
   (** Represents a string in the following way. The first element 
-    * is the size of the string. The following elements XXX
+    * is the size of the string. The following elements store the
+    * bytes. The last word is filled up with zero bytes if necessary.
    *)
 
 val pair_manager : 'a data_manager -> 'b data_manager -> ('a * 'b) data_manager

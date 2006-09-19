@@ -5,7 +5,7 @@
 (** {1 Shared Memory Descriptors} *)
 
 type shm_descr
-  (** A shared memory descriptor refers to a shared memory segment.
+  (** A shared memory descriptor refers to a shared memory object.
     * Such a descriptor must only be opened once for every process.
    *)
 
@@ -31,13 +31,13 @@ type shm_name =
         * system is RAM-based.
        *)
   ]
-  (** A [shm_name] is a name for a shared memory segment. *)
+  (** A [shm_name] is a name for a shared memory object. *)
 
 
 val shm_type_of_name : shm_name -> shm_type
 
 val open_shm : shm_name -> Unix.open_flag list -> int -> shm_descr
-  (** Opens the shared memory segment.
+  (** Opens the shared memory object.
     *
     * For [POSIX_shm] not all open flags can be specified. The flags
     * are limited to [O_RDONLY], [O_RDWR], [O_CREAT], [O_EXCL] and
@@ -45,7 +45,7 @@ val open_shm : shm_name -> Unix.open_flag list -> int -> shm_descr
    *)
 
 val create_unique_shm : shm_name -> int -> shm_descr
-  (** Create a shared memory segment under a name that is derived
+  (** Create a shared memory object under a name that is derived
     * from the passed [shm_name]. The actual name can be queried with
     * [name_of_shm] (below).
     *
@@ -59,10 +59,10 @@ val create_unique_shm : shm_name -> int -> shm_descr
    *)
 
 val name_of_shm : shm_descr -> shm_name
-  (** Returns the name of a segment *)
+  (** Returns the name of an object *)
 
 val close_shm : shm_descr -> unit
-  (** Closes the segment. The segment remains existent and can be
+  (** Closes the object. The object remains existent and can be
     * opened again.
    *)
 
@@ -71,7 +71,7 @@ val unlink_shm : shm_name -> unit
 
 val chmod_shm : shm_descr -> int -> unit
 val chown_shm : shm_descr -> int -> int -> unit
-  (** Set file permission bits, user and group ownership of the segment *)
+  (** Set file permission bits, user and group ownership of the object *)
 
 type locking_method =
   [ `No_locking
@@ -82,7 +82,7 @@ type locking_method =
        *)
   ]
   (** The locking method is used to ensure that parallel read and write
-    * operations to the memory segment do not interfer with each other.
+    * operations to the memory object do not interfer with each other.
     * If [No_locking] is selected, such protection is not done - this
     * is ok if only read accesses occur or if the user can ensure that
     * never a write access is done in parallel with another access.
@@ -107,7 +107,7 @@ type int32_array =
     (int32, Bigarray.int32_elt, Bigarray.c_layout) Bigarray.Array1.t
 
 exception Corrupt_file of string
-  (** Raised when a violation of the segment format is detected *)
+  (** Raised when a violation of the object format is detected *)
 
 exception Deadlock
   (** Raised when a deadlock situation was detected. Deadlocks can occur
@@ -119,14 +119,14 @@ val manage : ?pagesize:int ->
              locking_method -> 
              shm_descr ->
                shm_table
-  (** Starts managing an open shared memory segment as [shm_table]. If
-    * the segment is empty, it is automatically enlarged to the 
-    * minimum size and initialized. If the segment is non-empty it is
+  (** Starts managing an open shared memory object as [shm_table]. If
+    * the object is empty, it is automatically enlarged to the 
+    * minimum size and initialized. If the object is non-empty it is
     * expected that it already contains a valid [shm_table] structure.
     *
-    * The segment automatically grows in size when new elements are
-    * added to the segment. By removing elements, however, the
-    * segment is never shrinked. Unused memory is held back for later
+    * The object automatically grows in size when new elements are
+    * added to the object. By removing elements, however, the
+    * object is never shrinked. Unused memory is held back for later
     * reallocation by the same [shm_table].
     *
     * By default, the table uses a page size of 256 bytes. The page size is
@@ -292,7 +292,7 @@ val read_blocks : shm_table -> int32 -> (int32_array option -> unit) -> unit
     * The exception [Break] stops the iteration immediately.
     *
     * Note that the [int32_array] fragments [vK] point to shared memory.
-    * Any assignment would modify the shared memory segment directly!
+    * Any assignment would modify the shared memory object directly!
     * The binding is at that time, however, only read-locked, so this
     * should be avoided.
    *)
@@ -329,7 +329,7 @@ val write_blocks : shm_table -> write_op list -> int32 ->
     * just as for [read_blocks].
     *
     * Note that the [int32_array] fragments [vK] point to shared memory.
-    * Any assignment will modify the shared memory segment directly!
+    * Any assignment will modify the shared memory object directly!
     * The binding is at that time write-locked, so such assignments
     * are protected against concurrent writes.
    *)
