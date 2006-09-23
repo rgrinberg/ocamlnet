@@ -697,7 +697,7 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 netplex"
+pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 cgi netplex"
 full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh"
 
 if [ $disable_core -gt 0 ]; then

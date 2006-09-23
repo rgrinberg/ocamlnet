@@ -139,7 +139,10 @@ META: META.in
 #----------------------------------------------------------------------
 # general rules:
 
-depend: *.ml *.mli
+
+DEP_FILES ?= *.ml *.mli
+
+depend: $(DEP_FILES)
 	$(OCAMLDEP) *.ml *.mli >depend || { rm -f depend; exit 1; }
 
 .PHONY: clean
