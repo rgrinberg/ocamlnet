@@ -108,7 +108,7 @@ and scan_pi = parse
   | [^ '>' '?' ] +
       { Mpi }
 
-and scan_element = parse
+and scan_element p_string = parse
   | ">"
       { Relement }
   | ws+
@@ -117,13 +117,25 @@ and scan_element = parse
       { Name (Lexing.lexeme lexbuf) }
   | "="
       { Is }
-  | string_literal1
-      { let s = Lexing.lexeme lexbuf in
-	Literal (String.sub s 1 (String.length s - 2)) 
+  | '"' 
+      { if p_string then (
+	  try
+	    Literal (scan_string_literal1 lexbuf)
+	  with
+	    | _ -> Other
+	)
+	else
+	  Other
       }
-  | string_literal2
-      { let s = Lexing.lexeme lexbuf in
-	Literal (String.sub s 1 (String.length s - 2)) 
+  | "'"
+      { if p_string then (
+	  try
+	    Literal (scan_string_literal2 lexbuf)
+	  with
+	    | _ -> Other
+	)
+	else
+	  Other
       }
   | string_literal3
       { Literal (Lexing.lexeme lexbuf) }
@@ -131,6 +143,15 @@ and scan_element = parse
       { Eof }
   | _
       { Other }
+
+and scan_string_literal1 = parse
+  | ( [^ '"' ]* as s) '"'
+      { s }
+
+and scan_string_literal2 = parse
+  | ( [^ '\'' ]* as s) '\''
+      { s }
+
 
 (* ======================================================================
  * History:

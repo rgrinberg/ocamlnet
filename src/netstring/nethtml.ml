@@ -399,9 +399,10 @@ let parse_document ?(dtd = html40_dtd)
   in
 
   let parse_atts() =
-    let rec next_no_space() =
-      match scan_element buf with
-	  Space _ -> next_no_space()
+    let rec next_no_space p_string =
+      (* p_string: whether string literals in quotation marks are allowed *)
+      match scan_element p_string buf with
+	  Space _ -> next_no_space p_string
 	| t -> t
     in
 
@@ -409,15 +410,15 @@ let parse_document ?(dtd = html40_dtd)
       match next with
 	  Relement -> []
       	| Name n ->
-	    begin match next_no_space() with
+	    begin match next_no_space false with
 	      	Is ->
-		  begin match next_no_space() with
+		  begin match next_no_space true with
 		      Name v ->
 		      	(String.lowercase n, v) ::
-			parse_atts_lookahead (next_no_space())
+			parse_atts_lookahead (next_no_space false)
 		    | Literal v ->
 		      	(String.lowercase n,v) ::
-			parse_atts_lookahead (next_no_space())
+			parse_atts_lookahead (next_no_space false)
 		    | Eof ->
 		      	raise End_of_scan
 		    | Relement ->
@@ -425,7 +426,7 @@ let parse_document ?(dtd = html40_dtd)
 		      	[]
 		    | _ ->
 		      	(* Illegal *)
-		      	parse_atts_lookahead (next_no_space())
+		      	parse_atts_lookahead (next_no_space false)
 		  end
 	      | Eof ->
 		  raise End_of_scan
@@ -441,9 +442,9 @@ let parse_document ?(dtd = html40_dtd)
 	    raise End_of_scan
       	| _ ->
 	    (* Illegal *)
-	    parse_atts_lookahead (next_no_space())
+	    parse_atts_lookahead (next_no_space false)
     in
-    parse_atts_lookahead (next_no_space())
+    parse_atts_lookahead (next_no_space false)
   in
 
   let rec parse_special name =
@@ -465,7 +466,7 @@ let parse_document ?(dtd = html40_dtd)
 
   let rec skip_element() =
     (* Skip until ">" *)
-    match scan_element buf with
+    match scan_element false buf with
 	Relement ->
 	  ()
       | Eof ->
