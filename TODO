@@ -19,7 +19,14 @@ Netplex:
 	- Move accepted() from Control to System? Implement totally different
 	  mechanisms?
 
+Netstring:
+	- Improved HTML parser		PRIO
+
 Integration of new netcgi
+
+	- Rename:		PRIO
+	  * netcgi -> netcgi2
+	  * cgi -> netcgi1
 
 	- Test nethttpd when linked with netcgi
 	- Move new cookie implementation to Nethttp, and make it a 
@@ -31,6 +38,7 @@ Documentation:
 
 	- Check for texts not yet converted to ocamldoc
 	- Continue Netcgi_porting
+	- RPC intro
 
 Http_client.pipeline:
 	

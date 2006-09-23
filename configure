@@ -48,7 +48,7 @@ set_defaults () {
     enable_modcaml=0
     with_nethttpd=0
     with_rpc_auth_dh=0
-    prefer_netcgi=0
+    prefer_netcgi2=0
     bindir=`dirname $ocamlc`
     tcl_defs=""
     tcl_libs=""
@@ -146,8 +146,8 @@ print_options () {
 	if [ -n "$apache" ]; then
 	    echo "    -apache $apache"
 	fi
-	if [ $prefer_netcgi -gt 0 ]; then
-	    echo "    -prefer-netcgi"
+	if [ $prefer_netcgi2 -gt 0 ]; then
+	    echo "    -prefer-netcgi2"
 	fi
 }
 
@@ -196,8 +196,8 @@ _EOF_
 -apache /path/to/apache
         Set which apache executable to use for -enable-modcaml
 
--prefer-netcgi
-        Use netcgi as default CGI implementation instead of cgi.
+-prefer-netcgi2
+        Use netcgi2 as default CGI implementation instead of netcgi1.
         This affects nethttpd.
 
 Defaults are:
@@ -298,8 +298,8 @@ while [ "$#" -gt 0 ]; do
                         shift
                         shift
                         ;;
-	        -prefer-netcgi)
-		        prefer_netcgi=1
+	        -prefer-netcgi2)
+		        prefer_netcgi2=1
 			shift ;;
 		-version)
 			echo "$version"
@@ -679,14 +679,14 @@ if [ $enable_modcaml -gt 0 ]; then
 fi
 
 ######################################################################
-# CGI or NETCGI
+# NETCGI1 or NETCGI2
 
-preferred_cgi_pkg=cgi
-inc_cgi_or_netcgi='$(INC_CGI)'
+preferred_cgi_pkg=netcgi1
+inc_netcgi1or2='$(INC_NETCGI1)'
 
-if [ $prefer_netcgi -gt 0 ]; then
-    preferred_cgi_pkg=netcgi
-    inc_cgi_or_netcgi='$(INC_NETCGI)'
+if [ $prefer_netcgi2 -gt 0 ]; then
+    preferred_cgi_pkg=netcgi2
+    inc_netcgi1or2='$(INC_NETCGI2)'
 fi
 
 ######################################################################
@@ -697,7 +697,7 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient cgi netcgi netplex"
+pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 netplex"
 full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh"
 
 if [ $disable_core -gt 0 ]; then
@@ -782,7 +782,7 @@ APACHE_OCAMLLIBDIR = $apache_ocamllibdir
 
 # Preferred CGI implementation
 PREFERRED_CGI_PKG=$preferred_cgi_pkg
-INC_CGI_OR_NETCGI=$inc_cgi_or_netcgi
+INC_NETCGI1OR2=$inc_netcgi1or2
 
 _EOF_
 
