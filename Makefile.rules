@@ -92,7 +92,11 @@ CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa dll* packlist-* \
 .c.o:
 	$(OCAMLC) -c -ccopt -O $(CC_OPTIONS) $(CC_OPTIONS_FOR_$<) $<
 
-ocamldoc.dump: $(DOBJECTS)
+# We add $(OBJECTS) to the antecedents of ocamldoc.dump to ensure that
+# the files are compiled. ocamldoc needs the .cmi files, and this is
+# the simplest way of ensuring that.
+
+ocamldoc.dump: $(DOBJECTS) $(OBJECTS)
 	$(OCAMLDOC) -dump ocamldoc.dump -stars $(INCLUDES) -package "$(REQUIRES)" $(PP_OPTIONS) $(OCAMLDOC_OPTIONS) $(DOBJECTS) || { rm -f ocamldoc.dump; exit 1; }
 
 # Install rules:

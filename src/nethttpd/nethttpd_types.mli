@@ -56,7 +56,7 @@ exception Standard_response of http_status * http_header option * string option
  *)
 class type virtual v_extended_environment =
 object
-  inherit Netcgi_compat.Netcgi_env.cgi_environment
+  inherit Netcgi1_compat.Netcgi_env.cgi_environment
 
   method virtual server_socket_addr : Unix.sockaddr
   method virtual remote_socket_addr : Unix.sockaddr
@@ -96,10 +96,10 @@ end
 class virtual empty_environment :
 object
   inherit v_extended_environment
-  val mutable config : Netcgi_compat.Netcgi_env.cgi_config
-  val mutable in_state : Netcgi_compat.Netcgi_env.input_state
-  val mutable out_state : Netcgi_compat.Netcgi_env.output_state
-  val mutable protocol : Netcgi_compat.Netcgi_env.protocol
+  val mutable config : Netcgi1_compat.Netcgi_env.cgi_config
+  val mutable in_state : Netcgi1_compat.Netcgi_env.input_state
+  val mutable out_state : Netcgi1_compat.Netcgi_env.output_state
+  val mutable protocol : Netcgi1_compat.Netcgi_env.protocol
   val mutable in_header : http_header
   val mutable out_header : http_header
   val mutable properties : (string * string) list
@@ -117,7 +117,7 @@ end
    *)
 
 class redirected_environment : 
-        ?in_state : Netcgi_compat.Netcgi_env.input_state ->
+        ?in_state : Netcgi1_compat.Netcgi_env.input_state ->
         ?in_header : http_header ->
         ?properties : (string * string) list ->
         ?in_channel : Netchannels.in_obj_channel ->

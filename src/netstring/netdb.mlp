@@ -57,13 +57,3 @@ let set_db name value =
 let disable_file_db () =
   file_db_is_enabled := false
 ;;
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.1  2003/06/03 18:52:29  stolpmann
- * 	intial revision
- *
- * 
- *)

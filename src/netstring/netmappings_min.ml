@@ -4,13 +4,3 @@
  *)
 
 Netdb.disable_file_db();;
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.1  2003/06/03 19:12:37  stolpmann
- * 	Initial revision
- *
- * 
- *)

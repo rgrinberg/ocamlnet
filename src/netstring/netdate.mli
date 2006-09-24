@@ -109,25 +109,3 @@ val mk_usenet_date : ?zone:int -> float -> string
    *
    * Note that this format has only two digits for the year.
    *)
-
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 2.3  2004/07/04 21:05:16  stolpmann
- * 	ocamldoc
- *
- * Revision 2.2  2001/09/29 15:26:53  pdoane
- * New date parsing/formatting routines
- *
- * Revision 2.1  2001/09/14 14:22:34  stolpmann
- * 	Initial revision (sourceforge)
- *
- *
- * ======================================================================
- * Revision 1.1  2001/08/30 19:50:42  gerd
- * 	Initial revision.
- *
- * 
- *)

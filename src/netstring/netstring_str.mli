@@ -214,31 +214,3 @@ val last_chars: string -> int -> string
  * module in a special way when used in multi-threaded environment. This
  * is no longer necessary.
  *)
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 2.4  2004/07/09 00:17:47  stolpmann
- * 	ocamldoc
- *
- * Revision 2.3  2002/01/12 17:58:56  stolpmann
- * 	Removed the labels, following the Str update in O'Caml 3.04.
- *
- * Revision 2.2  2001/11/07 00:31:42  stolpmann
- * 	Reimplementation of the module: It bases now on PCRE, and
- * translates Str-style regular expressions to PCRE-style regular expressions.
- *
- * Revision 2.1  2001/09/14 14:22:34  stolpmann
- * 	Initial revision (sourceforge)
- *
- *
- * ======================================================================
- * Revision 1.2  2000/06/25 21:15:48  gerd
- * 	Checked thread-safety.
- *
- * Revision 1.1  2000/06/25 20:48:19  gerd
- * 	Initial revision.
- *
- * 
- *)

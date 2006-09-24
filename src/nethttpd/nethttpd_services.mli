@@ -144,7 +144,7 @@ type file_option =
     [ `Enable_gzip
     | `Enable_index_file of string list
     | `Enable_listings of 
-	extended_environment -> Netcgi_compat.Netcgi_types.cgi_activation -> file_service -> unit
+	extended_environment -> Netcgi1_compat.Netcgi_types.cgi_activation -> file_service -> unit
     ]
   (** Add-on features for file services:
     * - [`Enable_gzip]: If enabled, files ending in [.gz] are assumed to be in [gzip] 
@@ -183,7 +183,7 @@ val file_translator : file_service -> string -> string
   (** Translates an URI path to a file name. Raises [Not_found] if not possible. *)
 
 val simple_listing : ?hide:string list -> 
-             extended_environment -> Netcgi_compat.Netcgi_types.cgi_activation -> file_service -> unit
+             extended_environment -> Netcgi1_compat.Netcgi_types.cgi_activation -> file_service -> unit
   (** Simple listing generator for [`Enable_listings] 
     *
     * [hide]: An optional list of PCRE regular expressions. File names matching one
@@ -192,8 +192,8 @@ val simple_listing : ?hide:string list ->
    *)
 
 type std_activation_options =
-   { stdactv_processing : (string -> Netmime.mime_header -> Netcgi_compat.Netcgi.argument_processing) option;
-     stdactv_operating_type : Netcgi_compat.Netcgi.operating_type option;
+   { stdactv_processing : (string -> Netmime.mime_header -> Netcgi1_compat.Netcgi.argument_processing) option;
+     stdactv_operating_type : Netcgi1_compat.Netcgi.operating_type option;
    } 
   (** These are options for [`Std_activation]. For explanations, see the [Netcgi]
     * module.
@@ -247,9 +247,9 @@ type 'a dynamic_service =
 	 * [If-Ranges] are not affected by this option. One can safely ignore these
 	 * headers.
           *)
-    } constraint 'a = # Netcgi_compat.Netcgi_types.cgi_activation ;;
+    } constraint 'a = # Netcgi1_compat.Netcgi_types.cgi_activation ;;
 
-val std_activation : std_activation -> extended_environment -> Netcgi_compat.Netcgi_types.cgi_activation
+val std_activation : std_activation -> extended_environment -> Netcgi1_compat.Netcgi_types.cgi_activation
   (** Create the function for [dyn_activation] from a [std_activation] tag.
     * Example:
     * [ let dyn_actv = std_activation `Std_activation_unbuffered ]

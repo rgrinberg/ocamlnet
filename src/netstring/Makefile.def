@@ -39,7 +39,9 @@ DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netdate.mli netencoding.mli netulex.mli netaccel.mli \
 	netaccel_link.mli nethtml.mli netstring_str.mli netstring_pcre.mli \
 	netstring_mt.mli \
-	netmappings.mli netaux.mli nethttp.mli
+	netmappings.mli netaux.mli nethttp.mli \
+	netchannels_tut.txt netmime_tut.txt netsendmail_tut.txt \
+	netulex_tut.txt neturl_tut.txt
 
 PP_OPTIONS = -package camlp4 -syntax camlp4o
 

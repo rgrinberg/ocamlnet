@@ -558,16 +558,3 @@ let scan_iso2022 init_state =
 
 --- end global comment *)
 
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.2  2003/06/04 19:21:53  stolpmann
- * 	compile fixes
- *
- * Revision 1.1  2003/06/03 18:52:29  stolpmann
- * 	intial revision
- *
- * 
- *)

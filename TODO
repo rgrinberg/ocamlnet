@@ -1,13 +1,22 @@
 Overall:
 	Documentation:
-	- ocamldoc
 	- other
 
 
 	- Improve Netplex .mli docs
 
-	- rpc*
+	- rpc:
+	  * Complete rpc_mapping_ref
+	  * Start rpc_intro
+
 	- netclient
+
+	- Remove CVS Log
+	  netstring: DONE
+	  netcgi1: (   )
+	  nethttpd: (   )
+	  pop: (   )
+	  smtp: (   )
 
 Details:
 	container # is_first_container
@@ -15,29 +24,27 @@ Details:
 Equeue:
 	Fix command engines as commented in the code.
 
+	Syntax for engine concatenation?
+   	- when_state style:
+  	  eng1 >> (function Success _ -> | Error _ -> | ...)
+	- ...
+
 Netplex:
 	- Move accepted() from Control to System? Implement totally different
 	  mechanisms?
 
-Netstring:
-	- Improved HTML parser		PRIO
-
 Integration of new netcgi
-
-	- Rename:		PRIO
-	  * netcgi -> netcgi2
-	  * cgi -> netcgi1
 
 	- Test nethttpd when linked with netcgi
 	- Move new cookie implementation to Nethttp, and make it a 
 	  class
 	- Faster URL encoding functions can be moved to Netencoding.
 	- Write Netplex drivers for fcgi, ajp, (scgi?).
+	- Check for 64 bit bug in fcgi
 
 Documentation:
 
 	- Check for texts not yet converted to ocamldoc
-	- Continue Netcgi_porting
 	- RPC intro
 
 Http_client.pipeline:

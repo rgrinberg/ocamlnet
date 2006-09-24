@@ -4,7 +4,7 @@ PKGNAME  = rpc-xti
 ARCHIVE  = rpc_xti
 OBJECTS  = rpc_xti_client.cmo
 COBJECTS = rpcxti.o
-DOBJECTS = 
+DOBJECTS = rpc_xti_client.mli
 
 INCLUDES += $(INC_RPC)
 

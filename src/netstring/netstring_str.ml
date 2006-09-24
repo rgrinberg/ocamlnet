@@ -517,31 +517,3 @@ let string_before = Netstring_pcre.string_before ;;
 let string_after = Netstring_pcre.string_after ;;
 let first_chars = Netstring_pcre.first_chars ;;
 let last_chars = Netstring_pcre.last_chars ;;
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 2.4  2002/01/12 17:58:56  stolpmann
- * 	Removed the labels, following the Str update in O'Caml 3.04.
- *
- * Revision 2.3  2001/11/07 00:31:42  stolpmann
- * 	Reimplementation of the module: It bases now on PCRE, and
- * translates Str-style regular expressions to PCRE-style regular expressions.
- *
- * Revision 2.2  2001/10/17 03:47:25  pdoane
- * Added labels for 3.03
- *
- * Revision 2.1  2001/09/14 14:22:34  stolpmann
- * 	Initial revision (sourceforge)
- *
- *
- * ======================================================================
- * Revision 1.2  2000/06/25 21:15:48  gerd
- * 	Checked thread-safety.
- *
- * Revision 1.1  2000/06/25 20:48:19  gerd
- * 	Initial revision.
- *
- * 
- *)

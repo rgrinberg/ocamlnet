@@ -33,8 +33,12 @@ opt:
 
 .PHONY: doc
 doc:
-	for pkg in $(PKGLIST); do \
-		( cd src/$$pkg && $(MAKE) ocamldoc.dump ) || exit; \
+	for pkg in src/*/.; do \
+	    test ! -f $$pkg/Makefile || \
+		{ ( cd $$pkg && $(MAKE) -f Makefile.pre generate ) || exit; \
+		  ( cd $$pkg && $(MAKE) -f Makefile.pre depend ) || exit; \
+		  ( cd $$pkg && $(MAKE) ocamldoc.dump ) || exit; \
+		}; \
 	done
 	cd doc; $(MAKE) doc
 

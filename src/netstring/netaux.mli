@@ -67,23 +67,3 @@ module ArrayAux : sig
     (int array -> int -> int array -> int -> int -> int -> unit) ref
     (* Used by [Netaccel] to override the built-in implementation *)
 end
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.4  2004/07/09 00:17:47  stolpmann
- * 	ocamldoc
- *
- * Revision 1.3  2004/07/08 22:10:18  stolpmann
- * 	Adding accelerators for character set conversion.
- *
- * Revision 1.2  2004/07/07 22:41:53  stolpmann
- * 	Added Netulex, Netaux.ArrayAux.
- * 	Some improvements in Netconversion.
- *
- * Revision 1.1  2002/01/14 23:47:15  stolpmann
- * 	Initial revision
- *
- * 
- *)

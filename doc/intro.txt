@@ -1,15 +1,22 @@
-OcamlNet consists of several libraries:
+Ocamlnet consists of a number of libraries:
 
-- [netstring]
-- [cgi]
-- [nethttpd]
-- [pop]
-- [smtp]
+- [netstring] is about processing strings that occur in network context
+- [netcgi1] and [netcgi2] focus on portable web applications
+- [nethttpd] is a web server component (HTTP server implementation)
+- [netplex] is a generic server framework
+- [rpc] implements OncRPC
+- [netclient] implements clients for HTTP, FTP, and Telnet 
+- [equeue] is an event queue used for many protocol implementations
+- [shell] is about calling external commands
+- [netshm] provides shared memory for IPC purposes
+- [netsys] contains bindings for system functions
+- [smtp] and [pop] are two further client implementations
 
-In order to explore these libraries, it is recommended to read the
-module {!Netchannels} first, as the object channels defined in this
-module are a very basic structure, and used by most other modules.
-There is also a {!Netchannels.tutorial}.
+A number of ideas and concepts are used throughout the libraries:
+
+- {!Netchannels} are a way to abstract sequential I/O channels
+- The event queues provided by {!Equeue} and {!Unixqueue} make
+  asynchronous protocol interpreters possible
 
 {2:netstring The [netstring] library}
 
@@ -38,18 +45,29 @@ There is also a {!Netchannels.tutorial}.
    Netmappings
    Netaux}
 
-{2:cgi The [cgi] library}
+{3:netstring_intro Guides}
 
-This is the aged [cgi] library whose features are frozen. A description
-of its interfaces can be found {{:cgi/index.html} here}.
+- {!module:Netchannels_tut}: The [Netchannels] tutorial - {b strongly 
+  recommended read!}
+- {!module:Netmime_tut}: The [Netmime] tutorial
+- {!module:Netsendmail_tut}: The [Netsendmail] tutorial
+- {!module:Netulex_tut}: The [Netulex] tutorial
+- {!module:Neturl_tut}: The [Neturl] tutorial
 
-Note that it is not possible to use [cgi] and [netcgi] at the same
+{2:netcgi1 The [netcgi1] library}
+
+The [netcgi1] library is the old library for writing portable web
+applications, formerly known as [cgi] (this name is now an alias
+for [netcgi1]). Its features are frozen. A description
+of its interfaces can be found {{:netcgi1/index.html} here}.
+
+Note that it is not possible to use [netcgi1] and [netcgi2] at the same
 time.
 
 
-{2:netcgi The [netcgi] library}
+{2:netcgi2 The [netcgi2] library}
 
-This is the revised library for Web applications, now called [netcgi].
+This is the revised library for Web applications, now called [netcgi2].
 
 {!modules:
     Netcgi
@@ -61,14 +79,15 @@ This is the revised library for Web applications, now called [netcgi].
     Netcgi_test
     Netcgi_mod
     Netcgi_modtpl
-    Netcgi_dbi}
+    Netcgi_dbi
+    Netcgi1_compat}
 
-Note that it is not possible to use [cgi] and [netcgi] at the same
+Note that it is not possible to use [netcgi1] and [netcgi2] at the same
 time.
 
 {3:netcgi_intro Guides}
 
-- {!module:Netcgi_porting}: Porting [cgi] programs to [netcgi]
+- {!module:Netcgi_porting}: Porting [netcgi1] programs to [netcgi2]
 
 {2:nethttpd The [nethttpd] library}
 
@@ -110,6 +129,75 @@ build web servers, and with {!Intro.rpc} to build RPC servers.
 {3:nethttpd_intro Guides}
 
 - {!module:Netplex_intro}: Introduction into [Netplex]
+
+
+{2:equeue The [rpc] library}
+
+This library implements OncRPC (alias SunRPC).
+
+{!modules:
+   Rtypes
+   Xdr
+   Rpc
+   Rpc_program
+   Rpc_client
+   Rpc_simple_client
+   Rpc_server
+   Rpc_auth_sys
+   Rpc_portmapper
+   Rpc_portmapper_aux
+   Rpc_portmapper_clnt
+   Rpc_transport
+   Rpc_packer}
+
+{3:rpc_intro Guides}
+
+- {!module:Rpc_mapping_ref}: RPC Language Mapping Reference
+
+{3:rpc_local The [rpc-auth-local] extension}
+
+Authentication for local socket connections.
+
+{!modules:
+    Rpc_auth_local}
+
+{3:rpc_authdh The [rpc-auth-dh] extension}
+
+This is Diffie-Hellman authentication for OncRPC (also known as
+"Secure RPC").
+
+{!modules:
+    Rpc_auth_dh
+    Rpc_key_service
+    Rpc_time}
+
+{3:rpc_xti The [rpc-xti] extension}
+
+System V provides a network API called XTI in addition to the socket API.
+This library allows it to connect to RPC services that can only be reached
+over a local XTI connection ("cots" connection).
+
+{!modules:
+    Rpc_xti_client}
+
+{3:rpc_ssl The [rpc_ssl] extension}
+
+This library allows you to tunnel RPC through SSL/TLS.
+
+{!modules:
+    Rpc_ssl}
+
+
+{2:netclient The [netclient] library}
+
+This library includes clients for HTTP, Telnet, and (incomplete) FTP.
+
+{!modules:
+   Http_client
+   Telnet_client
+   Ftp_client
+   Ftp_data_endpoint
+}
 
 
 {2:equeue The [equeue] library}

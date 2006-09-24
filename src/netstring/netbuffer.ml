@@ -173,35 +173,3 @@ let print_buffer b =
     b.length
     (String.length b.buffer)
 ;;
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 2.4  2004/07/06 17:52:34  stolpmann
- * 	New: add_char, insert_string, insert_sub_string, insert_char
- *
- * Revision 2.3  2002/03/15 15:19:08  stolpmann
- * 	Fix: Large buffers with a length near Sys.max_string_length
- * are supported.
- *
- * Revision 2.2  2001/12/28 20:51:33  stolpmann
- * 	The non-optional labels have been removed.
- * 	Added: blit, add_inplace.
- *
- * Revision 2.1  2001/09/14 14:22:34  stolpmann
- * 	Initial revision (sourceforge)
- *
- *
- * ======================================================================
- * Revision 1.3  2000/06/25 22:34:43  gerd
- * 	Added labels to arguments.
- *
- * Revision 1.2  2000/06/24 20:20:33  gerd
- * 	Added the toploop printer.
- *
- * Revision 1.1  2000/04/15 13:07:48  gerd
- * 	Initial revision.
- *
- * 
- *)

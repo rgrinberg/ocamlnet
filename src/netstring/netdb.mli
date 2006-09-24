@@ -37,13 +37,3 @@ val set_db : string -> string -> unit
 val disable_file_db : unit -> unit
   (* Disables file lookup. *)
 
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.1  2003/06/03 18:52:29  stolpmann
- * 	intial revision
- *
- * 
- *)

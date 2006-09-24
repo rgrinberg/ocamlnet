@@ -401,31 +401,3 @@ let sendmail ?(mailer = sendmail_program) ?(crlf = false) message =
        write_mime_message ~crlf ch message;
     )
 ;;
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.4  2005/04/14 12:44:40  stolpmann
- * One can now select LF as line terminator for all message writing
- * functions. Netsendmail.sendmail defaults to LF for Unix compatiblity.
- *
- * Revision 1.3  2004/07/04 18:49:53  stolpmann
- * 	Revised interface: Mails can also be composed with
- * wrap_mail, wrap_parts, and wrap_attachment, in addition to the
- * [compose] function.
- * 	Added a tutorial, or better cookbook to generate the
- * various types of mails occuring in practice.
- *
- * Revision 1.2  2004/07/01 22:12:59  stolpmann
- * 	New/newly exported: wrap_attachment,
- * create_text_tokens, create_address_list_tokens, format_field_value
- * 	Bugfix: Text fields consisting only of ASCII chars were not
- * folded.
- * 	ocamldoc
- *
- * Revision 1.1  2002/02/02 23:52:43  stolpmann
- * 	Initial revision.
- *
- * 
- *)

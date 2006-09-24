@@ -1,7 +1,7 @@
 TOP_DIR=..
 
 .PHONY: doc
-doc: html-doc html-doc-cgi
+doc: html-doc html-doc-netcgi1
 
 include $(TOP_DIR)/Makefile.rules
 
@@ -10,9 +10,13 @@ html-doc:
 	rm -rf html-main
 	mkdir -p html-main
 	rm -f loadopts.tmp
-	for p in $(PKGLIST); do \
+	pkglist="$$(cd ..; echo src/*/ocamldoc.dump | xargs -n 1 dirname | xargs -n 1 basename )"; \
+	for p in $$pkglist; do \
 		[ "$$p" != "cgi" ] || continue; \
+		[ "$$p" != "netcgi1" ] || continue; \
 		[ "$$p" != "equeue-gtk1" ] || continue; \
+		[ "$$p" != "equeue-gtk2" ] || continue; \
+		[ "$$p" != "netcgi-apache" ] || continue; \
 		echo "-load ../src/$$p/ocamldoc.dump" >>loadopts.tmp; \
 	done
 	$(OCAMLDOC) -d html-main -stars -t "Ocamlnet 2 Reference Manual" \
@@ -21,15 +25,15 @@ html-doc:
 		`cat loadopts.tmp`
 	cp style.css html-main
 
-.PHONY: html-doc-cgi
-html-doc-cgi:
-	rm -rf html-main/cgi
-	mkdir -p html-main/cgi
-	$(OCAMLDOC) -d html-main/cgi -stars -t "Ocamlnet 2 Reference Manual (cgi add-on)" \
+.PHONY: html-doc-netcgi1
+html-doc-netcgi1:
+	rm -rf html-main/netcgi1
+	mkdir -p html-main/netcgi1
+	$(OCAMLDOC) -d html-main/netcgi1 -stars -t "Ocamlnet 2 Reference Manual (netcgi1 add-on)" \
 		-html -css-style style.css \
-		-load ../src/cgi/ocamldoc.dump \
-		-intro cgi_intro.txt
-	cp style.css html-main/cgi
+		-load ../src/netcgi1/ocamldoc.dump \
+		-intro netcgi1_intro.txt
+	cp style.css html-main/netcgi1
 
 clean-doc::
 	rm -rf html-main loadopts.tmp

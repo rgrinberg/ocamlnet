@@ -3,6 +3,8 @@
  *
  *)
 
+(** Common types and exceptions *)
+
 open Rtypes
 
 type protocol =

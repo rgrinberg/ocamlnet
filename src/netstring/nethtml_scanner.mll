@@ -152,34 +152,3 @@ and scan_string_literal2 = parse
   | ( [^ '\'' ]* as s) '\''
       { s }
 
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 2.2  2002/07/06 16:24:44  stolpmann
- * 	Change: Only ASCII letters are accepted in names.
- *
- * Revision 2.1  2001/09/14 14:22:34  stolpmann
- * 	Initial revision (sourceforge)
- *
- *
- * ======================================================================
- * Revision 1.4  2001/07/15 14:18:34  gerd
- * 	Attribute parsing is now less strict.
- *
- * Revision 1.3  2001/06/08 16:25:27  gerd
- * 	Bugfix: </SCRIPT> is now recognized (thanks to David Fox)
- * 	The parser may now return comments, declarations, and processing
- * instructions if requested to do so
- * 	The parser accepts xhtml to some extent
- * 	Now exported: parse_document.
- *
- * Revision 1.2  2001/04/24 19:27:00  gerd
- * 	Added a FIXME comment
- *
- * Revision 1.1  2000/03/03 01:07:25  gerd
- * 	Initial revision.
- *
- * 
- *)

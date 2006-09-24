@@ -1,0 +1,17 @@
+{2:cgi The [netcgi1] library}
+
+This is the aged [netcgi1] library whose features are frozen. A new version
+is developed as {{:../index.html#netcgi2} [netcgi2] library}.
+
+The name [cgi] is an alias for [netcgi1].
+
+{!modules:
+   Netcgi_env
+   Netcgi_types
+   Netcgi
+   Netcgi_jserv
+   Netcgi_jserv_ajp12
+   Netcgi_jserv_app
+   Netcgi_fcgi_10
+   Netcgi_fcgi
+   Netcgi1_compat}

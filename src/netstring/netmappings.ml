@@ -66,24 +66,3 @@ let init_mt new_f_lock new_f_unlock =
   f_lock := new_f_lock;
   f_unlock := new_f_unlock
 ;;
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 2.3  2003/06/03 19:00:14  stolpmann
- * 	new implementation basing on Netdb
- *
- * Revision 2.2  2002/06/23 19:47:29  stolpmann
- * 	Improved representation of character mappings.
- *
- * Revision 2.1  2001/09/14 14:22:34  stolpmann
- * 	Initial revision (sourceforge)
- *
- *
- * ======================================================================
- * Revision 1.1  2000/08/28 23:17:54  gerd
- * 	Initial revision.
- *
- * 
- *)

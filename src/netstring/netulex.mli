@@ -6,10 +6,6 @@
 
 (** Support module for Alain Frisch's [ulex] lexer generator
  *
- * {b Contents}
- * - {!Netulex.modules}
- * - {!Netulex.tutorial}
- *
  * The sub module [ULB] is a Unicode-based lexing buffer that
  * reads encoded strings and makes them available to the lexer
  * as both Unicode arrays and UTF-8 strings.
@@ -26,6 +22,8 @@
  *
  * To enable this version of [Ulexing], simply put an
  * [open Netulex] before using the [ulex] lexers.
+ *
+ * Note that the tutorial has been moved to {!Netulex_tut}.
  *)
 
 (** {1:modules Modules} *)
@@ -265,74 +263,3 @@ module Ulexing : sig
 end
 
 
-(** {1:tutorial Tutorial}
- *
- * Of course, you need Alain Frisch's [ulex] utility first. It installs
- * itself under the name [ulex] as findlib library.
- *
- * Next, write your lexer, e.g. (line numbers in brackets):
- *
- * {[
- * [1] open Netulex
- * [2] let digits = lexer
- * [3]   | ['0'-'9']+ -> `Number(int_of_string(Ulexing.utf8_lexeme lexbuf))
- * [4]   | 8364       -> `Euro_sign   (* Code point #8364 in Unicode *)
- * ]}
- *
- * This is a very trivial example. The lexer accepts sequences of digits,
- * and returns them as `Number tokens. Furthermore, the euro sign is
- * recognized and returned as `Euro_sign. Note that in the first case
- * {!Netulex.Ulexing.utf8_lexeme}
- * is called to retrieve the current lexeme as UTF-8 string. (Well,
- * digits are a bad example, as they are only ASCII, and UTF-8 is not
- * really needed. Imagine you want to extend the scanner to other
- * number systems represented in the Unicode character set.)
- *
- * Line 1 is quite important. If you don't open [Netulex], the generated
- * [ulex] code will use the version of the [Ulexing] module coming with [ulex],
- * and not this one.
- *
- * Call the lexer as follows (line numbers in brackets):
- * {[
- * [5] let sample = "42543\226\130\172";;
- * [6] let ulb = Netulex.ULB.from_string `Enc_utf8 sample;;
- * [7] let lexbuf = Netulex.Ulexing.from_ulb_lexbuf ulb;;
- * [8] let first_token = digits lexbuf;;
- * ]}
- *
- * Now, [first_token] is [`Number 42543]. After
- *
- * {[
- * [9] let second_token = digits lexbuf;;
- * ]}
- *
- * this variable is set to [`Euro_sign], because the three-byte sequence
- * "\226\130\172" represents the euro sign in UTF-8.
- *
- * In line 6, the encoding [`Enc_utf8] selects that [sample] is an
- * UTF-8 string. You can pass here any encoding the {!Netconversion}
- * module understands.
- *
- * If you would like to scan from another source, just change line 6,
- * e.g.
- * 
- * {[
- * [6'] let ulb = Netulex.ULB.from_in_obj_channel ch
- * ]}
- *
- * where [ch] is any input channel the {!Netchannels} module supports.
- * For example, to read from a file:
- * 
- * {[
- * let ch = new Netchannels.input_channel (open_in "filename")
- * ]}
- *
- * You should compile the examples with
- *
- * {[
- * ocamlfind ... -package ulex,netstring -syntax camlp4o ...
- * ]}
- *
- * For the syntax of the lexer rules, see the documentation coming
- * with [ulex].
- *)

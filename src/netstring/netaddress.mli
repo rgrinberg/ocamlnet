@@ -89,19 +89,3 @@ val parse : string -> t list
    * (e.g. "gerd\@gerd-stolpmann.de (Gerd Stolpmann)" - the part
    * in parentheses is simply ignored.
    *)
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.3  2004/07/04 21:05:16  stolpmann
- * 	ocamldoc
- *
- * Revision 1.2  2001/11/19 02:09:45  pdoane
- * 	Exported exception Parse_error
- *
- * Revision 1.1  2001/10/09 03:54:57  pdoane
- * Added files to project.
- *
- * 
- *)

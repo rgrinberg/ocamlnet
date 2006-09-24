@@ -197,38 +197,3 @@ let bounded_full_split sep s max =
   let max' = if max <= 0 then -1 else max in
   Pcre.full_split ~rex:sep ~max:max' s
 ;;
-
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 2.7  2005/06/27 14:21:31  stolpmann
- * Pcre: Newer versions of this library raise Not_found instead of
- * returning "" when get_substring does not have a matching string.
- *
- * Revision 2.6  2002/06/09 10:15:00  stolpmann
- * 	Fix: [bounded_split] and [split] now correctly jump over the
- * first delimiter
- *
- * Revision 2.5  2002/01/12 17:58:28  stolpmann
- * 	Bugfix: matched_string and matched_group only raise Not_found
- * if there is not any match, but they return "" if the empty string
- * matches. For example, the pattern a(b?)c matches ac with an empty
- * group, but the pattern a(b)?c matches ac with a non-existing group.
- * Only in the second case Not_found will be raised.
- * 	Removed the labels, following the Str update in O'Caml 3.04.
- *
- * Revision 2.4  2001/12/16 15:42:18  stolpmann
- * 	O'Caml 3.04
- *
- * Revision 2.3  2001/11/07 00:30:31  stolpmann
- * 	global_replace, replace_first: the [templ] argument accepts the
- * $n notation
- * 	substitute_first: added
- * 	split_delim, bounded_split_delim: added
- * 	all split functions: checked for best Str compatibility. Some
- * code has been copied from Str to achieve this.
- *
- * 
- *)
