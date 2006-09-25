@@ -5,6 +5,19 @@
 open Unix
 
 
+(** {1 Helper functions} *)
+
+val restart : ('a -> 'b) -> 'a -> 'b
+  (** [restart f arg] calls [f arg], and restarts this call if the
+    * exception [Unix_error(EINTR,_,_)] is caught.
+    *
+    * Note that there are some cases where this handling of [EINTR] is
+    * not sufficient:
+    * - Functions that have a timeout argument like [Unix.select]: When
+    *   [EINTR] is caught the timeout should be adjusted.
+    * - [Unix.connect] with a blocking descriptor because this is not
+    *   well-enough specified by POSIX
+   *)
 
 (** {1 Standard POSIX functions} *)
 

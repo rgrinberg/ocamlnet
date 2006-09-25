@@ -2,7 +2,7 @@
 #name = "netcgi"
 version = "@VERSION@"
 description = "Connectors for CGI, FCGI, AJP"
-requires = "unix netstring"
+requires = "unix netstring netsys"
 archive(byte) = "netcgi.cma"
 archive(native) = "netcgi.cmxa"
 error(pkg_netcgi1) = "The packages netcgi1 and netcgi2 cannot be used together"

@@ -95,3 +95,26 @@ val run :
       Your application should be ready handle SIGUSR1, used to
       resquest a "graceful" process shutdown, and SIGTERM to request a
       quick shutdown.  *)
+
+
+val handle_request :
+      config -> output_type -> arg_store -> exn_handler ->
+      (cgi -> unit) -> max_conns:int -> log:(string -> unit) option ->
+      Unix.file_descr -> 
+        connection_directive
+  (** [handle_request config output_type arg_store eh f ~max_conns ~log fd]:
+      This is a 
+      lower-level interface that processes exactly one request arriving 
+      on the existing connection [fd].
+
+      [max_conns] is passed to the FCGI client and indicates how many
+      connections this server can process in parallel.
+
+      [log] is the error logger function or [None], in which case 
+      errors are passed through to the FCGI client.
+
+      The other arguments are just like for [run].
+
+      The return value indicates whether the connection can be kept
+      open or must be closed.
+   *)

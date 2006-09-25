@@ -898,24 +898,17 @@ type exn_handler = cgi_environment -> (unit -> unit) -> unit
         | ...
       ]} *)
 
-
-class type ['message] container =
-object
-  method type_of_container : [`Sequential | `Process | `Thread]
-  method broadcast : 'message -> unit
-  method accept : unit ->
-    [ `Connection of Unix.sockaddr * Unix.file_descr
-    | `Message of 'message
-    | `Shutdown
-    | `Restart ]
-end
-
-type 'message connection_handler =
-    'message container -> (cgi -> unit) -> unit
-
-type binding = (url_filter * action) list
-and url_filter = string (* url *) -> bool
-and action = cgi -> unit
+type connection_directive =
+    [ `Conn_close | `Conn_close_linger | `Conn_keep_alive
+    | `Conn_error of exn
+    ]
+  (** Directive how to go on with the current connection:
+    * - [`Conn_close]: Just shut down and close descriptor
+    * - [`Conn_close_linger]: Linger, shut down, and close descriptor
+    * - [`Conn_keep_alive]: Check for another request on the same connection
+    * - [`Conn_error e]: Shut down and close descriptor, and handle the
+    *   exception [e]
+   *)
 
 
 (** Specific connectors can be found in separate modules.  For example:

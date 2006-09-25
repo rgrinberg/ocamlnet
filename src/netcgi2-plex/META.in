@@ -1,0 +1,5 @@
+version = "@VERSION@"
+description = "Netplex adapter for the CGI/FCGI/AJP connectors"
+requires = "netplex netcgi2"
+archive(byte) = "netcgi2-plex.cma"
+archive(native) = "netcgi2-plex.cmxa"

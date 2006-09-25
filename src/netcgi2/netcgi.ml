@@ -234,20 +234,7 @@ type output_type = Netcgi_common.output_type
 type arg_store = Netcgi_common.arg_store
 type exn_handler = cgi_environment -> (unit -> unit) -> unit
 
-class type ['message] container =
-object
-  method type_of_container : [`Sequential | `Process | `Thread]
-  method broadcast : 'message -> unit
-  method accept : unit -> [ `Connection of Unix.sockaddr * Unix.file_descr
-                          | `Message of 'message
-                          | `Shutdown
-			  | `Restart ]
-end
-
-
-type 'message connection_handler =
-    'message container -> (cgi -> unit) -> unit
-
-type binding = (url_filter * action) list
-and url_filter = string (* url *) -> bool
-and action = cgi -> unit
+type connection_directive =
+    [ `Conn_close | `Conn_close_linger | `Conn_keep_alive
+    | `Conn_error of exn
+    ]

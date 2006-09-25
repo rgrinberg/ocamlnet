@@ -6,12 +6,12 @@ PDFLATEX	= pdflatex
 
 PP		= #-pp "camlp4o pa_macro.cmo"
 
-INCLUDES	= -I .. -I +pcre -I $(NETSTRING)
+INCLUDES	= -I .. -I $(PCRE) -I $(NETSTRING)
 LIBS_CMA	= pcre.cma unix.cma netstring.cma netcgi.cma
 OCAMLC_FLAGS	= -g -dtypes $(INCLUDES)
 OCAMLOPT_FLAGS	= -p $(INCLUDES)
 
-PROGRAMS = args_cgi.ml args_fcgi.ml args_mod.cma args_scgi.ml args_ajp.ml \
+PROGRAMS = args_cgi.ml args_fcgi.ml args_scgi.ml args_ajp.ml \
   browsertest.ml fdf_cgi.ml fdf_form.pdf
 
 export OCAMLPATH = ..

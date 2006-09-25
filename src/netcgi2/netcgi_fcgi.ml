@@ -103,7 +103,8 @@ type record = {
 }
 
 let rec really_read fd buf ofs len =
-  let r = Unix.read fd buf ofs len in
+  let r = Netsys.restart (Unix.read fd buf ofs) len in
+  if r = 0 && len > 0 then raise End_of_file;
   if r < len then really_read fd buf (ofs + r) (len - r)
 
 (* Padding is at most 255 bytes long and we do not care about thread
@@ -112,7 +113,8 @@ let rec really_read fd buf ofs len =
 let padding_buffer = String.create 0xFF
 
 let rec read_padding fd len =
-  let r = Unix.read fd padding_buffer 0 len in
+  let r = Netsys.restart (Unix.read fd padding_buffer 0) len in
+  if r = 0 && len > 0 then raise End_of_file;
   if r < len then read_padding fd (len - r)
 
 (** [input_record fd buf] reads the next record from the socket [fd],
@@ -182,6 +184,12 @@ let update_props_inheader =
 (************************************************************************)
 (** Raw Output functions *)
 
+let rec really_write fd s pos len =
+  let len' = Netsys.restart (Unix.single_write fd s pos) len in
+  if len' < len then
+    really_write fd s (pos+len') (len-len')
+
+
 (* [unsafe_output fd ty id s ofs len] send on [fd] for a request [id],
    a record of type [ty] whose data is the substring [s.[ofs .. ofs +
    len - 1]] where [len <= 65535].  *)
@@ -198,20 +206,19 @@ let unsafe_output fd ty id s ofs len =
   r.[4] <- Char.chr(len lsr 8);
   r.[5] <- Char.chr(len land 0xFF); (* contentLength *)
   r.[6] <- Char.chr(padding_len);  (* paddingLength *)
-  if Unix.write fd r 0 8 < 8 then 0 else (
-    let w = Unix.write fd s ofs len in
-    ignore(Unix.write fd r 0 padding_len); (* Padding (garbage) *)
-    w
-  )
+  really_write fd r 0 8;
+  really_write fd s ofs len;
+  really_write fd r 0 padding_len (* Padding (garbage) *)
+
 
 (* [unsafe_really_output ty fd id s ofs len] does the same as
-   [unsafe_output] except that empty strings are not outputted (they
+   [unsafe_output] except that empty strings are not output (they
    would close the stream) and strings longer than 65535 bytes are
    sent in several records. *)
 let rec unsafe_really_output fd ty id  s ofs len =
   if len <= 0 then () else (
-    let w = unsafe_output fd ty id s ofs (min len 0xFFFF) in
-    if w = 0 then raise Netchannels.Closed_channel;
+    let w = min len 0xFFFF in
+    unsafe_output fd ty id s ofs w;
     unsafe_really_output fd ty id  s (ofs + w) (len - w)
   )
 
@@ -252,11 +259,11 @@ let send_end_request fd id exit_code status =
 			    | CANT_MPX_CONN ->    1
 			    | OVERLOADED ->       2
 			    | UNKNOWN_ROLE ->     3); (* protocolStatus *)
-  ignore(Unix.write fd r 0 16)
+  really_write fd r 0 16
 
 
 (* Date and executable name already provided by FCGI handler. *)
-let log_error fd id msg =
+let fcgi_log_error fd id msg =
   output_string fd fcgi_stderr id msg
 
 
@@ -340,7 +347,7 @@ let send_unknown_type fd t =
   r.[5] <- '\008'; (* contentLength = 8 *)
   r.[6] <- '\000'; (* no padding *)
   r.[8] <- t; (* type *)
-  ignore(Unix.write fd r 0 16)
+  really_write fd r 0 16
 
 
 (************************************************************************)
@@ -497,7 +504,8 @@ object(self)
   (* @override *)
   method private write buf ofs len =
     assert(len <= 0xFFFF); (* should be true as only used for [out_buf] *)
-    if len > 0 then unsafe_output fd fcgi_stdout id buf ofs len
+    if len > 0 then 
+      ( unsafe_output fd fcgi_stdout id buf ofs len; len )
     else 0
 
   (* @override *)
@@ -520,14 +528,17 @@ end
 (** CGI abstraction *)
 
 (* Creates the environment including the output channel *)
-class fcgi_env ~config ~properties ~input_header fd id
+class fcgi_env ?log_error ~config ~properties ~input_header fd id
   : Netcgi_common.cgi_environment =
   let out_obj = new out_obj fd id in
 object
   inherit cgi_environment ~config ~properties ~input_header out_obj
 
   (* Override to use the correct channel *)
-  method log_error msg = log_error fd id msg
+  method log_error msg = 
+    match log_error with
+      | None -> fcgi_log_error fd id msg
+      | Some f -> f msg
 end
 
 class type cgi =
@@ -561,20 +572,19 @@ object
 end
 
 
-(* [handle_connection fd .. f] handle an accept()ed connection,
-   reading incoming records on the file descriptor [fd] and running
-   [f] for each incoming request. *)
-let rec handle_connection fd ~max_conns ~external_server ~config
-    output_type arg_store exn_handler f =
+let handle_request config 
+                   output_type arg_store exn_handler f ~max_conns ~log =
   let in_buf = String.create 0x10000 in
-  let close_conn =
+  fun fd ->
+
     try
       let (id, role, flags) = input_begin_request fd in_buf ~max_conns in
-
+      
       let (properties, input_header) =
         input_props_inheader fd in_buf id ~max_conns in
-      let env = new fcgi_env ~config ~properties ~input_header fd id in
-
+      let env = 
+	new fcgi_env ?log_error:log ~config ~properties ~input_header fd id in
+      
       (* Now that one knows the environment, one can deal with exn. *)
       exn_handler_default env ~exn_handler
         (fun () ->
@@ -590,7 +600,9 @@ let rec handle_connection fd ~max_conns ~external_server ~config
 	      with e when config.default_exn_handler ->
                 cgi#finalize(); raise e);
              None
-           with Abort _ as e -> Some e
+           with 
+	     | Abort _ as e -> Some e
+	     | Unix.Unix_error(_,_,_) as e -> Some e
         )
         ~finally:
         (fun () ->
@@ -600,16 +612,38 @@ let rec handle_connection fd ~max_conns ~external_server ~config
 	     send_end_request fd id 0 REQUEST_COMPLETE;
            with _ -> ()
         );
-      flags land fcgi_keep_conn = 0
-    with Abort id ->
-      (* FCGI_ABORT_REQUEST received.  The exit_status should come from
-	 the application the spec says.  However, in general, the
-	 application will not have yet started, so just return 0.
-	 (Since we so not allow multiplexed requests, it is more likely
-	 that the web server just closes the connection but we handle it
-	 anyway.) *)
-      true
-  in
+      if flags land fcgi_keep_conn = 0 then
+	`Conn_close_linger
+      else
+	`Conn_keep_alive
+    with 
+      | Abort id ->
+	  (* FCGI_ABORT_REQUEST received.  The exit_status should come from
+	     the application the spec says.  However, in general, the
+	     application will not have yet started, so just return 0.
+	     (Since we so not allow multiplexed requests, it is more likely
+	     that the web server just closes the connection but we handle it
+	     anyway.) *)
+	  `Conn_close
+      | Unix.Unix_error((Unix.EPIPE | Unix.ECONNRESET), _, _) ->
+	  (* This error is perfectly normal: the sever or ourselves may
+   	     have closed the connection (Netcgi_common ignore
+	     SIGPIPE).  Just wait for the next connection. *)
+	  `Conn_close
+      | End_of_file ->
+	  `Conn_close
+      | error ->
+	  `Conn_error error
+	    
+
+(* [handle_connection fd .. f] handle an accept()ed connection,
+   reading incoming records on the file descriptor [fd] and running
+   [f] for each incoming request. *)
+let rec handle_connection fd ~max_conns ~external_server ~config
+    output_type arg_store exn_handler f =
+  let fd_cmd =
+    handle_request config output_type arg_store exn_handler f ~max_conns 
+      ~log:None fd in
   (* FIXME: because of the bug explained in the beginning of this
      file, we would like to close the file descriptor when the request
      is complete.
@@ -617,23 +651,38 @@ let rec handle_connection fd ~max_conns ~external_server ~config
      If we do nothing, one sees the entire output but get an "idle
      timeout".  If we close [fd], one sometimes get "Broken pipe:
      ... write failed"!  So we just shutdown.  Do we risk fd
-     shortage???  *)
-  if external_server then
-    if close_conn then  (
-      try
+     shortage???  
+
+     [gerd]: We need to do a lingering close.
+  *)
+
+  let fd_cmd' =
+    if external_server then
+      fd_cmd 
+    else
+      if fd_cmd = `Conn_keep_alive then
+	`Conn_close_linger   (* Close anyway in this case *) 
+      else
+	fd_cmd in
+
+  match fd_cmd' with
+    | `Conn_close ->
 	Unix.shutdown fd Unix.SHUTDOWN_ALL;
 	Unix.close fd
-      with _ -> ())
-    else
-      (* The server is supposed to take care of closing [fd].  (Tail
-	 recursiveness is important as many requests may be handled by
-	 this fun.)  *)
-      handle_connection fd ~max_conns ~external_server
-	~config output_type arg_store exn_handler f
-  else (
-    Unix.shutdown fd Unix.SHUTDOWN_ALL;
-    (* Unix.close fd *)
-  )
+    | `Conn_close_linger ->
+	Unix.setsockopt_optint fd Unix.SO_LINGER (Some 15);
+	Unix.shutdown fd Unix.SHUTDOWN_ALL;
+	Unix.close fd
+    | `Conn_keep_alive ->
+	(* The server is supposed to take care of closing [fd].  (Tail
+	   recursiveness is important as many requests may be handled by
+	   this fun.)  *)
+	handle_connection fd ~external_server ~max_conns
+	  ~config output_type arg_store exn_handler f
+    | `Conn_error e ->
+	Unix.shutdown fd Unix.SHUTDOWN_ALL;
+	Unix.close fd;
+	raise e
 
 
 let default_allow server =
@@ -670,7 +719,7 @@ let run ?(config=Netcgi.default_config)
   in
   let max_conns = 1 (* single process/thread *) in
   while true do
-    let (fd, server) = Unix.accept sock in
+    let (fd, server) = Netsys.restart Unix.accept sock in
     try
       if allow server then (
         let external_server = (match server with
@@ -679,19 +728,13 @@ let run ?(config=Netcgi.default_config)
 	handle_connection fd ~max_conns ~external_server
 	  ~config output_type arg_store exn_handler f
       );
-      (try Unix.close fd with _ -> ())
     with
-    | Unix.Unix_error(Unix.EPIPE, _, _) ->
-	(* This error is perfectly normal: the sever or ourselves may
-	   have closed the connection (Netcgi_common ignore
-	   SIGPIPE).  Just wait for the next connection. *)
-	(try Unix.close fd with _ -> ())
     | e when config.default_exn_handler ->
-	(* Log the error and wait for the next conection. *)
-	(try
-	   log_error fd 0 (Printexc.to_string e);
-	   Unix.close fd
-	 with _ -> ())
+	(* We cannot log the error because [fd] is already closed, and
+           we can assume anyway that the connection has crashed before.
+           Don't do anything.
+         *)
+	()
   done
 
 

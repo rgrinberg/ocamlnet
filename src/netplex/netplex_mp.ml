@@ -5,15 +5,6 @@
 open Netplex_types
 open Printf
 
-let rec restart f arg =
-  try
-    f arg
-  with
-    | Unix.Unix_error(Unix.EINTR,_,_) ->
-	restart f arg
-;;
-
-
 class mp () : Netplex_types.parallelizer =
 object
   val mutable pid_list = []
@@ -87,7 +78,7 @@ object
 	  pid_list <- pid :: pid_list;
 	  (* Wait until the child completes the critical section: *)
 	  Unix.close fd_wr;
-	  ignore (restart (Unix.select [ fd_rd ] [] []) (-1.0));
+	  ignore (Netsys.restart (Unix.select [ fd_rd ] [] []) (-1.0));
 	  Unix.close fd_rd;
 
 	  ( object
