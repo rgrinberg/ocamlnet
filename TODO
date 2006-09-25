@@ -9,14 +9,14 @@ Overall:
 	  * Complete rpc_mapping_ref
 	  * Start rpc_intro
 
-	- netclient
-
 	- Remove CVS Log
 	  netstring: DONE
 	  netcgi1: (   )
 	  nethttpd: (   )
 	  pop: (   )
 	  smtp: (   )
+
+	- Concept for signals
 
 Details:
 	container # is_first_container
@@ -40,7 +40,6 @@ Integration of new netcgi
 	  class
 	- Faster URL encoding functions can be moved to Netencoding.
 	- Write Netplex drivers for fcgi, ajp, (scgi?).
-	- Check for 64 bit bug in fcgi
 
 Documentation:
 
