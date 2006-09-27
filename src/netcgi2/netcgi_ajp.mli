@@ -86,40 +86,25 @@ val run :
       @param exn_handler See {!Netcgi.exn_handler}.  Default: delegate
       all exceptions to the default handler.  *)
 
-(*
-  val socket : ?props:(string * string) list -> ?backlog:int ->
-  ?reuseaddr:bool -> ?addr:Unix.inet_addr -> ?port:int  ->
-  unit -> Unix.file_descr
-(** [socket ?props ?backlog ?reuseaddr ?addr ?port] setup a AJP
-  socket listening to incomming requests.
+val handle_request :
+  ?script_name:string ->
+  config -> output_type -> arg_store -> exn_handler ->
+  (cgi -> unit) -> log:(string -> unit) option ->
+  Unix.file_descr -> 
+    connection_directive
+  (** [handle_request config output_type arg_store eh f ~log fd]:
+      This is a 
+      lower-level interface that processes exactly one request arriving 
+      on the existing connection [fd].
 
-  @param backlog Length of the backlog queue (connections not yet
-  accepted by the AJP server)
-  @param reuseaddr Whether to reuse the port
-  @param addr defaults to localhost.
-  @param port if not present, assume the program is launched
-  by the web server.
-*)
+      [log] is the error logger function or [None], in which case 
+      errors are passed through to the FCGI client.
 
-val accept_fork : ?props:(string * string) list ->
-  ?onrestart:(unit -> unit) ->
-  ?onshutdown:(unit -> unit) ->
-  ?allow_hosts:Unix.inet_addr list ->
-  fork:((Unix.file_descr -> unit) -> int * Unix.file_descr) ->
-  'message connection_handler -> Unix.inet_addr -> unit
+      The other arguments are just like for [run].
 
-val accept_threads : ?props:(string * string) list ->
-  ?onrestart:(unit -> unit) ->
-  ?onshutdown:(unit -> unit) ->
-  ?allow_hosts:Unix.inet_addr list ->
-  ?thread:((unit -> unit) -> unit) ->
-  'message connection_handler -> Unix.inet_addr -> unit
-
-val handle_connection : ?props:(string * string) list ->
-  ?config:config ->
-  ?auth:(int * string) ->
-  (cgi -> unit) -> 'message connection_handler
-*)
+      The return value indicates whether the connection can be kept
+      open or must be closed.
+   *)
 
 
 (* ---------------------------------------------------------------------- *)

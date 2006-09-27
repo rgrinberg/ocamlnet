@@ -44,6 +44,25 @@ val run :
       @param exn_handler See {!Netcgi.exn_handler}.  Default: delegate
       all exceptions to the default handler.  *)
 
+val handle_request :
+  config -> output_type -> arg_store -> exn_handler ->
+  (cgi -> unit) -> log:(string -> unit) option ->
+  Unix.file_descr -> 
+    connection_directive
+  (** [handle_request config output_type arg_store eh f ~log fd]:
+      This is a 
+      lower-level interface that processes exactly one request arriving 
+      on the existing connection [fd].
+
+      [log] is the error logger function or [None], in which case 
+      errors are passed through to the FCGI client.
+
+      The other arguments are just like for [run].
+
+      The return value indicates whether the connection can be kept
+      open or must be closed.
+   *)
+
 
 (* ---------------------------------------------------------------------- *)
 

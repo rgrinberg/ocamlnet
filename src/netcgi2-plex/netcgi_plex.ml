@@ -36,10 +36,19 @@ let wait_for_request timeout fd =
 let rec do_connection timeout do_request fd =
   let cdir =
     wait_for_request timeout fd in
-  if cdir = `Conn_keep_alive then
-    do_request fd
-  else
+  if cdir = `Conn_keep_alive then (
+    prerr_endline "KEEP_ALIVE";
+    let cdir' =
+      do_request fd in
+    if cdir' = `Conn_keep_alive then
+      do_connection timeout do_request fd
+    else
+      cdir'
+  )
+  else (
+    prerr_endline "CLOSE";
     cdir
+  )
 
 
 let term_connection cont fd cdir =
@@ -96,6 +105,76 @@ let fcgi_processor ?(config = Netcgi.default_config)
 ;;
 
 
+let scgi_processor ?(config = Netcgi.default_config)
+                   ?(output_type = (`Direct "" : Netcgi.output_type))
+                   ?(arg_store = fun _ _ _ -> `Automatic)
+		   ?(exn_handler = fun _ f -> f())
+                   ?(timeout = -1.0) ?mount f : Netplex_types.processor =
+  (* TODO: mount *)
+  ( object
+      inherit Netplex_kit.empty_processor_hooks()
+
+      method process ~when_done cont fd proto =
+	let log msg =
+	  cont # log `Err msg in
+	let cdir =
+	  try 
+	    Unix.clear_nonblock fd;
+	    do_connection
+	      timeout
+	      (Netcgi_scgi.handle_request 
+		 config output_type arg_store exn_handler (f cont)
+		 ~log:(Some log)
+	      )
+	      fd
+	  with
+	    | e -> `Conn_error e in
+	term_connection cont fd cdir;
+	when_done()
+
+      method supported_ptypes =
+	[ `Multi_processing; `Multi_threading ]
+
+    end
+  )
+;;
+
+
+let ajp_processor ?(config = Netcgi.default_config)
+                  ?(output_type = (`Direct "" : Netcgi.output_type))
+                  ?(arg_store = fun _ _ _ -> `Automatic)
+		  ?(exn_handler = fun _ f -> f())
+                  ?(timeout = -1.0) ?mount f : Netplex_types.processor =
+  (* TODO: mount *)
+  ( object
+      inherit Netplex_kit.empty_processor_hooks()
+
+      method process ~when_done cont fd proto =
+	let log msg =
+	  cont # log `Err msg in
+	let cdir =
+	  try 
+	    Unix.clear_nonblock fd;
+	    do_connection
+	      timeout
+	      (Netcgi_ajp.handle_request 
+		 config output_type arg_store exn_handler (f cont)
+		 ~log:(Some log)
+	      )
+	      fd
+	  with
+	    | e -> `Conn_error e in
+	term_connection cont fd cdir;
+	when_done()
+
+      method supported_ptypes =
+	[ `Multi_processing; `Multi_threading ]
+
+    end
+  )
+;;
+
+
 let multi_process ?config ?output_type ?arg_store ?exn_handler ?timeout
                   ?mount ?(enable = [ `FCGI; `SCGI; `AJP ]) f =
   ( object
@@ -109,6 +188,16 @@ let multi_process ?config ?output_type ?arg_store ?exn_handler ?timeout
 		  ?config ?output_type ?arg_store ?exn_handler ?timeout
 		  ?mount
 		  (fun cont fcgi -> f cont (fcgi : #Netcgi_fcgi.cgi :> cgi))
+	    | "scgi" when List.mem `SCGI enable ->
+		scgi_processor
+		  ?config ?output_type ?arg_store ?exn_handler ?timeout
+		  ?mount
+		  (fun cont cgi -> f cont cgi)
+	    | "ajp" when List.mem `AJP enable ->
+		ajp_processor
+		  ?config ?output_type ?arg_store ?exn_handler ?timeout
+		  ?mount
+		  (fun cont cgi -> f cont cgi)
 	    | _ ->
 		failwith ("Unsupported protocol: " ^ proto)
 	in

@@ -25,7 +25,7 @@ open Printf
 (* Specialize [min] to integers for performance reasons (> 150% faster). *)
 let min x y = if (x:int) <= y then x else y
 
-let log_error msg =
+let ajp_log_error msg =
   let zone = Netdate.localzone (* log local time *) in
   let date = Netdate.format "%c" (Netdate.create ~zone (Unix.gettimeofday())) in
   prerr_endline ("[" ^ date ^ "] [Netcgi_ajp] " ^ msg)
@@ -116,6 +116,8 @@ object(self)
         s.[5] <- Char.unsafe_chr(chunk_len lsr 8);
         s.[6] <- Char.unsafe_chr(chunk_len land 0xFF);
         s.[7] <- '\000'; (* to terminate the chunk *)
+
+	(* FIXME. The following is apparently nonsense *)
         ignore(super#write s 0 7);
         let w = super#write buf ofs chunk_len in
         ignore(super#write s 7 1);
@@ -410,7 +412,7 @@ let request_methods =
     [(props, inheader)].  The properties are already sorted so we do
     not need to use {!Netcgi_common.update_props_inheader}.
 *)
-let update_props_inheader ?script_name buf ofs len =
+let update_props_inheader ?script_name log_error buf ofs len =
   let m, ofs, len = get_byte buf ofs len in
   let req_method =
     if 1 <= m && m <= Array.length request_methods then
@@ -483,11 +485,11 @@ let update_props_inheader ?script_name buf ofs len =
 
     This function will potentially run a great number of times so must
     be tail rec. *)
-let rec input_forward_request ?script_name fd buf =
+let rec input_forward_request ?script_name log_error fd buf =
   let payload_len = input_packet fd buf in
   if payload_len = 0 then begin
       log_error "Packet with empty payload!";
-      input_forward_request ?script_name fd buf
+      input_forward_request ?script_name log_error fd buf
     end
   else begin
       match Char.code(String.unsafe_get buf 0) with
@@ -497,73 +499,109 @@ let rec input_forward_request ?script_name fd buf =
              (secure login phase). *)
           (* FIXME: ignore it -- do not know how to respond!! *)
           log_error "Packet \"Ping\" received.  IGNORING.";
-          input_forward_request ?script_name fd buf
+          input_forward_request ?script_name log_error fd buf
       | 10 ->
           (* CPing: the web server asks the container to respond quickly
              with a CPong. *)
           send_cpong fd;
-          input_forward_request ?script_name fd buf
+          input_forward_request ?script_name log_error fd buf
       | 2 ->
           (* Forward Request: Begin the request-processing cycle with the
              following data *)
-          update_props_inheader ?script_name buf 1 (payload_len - 1)
+          update_props_inheader ?script_name log_error buf 1 (payload_len - 1)
       | b ->
           (* Unknown, skip packet *)
           log_error("Unknown packet code " ^ string_of_int b ^ ".  Skipped.");
-          input_forward_request ?script_name fd buf
+          input_forward_request ?script_name log_error fd buf
     end
 
 
 (************************************************************************)
 
 
-let rec handle_connection fd ~config ?script_name output_type arg_store
-    exn_handler f =
+class ajp_env ?log_error ~config ~properties ~input_header out_obj
+  : Netcgi_common.cgi_environment =
+object
+  inherit cgi_environment ~config ~properties ~input_header out_obj
+
+  (* Override to use the correct channel *)
+  method log_error msg = 
+    match log_error with
+      | None -> ajp_log_error msg
+      | Some f -> f msg
+end
+
+
+let handle_request ?script_name config output_type arg_store exn_handler f ~log fd =
   (* The channel objects will be reused for all incoming requests.
      WARNING: Make sure it is big enough to contain an entire packet. *)
   let buf = String.create 0x2000 (* 8K *) in
   try
-    while true do
-      (* FIXME: Although the debug info says the connection is
-         recycled, apache does not close the sockect and tries to
-         reconnect.  That leaves unused processes running.  Until I
-         understand what is going on, I close the connection handler
-         if I have to wait more and 1 sec for the next request. *)
-      let in_socks, _, _ =  Unix.select [fd] [] [] 1. in
-      if in_socks = [] then (
-        (* log_error "Timeout waiting for the next connection.  Closing."; *)
-        raise Shutdown
-      );
+    let log_error = match log with Some f -> f | None -> ajp_log_error in
+    let (properties, input_header) =
+      input_forward_request ?script_name log_error fd buf in
+    let env = new ajp_env ?log_error:log ~config ~properties ~input_header fd in
 
-      let (properties, input_header) =
-        input_forward_request ?script_name fd buf in
-      let env = new cgi_environment ~config ~properties ~input_header fd in
-
-      (* Now that one knows the environment, one can warn about exceptions *)
-      exn_handler_default env ~exn_handler
-        (fun () ->
-           try
-             let cgi = cgi_with_args (new cgi) env output_type
-               (new in_obj fd buf :> Netchannels.in_obj_channel) arg_store in
-             (try
-                f(cgi: Netcgi.cgi);
-                cgi#out_channel#commit_work();
-                cgi#finalize()
-              with e when config.default_exn_handler ->
-                cgi#finalize(); raise e);
-             None
-           with Shutdown -> Some Shutdown
-        )
-        ~finally:(fun () ->
-                    try
-                      env#out_channel#close_out(); (* => flush buffer *)
-                      send_end_response fd;
-                    with _ -> ()
-                 );
-    done
+    (* Now that one knows the environment, one can warn about exceptions *)
+    exn_handler_default env ~exn_handler
+      (fun () ->
+         try
+           let cgi = cgi_with_args (new cgi) env output_type
+             (new in_obj fd buf :> Netchannels.in_obj_channel) arg_store in
+           (try
+              f(cgi: Netcgi.cgi);
+              cgi#out_channel#commit_work();
+              cgi#finalize()
+            with e when config.default_exn_handler ->
+              cgi#finalize(); raise e);
+           None
+         with Shutdown -> Some Shutdown
+      )
+      ~finally:(fun () ->
+                  try
+                    env#out_channel#close_out(); (* => flush buffer *)
+                    send_end_response fd;
+                  with _ -> ()
+               );
+    `Conn_keep_alive
   with
-  | Shutdown -> () (* We do not really shutdown, just close the connection. *)
-  | Invalid msg -> log_error("PROTOCOL ERROR: " ^ msg)
+    | Shutdown ->
+	`Conn_close
+    | error ->
+	`Conn_error error
+
+
+let rec handle_connection fd ~config ?script_name output_type arg_store
+    exn_handler f =
+
+  let log = Some ajp_log_error in
+
+  (* FIXME: Although the debug info says the connection is
+     recycled, apache does not close the sockect and tries to
+     reconnect.  That leaves unused processes running.  Until I
+     understand what is going on, I close the connection handler
+     if I have to wait more and 1 sec for the next request. *)
+  let cdir =
+    try
+      let in_socks, _, _ =  Netsys.restart (Unix.select [fd] [] []) 1. in
+      if in_socks = [] then
+	(* log_error "Timeout waiting for the next connection.  Closing."; *)
+	`Conn_close
+      else
+	handle_request config output_type arg_store exn_handler f ~log fd 
+    with
+      | error -> `Conn_error error in
+
+  match cdir with
+    | `Conn_keep_alive ->
+	handle_connection fd ~config ?script_name output_type arg_store
+	  exn_handler f
+    | `Conn_close ->
+	Unix.close fd
+    | `Conn_error error ->
+	Unix.close fd;
+	raise error
+    (* other cdir not possible *)
 
 
 let run
@@ -589,20 +627,19 @@ let run
       if allow server then
         handle_connection fd ~config ?script_name output_type arg_store
           exn_handler f;
-      Unix.close fd
     with
+    (* FIXME: Unclear why exceptions can occur here *)
     | End_of_file
     | Unix.Unix_error(Unix.EPIPE, _, _)
     | Unix.Unix_error(Unix.ECONNRESET, _, _) ->
 	(* These exceptions do not imply there is an error: the sever
 	   or ourselves may have closed the connection (Netcgi_common
 	   ignores SIGPIPE).  Just wait for the next connection. *)
-	(try Unix.close fd with _ -> ())
+	()
     | e when config.default_exn_handler ->
 	(* Log the error and wait for the next connection. *)
 	(try
-	   log_error(Printexc.to_string e);
-           Unix.close fd
+	   ajp_log_error(Printexc.to_string e);
 	 with _ -> ())
   done
 

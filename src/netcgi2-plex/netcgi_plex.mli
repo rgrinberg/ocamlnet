@@ -54,7 +54,7 @@ val factory :
     *      }
     * ]}
     *
-    * The processor calls the argument function of type [cgi -> unit]
+    * The processor calls the argument function of type [container -> cgi -> unit]
     * for every incoming request.
     *
     * The [timeout] parameter specifies when inactive connections are
@@ -111,7 +111,6 @@ val fcgi_processor :
       (Netplex_types.container -> Netcgi_fcgi.cgi -> unit) ->
         Netplex_types.processor
 
-(*       
 val scgi_processor :
       ?config:config ->
       ?output_type:output_type ->
@@ -131,5 +130,3 @@ val ajp_processor :
       ?mount:mountpoint ->
       (Netplex_types.container -> cgi -> unit) ->
         Netplex_types.processor
-
-   *)
