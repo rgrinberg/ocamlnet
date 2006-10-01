@@ -33,13 +33,34 @@ Netplex:
 	- Move accepted() from Control to System? Implement totally different
 	  mechanisms?
 
-Integration of new netcgi
+	- Enhanced logging. Also allow non-error channels.
 
-	- Test nethttpd when linked with netcgi
+Integration of new netcgi2
+	- All the TODOs in Netcgi_common
+	- Test nethttpd when linked with netcgi2
 	- Move new cookie implementation to Nethttp, and make it a 
 	  class
-	- Faster URL encoding functions can be moved to Netencoding.
-	- Write Netplex drivers for fcgi, ajp, (scgi?).
+	- Faster URL encoding functions can be moved to Netencoding
+	  if really faster
+
+netcgi2-plex:
+	- Implement mount_dir/mount_at
+
+Bugs Tidalwave:
+  * ocamlnet
+	- Bug Netchannels.pipe
+	- Bug Unix.single_write
+	- Feature Nethttpd: server header
+	- Bug: Netstring_pcre.global_replace
+	- Bug: class pipe: pos_in ist falsch
+	- Feature Nethtml.decode
+	- Bug Nethttp: ro-Headers nicht unterstützt
+	- Feature Netgzip hinzu
+  * netclient
+	- Bug Http client: Fehler bei Namensauflösung
+	- Bug Redirections zu falschen URLs
+  * equeue:
+	- Bug Fehler: Unixqueue.once und Exceptions
 
 Documentation:
 
@@ -48,6 +69,5 @@ Documentation:
 
 Http_client.pipeline:
 	
-	reset() does not work properly
-
-	[Tue Jul 11 14:56:31 2006] [myspace.crawler] [crit] run: Exception Failure("Http_client: HTTP call is unserved, no response yet")
+	aggressive caching does not work properly. Sometimes descriptors
+	are closed in the wrong moment.

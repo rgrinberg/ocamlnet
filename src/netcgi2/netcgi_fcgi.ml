@@ -68,6 +68,13 @@ let fcgi_unknown_type      = '\011'
 
 type role = [`Responder | `Authorizer | `Filter]
 
+(* Values for protocolStatus component of FCGI_EndRequestBody *)
+type protocol_status =
+  | REQUEST_COMPLETE
+  | CANT_MPX_CONN
+  | OVERLOADED
+  | UNKNOWN_ROLE
+
 exception Abort of int
   (* [Abort id] is raised when a FCGI_ABORT_REQUEST record is
      received. *)
@@ -86,190 +93,7 @@ let fcgi_web_server_addrs =
 
 
 (************************************************************************)
-(** Raw Input functions *)
-
-(* FCGI dialog takes the form of records (spec. section 3.3).  The
-   incoming ones will be decoded to the following structure.  *)
-type record = {
-  version : int;	(* at present = 1 *)
-  ty : char;		(* type, see the constants above *)
-  id : int;		(* FastCGI request id; 0 = management *)
-  length : int;
-  (* length (<= 65535) is the number of bytes of data.  The data
-     itself is not part of this record, input functions will take a
-     buffer [data] and return the record.  [data.[0 .. length-1]] will
-     be the actual data read.  This scheme has been chosen in order to
-     be able to reuse a given string as buffer. *)
-}
-
-let rec really_read fd buf ofs len =
-  let r = Netsys.restart (Unix.read fd buf ofs) len in
-  if r = 0 && len > 0 then raise End_of_file;
-  if r < len then really_read fd buf (ofs + r) (len - r)
-
-(* Padding is at most 255 bytes long and we do not care about thread
-   safety (since we read garbage anyway), so we hoist the buffer
-   outside the function. *)
-let padding_buffer = String.create 0xFF
-
-let rec read_padding fd len =
-  let r = Netsys.restart (Unix.read fd padding_buffer 0) len in
-  if r = 0 && len > 0 then raise End_of_file;
-  if r < len then read_padding fd (len - r)
-
-(** [input_record fd buf] reads the next record from the socket [fd],
-    returns the information as a record [r] and puts the data into
-    [buf.[0 .. r.length-1]].  It is ASSUMED that [String.length buf >=
-    ofs + 0xFFFF] to be able to handle any kind of incoming record. *)
-let input_record fd buf ofs =
-  let header = String.create 8 in
-  really_read fd header 0 8;
-  let version = Char.code(header.[0])
-  and id =  Char.code(header.[2]) lsl 8 + Char.code(header.[3])
-  and len = Char.code(header.[4]) lsl 8 + Char.code(header.[5])
-  and padding = Char.code(header.[6]) in
-  really_read fd buf ofs len;
-  read_padding fd padding;
-  { version = version;
-    ty = header.[1];
-    id = id;
-    length = len }
-
-
-(* [get_length data ofs] returns the [(l, o)] where [l] is length at
-   offset [ofs] encoded according to the Name-Value Pairs specs
-   (section 3.4) and [o] is the next offset.
-   It is assumed that [0 <= ofs < String.length s].
-   @raise Failure if the spec is not respected.  *)
-let get_length data ofs =
-  let b = Char.code(data.[ofs]) in
-  if b lsr 7 = 0 then
-    (b, ofs + 1)
-  else begin
-    if ofs + 3 >= String.length data then
-      failwith "Netcgi_fcgi.update_props_inheader";
-    let b2 = Char.code(data.[ofs + 1])
-    and b1 = Char.code(data.[ofs + 2])
-    and b0 = Char.code(data.[ofs + 3]) in
-    (((b land 0x7F) lsl 24) + (b2 lsl 16) + (b1 lsl 8) + b0, ofs + 4)
-  end
-
-(** [update_props_inheader data datalen props_inheader] adds to
-    [props_inheader] the key-value pairs contained in [data].  The
-    keys are uppercased (CGI/1.1 says they must be treated case
-    insensitively).
-
-    @raise Failure if the key or val lengths exceed the length of the
-    string [data]. *)
-let update_props_inheader =
-  let rec add data ofs datalen props_inheader =
-    if ofs < datalen then begin
-      let namelen, ofs = get_length data ofs in
-      if ofs >= datalen then failwith "Netcgi_fcgi.update_props_inheader";
-      let valuelen, ofs = get_length data ofs in
-      let ofs_value = ofs + namelen in
-      let ofs_next = ofs_value + valuelen in
-      if  ofs_next > datalen then failwith "Netcgi_fcgi.update_props_inheader";
-      let name = String.uppercase(String.sub data ofs namelen)
-      and value = String.sub data ofs_value valuelen in
-      let props_inheader =
-	Netcgi_common.update_props_inheader (name, value) props_inheader in
-      add data ofs_next datalen props_inheader
-    end
-    else props_inheader in
-  fun data datalen props_inheader -> add data 0 datalen props_inheader
-
-
-
-(************************************************************************)
-(** Raw Output functions *)
-
-let rec really_write fd s pos len =
-  let len' = Netsys.restart (Unix.single_write fd s pos) len in
-  if len' < len then
-    really_write fd s (pos+len') (len-len')
-
-
-(* [unsafe_output fd ty id s ofs len] send on [fd] for a request [id],
-   a record of type [ty] whose data is the substring [s.[ofs .. ofs +
-   len - 1]] where [len <= 65535].  *)
-let unsafe_output fd ty id s ofs len =
-  assert(len <= 0xFFFF);
-  let padding_len = let r = len mod 8 in if r = 0 then 0 else 8 - r in
-  (* We keep total size a multiple of 8 bytes so the web server can
-     easily align the data for efficency. *)
-  let r = String.create 8 in
-  r.[0] <- fcgi_version;
-  r.[1] <- ty;
-  r.[2] <- Char.chr(id lsr 8);
-  r.[3] <- Char.chr(id land 0xFF);  (* requestId *)
-  r.[4] <- Char.chr(len lsr 8);
-  r.[5] <- Char.chr(len land 0xFF); (* contentLength *)
-  r.[6] <- Char.chr(padding_len);  (* paddingLength *)
-  really_write fd r 0 8;
-  really_write fd s ofs len;
-  really_write fd r 0 padding_len (* Padding (garbage) *)
-
-
-(* [unsafe_really_output ty fd id s ofs len] does the same as
-   [unsafe_output] except that empty strings are not output (they
-   would close the stream) and strings longer than 65535 bytes are
-   sent in several records. *)
-let rec unsafe_really_output fd ty id  s ofs len =
-  if len <= 0 then () else (
-    let w = min len 0xFFFF in
-    unsafe_output fd ty id s ofs w;
-    unsafe_really_output fd ty id  s (ofs + w) (len - w)
-  )
-
-(* [output_string fd ty id s] sends on [fd] for a request [id],
-   a record of type [ty] whose data is [s]. *)
-let output_string fd ty id s =
-  unsafe_really_output fd ty id  s 0 (String.length s)
-
-
-(* Values for protocolStatus component of FCGI_EndRequestBody *)
-type protocol_status =
-  | REQUEST_COMPLETE
-  | CANT_MPX_CONN
-  | OVERLOADED
-  | UNKNOWN_ROLE
-
-(* End the request, either because the handling script ended or
-   because it was rejected.  [exit_code] is an application-level
-   status code (the meaning depends on the role).  [status] is a
-   protocol-level status code. *)
-let send_end_request fd id exit_code status =
-  let r = String.create 16 in
-  r.[0] <- fcgi_version;
-  r.[1] <- fcgi_end_request;
-  r.[2] <- Char.chr(id lsr 8);
-  r.[3] <- Char.chr(id land 0xFF); (* requestId *)
-  r.[4] <- '\000';
-  r.[5] <- '\008'; (* contentLength = 8 *)
-  r.[6] <- '\000'; (* no padding *)
-  r.[11] <- Char.chr(exit_code land 0xFF); (* appStatus (4 bytes) *)
-  let exit_code = exit_code lsr 8 in
-  r.[10] <- Char.chr(exit_code land 0xFF);
-  let exit_code = exit_code lsr 8 in
-  r.[9] <- Char.chr(exit_code land 0xFF);
-  r.[8] <- Char.chr(exit_code lsr 8);
-  r.[12] <- Char.unsafe_chr(match status with
-			    | REQUEST_COMPLETE -> 0
-			    | CANT_MPX_CONN ->    1
-			    | OVERLOADED ->       2
-			    | UNKNOWN_ROLE ->     3); (* protocolStatus *)
-  really_write fd r 0 16
-
-
-(* Date and executable name already provided by FCGI handler. *)
-let fcgi_log_error fd id msg =
-  output_string fd fcgi_stderr id msg
-
-
-
-(************************************************************************)
-(** Management records *)
+(* Output *)
 
 let set_length4 s ofs n =
   (* 4 bytes encoding of the length [n] in the string [s] from
@@ -320,61 +144,325 @@ let add_key_val buf k v =
   Buffer.add_string buf k;
   Buffer.add_string buf v
 
-(* [get_values_result fd data datalen ~max_conns] send back (on [fd])
+
+(* In the following, we stack several netchannels. The goal is to reduce
+ * the number of system calls (Unix.write) as much as possible. These
+ * calls are much more expensive than the additional overhead of stacking.
+ *
+ * In particular, the stack looks as follows:
+ *
+ * - TOP: user_out_channel
+ *   Data written to this channel is encoded as fcgi packet. No buffer.
+ *   Maybe it would be better to have another buffer before the encoding
+ *   happens to make the packets as large as possible. However, we usually
+ *   have already a transactional buffer on top of the user_out_channel.
+ * - fcgi_out_channel
+ *   Data written to this channel must already be formatted as fcgi packets.
+ *   Auxiliary methods generate such packets from user data. No buffer.
+ * - Netchannels.buffered_raw_out_channel
+ *   Implements a buffer.
+ * - prim_out_channel
+ *   Only purpose is to disable close_out. The file descriptor is not
+ *   closed by the channel stack
+ * - BOTTOM: Netchannels.output_descr
+ *   Maps channel methods to system calls. No buffer.
+ *
+ * For the input direction stacking is similar.
+ *)
+
+(* This channel writes to the descriptor, but does not forward the
+ * close request (fd is kept open)
+ *)
+class prim_out_channel fd =
+object(self)
+  inherit Netchannels.output_descr fd
+
+  method close_out() = ()
+    (* don't close fd *)
+end
+
+
+(* This channel includes a buffer and some additional fcgi primitives *)
+class fcgi_out_channel fd =
+  let prim_ch = new prim_out_channel fd in
+object (self)
+  inherit Netchannels.buffered_raw_out_channel 
+            ~buffer_size:8192
+	    prim_ch
+
+  inherit Netchannels.augment_raw_out_channel
+    (* reduces additional methods like really_output to the more 
+       primitive ones from Netchannels.buffered_raw_out_channel
+     *)
+
+  (* [output_packet ty id s ofs len] sends a request [id],
+     a record of type [ty] whose data is the substring [s.[ofs .. ofs +
+     len - 1]] where [len <= 65535].  *)
+  method output_packet ty id s ofs len =
+    assert(len <= 0xFFFF);
+    let padding_len = 
+      let r = len mod 8 in
+      if r = 0 then 0 else 8 - r in
+    (* We keep total size a multiple of 8 bytes so the web server can
+       easily align the data for efficency. *)
+    let r = String.create 8 in
+    r.[0] <- fcgi_version;
+    r.[1] <- ty;
+    r.[2] <- Char.chr(id lsr 8);
+    r.[3] <- Char.chr(id land 0xFF);  (* requestId *)
+    r.[4] <- Char.chr(len lsr 8);
+    r.[5] <- Char.chr(len land 0xFF); (* contentLength *)
+    r.[6] <- Char.chr(padding_len);  (* paddingLength *)
+    r.[7] <- '\000';
+    self # output_string r;
+    self # really_output s ofs len;
+    self # really_output r 0 padding_len  (* Padding (garbage) *)
+
+  (* [send_user_data ty id s pos len] sends a request [id],
+     a record of type [ty] whose data is [s]. If necessary, data is split
+     into several packets
+   *)
+  method send_user_data ty id s pos len =
+    let rec loop pos len =
+      let l = min (min len (String.length s - pos)) 0xFFFF in
+      if l > 0 then (
+	self # output_packet ty id s pos l;
+	loop (pos+l) (len-l)
+      )
+    in
+    if len > 0 then
+      loop pos len
+
+  (* End the request, either because the handling script ended or
+     because it was rejected.  [exit_code] is an application-level
+     status code (the meaning depends on the role).  [status] is a
+     protocol-level status code. *)
+  method send_end_request id exit_code status =
+    let r = String.make 8 '\000' in
+    r.[3] <- Char.chr(exit_code land 0xFF); (* appStatus (4 bytes) *)
+    let exit_code = exit_code lsr 8 in
+    r.[2] <- Char.chr(exit_code land 0xFF);
+    let exit_code = exit_code lsr 8 in
+    r.[1] <- Char.chr(exit_code land 0xFF);
+    r.[0] <- Char.chr(exit_code lsr 8);
+    r.[4] <- Char.chr(match status with
+			| REQUEST_COMPLETE -> 0
+			| CANT_MPX_CONN ->    1
+			| OVERLOADED ->       2
+			| UNKNOWN_ROLE ->     3); (* protocolStatus *)
+    self # output_packet fcgi_end_request id r 0 8
+
+  (* Response to a managment record of type [t] that this library does
+     not understand. *)
+  method send_unknown_type t =
+    let r = String.make 8 '\000' in
+    r.[0] <- t;
+    self # output_packet fcgi_unknown_type 0 r 0 8
+
+  method send_stdout_end_response id =
+    (* Close the stream FCGI_STDOUT by sending an empty record *)
+    self # output_packet fcgi_stdout id "" 0 0
+
+  method send_stderr_end_response id =
+    (* Close the stream FCGI_STDERR by sending an empty record *)
+    self # output_packet fcgi_stderr id "" 0 0
+
+  (* [send_values props ~max_conns] send back (on [fd])
    an appropriate FCGI_GET_VALUES_RESULT response for a
    FCGI_GET_VALUES record [r]. *)
-let get_values_result fd data datalen ~max_conns =
-  let props = (try fst(update_props_inheader data datalen ([], []))
-	       with Failure _ -> []) in
-  let buf = Buffer.create 64 in
-  if List.mem_assoc "FCGI_MAX_CONNS" props then
-    add_key_val buf "FCGI_MAX_CONNS" (string_of_int max_conns);
-  if List.mem_assoc "FCGI_MAX_REQS" props then
-    add_key_val buf "FCGI_MAX_REQS" "1"; (* no multiplexing! *)
-  if List.mem_assoc "FCGI_MPXS_CONNS" props then
-    add_key_val buf "FCGI_MPXS_CONNS" "0"; (* no multiplexing! *)
-  output_string fd fcgi_get_values_result 0 (Buffer.contents buf)
+  method send_values (props : (string * string) list) ~max_conns =
+    let buf = Buffer.create 64 in
+    if List.mem_assoc "FCGI_MAX_CONNS" props then
+      add_key_val buf "FCGI_MAX_CONNS" (string_of_int max_conns);
+    if List.mem_assoc "FCGI_MAX_REQS" props then
+      add_key_val buf "FCGI_MAX_REQS" "1"; (* no multiplexing! *)
+    if List.mem_assoc "FCGI_MPXS_CONNS" props then
+      add_key_val buf "FCGI_MPXS_CONNS" "0"; (* no multiplexing! *)
+    let s = Buffer.contents buf in
+    self # output_packet fcgi_get_values_result 0 s 0 (String.length s)
+end
 
-(* Response to a managment record of type [t] that this library does
-   not understand. *)
-let send_unknown_type fd t =
-  let r = String.create 16 in
-  r.[0] <- fcgi_version;
-  r.[1] <- fcgi_unknown_type;
-  r.[2] <- '\000';
-  r.[3] <- '\000'; (* requestId = 0 *)
-  r.[4] <- '\000';
-  r.[5] <- '\008'; (* contentLength = 8 *)
-  r.[6] <- '\000'; (* no padding *)
-  r.[8] <- t; (* type *)
-  really_write fd r 0 16
+
+(* This channel wraps user payload into fcgi packets. The [id] comes from
+   the previously received request
+  *)
+class user_out_channel fcgi_ch id =
+object(self)
+  val mutable pos_out = 0
+
+  inherit Netchannels.augment_raw_out_channel
+    (* reduces additional methods like really_output to the more 
+       primitive ones implemented below
+     *)
+
+  method output s pos len =
+    fcgi_ch # send_user_data fcgi_stdout id s pos len;
+    pos_out <- pos_out + len;
+    len
+
+  method flush() =
+    fcgi_ch # flush()
+
+  method close_out() =
+    fcgi_ch # flush()
+    
+  method pos_out = pos_out
+
+end
 
 
 (************************************************************************)
-(** Application records *)
+(* Input *)
 
-(* This function returns the next application record.  Management
-   records (of id=0) are dealt with automatically.  (This is very
-   useful to get them out of the way for several functions below.) *)
-let rec input_app_record fd buf ~max_conns =
-  let r = input_record fd buf 0 in
-  if r.id = 0 then (
-    (* null request ID => management record *)
-    if r.ty = fcgi_get_values then (
-      get_values_result fd buf r.length ~max_conns;
-      input_app_record fd buf ~max_conns
-    )
-    else (
-      send_unknown_type fd r.ty;
-      input_app_record fd buf ~max_conns
-    )
+
+(* FCGI dialog takes the form of records (spec. section 3.3).  The
+   incoming ones will be decoded to the following structure.  *)
+type record = {
+  version : int;	(* at present = 1 *)
+  ty : char;		(* type, see the constants above *)
+  id : int;		(* FastCGI request id; 0 = management *)
+  length : int;
+  (* length (<= 65535) is the number of bytes of data.  The data
+     itself is not part of this record, input functions will take a
+     buffer [data] and return the record.  [data.[0 .. length-1]] will
+     be the actual data read.  This scheme has been chosen in order to
+     be able to reuse a given string as buffer. *)
+}
+
+
+(* [get_length data ofs] returns the [(l, o)] where [l] is length at
+   offset [ofs] encoded according to the Name-Value Pairs specs
+   (section 3.4) and [o] is the next offset.
+   It is assumed that [0 <= ofs < String.length s].
+   @raise Failure if the spec is not respected.  *)
+let get_length data ofs =
+  let b = Char.code(data.[ofs]) in
+  if b lsr 7 = 0 then
+    (b, ofs + 1)
+  else begin
+    if ofs + 3 >= String.length data then
+      failwith "Netcgi_fcgi.update_props_inheader";
+    let b2 = Char.code(data.[ofs + 1])
+    and b1 = Char.code(data.[ofs + 2])
+    and b0 = Char.code(data.[ofs + 3]) in
+    (* Note: this must also work on 64 bit platforms! *)
+    (((b land 0x7F) lsl 24) + (b2 lsl 16) + (b1 lsl 8) + b0, ofs + 4)
+  end
+
+(** [get_props_inheader data datalen props_inheader] adds to
+    [props_inheader] the key-value pairs contained in [data].  The
+    keys are uppercased (CGI/1.1 says they must be treated case
+    insensitively).
+
+    @raise Failure if the key or val lengths exceed the length of the
+    string [data]. *)
+let get_props_inheader =
+  let rec add data ofs datalen props_inheader =
+    if ofs < datalen then begin
+      let namelen, ofs = get_length data ofs in
+      if ofs >= datalen then failwith "Netcgi_fcgi.get_props_inheader";
+      let valuelen, ofs = get_length data ofs in
+      let ofs_value = ofs + namelen in
+      let ofs_next = ofs_value + valuelen in
+      if  ofs_next > datalen then failwith "Netcgi_fcgi.get_props_inheader";
+      let name = String.uppercase(String.sub data ofs namelen)
+      and value = String.sub data ofs_value valuelen in
+      let props_inheader =
+	Netcgi_common.update_props_inheader (name, value) props_inheader in
+      add data ofs_next datalen props_inheader
+    end
+    else props_inheader 
+  in
+  (fun data datalen props_inheader -> 
+     add data 0 datalen props_inheader
   )
-  else r
 
+
+(* This channel reads from the descriptor, but does not forward the
+ * close request (fd is kept open)
+ *)
+class prim_in_channel fd =
+object(self)
+  inherit Netchannels.input_descr fd
+
+  method close_in() = ()
+    (* don't close fd *)
+end
+
+
+(* On the input side, this channel includes a buffer and some additional
+   fcgi primitives. The output side is inherited from fcgi_out_channel,
+   i.e. this channel is bidirectional.
+ *)
+class fcgi_channel fd =
+  let prim_ch = new prim_in_channel fd in
+object(self)
+  inherit fcgi_out_channel fd
+    (* This is both an input and output channel *)
+
+  inherit Netchannels.buffered_raw_in_channel
+            ~buffer_size:8192
+	    prim_ch
+
+  inherit Netchannels.augment_raw_in_channel
+    (* reduces additional methods like really_input to the more 
+       primitive ones from Netchannels.buffered_raw_in_channel.
+       Note that input_line is slow (but not used here)
+     *)
+
+
+  val padding_buffer = String.create 0xFF
+
+  method input_padding len =
+    self # really_input padding_buffer 0 len
+
+
+  val record_buffer = String.create 65536  (* 64K *)
+
+  method record_buffer = record_buffer
+
+
+  (** [let r = input_record ()] reads the next record from the socket [fd],
+      returns the information as a record [r] and puts the data into
+     [record_buffer]
+   *)
+  method input_record() =
+    let header = String.create 8 in
+    self # really_input header 0 8;
+    let version = Char.code(header.[0])
+    and id =  Char.code(header.[2]) lsl 8 + Char.code(header.[3])
+    and len = Char.code(header.[4]) lsl 8 + Char.code(header.[5])
+    and padding = Char.code(header.[6]) in
+    self # really_input record_buffer 0 len;
+    self # input_padding padding;
+    { version = version;
+      ty = header.[1];
+      id = id;
+      length = len }
+
+  (* This function returns the next application record.  Management
+     records (of id=0) are dealt with automatically.  (This is very
+     useful to get them out of the way for several functions below.) *)
+  method input_app_record ~max_conns =
+    let r = self # input_record () in
+    if r.id = 0 then (
+      (* null request ID => management record *)
+      if r.ty = fcgi_get_values then (
+	let props = 
+	  try fst(get_props_inheader record_buffer r.length ([], []))
+	  with Failure _ -> [] in
+	self # send_values props ~max_conns;
+	self # input_app_record ~max_conns
+      )
+      else (
+	self # send_unknown_type r.ty;
+	self # input_app_record ~max_conns
+      )
+    )
+    else r
 
 (* Get the next input record of type [ty] and id [id], put the data
-   into [buf] and return it.  It is ASSUMED that [buf] as length at
-   least 0xFFFF to be able to contain any record data.
+   into [record_buffer] and return the record.  
 
    @raise Abort if th server send a FCGI_ABORT_REQUEST for the current
    request id.
@@ -386,96 +474,98 @@ let rec input_app_record fd buf ~max_conns =
    record (indicating that the stream is closed), otherwise it will
    loop indefinitely waiting for a record that will never come.
 *)
-let rec input_stream_record fd ty id buf ~max_conns =
-  let r = input_app_record fd buf ~max_conns in
-  if r.id <> id then (
-    (* Another id -- and not a management record.  Close the new
-       request and try again. *)
-    send_end_request fd r.id 0 CANT_MPX_CONN;
-    input_stream_record fd ty id buf ~max_conns
-  )
-  else if r.ty = fcgi_abort_request then
-    raise(Abort id)
-  else if r.ty <> ty then
-    (* Not the expected type; ignore the record (who knows, it may be
-       some filter data that we never read). *)
-    input_stream_record fd ty id buf ~max_conns
-  else
-    r (* Record of the desired type *)
-
-
-(* [input_begin_request fd buf ~max_conns] handles management records and
-   skip the other ones till a FCGI_BEGIN_REQUEST is received, in which
-   case [(id, role, flags)] is returned. *)
-let rec input_begin_request_loop fd buf ~max_conns : (int * role * int) =
-  let r = input_app_record fd buf ~max_conns in
-  if r.ty = fcgi_begin_request && r.length = 8 then (
-    let role = Char.code(buf.[0]) lsl 8 + Char.code(buf.[1])
-    and flags = Char.code(buf.[2]) in
-    match role with
-    | 1 -> (r.id, `Responder, flags)
-    | 2 -> (r.id, `Authorizer, flags)
-    | 3 -> (r.id, `Filter, flags)
-    | _ ->
-	(* Rejecting this request that has an unknown role and waiting
-	   for the next one. *)
-	send_end_request fd r.id 0 UNKNOWN_ROLE;
-	input_begin_request_loop fd buf ~max_conns
-  )
-  else
-    input_begin_request_loop fd buf ~max_conns
-
-let input_begin_request fd buf ~max_conns =
-  assert(String.length buf >= 0xFFFF);
-  input_begin_request_loop fd buf ~max_conns
-
-
-(* Accumulate the stream of params into a list of properties and
-   input_header. *)
-let rec input_props_inheader_loop fd id ~max_conns buf props_inheader =
-  let r = input_stream_record fd fcgi_params id buf ~max_conns in
-  if r.length = 0 then
-    (* End of stream *)
-    props_inheader
-  else
-    let props_inheader = update_props_inheader buf r.length props_inheader in
-    input_props_inheader_loop fd id ~max_conns buf props_inheader
-
-
-let input_props_inheader fd buf id ~max_conns =
-  assert(String.length buf >= 0xFFFF);
-  input_props_inheader_loop fd id ~max_conns buf ([],[])
-
-
-(************************************************************************)
-(** Input object -- FCGI_STDIN *)
-
-(* When we will be reading the data on FCGI_STDIN or FCGI_DATA, this
-   object will have to deal with all records coming on FCGI_STDIN (in
-   addition to the expected data).  Response will be sent on the file
-   descriptor [fd].  There is no problem of concurrent access since we
-   do not accept multiplexing. *)
-class in_obj (fd:Unix.file_descr) buffer (ty:fcgi_type) id ~max_conns =
-object(self)
-  inherit in_obj_of_descr ~buffer fd
-  val ty = ty
-  val id = id
-  val max_conns = max_conns
-
-  (* @override *)
-  method private fill_in_buf() =
-    if in0 >= in1 then (
-      in0 <- 0;
-      let r = input_stream_record fd ty id in_buf ~max_conns in
-      in1 <- r.length;
-      if in1 = 0 then (
-	in1 <- -1; (* close the channel to avoid calling again this
-		      function and waiting for more records that will
-		      never come. *)
-	raise End_of_file;
-      )
+  method input_stream_record ty id ~max_conns =
+    let r = self # input_app_record ~max_conns in
+    if r.id <> id then (
+      (* Another id -- and not a management record.  Close the new
+         request and try again. *)
+      self # send_end_request r.id 0 CANT_MPX_CONN;
+      self # input_stream_record ty id ~max_conns
     )
+    else if r.ty = fcgi_abort_request then
+      raise(Abort id)
+    else if r.ty <> ty then
+      (* Not the expected type; ignore the record (who knows, it may be
+         some filter data that we never read). *)
+      self # input_stream_record ty id ~max_conns
+    else
+      r (* Record of the desired type *)
+
+  (* [input_begin_request ~max_conns] handles management records and
+     skip the other ones till a FCGI_BEGIN_REQUEST is received, in which
+     case [(id, role, flags)] is returned. *)
+  method input_begin_request ~max_conns : (int * role * int) =
+    let r = self # input_app_record ~max_conns in
+    if r.ty = fcgi_begin_request && r.length = 8 then (
+      let role = 
+	Char.code(record_buffer.[0]) lsl 8 + Char.code(record_buffer.[1])
+      and flags = 
+	Char.code(record_buffer.[2]) in
+      match role with
+	| 1 -> (r.id, `Responder, flags)
+	| 2 -> (r.id, `Authorizer, flags)
+	| 3 -> (r.id, `Filter, flags)
+	| _ ->
+	    (* Rejecting this request that has an unknown role and waiting
+   	       for the next one. *)
+	    self # send_end_request r.id 0 UNKNOWN_ROLE;
+	    self # input_begin_request ~max_conns
+    )
+    else
+      self # input_begin_request ~max_conns
+	
+  (* Accumulate the stream of params into a list of properties and
+     input_header. *)
+  method input_props_inheader id ~max_conns props_inheader =
+    let r = self # input_stream_record fcgi_params id ~max_conns in
+    if r.length = 0 then
+      (* End of stream *)
+      props_inheader
+    else
+      let props_inheader = 
+	get_props_inheader record_buffer r.length props_inheader in
+      self # input_props_inheader id ~max_conns props_inheader
+
 end
+
+
+(* This channel unwraps user payload from fcgi packets of type [ty]
+   (either fcgi_stdin or fcgi_data). 
+ *)
+class user_in_channel fcgi_ch ty id ~max_conns =
+object(self)
+  inherit Netchannels.augment_raw_in_channel
+    (* Define derived methods. Note that input_line is slow. This is ok
+       because the MIME scanner does not rely on it.
+     *)
+
+  val mutable buf_pos = 0
+  val mutable buf_len = 0
+
+  val mutable pos_in = 0
+    
+  method input s pos len =
+    if buf_len <= 0 then (
+      let r = fcgi_ch # input_stream_record ty id ~max_conns in
+      if r.length = 0 then
+	raise End_of_file;
+      buf_pos <- 0;
+      buf_len <- r.length
+    );
+    let l = min len buf_len in
+    String.blit (fcgi_ch # record_buffer) buf_pos s pos l;
+    buf_pos <- buf_pos + l;
+    buf_len <- buf_len - l;
+    pos_in <- pos_in + l;
+    l
+
+
+  method close_in() = ()
+
+  method pos_in = pos_in
+
+end
+
 
 
 (* When no input of FCGI_DATA is required, we need a dummy object to
@@ -494,52 +584,30 @@ end
 
 
 (************************************************************************)
-(** Output object *)
-
-class out_obj (fd:Unix.file_descr) (id:int) : Netchannels.out_obj_channel =
-object(self)
-  inherit out_obj_of_descr ~buffer:(String.create 0xFFFF) fd
-  val id = id
-
-  (* @override *)
-  method private write buf ofs len =
-    assert(len <= 0xFFFF); (* should be true as only used for [out_buf] *)
-    if len > 0 then 
-      ( unsafe_output fd fcgi_stdout id buf ofs len; len )
-    else 0
-
-  (* @override *)
-  method close_out () =
-    if out1 < 0 then raise Netchannels.Closed_channel else begin
-      (* Do not close the file descriptor [fd]; this is the job of the
-         accept() loop -- and it may be reused for subsequent connections. *)
-      (try
-         self#flush();
-         (* Close the stream FCGI_STDOUT by sending an empty record *)
-         ignore(unsafe_output fd fcgi_stdout id "" 0 0);
-         out1 <- -1
-       with e -> out1 <- -1; raise e);
-    end
-end
-
-
-
-(************************************************************************)
-(** CGI abstraction *)
+(** Environment *)
 
 (* Creates the environment including the output channel *)
-class fcgi_env ?log_error ~config ~properties ~input_header fd id
+class fcgi_environment ?log_error ~config ~properties ~input_header fcgi_ch id
   : Netcgi_common.cgi_environment =
-  let out_obj = new out_obj fd id in
+
+  let user_ch = new user_out_channel fcgi_ch id in
+
+  let fcgi_log_error id msg : unit =
+    fcgi_ch # send_user_data fcgi_stderr id msg 0 (String.length msg) in
+
 object
-  inherit cgi_environment ~config ~properties ~input_header out_obj
+  inherit cgi_environment ~config ~properties ~input_header user_ch
 
   (* Override to use the correct channel *)
   method log_error msg = 
     match log_error with
-      | None -> fcgi_log_error fd id msg
+      | None -> fcgi_log_error id msg
       | Some f -> f msg
 end
+
+
+(************************************************************************)
+(** CGI abstraction and request handling *)
 
 class type cgi =
 object
@@ -550,15 +618,12 @@ object
   method data_mtime : float
 end
 
-class fcgi (role:role) ~max_conns fd id  env op request_method args : cgi =
-object
-  inherit Netcgi_common.cgi env op request_method args
 
-  val data_stream =
-    if role = `Filter then
-      let buf = String.create 0x10000 in
-      (new in_obj fd buf fcgi_data id ~max_conns :> Netchannels.in_obj_channel)
-    else new closed_in_obj
+class fcgi (role:role) id data_ch ~max_conns env op req_meth args : cgi =
+object
+  inherit Netcgi_common.cgi env op req_meth args
+
+  val data_stream = data_ch
   val role = role
   val data_length =
     try int_of_string(env#cgi_property "FCGI_DATA_LENGTH") with _ -> 0
@@ -573,67 +638,74 @@ end
 
 
 let handle_request config 
-                   output_type arg_store exn_handler f ~max_conns ~log =
-  let in_buf = String.create 0x10000 in
-  fun fd ->
+                   output_type arg_store exn_handler f ~max_conns ~log fd =
+  let fcgi_ch = new fcgi_channel fd in
 
-    try
-      let (id, role, flags) = input_begin_request fd in_buf ~max_conns in
+  try
+    let (id, role, flags) = 
+      fcgi_ch # input_begin_request ~max_conns in
       
-      let (properties, input_header) =
-        input_props_inheader fd in_buf id ~max_conns in
-      let env = 
-	new fcgi_env ?log_error:log ~config ~properties ~input_header fd id in
-      
-      (* Now that one knows the environment, one can deal with exn. *)
-      exn_handler_default env ~exn_handler
-        (fun () ->
-           try
-	     let in_obj = (new in_obj fd in_buf fcgi_stdin id ~max_conns
-                           :> Netchannels.in_obj_channel) in
-	     let cgi = (cgi_with_args (new fcgi role fd id ~max_conns)
-	                  env output_type in_obj arg_store) in
-	     (try
-	        f cgi;
-                cgi#out_channel#commit_work();
-	        cgi#finalize()
-	      with e when config.default_exn_handler ->
-                cgi#finalize(); raise e);
-             None
-           with 
-	     | Abort _ as e -> Some e
-	     | Unix.Unix_error(_,_,_) as e -> Some e
-        )
-        ~finally:
-        (fun () ->
-           try
-             env#out_channel#close_out(); (* => flush buffer *)
-	     ignore(unsafe_output fd fcgi_stderr id "" 0 0); (* close stderr *)
-	     send_end_request fd id 0 REQUEST_COMPLETE;
-           with _ -> ()
-        );
-      if flags land fcgi_keep_conn = 0 then
-	`Conn_close_linger
-      else
-	`Conn_keep_alive
-    with 
-      | Abort id ->
-	  (* FCGI_ABORT_REQUEST received.  The exit_status should come from
-	     the application the spec says.  However, in general, the
-	     application will not have yet started, so just return 0.
-	     (Since we so not allow multiplexed requests, it is more likely
-	     that the web server just closes the connection but we handle it
-	     anyway.) *)
-	  `Conn_close
-      | Unix.Unix_error((Unix.EPIPE | Unix.ECONNRESET), _, _) ->
-	  (* This error is perfectly normal: the sever or ourselves may
-   	     have closed the connection (Netcgi_common ignore
-	     SIGPIPE).  Just wait for the next connection. *)
-	  `Conn_close
-      | End_of_file ->
-	  `Conn_close
-      | error ->
-	  `Conn_error error
+    let (properties, input_header) =
+      fcgi_ch # input_props_inheader id ~max_conns ( [], [] ) in
+
+    let env = 
+      new fcgi_environment
+	?log_error:log ~config ~properties ~input_header fcgi_ch id in
+
+    (* Now that one knows the environment, one can deal with exn. *)
+    exn_handler_default env ~exn_handler
+      (fun () ->
+         try
+	   let input_ch  = 
+	     new user_in_channel fcgi_ch fcgi_stdin id ~max_conns in
+
+	   let data_ch =
+	     if role = `Filter then
+	       new user_in_channel fcgi_ch fcgi_data id ~max_conns 
+	     else 
+	       new closed_in_obj in
+
+	   (* Note that this will read [input_ch] before [data_ch] *)
+	   let cgi = 
+	     cgi_with_args 
+	       (new fcgi role id data_ch ~max_conns) 
+	       env output_type input_ch arg_store in
+
+	   (try
+	      f cgi;
+              cgi#out_channel#commit_work();
+	      cgi#finalize()
+	    with e when config.default_exn_handler ->
+              cgi#finalize(); raise e);
+           None
+         with 
+	   | Abort _ as e -> Some e
+	   | End_of_file as e -> Some e
+      )
+      ~finally:
+      (fun () ->
+	 fcgi_ch # send_stderr_end_response id;
+	 fcgi_ch # send_stdout_end_response id;
+	 fcgi_ch # send_end_request id 0 REQUEST_COMPLETE;
+	 fcgi_ch # flush()
+      );
+    if flags land fcgi_keep_conn = 0 then
+      `Conn_close_linger
+    else
+      `Conn_keep_alive
+  with 
+    | Abort id ->
+	(* FCGI_ABORT_REQUEST received.  The exit_status should come from
+	   the application the spec says.  However, in general, the
+	   application will not have yet started, so just return 0.
+	   (Since we so not allow multiplexed requests, it is more likely
+	   that the web server just closes the connection but we handle it
+	   anyway.) *)
+	`Conn_close
+    | End_of_file ->
+	`Conn_close
+    | error ->
+	`Conn_error error
 	    
 
 (* [handle_connection fd .. f] handle an accept()ed connection,

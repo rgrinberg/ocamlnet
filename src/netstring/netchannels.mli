@@ -708,6 +708,7 @@ class buffered_raw_out_channel :
 (** {1:descriptors Channels over descriptors} *)
 
 class input_descr :
+  ?blocking:bool ->
   ?start_pos_in:int ->
   Unix.file_descr ->
     raw_in_channel
@@ -719,12 +720,15 @@ class input_descr :
    *
    * The method [close_in] also closes the file descriptor.
    *
+   * @param blocking Whether the channel waits for data if it is not
+   * possible to read from the (non-blocking) descriptor. Defaults to [true].
    * @param start_pos_in The position to which [pos_in] is initialized when
    * the channel is created, by default 0
    *)
 
 
 class output_descr :
+  ?blocking:bool ->
   ?start_pos_out:int ->
   Unix.file_descr ->
     raw_out_channel
@@ -736,11 +740,14 @@ class output_descr :
    *
    * The method [close_out] also closes the file descriptor.
    *
+   * @param blocking Whether the channel waits until it can output if it is not
+   * possible to write to the (non-blocking) descriptor. Defaults to [true].
    * @param start_pos_out The position to which [pos_out] is initialized when
    * the channel is created, by default 0
    *)
 
 class socket_descr :
+  ?blocking:bool ->
   ?start_pos_in:int ->
   ?start_pos_out:int ->
   Unix.file_descr ->
@@ -754,6 +761,7 @@ class socket_descr :
    *
    * The [pos_in] and [pos_out] methods returns logical positions.
    *
+   * @param blocking See {!input_descr} and {!output_descr}
    * @param start_pos_in The position to which [pos_in] is initialized when
    * the channel is created, by default 0
    * @param start_pos_out The position to which [pos_out] is initialized when

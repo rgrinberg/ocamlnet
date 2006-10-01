@@ -9,6 +9,72 @@ let rec restart f arg =
     | Unix.Unix_error(Unix.EINTR,_,_) ->
 	restart f arg
 
+let restarting_select fd_rd fd_wr fd_oob tmo =
+  let t0 = Unix.gettimeofday() in
+  
+  let rec tryagain t_elapsed =
+    let tmo' = tmo -. t_elapsed in
+    if tmo' >= 0.0 then
+      try
+	Unix.select fd_rd fd_wr fd_oob tmo'
+      with
+	| Unix.Unix_error(Unix.EINTR,_,_) ->
+	    let t1 = Unix.gettimeofday() in
+	    tryagain (t1 -. t0)
+    else
+      ([], [], [])
+  in
+
+  if tmo > 0.0 then
+    tryagain 0.0
+  else
+    restart (Unix.select fd_rd fd_wr fd_oob) tmo
+
+
+let rec really_write fd s pos len =
+  if len > 0 then
+    try
+      let n = Unix.single_write fd s pos len in
+      really_write fd s (pos+n) (len-n)
+    with
+      | Unix.Unix_error(Unix.EINTR, _, _) ->
+	  really_write fd s pos len
+      | Unix.Unix_error( (Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) ->
+	  ignore(restart (Unix.select [] [fd] []) (-1.0));
+	  really_write fd s pos len
+  else
+    ()
+
+
+let blocking_read fd s pos len =
+  let rec loop pos len p =
+    if len > 0 then
+      try
+	let n = Unix.read fd s pos len in
+	if n=0 then
+	  p
+	else
+	  loop (pos+n) (len-n) (p+n)
+      with
+	| Unix.Unix_error(Unix.EINTR, _, _) ->
+	    loop pos len p
+	| Unix.Unix_error( (Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) ->
+	    ignore(restart (Unix.select [fd] [] []) (-1.0));
+	    loop pos len p
+    else
+      p
+  in
+  loop pos len 0
+
+
+let really_read fd s pos len =
+  if len > 0 then
+    let p = blocking_read fd s pos len in
+    if p < len then raise End_of_file;
+    ()
+  else
+    ()
+
 
 (* Misc *)
 

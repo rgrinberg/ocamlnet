@@ -37,7 +37,6 @@ let rec do_connection timeout do_request fd =
   let cdir =
     wait_for_request timeout fd in
   if cdir = `Conn_keep_alive then (
-    prerr_endline "KEEP_ALIVE";
     let cdir' =
       do_request fd in
     if cdir' = `Conn_keep_alive then
@@ -46,7 +45,6 @@ let rec do_connection timeout do_request fd =
       cdir'
   )
   else (
-    prerr_endline "CLOSE";
     cdir
   )
 

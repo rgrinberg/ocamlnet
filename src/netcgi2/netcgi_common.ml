@@ -20,6 +20,16 @@
 open Netchannels
 open Printf
 
+(* TODO: Get rid of all the unsafe_get and unsafe_set, or prove that
+   their usage is correct. Until then, we enforce using the safe variants
+   (for strings). There are also calls to Array.unsafe_(get/set) and
+   Char.unsafe_chr
+ *)
+
+let unsafe_get s k = s.[k]
+let unsafe_set s k c = s.[k] <- c
+
+
 (* Exceptions and signals
  ***********************************************************************)
 
@@ -33,15 +43,6 @@ let () =
   try Sys.set_signal Sys.sigpipe Sys.Signal_ignore
   with Invalid_argument _ -> ()
 
-(* SIGCHLD is set to an empty handler.  The effect is that whenever a
-   child terminates, the next blocking system call will return EINTR.
-   Note that for SIGCHLD an empty handler has a different meaning than
-   ignoring the signal! *)
-(* let () =
-  try Sys.set_signal Sys.sigchld (Sys.Signal_handle (fun _ -> ()))
-  with Invalid_argument _ -> ()
-*)
-
 
 (* Useful functions
  ***********************************************************************)
@@ -52,7 +53,7 @@ let min x y = if (x:int) <= y then x else y
 let is_prefix =
   let rec is_pre i len pre s =
     if i < len then
-      (String.unsafe_get pre i = String.unsafe_get s i)
+      (unsafe_get pre i = unsafe_get s i)
       && is_pre (i+1) len pre s
     else true in
   fun prefix s ->
@@ -63,13 +64,13 @@ let rev_split is_cut s =
   let rec seek_cut acc i0 i1 =
     if i1 >= String.length s then
       (String.sub s i0 (i1 - i0)) :: acc
-    else if is_cut(String.unsafe_get s i1) then
+    else if is_cut(unsafe_get s i1) then
       skip ((String.sub s i0 (i1 - i0)) :: acc) (i1 + 1) (i1 + 1)
     else
       seek_cut acc i0 (i1 + 1)
   and skip acc i0 i1 =
     if i1 >= String.length s then acc
-    else if is_cut(String.unsafe_get s i1) then skip acc i0 (i1 + 1)
+    else if is_cut(unsafe_get s i1) then skip acc i0 (i1 + 1)
     else seek_cut acc i1 i1 in
   skip [] 0 0
 
@@ -78,11 +79,11 @@ let rev_split is_cut s =
    of heading and trailing spaces. *)
 let rm_htspace is_space =
   let rec trailing_spaces s j = (* assume there is i s.t. s.[i] <> ' ' *)
-    if is_space(String.unsafe_get s j) then trailing_spaces s (j - 1)
+    if is_space(unsafe_get s j) then trailing_spaces s (j - 1)
     else j + 1 (* first trailing space *) in
   let rec rm_spaces s i up =
     if i >= up then "" else begin
-      if is_space(String.unsafe_get s i) then rm_spaces s (i + 1) up
+      if is_space(unsafe_get s i) then rm_spaces s (i + 1) up
       else
         (* s.[i] <> space so trailing_spaces will stop and return j >= i. *)
         String.sub s i (trailing_spaces s (up - 1) - i)
@@ -96,6 +97,7 @@ let rm_htspace is_space =
 (* Quote all problematic characters to put the filename in a header
    and to save it on the disk and surround it by '"'. *)
 let is_printable c =
+  (* TODO: We must not assume any charset here. The world has got larger *)
   (* Latin-1 *)
   (Char.code c >= 32 && Char.code c <= 127) || Char.code c >= 160
 
@@ -103,34 +105,34 @@ let filename_quote s =
   (* Compute the length of the new string. *)
   let n = ref 2 (* the quotes *) in
   for i = 0 to String.length s - 1 do
-    n := !n + (match String.unsafe_get s i with
+    n := !n + (match unsafe_get s i with
 	       | '"' | '\\' | '\n' | '\t' -> 2
                | c -> if is_printable c then 1 else 4)
   done;
   let s' = String.create !n in
-  String.unsafe_set s' 0 '\"';
+  unsafe_set s' 0 '\"';
   n := 1;
   for i = 0 to String.length s - 1 do
-    (match String.unsafe_get s i with
+    (match unsafe_get s i with
      | ('"' | '\\') as c ->
-         String.unsafe_set s' !n '\\'; incr n; String.unsafe_set s' !n c
+         unsafe_set s' !n '\\'; incr n; unsafe_set s' !n c
      | '\n' ->
-         String.unsafe_set s' !n '\\'; incr n; String.unsafe_set s' !n 'n'
+         unsafe_set s' !n '\\'; incr n; unsafe_set s' !n 'n'
      | '\t' ->
-         String.unsafe_set s' !n '\\'; incr n; String.unsafe_set s' !n 't'
+         unsafe_set s' !n '\\'; incr n; unsafe_set s' !n 't'
      | c ->
-         if is_printable c then String.unsafe_set s' !n c
+         if is_printable c then unsafe_set s' !n c
          else (
            let a = Char.code c in
-           String.unsafe_set s' !n '\\';
-           incr n; String.unsafe_set s' !n (Char.chr (48 + a / 100));
-           incr n; String.unsafe_set s' !n (Char.chr (48 + (a / 10) mod 10));
-           incr n; String.unsafe_set s' !n (Char.chr (48 + a mod 10))
+           unsafe_set s' !n '\\';
+           incr n; unsafe_set s' !n (Char.chr (48 + a / 100));
+           incr n; unsafe_set s' !n (Char.chr (48 + (a / 10) mod 10));
+           incr n; unsafe_set s' !n (Char.chr (48 + a mod 10))
 	 )
     );
     incr n
   done;
-  String.unsafe_set s' !n '\"';
+  unsafe_set s' !n '\"';
   s'
 
 
@@ -138,7 +140,27 @@ let filename_quote s =
 (* Knuth-Morris-Pratt algorithm
  ***********************************************************************)
 
-module KMP =
+(* TODO: Get rid of this. It is only used to search in short strings anyway.
+   There is an alternate implementation in Netaux.
+ *)
+
+(** Substring search functions using the Knuth-Morris-Pratt algorithm. *)
+module type KMP_TYPE =
+sig
+  val search : string -> (string -> int -> int -> int)
+    (** [search pat] define a search function [f] such that [f s i0
+	i1] search the string [pat] in [s.[i0 .. i1-1]] and return the
+	position of the first match.
+
+	@raise Not_found if [pat] is not found.
+	@raise Invalid_argument if [i0 < 0] or [i1 > String.length s].  *)
+
+  val search_case_fold : string -> (string -> int -> int -> int)
+    (** [search_case_fold] is the same as [search] except that the
+	search is case insensitive.  *)
+end
+
+module KMP : KMP_TYPE =
 struct
   (* Preprocess the pattern *)
   let preprocess pat len =
@@ -147,11 +169,11 @@ struct
     let j = ref(-1) in
     for i = 0 to len - 1 do
       while !j >= 0
-	&& String.unsafe_get pat !j <> String.unsafe_get pat i do
+	&& unsafe_get pat !j <> unsafe_get pat i do
 	  j := Array.unsafe_get b !j
       done;
       incr j;
-      Array.unsafe_set b (i+1) !j
+      Array.(*unsafe_*)set b (i+1) !j
     done;
     b
 
@@ -173,8 +195,8 @@ struct
       try
 	while !i < i1 do
 	  while !j >= 0
-	    && String.unsafe_get s !i <> String.unsafe_get pat !j do
-	      j := Array.unsafe_get b !j
+	    && unsafe_get s !i <> unsafe_get pat !j do
+	      j := Array.(*unsafe_*)get b !j
 	  done;
 	  incr i;
 	  incr j;
@@ -197,9 +219,9 @@ struct
       and j = ref 0 in
       try
 	while !i < i1 do
-	  while !j >= 0 && Char.lowercase(String.unsafe_get s !i)
-	    <> String.unsafe_get pat !j do
-	      j := Array.unsafe_get b !j
+	  while !j >= 0 && Char.lowercase(unsafe_get s !i)
+	    <> unsafe_get pat !j do
+	      j := Array.(*unsafe_*)get b !j
 	  done;
 	  incr i;
 	  incr j;
@@ -214,7 +236,28 @@ end
 (* URL
  ***********************************************************************)
 
-module Url =
+(* TODO: Check the quality of this module. If it is really better than
+   Netencoding.Url, it should be moved there
+ *)
+
+(** This module is a drop-in replacement of [Netencoding.Url].  Not
+    only it is much faster (about 10 times) but it also avoids the
+    dependency on PCRE (less dependencies are good, especially on
+    windows or if you need to install by hand).
+*)
+module type URL =
+sig
+  val decode : ?plus:bool -> string -> string
+  val encode : ?plus:bool -> string -> string
+  val mk_url_encoded_parameters : (string * string) list -> string
+  val dest_url_encoded_parameters : string -> (string * string) list
+
+  val decode_range : string -> int -> int -> string
+    (* internally used *)
+end
+
+
+module Url : URL =
 struct
   (* Decoding -------------------------------------------------- *)
 
@@ -234,25 +277,25 @@ struct
      string.  Invalid '%XX' are left unchanged.  *)
   let rec decode_range_loop plus i0 i up s =
     if i0 >= up then i else begin
-      match String.unsafe_get s i0 with
+      match unsafe_get s i0 with
       | '+' ->
-	  String.unsafe_set s i plus;
+	  unsafe_set s i plus;
 	  decode_range_loop plus (succ i0) (succ i) up s
       | '%' when i0 + 2 < up ->
           let i1 = succ i0 in
           let i2 = succ i1 in
           let i0_next =
             try
-              let v = hex_of_char(String.unsafe_get s i1) lsl 4
-                + hex_of_char(String.unsafe_get s i2) in
-	      String.unsafe_set s i (Char.chr v);
+              let v = hex_of_char(unsafe_get s i1) lsl 4
+                + hex_of_char(unsafe_get s i2) in
+	      unsafe_set s i (Char.chr v);
 	      succ i2
             with Hex_of_char ->
-	      String.unsafe_set s i '%';
+	      unsafe_set s i '%';
 	      i1 in
 	  decode_range_loop plus i0_next (succ i) up s
       | c ->
-	  String.unsafe_set s i c;
+	  unsafe_set s i c;
 	  decode_range_loop plus (succ i0) (succ i) up s
     end
 
@@ -284,7 +327,7 @@ struct
      index and [up-1] the last index to scan. *)
   let rec get_key qs i0 i up =
     if i >= up then [(decode_range qs i0 up, "")] else
-      match String.unsafe_get qs i with
+      match unsafe_get qs i with
       | '=' -> get_val qs (i+1) (i+1) up (decode_range qs i0 i)
       | '&' ->
 	  (* key but no val *)
@@ -293,7 +336,7 @@ struct
 	  get_key qs i0 (i+1) up
   and get_val qs i0 i up key =
     if i >= up then [(key, decode_range qs i0 up)] else
-      match String.unsafe_get qs i with
+      match unsafe_get qs i with
       | '&' -> (key, decode_range qs i0 i) :: get_key qs (i+1) (i+1) up
       | _ -> get_val qs i0 (i+1) up key
 
@@ -307,36 +350,36 @@ struct
 
   let hex = [| '0'; '1'; '2'; '3'; '4'; '5'; '6'; '7'; '8'; '9';
 	       'A'; 'B'; 'C'; 'D'; 'E'; 'F' |]
-  let char_of_hex i = Array.unsafe_get hex i
+  let char_of_hex i = Array.(*unsafe_*)get hex i
 
   let encode_wrt is_special s0 =
     let len = String.length s0 in
     let encoded_length = ref len in
     for i = 0 to len - 1 do
-      if is_special(String.unsafe_get s0 i) then
+      if is_special(unsafe_get s0 i) then
 	encoded_length := !encoded_length + 2
     done;
     let s = String.create !encoded_length in
     let rec do_enc i0 i = (* copy the encoded string in s *)
       if i0 < len then begin
-	let s0i0 = String.unsafe_get s0 i0 in
+	let s0i0 = unsafe_get s0 i0 in
 	(* It is important to check first that [s0i0] is special in
 	   case [' '] is considered as such a character. *)
 	if is_special s0i0 then begin
           let c = Char.code s0i0 in
           let i1 = succ i in
           let i2 = succ i1 in
-          String.unsafe_set s i '%';
-          String.unsafe_set s i1 (char_of_hex (c lsr 4));
-          String.unsafe_set s i2 (char_of_hex (c land 0x0F));
+          unsafe_set s i '%';
+          unsafe_set s i1 (char_of_hex (c lsr 4));
+          unsafe_set s i2 (char_of_hex (c land 0x0F));
           do_enc (succ i0) (succ i2)
 	end
 	else if s0i0 = ' ' then begin
-	  String.unsafe_set s i '+';
+	  unsafe_set s i '+';
           do_enc (succ i0) (succ i)
 	end
 	else begin
-          String.unsafe_set s i s0i0;
+          unsafe_set s i s0i0;
           do_enc (succ i0) (succ i)
 	end
       end in
@@ -562,32 +605,32 @@ struct
     let len = String.length s0 in
     let encoded_length = ref len in
     for i = 0 to len - 1 do
-      match String.unsafe_get s0 i with
+      match unsafe_get s0 i with
       | '\"' | '\\' | '\n' | '\r' -> incr encoded_length
       | '\000' .. '\031' -> decr encoded_length (* ignore *)
       | _ -> ()
     done;
     let s = String.create (!encoded_length + 2) in
-    String.unsafe_set s 0 '\"';
+    unsafe_set s 0 '\"';
     let j = ref 1 in
     for i = 0 to len - 1 do
-      (match String.unsafe_get s0 i with
+      (match unsafe_get s0 i with
       | '\"' | '\\' as c ->
-	  String.unsafe_set s !j '\\'; incr j;
-	  String.unsafe_set s !j c; incr j
+	  unsafe_set s !j '\\'; incr j;
+	  unsafe_set s !j c; incr j
       | '\n' ->
-	  String.unsafe_set s !j '\\'; incr j;
-	  String.unsafe_set s !j 'n'; incr j
+	  unsafe_set s !j '\\'; incr j;
+	  unsafe_set s !j 'n'; incr j
       | '\r' ->
-	  String.unsafe_set s !j '\\'; incr j;
-	  String.unsafe_set s !j 'r'; incr j
+	  unsafe_set s !j '\\'; incr j;
+	  unsafe_set s !j 'r'; incr j
       | '\000' .. '\031' ->
 	  () (* Ignore these control chars, useless fo comments *)
       | c ->
-	  String.unsafe_set s !j c; incr j
+	  unsafe_set s !j c; incr j
       );
     done;
-    String.unsafe_set s !j '\"';
+    unsafe_set s !j '\"';
     s
 
   (* [gen_cookie c] returns a buffer containing an attribute suitable
@@ -677,22 +720,22 @@ struct
       let s = String.sub s low len in
       let rec decode i j =
 	if i < len then (
-	  match String.unsafe_get s i with
+	  match unsafe_get s i with
 	  | '\\' ->
 	      let i = i + 1 in
 	      if i < len then (
-		(match String.unsafe_get s i with
-		 | '\"' | '\\' as c -> String.unsafe_set s j c
-		 | 'n' -> String.unsafe_set s j '\n'
-		 | 'r' -> String.unsafe_set s j '\r'
-		 | 't' -> String.unsafe_set s j '\t'
-		 | c -> String.unsafe_set s j c
+		(match unsafe_get s i with
+		 | '\"' | '\\' as c -> unsafe_set s j c
+		 | 'n' -> unsafe_set s j '\n'
+		 | 'r' -> unsafe_set s j '\r'
+		 | 't' -> unsafe_set s j '\t'
+		 | c -> unsafe_set s j c
 		);
 		decode (i + 1) (j + 1)
 	      )
 	      else j
 	  | c ->
-	      String.unsafe_set s j c;
+	      unsafe_set s j c;
 	      decode (i + 1) (j + 1)
 	)
 	else j in
@@ -708,7 +751,7 @@ struct
   (* Given a new key-val data, update the list of cookies accordingly
      (new cookie or update attributes of the current one). *)
   let add_key_val key value cl =
-    if key <> "" && String.unsafe_get key 0 = '$' then
+    if key <> "" && unsafe_get key 0 = '$' then
       (* Keys starting with '$' are for control; ignore the ones we do
 	 not know about. *)
       (match cl with
@@ -741,7 +784,7 @@ struct
       let value = decode_range cs i0 len in
       if value = "" then cl else make "" value :: cl
     else
-      match String.unsafe_get cs i with
+      match unsafe_get cs i with
       | ',' | ';' ->
 	  (* No "=", interpret as a value as Mozilla does.  We choose
 	     this over MSIE which is reported to return just "n"
@@ -756,13 +799,13 @@ struct
   and skip_space_before_key cs i len cl =
     if i >= len then cl
     else
-      match String.unsafe_get cs i with
+      match unsafe_get cs i with
       | ' ' | '\t' | '\n' | '\r' -> skip_space_before_key cs (i + 1) len cl
       | _ -> get_key cs i i len cl
   and skip_value_space cs i len key cl =
     if i >= len then add_key_val key "" cl (* no value *)
     else
-      match String.unsafe_get cs i with
+      match unsafe_get cs i with
       | ' ' | '\t' | '\n' | '\r' -> (* skip linear white space *)
 	  skip_value_space cs (i + 1) len key cl
       | '\"' ->
@@ -772,7 +815,7 @@ struct
   and get_value cs i0 i len key cl =
     if i >= len then add_key_val key (decode_range cs i0 len) cl
     else
-      match String.unsafe_get cs i with
+      match unsafe_get cs i with
       | ',' | ';' ->
 	  let cl = add_key_val key (decode_range cs i0 i) cl in
 	  (* Usually there is a space after ';' to skip *)
@@ -783,7 +826,7 @@ struct
     if i >= len then (* quoted string not closed; try anyway *)
       add_key_val key (unescape_range cs i0 len) cl
     else
-      match String.unsafe_get cs i with
+      match unsafe_get cs i with
       | '\\' -> get_quoted_value cs i0 (i + 2) len key cl
       | '\"' ->
 	  let cl = add_key_val key (unescape_range cs i0 i) cl in
@@ -792,7 +835,7 @@ struct
   and skip_to_next cs i len cl =
     if i >= len then cl
     else
-      match String.unsafe_get cs i with
+      match unsafe_get cs i with
       | ',' | ';' -> skip_space_before_key cs (i + 1) len cl
       | _ -> skip_to_next cs (i + 1) len cl
 
@@ -1265,7 +1308,7 @@ object(self)
       | `Env -> env#cgi_path_info
       | `This s ->
 	  (* the path-info MUST be separated by "/" *)
-	  if String.length s >= 1 && String.unsafe_get s 0 <> '/' then
+	  if String.length s >= 1 && unsafe_get s 0 <> '/' then
 	    "/" ^ s
 	  else s
       | `None -> ""
@@ -1962,8 +2005,8 @@ let update_props_inheader ((name, value) as nv) (props, inheader) =
     let len = String.length name - 5 in
     let hname = String.sub name 5 len in
     for i = 0 to len - 1 do
-      String.unsafe_set hname i
-	(match String.unsafe_get hname i with
+      unsafe_set hname i
+	(match unsafe_get hname i with
 	 | '_' ->  '-'
 	 | 'A' .. 'Z' as c -> (* ASCII *)
 	     Char.unsafe_chr(Char.code c + shift_to_lowercase)
@@ -1973,261 +2016,3 @@ let update_props_inheader ((name, value) as nv) (props, inheader) =
   )
   else
     (nv :: props, inheader)
-
-
-(* Input and output objects from a file descriptor
- * {{:http://ocaml-programming.de/rec/IO-Classes.html}IO-Classes}
- ***********************************************************************)
-
-(* [index_in_range c s i0 i1] returns the index [j] of the first
-   occurrence of [c] in s.[i], i0 <= i < i1.  If no occurence of [c]
-   is found, it will return [i1].  It is assumed that 0 <= i0 and i1
-   <= String.length s. *)
-let index_in_range c s i0 i1 =
-  let rec examine i =
-    if i < i1 then
-      if String.unsafe_get s i = c then i
-      else examine (i+1)
-    else i1 in
-  examine i0
-
-
-let rec read fd buf ofs len =
-  try
-    let r = Unix.read fd buf ofs len in
-    if r = 0 then raise End_of_file;
-    r
-  with
-  | Unix.Unix_error(Unix.EINTR,_,_) -> read fd buf ofs len
-  | Unix.Unix_error(Unix.EAGAIN, _, _)
-  | Unix.Unix_error(Unix.EWOULDBLOCK, _, _) -> 0
-
-
-class in_obj_of_descr ~buffer (fd: Unix.file_descr) =
-object(self)
-  val fd = fd
-  val in_buf = buffer (* The data in the [in_buf] is at indexes i s.t. *)
-  val mutable in0 = 0 (* in0 <= i < in1. *)
-  val mutable in1 = 0 (* Invariant: 0 <= in0 ; in1 <= buffer_len. *)
-  val buffer_len = String.length buffer
-  val mutable pos_in = 0
-  val mutable closed = false
-
-  method close_in () =
-    if closed then raise Netchannels.Closed_channel else
-      (* Channel not yet closed.  One cannot close the file descriptor
-         because we need it for output. *)
-      closed <- true
-
-(*  method open_in () = closed <- false *)
-
-  method private fill_in_buf () =
-    if in0 >= in1 then begin
-      in0 <- 0;
-      in1 <- read fd in_buf 0 buffer_len;
-    end
-
-  method private unsafe_input buf ofs len =
-    self#fill_in_buf();
-    let r = min len (in1 - in0) in
-    String.blit in_buf in0  buf ofs r;
-    in0 <- in0 + r;
-    pos_in <- pos_in + r;
-    r
-
-  method input buf ofs len =
-    if ofs < 0 || len < 0 || ofs + len > String.length buf then
-      invalid_arg "in_obj_of_descr#input";
-    if closed then raise Netchannels.Closed_channel;
-    self#unsafe_input buf ofs len
-
-  method input_char () =
-    if closed then raise Netchannels.Closed_channel;
-    self#fill_in_buf();
-    if in1 = 0 then raise Sys_blocked_io else begin
-      let c = String.unsafe_get in_buf in0 in
-      in0 <- in0 + 1;
-      pos_in <- pos_in + 1;
-      c
-    end
-
-  method input_byte () = Char.code(self#input_char ())
-
-  method private unsafe_really_input buf ofs len =
-    let ofs = ref ofs
-    and len = ref len in
-    while !len > 0 do
-      let r = self#unsafe_input buf !ofs !len in
-      if r = 0 then raise Sys_blocked_io;
-      ofs := !ofs + r;
-      len := !len - r
-    done
-
-  method really_input buf ofs len =
-    if ofs < 0 || len < 0 || ofs + len > String.length buf then
-      invalid_arg "in_obj_of_descr#really_input";
-    if closed then raise Netchannels.Closed_channel;
-    self#unsafe_really_input buf ofs len
-
-  method input_all_till c =
-    if closed then raise Netchannels.Closed_channel;
-    let acc = ref ""
-    and i = ref in1 (* to enter the loop *) in
-    try
-      while !i = in1 (* [c] not found *) do
-        self#fill_in_buf();
-        if in1 = 0 then raise Sys_blocked_io else begin
-          (* Buffer contains something (in0 < in1), seek [c]. *)
-          i := index_in_range c in_buf in0 in1;
-          let len = !i - in0 in
-          acc := !acc ^ String.sub in_buf in0 len;
-          pos_in <- pos_in + len + 1; (* +1 for [c] *)
-          in0 <- !i + 1; (* skip [c] *)
-        end
-      done;
-      !acc
-    with End_of_file when !acc <> "" -> !acc
-
-  method input_line () = self#input_all_till '\n'
-
-  method pos_in = pos_in
-end
-
-
-
-(* [write fd buf ofs len 0] writes to the file descriptor [fd] as much
-   as possible of the subtring [buf.[i]] with [ofs <= i < ofs + len]
-   and returns the number of bytes actually written.  If less than
-   [len] bytes were written, it is because an exception occured.  *)
-let rec write fd buf ofs len wrote =
-  let w =
-    try Unix.single_write fd buf ofs len
-    with
-    | Unix.Unix_error(Unix.EINTR,_,_) -> 0 (* try again *)
-    | Unix.Unix_error(Unix.EAGAIN,_,_)
-    | Unix.Unix_error(Unix.EWOULDBLOCK,_,_) -> -1 (* stop, no chars written *)
-  in
-  if w < 0 then wrote
-  else if w < len then write fd buf (ofs + w) (len - w) (wrote + w)
-  else wrote + w
-
-
-class out_obj_of_descr ~buffer (fd: Unix.file_descr) =
-object(self)
-  val fd = fd
-  val out_buf = buffer (* The data is in out_buf.[i], 0 <= i < out1 *)
-  val mutable out1 = 0 (* out1 <= buffer_len ; < 0 iff channel closed. *)
-  val buffer_len = String.length buffer
-  val mutable pos_out = 0 (* How many bytes were sent to [out_buf],
-                             not how many bytes were actually sent to [fd] *)
-
-  method private write buf ofs len = write fd buf ofs len 0
-
-  method flush () =
-    if out1 < 0 then raise Netchannels.Closed_channel;
-    (* Channel not closed, flush the content of the buffer. *)
-    let w = self#write out_buf 0 out1 in
-    let len = out1 - w in
-    if len > 0 then begin
-      (* Move the part not outputted at the beginning so one can try
-         later (if one catches the exception). *)
-      String.blit out_buf w out_buf 0 len;
-      out1 <- len;
-      failwith(sprintf "out_obj_of_descr#flush(): wrote %i bytes out of %i"
-                 w out1);
-    end
-    else out1 <- 0
-
-  method close_out () =
-    if out1 < 0 then raise Netchannels.Closed_channel else begin
-      (* Do not close the file descriptor [fd]; this is the job of the
-         accept() loop -- and it may be reused for subsequent connections. *)
-      (try self#flush() with e -> out1 <- -1; raise e);
-      out1 <- -1
-    end
-
-  (* Write some chars (if needed) to make some space in [out_buf]. *)
-  method private free_space () =
-    if out1 = buffer_len then begin
-      let w = self#write out_buf 0 out1 in
-      let len = out1 - w in
-      String.blit out_buf w out_buf 0 len;
-      out1 <- len
-    end
-
-  method private unsafe_output buf pos len =
-    self#free_space();
-    let w = min len (buffer_len - out1) in
-    String.blit buf pos out_buf out1 w;
-    out1 <- out1 + w;
-    pos_out <- pos_out + w;
-    w
-
-  method output buf pos len =
-    if pos < 0 || len < 0 || pos + len > String.length buf then
-      invalid_arg "out_obj_of_descr#output";
-    if out1 < 0 then raise Netchannels.Closed_channel;
-    self#unsafe_output buf pos len
-
-  method private unsafe_really_output buf pos len =
-    let pos = ref pos
-    and len = ref len in
-    while !len > 0 do
-      let w = self#unsafe_output buf !pos !len in
-      if w = 0 then raise Sys_blocked_io;
-      pos := !pos + w;
-      len := !len - w;
-    done
-
-  method really_output buf pos len =
-    if pos < 0 || len < 0 || pos + len > String.length buf then
-      invalid_arg "out_obj_of_descr#really_output";
-    if out1 < 0 then raise Netchannels.Closed_channel;
-    self#unsafe_really_output buf pos len
-
-  method output_string s = self#really_output s 0 (String.length s)
-
-  method output_buffer buf = self#output_string (Buffer.contents buf)
-
-  method output_char c =
-    if out1 < 0 then raise Netchannels.Closed_channel;
-    self#free_space();
-    if out1 = buffer_len then raise Sys_blocked_io;
-    (* At least one byte free *)
-    String.unsafe_set out_buf out1 c;
-    out1 <- out1 + 1;
-    pos_out <- pos_out + 1
-
-  method output_byte i = self#output_char(Char.chr i)
-
-  (* Raising [Sys_blocked_io] allows the user to do something else.
-     To know how many bytes of the input channel were read, check
-     [pos_out] before running this function and after the failure.  *)
-  method output_channel ?len (in_obj: Netchannels.in_obj_channel) =
-    if out1 < 0 then raise Netchannels.Closed_channel;
-    match len with
-    | None -> (* read till the end *)
-	(try
-	   while true do
-             self#free_space();
-	     let r = in_obj#input out_buf out1 (buffer_len - out1) in
-	     if r <= 0 then raise Sys_blocked_io;
-             out1 <- out1 + r;
-             pos_out <- pos_out + r;
-	   done
-	 with End_of_file -> ())
-    | Some len -> (* read at most [len] bytes *)
-        (try
-	   let len = ref len in
-	   while !len > 0 do
-             self#free_space();
-	     let r = in_obj#input out_buf out1 (buffer_len - out1) in
-	     if r <= 0 then raise Sys_blocked_io;
-             out1 <- out1 + r;
-             pos_out <- pos_out + r;
-	     len := !len - r
-	   done
-	 with End_of_file -> ())
-
-  method pos_out = pos_out
-end

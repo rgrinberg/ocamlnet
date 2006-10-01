@@ -170,7 +170,7 @@ let run ?(config=Netcgi.default_config)
    | `HEAD ->
        let arguments =
 	 !arguments @ (List.map (fun a -> (a#name, a#value)) args) in
-       add ("QUERY_STRING", Url.mk_url_encoded_parameters arguments) props
+       add ("QUERY_STRING", Netencoding.Url.mk_url_encoded_parameters arguments) props
    | _ -> ());
 
   (* Output channel *)

@@ -19,6 +19,36 @@ val restart : ('a -> 'b) -> 'a -> 'b
     *   well-enough specified by POSIX
    *)
 
+val restarting_select : 
+      Unix.file_descr list -> Unix.file_descr list -> Unix.file_descr list ->
+      float ->
+        (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list)
+  (** A wrapper around [Unix.select] that handles the [EINTR] condition *)
+
+val really_write : Unix.file_descr -> string -> int -> int -> unit
+  (** [really_write fd s pos len]: Writes exactly the [len] bytes from [s]
+    * to [fd] starting at [pos]. The conditions [EINTR], [EAGAIN] and
+    * [EWOULDBLOCK] are handled.
+   *)
+
+val blocking_read : Unix.file_descr -> string -> int -> int -> int
+  (** [let p = blocking_read fd s pos len]: Reads exactly [p] bytes from [fd]
+    * and stores them in [s] starting at [pos] where [p] is the minimum
+    * of [len] and the number of bytes that are available on [fd] until
+    * the end of the file. If the function is called with [len>0] but 
+    * returns less than [len] this indicates end of file.
+    * The conditions [EINTR], [EAGAIN] and [EWOULDBLOCK] are handled.
+   *)
+
+val really_read : Unix.file_descr -> string -> int -> int -> unit
+  (** [really_read fd s pos len]: Reads exactly [len] bytes from [fd]
+    * and stores them in [s] starting at [pos]. If the end of file condition
+    * is seen before [len] bytes are read, the exception [End_of_file]
+    * is raised, and it is unspecified how many bytes have been stored in
+    * [s]. The conditions [EINTR], [EAGAIN] and [EWOULDBLOCK] are handled.
+   *)
+
+
 (** {1 Standard POSIX functions} *)
 
 (* Misc *)

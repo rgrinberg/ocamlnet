@@ -1,0 +1,2 @@
+export OCAMLPATH=../../../src
+make

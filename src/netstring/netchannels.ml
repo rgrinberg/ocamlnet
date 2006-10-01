@@ -1228,7 +1228,7 @@ let lift_out ?(buffered=true) ?buffer_size (x : lift_out_arg) =
 
 (************************* raw channels *******************************)
 
-class input_descr_prelim ?(start_pos_in = 0) fd =
+class input_descr_prelim ?(blocking=true) ?(start_pos_in = 0) fd =
 object (self)
   val fd_in = fd
   val mutable pos_in = start_pos_in
@@ -1249,7 +1249,12 @@ object (self)
 	  self # input buf pos len
       | Unix.Unix_error(Unix.EAGAIN,_,_)
       | Unix.Unix_error(Unix.EWOULDBLOCK,_,_) ->
-	  0
+	  if blocking then (
+	    let _  = Netsys.restarting_select [fd] [] [] (-1.0) in
+	    self # input buf pos len
+	  )
+	  else 0
+	  
   
   method close_in () =
     if closed_in then self # complain_closed();
@@ -1262,12 +1267,12 @@ end
 ;;
 
 
-class input_descr ?start_pos_in fd : raw_in_channel = 
-  input_descr_prelim ?start_pos_in fd
+class input_descr ?blocking ?start_pos_in fd : raw_in_channel = 
+  input_descr_prelim ?blocking ?start_pos_in fd
 ;;
 
 
-class output_descr_prelim ?(start_pos_out = 0) fd =
+class output_descr_prelim ?(blocking=true) ?(start_pos_out = 0) fd =
 object (self)
   val fd_out = fd
   val mutable pos_out = start_pos_out
@@ -1287,7 +1292,12 @@ object (self)
 	  self # output buf pos len
       | Unix.Unix_error(Unix.EAGAIN,_,_)
       | Unix.Unix_error(Unix.EWOULDBLOCK,_,_) ->
-	  0
+	  if blocking then (
+	    let _  = Netsys.restarting_select [] [fd] [] (-1.0) in
+	    self # output buf pos len
+	  )
+	  else
+	    0
   
   method close_out () =
     if closed_out then self # complain_closed();
@@ -1303,16 +1313,16 @@ end
 ;;
 
 
-class output_descr ?start_pos_out fd : raw_out_channel =
-  output_descr_prelim ?start_pos_out fd 
+class output_descr ?blocking ?start_pos_out fd : raw_out_channel =
+  output_descr_prelim ?blocking ?start_pos_out fd 
 ;;
 
 
-class socket_descr ?(start_pos_in = 0) ?(start_pos_out = 0) fd 
+class socket_descr ?blocking ?(start_pos_in = 0) ?(start_pos_out = 0) fd 
       : raw_io_channel =
 object (self)
-  inherit input_descr_prelim ~start_pos_in fd
-  inherit output_descr_prelim ~start_pos_out fd 
+  inherit input_descr_prelim ?blocking ~start_pos_in fd
+  inherit output_descr_prelim ?blocking ~start_pos_out fd 
   
   method close_in () =
     if closed_in then self # complain_closed();

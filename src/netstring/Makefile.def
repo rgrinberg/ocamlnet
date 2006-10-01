@@ -11,6 +11,7 @@ OBJECTS  = netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
 PKGNAME  = netstring
 
 REQUIRES = pcre
+INCLUDES += $(INC_NETSYS)
 
 ISO_MAPPINGS   = mappings/iso*.unimap
 JP_MAPPINGS    = mappings/jis*.*map
