@@ -122,6 +122,9 @@ tools_done:
 netdate.ml: netdate.mlp
 	$(CAMLP4) pa_o.cmo pa_op.cmo pr_o.cmo -impl netdate.mlp > netdate.ml
 
+netdate.cmo: netdate.cmi
+netdate.cmx: netdate.cmi
+
 include $(TOP_DIR)/Makefile.rules
 
 CLEAN_LIST += tools_done netdb_done netdb.ml netdate.ml $(PMAP:.pmap=.ml)

@@ -1598,7 +1598,7 @@ object(self)
     pos_in <- pos_in + n;
     n
 
-  method input_line =
+  method input_line() =
     let p = input_super # pos_in in
     let line = call_input self#refill (input_super#input_line) () in
     let p' = input_super # pos_in in
@@ -1609,12 +1609,12 @@ object(self)
     call_input self#refill (input_super#really_input str pos) len;
     pos_in <- pos_in + len
 
-  method input_char =
+  method input_char() =
     let c = call_input self#refill (input_super#input_char) () in
     pos_in <- pos_in + 1;
     c
 
-  method input_byte =
+  method input_byte() =
     let b = call_input self#refill (input_super#input_byte) () in
     pos_in <- pos_in + 1;
     b

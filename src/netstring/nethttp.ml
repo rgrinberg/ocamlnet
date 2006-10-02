@@ -266,7 +266,9 @@ let strong_validator_match e1 e2 =
 exception Bad_header_field of string
 
 class type http_header = Netmime.mime_header
+class type http_header_ro = Netmime.mime_header_ro
 class type http_trailer = Netmime.mime_header
+class type http_trailer_ro = Netmime.mime_header_ro
 
 
 type cookie =

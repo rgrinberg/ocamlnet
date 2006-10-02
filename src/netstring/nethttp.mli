@@ -189,9 +189,11 @@ exception Bad_header_field of string
    *)
 
 class type http_header = Netmime.mime_header
+class type http_header_ro = Netmime.mime_header_ro
   (** The HTTP header is represented as MIME header *)
 
 class type http_trailer = Netmime.mime_header
+class type http_trailer_ro = Netmime.mime_header_ro
   (** The HTTP trailer is represented as MIME header *)
 
 val status_of_cgi_header : http_header -> (int * string)
@@ -288,7 +290,7 @@ module Header : sig
     * The argument of both exceptions is the function name.
    *)
 
-  val get_accept : #http_header -> (string *
+  val get_accept : #http_header_ro -> (string *
 		                 (string * string) list *
 			        (string * string) list) list
     (** Returns the [Accept] header as list of triples 
@@ -301,7 +303,7 @@ module Header : sig
       * at all (which should be interpreted as [ ["*/*",[],[] ] ]).
      *)
 
-  val best_media_type : #http_header -> string list -> ( string * (string * string) list )
+  val best_media_type : #http_header_ro -> string list -> ( string * (string * string) list )
     (** Returns the best media type for a header and a list of supported types.
       * If any type is acceptable, "*/*" will be returned. If no type is acceptable,
       * "" will be returned.
@@ -318,7 +320,7 @@ module Header : sig
 			        (string * string) list) list -> unit
     (** Sets the [Accept] header *)
 
-  val get_accept_charset : #http_header -> (string *
+  val get_accept_charset : #http_header_ro -> (string *
 					 (string * string) list) list
     (** Returns the [Accept-charset] header as list of pairs [(charset,params)].
       * The only mentioned parameter in RFC 2616 is ["q"].
@@ -328,7 +330,7 @@ module Header : sig
       * [ ["*",[]] ]).
      *)
 
-  val best_charset : #http_header -> string list -> string
+  val best_charset : #http_header_ro -> string list -> string
     (** Returns the best charset for a header and a list of supported charsets.
       * If any charset is acceptable, "*" will be returned.
       * The supported charsets should be sorted such that the best charset
@@ -342,7 +344,7 @@ module Header : sig
 					 (string * string) list) list -> unit
     (** Sets the [Accept-charset] header *)
 
-  val get_accept_encoding : #http_header -> (string *
+  val get_accept_encoding : #http_header_ro -> (string *
 					(string * string) list) list
     (** Returns the [Accept-encoding] header as list of pairs [(coding,params)].
       * The only mentioned parameter in RFC 2616 is ["q"]. The RFC describes
@@ -354,7 +356,7 @@ module Header : sig
       * [ ["identity",[]] ].
      *)
 
-  val best_encoding : #http_header -> string list -> string
+  val best_encoding : #http_header_ro -> string list -> string
     (** Returns the best encoding for a header and a list of supported encodings.
       * If anything else fails, "identity" will be returned.
       * The supported encodings should be sorted such that the best encoding
@@ -365,7 +367,7 @@ module Header : sig
 					(string * string) list) list -> unit
     (** Sets the [Accept-encoding] header *)
 
-  val get_accept_language : #http_header -> (string *
+  val get_accept_language : #http_header_ro -> (string *
 					(string * string) list) list
     (** Returns the [Accept-language] header as list of pairs [(lang_range,params)].
       * The only mentioned parameter in RFC 2616 is ["q"].
@@ -379,7 +381,7 @@ module Header : sig
 					(string * string) list) list -> unit
     (** Sets the [Accept-language] header *)
 
-  val get_accept_ranges : #http_header -> string list
+  val get_accept_ranges : #http_header_ro -> string list
     (** Returns the [Accept-ranges] header as list of tokens.
       * 
       * All present [Accept-ranges] headers are merged. The function raises [Not_found]
@@ -390,14 +392,14 @@ module Header : sig
   val set_accept_ranges : #http_header -> string list -> unit
     (** Sets the [Accept-ranges] header *)
 
-  val get_age : #http_header -> float
+  val get_age : #http_header_ro -> float
     (** Returns the [Age] header as number
      *)
 
   val set_age : #http_header -> float -> unit
     (** Sets the [Age] header *)
 
-  val get_allow : #http_header -> string list
+  val get_allow : #http_header_ro -> string list
     (** Returns the [Allow] header as list of tokens.
       *
       * All present [Allow] headers are merged. The function raises [Not_found]
@@ -408,7 +410,7 @@ module Header : sig
   val set_allow : #http_header -> string list -> unit
     (** Sets the [Allow] header *)
 
-  val get_authorization : #http_header -> (string * (string * string) list)
+  val get_authorization : #http_header_ro -> (string * (string * string) list)
     (** Returns the [Authorization] header as pair [(auth_scheme,auth_params)],
       * or raises [Not_found] if not present.
       *
@@ -424,7 +426,7 @@ module Header : sig
       * [get_authorization].
      *)
 
-  val get_cache_control : #http_header -> cache_control_token list
+  val get_cache_control : #http_header_ro -> cache_control_token list
     (** Returns the [Cache-control] header as list of tokens.
       *
       * All present [Cache-control] headers are merged. The function raises [Not_found]
@@ -434,7 +436,7 @@ module Header : sig
   val set_cache_control : #http_header -> cache_control_token list -> unit
     (** Sets the [Cache-control] header *)
 
-  val get_connection : #http_header -> string list
+  val get_connection : #http_header_ro -> string list
     (** Returns the [Connection] header as list of tokens.
       *
       * All present [Connection] headers are merged. The function raises [Not_found]
@@ -446,7 +448,7 @@ module Header : sig
   val set_connection : #http_header -> string list -> unit
     (** Sets the [Connection] header *)
 
-  val get_content_encoding : #http_header -> string list
+  val get_content_encoding : #http_header_ro -> string list
     (** Returns the [Content-encoding] header as list of tokens.
       *
       * All present [Content-encoding] headers are merged. The function raises [Not_found]
@@ -456,7 +458,7 @@ module Header : sig
   val set_content_encoding : #http_header -> string list -> unit
     (** Sets the [Content-encoding] header *)
 
-  val get_content_language : #http_header -> string list
+  val get_content_language : #http_header_ro -> string list
     (** Returns the [Content-language] header as list of tokens.
       *
       * All present [Content-language] headers are merged. The function raises [Not_found]
@@ -466,7 +468,7 @@ module Header : sig
   val set_content_language : #http_header -> string list -> unit
     (** Sets the [Content-language] header *)
 
-  val get_content_length : #http_header -> int64
+  val get_content_length : #http_header_ro -> int64
     (** Returns the [Content-length] header as number. If the number is too big for
       * int64, the exception [Bad_header_field "Content-length"] will be raised.
       * Raises [Not_found] when the header is missing.
@@ -475,7 +477,7 @@ module Header : sig
   val set_content_length : #http_header -> int64 -> unit
     (** Sets the [Content-length] header *)
 
-  val get_content_location : #http_header -> string
+  val get_content_location : #http_header_ro -> string
     (** Returns the [Content-location] header as string.  Raises [Not_found] when the 
       * header is missing.
      *)
@@ -483,7 +485,7 @@ module Header : sig
   val set_content_location : #http_header -> string -> unit
     (** Sets the [Content-location] header *)
 
-  val get_content_md5 : #http_header -> string
+  val get_content_md5 : #http_header_ro -> string
     (** Returns the [Content-MD5] header as string. The Base64 encoding has not been
       * touched. Raises [Not_found] when the header is missing.
      *)
@@ -491,7 +493,7 @@ module Header : sig
   val set_content_md5 : #http_header -> string -> unit
     (** Sets the [Content-MD5] header *)
 
-  val get_content_range : #http_header -> [ `Bytes of (int64*int64) option * int64 option ]
+  val get_content_range : #http_header_ro -> [ `Bytes of (int64*int64) option * int64 option ]
     (** Returns the [Content-range] header as 
       * [`Bytes(byte_range_resp_spec, instance_length)]. The option value [None]
       * corresponds to "*" in the RFC.
@@ -502,7 +504,7 @@ module Header : sig
                           [ `Bytes of (int64*int64) option * int64 option ] -> unit
     (** Sets the [Content-range] header *)
 
-  val get_content_type : #http_header -> string * (string * string) list
+  val get_content_type : #http_header_ro -> string * (string * string) list
     (** Returns the [Content-type] header as pair [(media_type, params)].
       * Raises [Not_found] when the header is missing.
      *)
@@ -510,7 +512,7 @@ module Header : sig
   val set_content_type : #http_header -> string * (string * string) list -> unit
     (** Sets the [Content-type] header *)
 
-  val get_date : #http_header -> float
+  val get_date : #http_header_ro -> float
     (** Returns the [Date] header as number (seconds since the Epoch).
       * Raises [Not_found] when the header is missing.
      *)
@@ -518,7 +520,7 @@ module Header : sig
   val set_date : #http_header -> float -> unit
     (** Sets the [Date] header *)
 
-  val get_etag : #http_header -> etag
+  val get_etag : #http_header_ro -> etag
     (** Returns the [Etag] header.
       * Raises [Not_found] when the header is missing.
      *)
@@ -526,7 +528,7 @@ module Header : sig
   val set_etag : #http_header -> etag -> unit
     (** Sets the [Etag] header *)
 
-  val get_expect : #http_header -> (string * string option * (string * string) list) list
+  val get_expect : #http_header_ro -> (string * string option * (string * string) list) list
     (** Returns the [Expect] header as list of triples [(token,value,params)].
       *
       * All present [Expect] headers are merged. The function raises [Not_found]
@@ -537,7 +539,7 @@ module Header : sig
                    (string * string option * (string * string) list) list -> unit
     (** Sets the [Expect] header *)
 
-  val get_expires : #http_header -> float
+  val get_expires : #http_header_ro -> float
     (** Returns the [Expires] header as number (seconds since the Epoch).
       * Raises [Not_found] when the header is missing.
      *)
@@ -545,7 +547,7 @@ module Header : sig
   val set_expires : #http_header -> float -> unit
     (** Sets the [Expires] header *)
 
-  val get_from : #http_header -> string
+  val get_from : #http_header_ro -> string
     (** Returns the [From] header as string.
       * Raises [Not_found] when the header is missing.
      *)
@@ -553,7 +555,7 @@ module Header : sig
   val set_from : #http_header -> string -> unit
     (** Sets the [From] header *)
 
-  val get_host : #http_header -> string * int option
+  val get_host : #http_header_ro -> string * int option
     (** Returns the [Host] header as pair [(host,port)].
       * Raises [Not_found] when the header is missing.
      *)
@@ -561,14 +563,15 @@ module Header : sig
   val set_host : #http_header -> string * int option -> unit
     (** Sets the [Host] header *)
 
-  val get_if_match : #http_header -> etag list option
+  val get_if_match : #http_header_ro -> etag list option
     (** Returns the [If-match] header. The value [None] means "*".
       * Raises [Not_found] when the header is missing.
      *)
 
   val set_if_match : #http_header -> etag list option -> unit
     (** Sets the [If-match] header *)
-  val get_if_modified_since : #http_header -> float
+
+  val get_if_modified_since : #http_header_ro -> float
     (** Returns the [If-modified-since] header as number (seconds since the Epoch).
       * Raises [Not_found] when the header is missing.
      *)
@@ -576,7 +579,7 @@ module Header : sig
   val set_if_modified_since : #http_header -> float -> unit
     (** Sets the [If-modified-since] header *)
 
-  val get_if_none_match : #http_header -> etag list option
+  val get_if_none_match : #http_header_ro -> etag list option
     (** Returns the [If-none-match] header. The value [None] means "*".
       * Raises [Not_found] when the header is missing.
      *)
@@ -584,14 +587,14 @@ module Header : sig
   val set_if_none_match : #http_header -> etag list option -> unit
     (** Sets the [If-none-match] header *)
 
-  val get_if_range : #http_header -> [ `Etag of etag | `Date of float ]
+  val get_if_range : #http_header_ro -> [ `Etag of etag | `Date of float ]
     (** Returns the [If-range] header. 
       * Raises [Not_found] when the header is missing.
      *)
   val set_if_range : #http_header -> [ `Etag of etag | `Date of float ] -> unit
     (** Sets the [If-range] header *)
 
-  val get_if_unmodified_since : #http_header -> float
+  val get_if_unmodified_since : #http_header_ro -> float
     (** Returns the [If-unmodified-since] header as number (seconds since the Epoch).
       * Raises [Not_found] when the header is missing.
      *)
@@ -599,7 +602,7 @@ module Header : sig
   val set_if_unmodified_since : #http_header -> float -> unit
     (** Sets the [If-unmodified-since] header *)
 
-  val get_last_modified : #http_header -> float
+  val get_last_modified : #http_header_ro -> float
     (** Returns the [Last-modified] header as number (seconds since the Epoch).
       * Raises [Not_found] when the header is missing.
      *)
@@ -607,14 +610,14 @@ module Header : sig
   val set_last_modified : #http_header -> float -> unit
     (** Sets the [Last-modified] header *)
 
-  val get_location : #http_header -> string
+  val get_location : #http_header_ro -> string
     (** Returns the [Location] header as string.
       * Raises [Not_found] when the header is missing.
      *)
   val set_location : #http_header -> string -> unit
     (** Sets the [Location] header *)
 
-  val get_max_forwards : #http_header -> int
+  val get_max_forwards : #http_header_ro -> int
     (** Returns the [Max-forwards] header as number.
       * Raises [Not_found] when the header is missing.
      *)
@@ -622,7 +625,7 @@ module Header : sig
   val set_max_forwards : #http_header -> int -> unit
     (** Sets the [Max-forwards] header *)
 
-  val get_pragma : #http_header -> (string * string option) list
+  val get_pragma : #http_header_ro -> (string * string option) list
     (** Returns the [Pragma] header as list of pairs [(token,value)].
       *
       * All present [Pragma] headers are merged. The function raises [Not_found]
@@ -632,7 +635,7 @@ module Header : sig
   val set_pragma : #http_header -> (string * string option) list -> unit
     (** Sets the [Pragma] header *)
 
-  val get_proxy_authenticate : #http_header -> 
+  val get_proxy_authenticate : #http_header_ro -> 
                                  (string * (string * string) list) list
     (** Returns the [Proxy-authenticate] header as list of challenges
       * [(auth_scheme,auth_params)].
@@ -645,7 +648,7 @@ module Header : sig
                                  (string * (string * string) list) list -> unit
     (** Sets the [Proxy-authenticate] header *)
 
-  val get_proxy_authorization : #http_header -> (string * (string * string) list)
+  val get_proxy_authorization : #http_header_ro -> (string * (string * string) list)
     (** Returns the [Proxy-authorization] header as pair 
       * [(auth_scheme,auth_params)].Raises [Not_found] when the header is
       * missing.
@@ -662,7 +665,7 @@ module Header : sig
       * [get_proxy_authorization].
       *)
 
-  val get_range : #http_header -> [`Bytes of (int64 option * int64 option) list ]
+  val get_range : #http_header_ro -> [`Bytes of (int64 option * int64 option) list ]
     (** Returns the [Range] header as [`Bytes ranges], where the list [ranges]
       * has elements of the form [(Some first_pos, Some last_pos)],
       * [(Some first_pos, None)] (prefix range), or [(None, Some last_pos)] (suffix
@@ -673,12 +676,12 @@ module Header : sig
   val set_range : #http_header -> [`Bytes of (int64 option * int64 option) list ] -> unit
     (** Sets the [Range] header *)
 
-  val get_referer : #http_header -> string
+  val get_referer : #http_header_ro -> string
     (** Returns the [Referer] header as string.
       * Raises [Not_found] when the header is missing.
      *)
 
-  val get_referrer : #http_header -> string
+  val get_referrer : #http_header_ro -> string
     (** Same, for addicts of correct orthography *)
 
   val set_referer : #http_header -> string -> unit
@@ -687,7 +690,7 @@ module Header : sig
   val set_referrer : #http_header -> string -> unit
     (** Same, for addicts of correct orthography *)
 
-  val get_retry_after : #http_header -> [ `Date of float | `Seconds of int ]
+  val get_retry_after : #http_header_ro -> [ `Date of float | `Seconds of int ]
     (** Returns the [Retry-after] header.
       * Raises [Not_found] when the header is missing.
      *)
@@ -695,7 +698,7 @@ module Header : sig
   val set_retry_after : #http_header -> [ `Date of float | `Seconds of int ] -> unit
     (** Sets the [Retry-after] header *)
 
-  val get_server : #http_header -> string
+  val get_server : #http_header_ro -> string
     (** Returns the [Server] header as uninterpreted string (including comments).
       * Raises [Not_found] when the header is missing.
      *)
@@ -703,7 +706,7 @@ module Header : sig
   val set_server : #http_header -> string -> unit
     (** Sets the [Server] header *)
 
-  val get_te : #http_header -> (string *
+  val get_te : #http_header_ro -> (string *
 		              (string * string) list *
 		              (string * string) list) list
     (** Returns the [TE] header as list of triples 
@@ -721,7 +724,7 @@ module Header : sig
 		              (string * string) list) list -> unit
     (** Sets the [TE] header *)
 
-  val get_trailer : #http_header -> string list
+  val get_trailer : #http_header_ro -> string list
     (** Returns the [Trailer] header as list of field names.
       *
       * All present [Trailer] headers are merged. The function returns [[]] when
@@ -733,7 +736,7 @@ module Header : sig
   val set_trailer : #http_header -> string list -> unit
     (** Sets the [Trailer] header *)
 
-  val get_transfer_encoding : #http_header -> (string * (string * string) list) list
+  val get_transfer_encoding : #http_header_ro -> (string * (string * string) list) list
     (** Returns the [Transfer-encoding] header as list of pairs
       * [(token, params)].
       *
@@ -746,7 +749,7 @@ module Header : sig
   val set_transfer_encoding : #http_header -> (string * (string * string) list) list -> unit
     (** Sets the [Transfer-encoding] header *)
 
-  val get_upgrade : #http_header -> string list
+  val get_upgrade : #http_header_ro -> string list
     (** Returns the [Upgrade] header as list of products.
       * 
       * All present [Upgrade] headers are merged. The function returns [[]] when
@@ -758,7 +761,7 @@ module Header : sig
   val set_upgrade : #http_header -> string list -> unit
     (** Sets the [Upgrade] header *)
 
-  val get_user_agent : #http_header -> string
+  val get_user_agent : #http_header_ro -> string
     (** Returns the [User-agent] header as uninterpreted string (including comments).
       * Raises [Not_found] if the header is missing.
      *)
@@ -766,7 +769,7 @@ module Header : sig
   val set_user_agent : #http_header -> string -> unit
     (** Sets the [User-agent] header *)
 
-  val get_vary : #http_header -> [ `Star | `Fields of string list ]
+  val get_vary : #http_header_ro -> [ `Star | `Fields of string list ]
     (** Returns the [Vary] header.
       * Raises [Not_found] if the header is missing.
      *)
@@ -774,7 +777,7 @@ module Header : sig
   val set_vary : #http_header -> [ `Star | `Fields of string list ] -> unit
     (** Sets the [Vary] header *)
 (*
-  val get_via : #http_header -> (string option * string * string * string option) list
+  val get_via : #http_header_ro -> (string option * string * string * string option) list
     (** Returns the [Via] header as list of tuples
       * [(proto_name, proto_version, received_by, comment)].
       *
@@ -787,7 +790,7 @@ module Header : sig
     (** Sets the [Via] header *)
  *)
 (*
-  val get_warning : #http_header -> (int * string * string * float option) list
+  val get_warning : #http_header_ro -> (int * string * string * float option) list
     (** Returns the [Warning] header as list of tuples
       * [(code, agent, text, date)].
       *
@@ -800,7 +803,7 @@ module Header : sig
     (** Sets the [Warning] header *)
  *)
 
-  val get_www_authenticate : #http_header -> 
+  val get_www_authenticate : #http_header_ro -> 
                                  (string * (string * string) list) list
     (** Returns the [WWW-Authenticate] header as list of challenges
       * [(auth_scheme,auth_params)].
@@ -813,7 +816,7 @@ module Header : sig
                                (string * (string * string) list) list -> unit
     (** Sets the [WWW-Authenticate] header *)
 
-  val get_cookie : #http_header -> (string * string) list
+  val get_cookie : #http_header_ro -> (string * string) list
     (** Get the cookies as (name,value) pairs (or Not_found) *)
 
   val set_cookie : #http_header -> (string * string) list -> unit
@@ -822,7 +825,7 @@ module Header : sig
      *)
 
 (*
-  val get_set_cookie : #http_header -> cookie list
+  val get_set_cookie : #http_header_ro -> cookie list
  *)
 
   val set_set_cookie : #http_header -> cookie list -> unit
