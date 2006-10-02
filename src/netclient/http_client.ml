@@ -2069,7 +2069,7 @@ class io_buffer options conn_cache fd fd_state =
     method unix_write() =
       let n_to_send = send_length - send_position in
       let n = 
-	syscall (fun () -> Unix.write fd string_to_send send_position n_to_send)
+	syscall (fun () -> Unix.single_write fd string_to_send send_position n_to_send)
       in
       send_position <- send_position + n;
 
