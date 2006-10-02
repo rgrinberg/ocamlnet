@@ -41,22 +41,3 @@ val get_fcgi_env : ?config:cgi_config ->
   run out of fds very soon. *)
 val get_fcgi_activation : ?config:cgi_config -> 
                           operating_type -> Netcgi_types.cgi_activation
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.4  2005/12/17 17:57:04  stolpmann
- * One can now pass the cgi_config to FastCGI functions.
- *
- * Revision 1.3  2004/07/29 15:03:23  gremlin43820
- * added patch from alex beretta, which adds a function to accept one connection and build an environment object from it. Added documentation for this function. Added a second function which accepts one connection and builds an activation object from it. Cleaned up the "serv" function a bit (it now uses the functions that alex and I have added). overall, should be a very small change.
- *
- * Revision 1.2  2004/07/24 18:30:49  stolpmann
- * 	ocamldoc
- *
- * Revision 1.1  2003/10/07 17:39:32  stolpmann
- * 	Imported Eric's patch for fastcgi
- *
- * 
- *)

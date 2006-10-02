@@ -137,31 +137,3 @@ val run :
    * is temporarily redefined while a process waits for a lock. The old
    * handler is suspended until the lock can be acquired.
    *)
-
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.6  2004/07/24 18:30:49  stolpmann
- * 	ocamldoc
- *
- * Revision 1.5  2003/02/04 01:39:14  stolpmann
- * 	New feature: js_idle_worker, js_idle_master options.
- * 	Fix: locking code for `Process_pool takes into account that
- * file positions are shared by file descriptors after fork
- *
- * Revision 1.4  2003/01/27 21:52:55  stolpmann
- * 	The logger function can be changed (exported).
- *
- * Revision 1.3  2002/03/24 22:31:07  stolpmann
- * 	New: `Process_pool
- *
- * Revision 1.2  2002/02/04 15:21:31  stolpmann
- * 	Updated comments.
- *
- * Revision 1.1  2002/02/03 21:27:14  stolpmann
- * 	Initial revision.
- *
- * 
- *)

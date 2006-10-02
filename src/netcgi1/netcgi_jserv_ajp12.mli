@@ -74,25 +74,3 @@ val serve_connection :
    *   [script_name] will be set to the request URI, and the [path_info] will be set
    *   to the empty string.
    *)
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.5  2004/07/24 18:30:49  stolpmann
- * 	ocamldoc
- *
- * Revision 1.4  2002/04/12 21:48:56  stolpmann
- * 	Better support for mod_jk.
- *
- * Revision 1.3  2002/02/04 15:21:31  stolpmann
- * 	Updated comments.
- *
- * Revision 1.2  2001/12/09 02:43:44  stolpmann
- * 	Fixed minor error.
- *
- * Revision 1.1  2001/12/09 01:29:01  stolpmann
- * 	Initial revision.
- *
- * 
- *)

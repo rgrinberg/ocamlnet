@@ -717,37 +717,3 @@ let run ?config srvtype prttype props auth addr port =
 	run_process_pool_server 
 	  ?config pool_size rhlist prttype props auth addr port
 ;;
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.8  2003/02/07 14:16:31  stolpmann
- * 	Fix: shutdown
- *
- * Revision 1.7  2003/02/04 01:39:14  stolpmann
- * 	New feature: js_idle_worker, js_idle_master options.
- * 	Fix: locking code for `Process_pool takes into account that
- * file positions are shared by file descriptors after fork
- *
- * Revision 1.6  2003/01/28 00:50:55  stolpmann
- * 	Bugfix (interrupted syscalls are handled correctly)
- *
- * Revision 1.5  2003/01/27 23:30:00  stolpmann
- * ^	New property "ocamlnet.https"
- *
- * Revision 1.4  2003/01/27 21:52:55  stolpmann
- * 	The logger function can be changed (exported).
- *
- * Revision 1.3  2002/04/12 21:48:56  stolpmann
- * 	Better support for mod_jk.
- *
- * Revision 1.2  2002/03/25 00:09:20  stolpmann
- * 	Added run_process_pool_server which implements the
- * `Process_pool execution model.
- *
- * Revision 1.1  2002/02/03 21:27:14  stolpmann
- * 	Initial revision.
- *
- * 
- *)

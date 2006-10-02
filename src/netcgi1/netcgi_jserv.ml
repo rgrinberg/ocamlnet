@@ -424,38 +424,3 @@ let jvm_emu_main est_server =
 
   est_server props auth addr port
 ;;
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.7  2005/04/14 20:13:05  stolpmann
- * Using Unix.single_write instead of Unix.write.
- *
- * Revision 1.6  2004/05/30 21:27:14  stolpmann
- * 	Supporting the standard for class-based I/O. This also means
- * the semantics of [input] and [output] methods have changed (return
- * value 0, End_of_file).
- * 	Removed _rep_in, _rep_out.
- * 	Removed Netstream.Deprecated.
- *
- * Revision 1.5  2003/01/28 00:50:55  stolpmann
- * 	Bugfix (interrupted syscalls are handled correctly)
- *
- * Revision 1.4  2002/04/12 21:48:55  stolpmann
- * 	Better support for mod_jk.
- *
- * Revision 1.3  2002/03/25 00:08:19  stolpmann
- * 	Splitted [server] up into [server_init] and [server_loop] to
- * implement `Process_pool.
- * 	Changes according to mli file.
- * 	jvm_emu_main: sets now a signal handler for sigchld, too.
- *
- * Revision 1.2  2001/12/09 20:25:24  stolpmann
- * 	Added mt options for prng_init.
- *
- * Revision 1.1  2001/12/09 01:29:01  stolpmann
- * 	Initial revision.
- *
- * 
- *)

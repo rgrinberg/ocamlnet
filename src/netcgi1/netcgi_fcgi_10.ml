@@ -368,18 +368,3 @@ let fcgi_debug_accept s =
 
 (* destroy a connection when we're done with it *)
 let fcgi_destroy req = close req.con
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.9  2006/03/02 22:24:49  stolpmann
- * Bugfix for 64 bit archs: Long header were improperly decoded.
- *
- * Revision 1.8  2005/12/02 20:42:33  gremlin43820
- * fixed a bug in the handling of very large pages and fastcgi. netchannel expects to transfer the page all at once (which is fine), however fastcgi can only handle 64Kbytes of data at a time. We handle this by splitting things up into 64Kbyte chunks in the fcgi_out_channel. Thanks to Francois Rouaix for reporting this issue.
- *
- * Revision 1.7  2005/02/03 19:16:53  gremlin43820
- * open unix in netcgi_fcgi.ml to fix compiler error. Make naming clearer in netcgi_fcgi_10.ml, in read_params, pluralize the list of params "param" is a confusing name for a list.
- *
- *)

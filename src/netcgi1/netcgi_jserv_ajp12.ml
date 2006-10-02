@@ -299,24 +299,3 @@ let serve_connection ?config ?(https=false) ?jk_servletSubString
 	close_out outch;
 	raise any
 ;;
-
-
-  
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.3  2002/10/24 23:47:48  stolpmann
- * 	Support for the HEAD method.
- * 	Workaround for a bug in MSIE: Empty cookies are represented
- * in the wrong way
- *
- * Revision 1.2  2002/04/12 21:48:56  stolpmann
- * 	Better support for mod_jk.
- *
- * Revision 1.1  2001/12/09 01:29:01  stolpmann
- * 	Initial revision.
- *
- * 
- *)
