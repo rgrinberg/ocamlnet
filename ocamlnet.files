@@ -62,6 +62,7 @@ p src/netstring/.*\.ml
 p src/netstring/.*\.mli
 # Also include netdate.mlp:
 f src/netstring/netdate.mlp
+f src/netstring/netconst.mlp
 f src/netstring/nethtml_scanner.mll
 f src/netstring/netdb.mlp
 x src/netstring/netdb.ml
