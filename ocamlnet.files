@@ -27,6 +27,8 @@
 f LICENSE
 f LICENSE.GPL
 f LICENSE.LGPL
+f INSTALL
+f RELNOTES
 #f CHANGES
 f Makefile
 f Makefile.rules
@@ -100,25 +102,37 @@ d src/cgi
 f src/cgi/META.in
 f src/cgi/Makefile
 f src/cgi/Makefile.pre
-p src/cgi/.*\.ml
-p src/cgi/.*\.mli
 
-d src/netcgi
-f src/netcgi/Makefile
-f src/netcgi/Makefile.pre
-f src/netcgi/META.in
-p src/netcgi/.*\.ml
-p src/netcgi/.*\.mli
-#d src/netcgi/mod_caml
-#f src/netcgi/mod_caml/500mod_caml.info.in
-#f src/netcgi/mod_caml/Makefile
-#f src/netcgi/mod_caml/Makefile.pre
-#p src/netcgi/mod_caml/.*\.c
-#p src/netcgi/mod_caml/.*\.h
-#f src/netcgi/mod_caml/mod_caml_config.ml.in
-#x src/netcgi/mod_caml/mod_caml_config.ml
-#p src/netcgi/mod_caml/.*\.ml
-#p src/netcgi/mod_caml/.*\.mli
+d src/netcgi1
+f src/netcgi1/META.in
+f src/netcgi1/Makefile
+f src/netcgi1/Makefile.pre
+p src/netcgi1/.*\.ml
+p src/netcgi1/.*\.mli
+
+d src/netcgi2
+f src/netcgi2/Makefile
+f src/netcgi2/Makefile.pre
+f src/netcgi2/META.in
+p src/netcgi2/.*\.ml
+p src/netcgi2/.*\.mli
+#d src/netcgi2/mod_caml
+#f src/netcgi2/mod_caml/500mod_caml.info.in
+#f src/netcgi2/mod_caml/Makefile
+#f src/netcgi2/mod_caml/Makefile.pre
+#p src/netcgi2/mod_caml/.*\.c
+#p src/netcgi2/mod_caml/.*\.h
+#f src/netcgi2/mod_caml/mod_caml_config.ml.in
+#x src/netcgi2/mod_caml/mod_caml_config.ml
+#p src/netcgi2/mod_caml/.*\.ml
+#p src/netcgi2/mod_caml/.*\.mli
+
+d src/netcgi2-plex
+f src/netcgi2-plex/Makefile
+f src/netcgi2-plex/Makefile.pre
+f src/netcgi2-plex/META.in
+p src/netcgi2-plex/.*\.ml
+p src/netcgi2-plex/.*\.mli
 
 d src/pop
 f src/pop/META.in
@@ -275,30 +289,43 @@ p src/rpc-xti/.*\.c
 
 d examples
 d examples/cgi
+d examples/cgi/netcgi1
 
-d examples/cgi/cgi
-f examples/cgi/cgi/Makefile
-f examples/cgi/cgi/add.ml
-f examples/cgi/cgi/counter.ml
-f examples/cgi/cgi/filemanager.ml
-f examples/cgi/cgi/mailbox.ml
+d examples/cgi/netcgi1/cgi
+f examples/cgi/netcgi1/cgi/Makefile
+f examples/cgi/netcgi1/cgi/add.ml
+f examples/cgi/netcgi1/cgi/counter.ml
+f examples/cgi/netcgi1/cgi/filemanager.ml
+f examples/cgi/netcgi1/cgi/mailbox.ml
 
-d examples/cgi/jserv
-f examples/cgi/jserv/README.jserv
-f examples/cgi/jserv/README.httpd.conf
-f examples/cgi/jserv/README.properties
-f examples/cgi/jserv/Makefile
-f examples/cgi/jserv/add_sequential.ml
-f examples/cgi/jserv/add_forking.ml
-f examples/cgi/jserv/add_procpool.ml
+d examples/cgi/netcgi1/jserv
+f examples/cgi/netcgi1/jserv/README.jserv
+f examples/cgi/netcgi1/jserv/README.httpd.conf
+f examples/cgi/netcgi1/jserv/README.properties
+f examples/cgi/netcgi1/jserv/Makefile
+f examples/cgi/netcgi1/jserv/add_sequential.ml
+f examples/cgi/netcgi1/jserv/add_forking.ml
+f examples/cgi/netcgi1/jserv/add_procpool.ml
 
-d examples/cgi/fcgi
-f examples/cgi/fcgi/Makefile
-f examples/cgi/fcgi/add_fastcgi.ml
+d examples/cgi/netcgi1/fcgi
+f examples/cgi/netcgi1/fcgi/Makefile
+f examples/cgi/netcgi1/fcgi/add_fastcgi.ml
 
-d examples/cgi/fcgi_raw
-f examples/cgi/fcgi_raw/Makefile
-f examples/cgi/fcgi_raw/fcgi_raw.ml
+d examples/cgi/netcgi1/fcgi_raw
+f examples/cgi/netcgi1/fcgi_raw/Makefile
+f examples/cgi/netcgi1/fcgi_raw/fcgi_raw.ml
+
+d examples/cgi/netcgi2-plex
+f examples/cgi/netcgi2-plex/Makefile
+f examples/cgi/netcgi2-plex/README
+f examples/cgi/netcgi2-plex/netplex.ml
+f examples/cgi/netcgi2-plex/netplex.cfg
+f examples/cgi/netcgi2-plex/add.ml
+f examples/cgi/netcgi2-plex/compile.sh
+f examples/cgi/netcgi2-plex/run.sh
+d examples/cgi/netcgi2-plex/lighttpd
+f examples/cgi/netcgi2-plex/lighttpd/lighttpd.conf
+f examples/cgi/netcgi2-plex/lighttpd/start-www
 
 d examples/pop
 f examples/pop/Makefile
@@ -389,6 +416,6 @@ d doc
 d doc/html-main
 p doc/html-main/.*\.html
 p doc/html-main/.*\.css
-d doc/html-main/cgi
-p doc/html-main/cgi/.*\.html
-p doc/html-main/cgi/.*\.css
+d doc/html-main/netcgi1
+p doc/html-main/netcgi1/.*\.html
+p doc/html-main/netcgi1/.*\.css
