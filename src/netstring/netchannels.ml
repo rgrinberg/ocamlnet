@@ -1579,6 +1579,12 @@ object(self)
   val input_super = new input_netbuffer _outgoing
 
   val mutable incoming_eof = false
+  val mutable pos_in = 0
+    (* We must count positions ourselves. Can't use input_super#pos_in
+     * because conv may manipulate the buffer.
+     *)
+
+  val mutable output_closed = false
 
   (* Input methods: *)
 
@@ -1587,32 +1593,49 @@ object(self)
     if incoming_eof then input_super # shutdown()
 
 
-  method input str pos =
-    call_input self#refill (input_super#input str pos)
+  method input str pos len =
+    let n = call_input self#refill (input_super#input str pos) len in
+    pos_in <- pos_in + n;
+    n
 
   method input_line =
-    call_input self#refill (input_super#input_line)
+    let p = input_super # pos_in in
+    let line = call_input self#refill (input_super#input_line) () in
+    let p' = input_super # pos_in in
+    pos_in <- pos_in + (p' - p);
+    line
 
-  method really_input str pos =
-    call_input self#refill (input_super#really_input str pos)
+  method really_input str pos len =
+    call_input self#refill (input_super#really_input str pos) len;
+    pos_in <- pos_in + len
 
   method input_char =
-    call_input self#refill (input_super#input_char)
+    let c = call_input self#refill (input_super#input_char) () in
+    pos_in <- pos_in + 1;
+    c
 
   method input_byte =
-    call_input self#refill (input_super#input_byte)
+    let b = call_input self#refill (input_super#input_byte) () in
+    pos_in <- pos_in + 1;
+    b
 
   method close_in() =
     (* [close_in] implies [close_out]: *)
-    output_super # close_out();
+    if not output_closed then (
+      output_super # close_out();
+      output_closed <- true;
+    );
     input_super # close_in()
 
-  method pos_in = input_super#pos_in
+  method pos_in = pos_in
 
   (* [close_out] also shuts down the input side of the pipe. *)
 
   method close_out () =
-    output_super # close_out();
+    if not output_closed then (
+      output_super # close_out();
+      output_closed <- true;
+    );
     incoming_eof <- true
 
 end
