@@ -9,17 +9,7 @@ Overall:
 	  * Complete rpc_mapping_ref
 	  * Start rpc_intro
 
-	- Remove CVS Log
-	  netstring: DONE
-	  netcgi1: (   )
-	  nethttpd: (   )
-	  pop: (   )
-	  smtp: (   )
-
 	- Concept for signals
-
-Details:
-	container # is_first_container
 
 Equeue:
 	Fix command engines as commented in the code.
@@ -35,6 +25,12 @@ Netplex:
 
 	- Enhanced logging. Also allow non-error channels.
 
+
+	- Nethttpd_plex: TODOs
+
+	container # is_first_container
+
+
 Integration of new netcgi2
 	- All the TODOs in Netcgi_common
 	- Test nethttpd when linked with netcgi2
@@ -48,19 +44,8 @@ netcgi2-plex:
 
 Bugs Tidalwave:
   * ocamlnet
-	- Bug Netchannels.pipe
-	- Bug Unix.single_write
-	- Feature Nethttpd: server header
 	- Bug: Netstring_pcre.global_replace
-	- Bug: class pipe: pos_in ist falsch
-	- Feature Nethtml.decode
-	- Bug Nethttp: ro-Headers nicht unterstützt
 	- Feature Netgzip hinzu
-  * netclient
-	- Bug Http client: Fehler bei Namensauflösung
-	- Bug Redirections zu falschen URLs
-  * equeue:
-	- Bug Fehler: Unixqueue.once und Exceptions
 
 Documentation:
 

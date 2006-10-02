@@ -1,0 +1,77 @@
+----------------------------------------------------------------------
+Intro
+----------------------------------------------------------------------
+
+These are release notes for ocamlnet-2.2test12. This version of
+ocamlnet is a preview release. Developers interested in the upcoming
+2.2 version can have look at it, and experienced developers are
+invited to test it, and to help finding the remaining bugs and
+problems.
+
+In general, the stability of this version is already excellent.
+About 90 % of the code has been taken over from previous versions
+of ocamlnet, equeue, netclient, and rpc, and this means that this
+code is already mature. About 10 % of the code has been newly
+developed:
+
+- netcgi2 is a revised version of the cgi library. Large parts
+  are completely new. The stability is unclear yet.
+
+- netplex is the new server framework. Fortunately, it could already
+  be used in a production environment, and it has proven excellent
+  stability there.
+
+- netcgi2-plex combines netcgi2 and netplex. Stability is unclear.
+
+- nethttpd has now the option to use netcgi2 as cgi provider
+  (configure option -prefer-netcgi2). This is mostly untested.
+
+- netshm adds shared memory support. The stability is unclear
+  yet.
+
+- equeue-ssl and rpc-ssl add SSL support to the RPC libraries.
+  Stability is unclear.
+
+The project would profit most if these libraries were tested by
+independent developers.
+
+----------------------------------------------------------------------
+Known Problems
+----------------------------------------------------------------------
+
+There are known problems in this preview release:
+
+- There is no good concept to manage signals. This is currently done
+  ad-hoc. For now, this does not make any problems, or better, there
+  is always the workaround that the user sets the signal handlers
+  manually if any problems occur.
+
+- The new cookie implementation of netcgi2 should replace the old
+  one in netstring. Users should be prepared that Netcgi.Cookie
+  will eventually become Nethttp.Cookie in one of the next releases.
+
+- In netcgi2-plex, the "mount_dir" and "mount_at" options are not yet
+  implemented.
+
+- In netclient, aggressive caching of HTTP connections is still
+  buggy. Do not use this option (by default, it is not enabled).
+
+- The FTP client is still incomplete.
+
+----------------------------------------------------------------------
+Resources
+----------------------------------------------------------------------
+
+The current development version is available in Subversion:
+
+https://gps.dynxs.de/svn/lib-ocamlnet
+
+Note that the ocamlnet file tree in Sourceforge refers to
+ocamlnet-1 only.
+
+There is a mailing list for Ocamlnet development:
+
+http://sourceforge.net/mail/?group_id=19774
+
+In case of problems, you can also contact me directly:
+Gerd Stolpmann <gerd@gerd-stolpmann.de>
