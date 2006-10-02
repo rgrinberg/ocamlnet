@@ -121,20 +121,3 @@ object (self)
     ignore_answer ic
  
 end
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.4  2006/02/15 00:00:20  gremlin43820
- * fixed the data method to safely work with empty lines in lf format (crlf was fine), and removed the extra crlf after the final ., which caused an error on some smtp servers.
- *
- * Revision 1.3  2005/05/23 10:50:35  mad_coder
- * forgot one exn rename
- *
- * Revision 1.2  2005/05/23 10:49:08  mad_coder
- * add doc to netsmtp
- *
- *
- * 
- *)
