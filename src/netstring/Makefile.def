@@ -1,4 +1,4 @@
-OBJECTS  = netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
+OBJECTS  = netconst.cmo netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
 	   netaux.cmo netchannels.cmo netdate.cmo \
 	   netdb.cmo netmappings.cmo netconversion.cmo netulex.cmo \
            netencoding.cmo netstream.cmo \
@@ -124,6 +124,12 @@ netdate.ml: netdate.mlp
 
 netdate.cmo: netdate.cmi
 netdate.cmx: netdate.cmi
+
+netconst.ml: netconst.mlp
+	sed -e 's/@VERSION@/$(VERSION)/' netconst.mlp >netconst.ml
+
+netconst.cmo: netconst.cmi
+netconst.cmx: netconst.cmi
 
 include $(TOP_DIR)/Makefile.rules
 

@@ -1,0 +1,3 @@
+(* $Id$ *)
+
+let ocamlnet_version = "@VERSION@" ;;
