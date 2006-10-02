@@ -147,6 +147,12 @@ type front_token =
 
 exception Send_queue_empty
 
+
+type announcement =
+    [`Ignore | `Ocamlnet | `Ocamlnet_and of string | `As of string ]
+  (** See config *)
+
+
 (** Encapsultation of the HTTP response for a single request *)
 class type http_response  =
 object
@@ -253,7 +259,7 @@ object
      *)
 end
 
-class http_response_impl : ?close:bool -> ?suppress_body:bool -> protocol -> http_response
+class http_response_impl : ?close:bool -> ?suppress_body:bool -> protocol -> announcement -> http_response
   (** Exported for debugging and testing only *)
 
 val send_static_response : http_response -> 
@@ -356,6 +362,15 @@ object
       * more data. The value 0 has the effect that even the read-ahead of
       * data of the current request is disabled. The value (-1) disables the
       * receiver completely (not recommended).
+     *)
+
+  method config_announce_server : announcement
+    (** Whether to set the [Server] header:
+     * - [`Ignore]: The kernel does not touch the [Server] header.
+     * - [`Ocamlnet]: Announce this web server as "Ocamlnet/<version>"
+     * - [`Ocamlnet_and s]: Announce this web server as [s] and append
+     *   the Ocamlnet string.
+     * - [`As s]: Announce this web server as [s]
      *)
 
 end

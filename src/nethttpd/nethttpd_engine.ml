@@ -981,6 +981,7 @@ let process_connection config pconfig fd ues stage1 : http_engine_processing_con
     method config_max_trailer_length = config # config_max_trailer_length
     method config_limit_pipeline_length = config # config_limit_pipeline_length
     method config_limit_pipeline_size = config # config_limit_pipeline_size
+    method config_announce_server = config # config_announce_server
   end in
 
   let engine = 

@@ -338,6 +338,8 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
        method config_max_trailer_length = 65536
        method config_limit_pipeline_length = 1
        method config_limit_pipeline_size = 65536
+       method config_announce_server = `Ocamlnet
+	 (* TODO *)
      end
     ) in
 

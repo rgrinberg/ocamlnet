@@ -107,6 +107,9 @@ type front_token_opt = [ `None | front_token_x ]
 type resp_state =
     [ `Inhibited | `Queued | `Active | `Processed | `Error | `Dropped ]
 
+type announcement =
+    [`Ignore | `Ocamlnet | `Ocamlnet_and of string | `As of string ]
+
 class type http_response  =
 object
   method state : resp_state
@@ -138,7 +141,8 @@ let string_of_state =
  * - implement trailers
  *)
 class http_response_impl ?(close=false) ?(suppress_body=false) 
-                         (req_version : protocol) : http_response =
+                         (req_version : protocol) 
+                         (ann_server : announcement) : http_response =
   (* - [close]: If true, the connection will be closed after this response
    * - [suppress_body]: If true, the body will not be transmitted (e.g. in response
    *   to a HEAD request)
@@ -256,9 +260,17 @@ object(self)
 	      | true  -> set_connection resp_header ["close"]
 	  );
 	  resp_header # delete_field "Upgrade";
-	  let server =
-	    try get_server resp_header with Not_found -> "" in
-	  set_server resp_header (server ^ " Ocamlnet_Nethttpd");
+	  ( match ann_server with
+	      | `Ignore -> ()
+	      | `Ocamlnet ->
+		  let sh = "Ocamlnet/" ^ Netconst.ocamlnet_version in
+		  set_server resp_header sh
+	      | `Ocamlnet_and s ->
+		  let sh = s ^ " Ocamlnet/" ^ Netconst.ocamlnet_version in
+		  set_server resp_header sh
+	      | `As sh ->
+		  set_server resp_header sh
+	  );
 	  (* Convert the header to a data chunk: *)
 	  let b = Netbuffer.create 4096 in
 	  let ch = new Netchannels.output_netbuffer b in
@@ -490,6 +502,7 @@ object
   method config_max_trailer_length : int
   method config_limit_pipeline_length : int
   method config_limit_pipeline_size : int
+  method config_announce_server : announcement
 end
 
 
@@ -630,7 +643,9 @@ object(self)
       | Bad_request e ->
 	  (* Stop only the input side of the engine! *)
 	  self # stop_input_acceptor();
-	  let resp = new http_response_impl ~close:true (`Http((1,0),[])) in
+	  let resp = 
+	    new http_response_impl ~close:true (`Http((1,0),[])) 
+	      config#config_announce_server in
 	  self # push_recv (`Bad_request_error(e, resp), 0);
 	  self # push_recv (`Eof, 0);
 	  resp # set_state `Queued;   (* allow response from now on *)
@@ -836,7 +851,9 @@ object(self)
 	      (try List.mem "close" (get_connection req_h) with Not_found -> false)
 	  | _ -> false in
       let suppress_body = (meth = "HEAD") in
-      let resp = new http_response_impl ~close ~suppress_body (snd request_line) in
+      let resp = 
+	new http_response_impl ~close ~suppress_body (snd request_line)
+	  config#config_announce_server in
       self # push_recv 
 	(`Req_header (request_line, req_h, resp), block_end-block_start);
       Queue.push resp resp_queue;
