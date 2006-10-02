@@ -640,9 +640,9 @@ let encode ?(enc = `Enc_iso88591) ?(prefer_name = true) dl =
   map_list enc_string dl
 ;;
 
-let decode ?(enc = `Enc_iso88591) ?subst dl = 
+let decode ?(enc = `Enc_iso88591) ?subst ?entity_base ?lookup dl = 
   let dec_string =
-    Netencoding.Html.decode ~in_enc:enc ~out_enc:enc ?subst () in
+    Netencoding.Html.decode ~in_enc:enc ~out_enc:enc ?subst ?entity_base ?lookup () in
   map_list dec_string dl
 ;;
 

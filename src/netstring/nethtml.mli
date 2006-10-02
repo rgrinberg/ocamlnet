@@ -240,6 +240,8 @@ val parse : ?dtd:simplified_dtd ->            (* default: html40_dtd *)
 val decode : 
       ?enc:Netconversion.encoding ->           (* default: `Enc_iso88591 *)
       ?subst:(int -> string) ->                (* default: failure *)
+      ?entity_base:[ `Html | `Xml | `Empty ] -> 
+      ?lookup:(string -> string) ->
       document list -> document list
   (** Converts entities [&name;] and [&#num;] into the corresponding 
    * characters. The argument [enc] must indicate the character set of
@@ -248,6 +250,10 @@ val decode :
    * [subst] is called (input is the Unicode code point, output is the
    * substituted string). By default, the function fails if such a 
    * character is found.
+   *
+   * The arg [entity_base] selects which entities can be converted
+   * (see {!Netencoding.Html.decode}). The function [lookup] is called
+   * for all unknown [&name;] entities. By default, this function fails.
    *
    * Note: Declarations, processing instructions, and comments are not
    * decoded.
