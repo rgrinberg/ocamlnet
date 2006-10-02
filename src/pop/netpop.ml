@@ -243,13 +243,3 @@ object (self)
       )
     with _ -> raise Protocol_error;
 end
-
-(* ======================================================================
- * History:
- * 
- * $Log$
- * Revision 1.1  2001/11/11 21:43:14  pdoane
- * 	Initial revision
- *
- * 
- *)
