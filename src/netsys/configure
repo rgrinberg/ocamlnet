@@ -45,3 +45,5 @@ EOF
 cat <<EOF >config.h
 $def_have_posix_shm
 EOF
+
+exit 0

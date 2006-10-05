@@ -11,6 +11,9 @@ Overall:
 
 	- Concept for signals
 
+Feature request:
+	- netclient: Support for CONNECT
+
 Equeue:
 	Fix command engines as commented in the code.
 
