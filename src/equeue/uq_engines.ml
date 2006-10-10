@@ -2450,10 +2450,23 @@ object(self)
 		     try
 		       let (sock',_) = Unix.accept sock in
 		       Unix.set_nonblock sock';
+		       (* There seem to be buggy kernels out there where
+                        * [accept] does not always return a connected socket.
+                        * We get ENOTCONN for [getpeername] then.
+                        * Who does that? The super hackers at SW-Soft with
+                        * their Virtuozzo shit.
+                        *)
+		       let ps =
+			 try getpeerspec Unix.SOCK_STREAM sock'
+			 with
+			   | Unix.Unix_error(Unix.ENOTCONN,_,_) as e ->
+			       Unix.close sock';
+			       raise e in
 		       acc_engine <- None;
-		       `Done(sock', getpeerspec Unix.SOCK_STREAM sock')
+		       `Done(sock', ps)
 		     with
-		       | Unix.Unix_error( (Unix.EAGAIN | Unix.EINTR), _, _) ->
+		       | Unix.Unix_error( (Unix.EAGAIN | Unix.EINTR | 
+					       Unix.ENOTCONN), _, _) ->
 			   eng # restart();
 			   `Working 0
 		       | error ->
