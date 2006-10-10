@@ -134,6 +134,7 @@ netconst.cmx: netconst.cmi
 include $(TOP_DIR)/Makefile.rules
 
 CLEAN_LIST += tools_done netdb_done netdb.ml netdate.ml $(PMAP:.pmap=.ml)
+CLEAN_LIST += netconst.ml
 
 clean::
 	test ! -d mappings || rm -f $(PMAP)
