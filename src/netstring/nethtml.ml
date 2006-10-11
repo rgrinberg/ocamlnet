@@ -401,7 +401,12 @@ let parse_document ?(dtd = html40_dtd)
   let parse_atts() =
     let rec next_no_space p_string =
       (* p_string: whether string literals in quotation marks are allowed *)
-      match scan_element p_string buf with
+      let tok =
+	if p_string then
+	  scan_element_after_Is buf
+	else
+	  scan_element buf in
+      match tok with
 	  Space _ -> next_no_space p_string
 	| t -> t
     in
@@ -466,7 +471,7 @@ let parse_document ?(dtd = html40_dtd)
 
   let rec skip_element() =
     (* Skip until ">" *)
-    match scan_element false buf with
+    match scan_element buf with
 	Relement ->
 	  ()
       | Eof ->

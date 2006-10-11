@@ -38,6 +38,7 @@ let ws = [ ' ' '\t' '\r' '\n' ]
 let string_literal1 = '"' [^ '"' ]* '"'
 let string_literal2 = "'" [^ '\'' ]* "'"
 let string_literal3 = [^ '"' '\'' '>' '=' ' ' '\t' '\n' '\r' ]+
+let string_literal4 = [^ '"' '\'' '>' ' ' '\t' '\n' '\r' ]+
 
 (* This following rules reflect HTML as it is used, not the SGML
  * rules.
@@ -108,7 +109,7 @@ and scan_pi = parse
   | [^ '>' '?' ] +
       { Mpi }
 
-and scan_element p_string = parse
+and scan_element = parse
   | ">"
       { Relement }
   | ws+
@@ -118,26 +119,34 @@ and scan_element p_string = parse
   | "="
       { Is }
   | '"' 
-      { if p_string then (
-	  try
-	    Literal (scan_string_literal1 lexbuf)
-	  with
-	    | _ -> Other
-	)
-	else
-	  Other
+      { Other }
+  | "'"
+      { Other }
+  | string_literal3
+      { Literal (Lexing.lexeme lexbuf) }
+  | eof
+      { Eof }
+  | _
+      { Other }
+
+and scan_element_after_Is = parse
+  | ">"
+      { Relement }
+  | ws+
+      { Space (String.length (Lexing.lexeme lexbuf)) }
+  | '"' 
+      { try
+	  Literal (scan_string_literal1 lexbuf)
+	with
+	  | _ -> Other
       }
   | "'"
-      { if p_string then (
-	  try
-	    Literal (scan_string_literal2 lexbuf)
-	  with
-	    | _ -> Other
-	)
-	else
-	  Other
+      { try
+	  Literal (scan_string_literal2 lexbuf)
+	with
+	  | _ -> Other
       }
-  | string_literal3
+  | string_literal4
       { Literal (Lexing.lexeme lexbuf) }
   | eof
       { Eof }
