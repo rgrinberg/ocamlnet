@@ -95,6 +95,23 @@ end
 module ContMap = Map.Make(ContId)
 
 
+let containers_by_attractivity container_state =
+  (* Containers sorted by the number of jobs they execute *)
+  let weight s =
+    match s with
+      | `Accepting(n,_) -> n
+      | `Starting _ -> 0
+      | `Busy -> max_int
+      | `Shutting_down -> max_int in 
+  List.sort
+    (fun (cid1,s1,_) (cid2,s2,_) ->
+       let n1 = weight s1 in
+       let n2 = weight s2 in
+       n1 - n2)
+    container_state
+
+
+
 class dynamic_workload_manager config : workload_manager =
 object(self)
   val mutable esys = lazy(assert false)
@@ -113,6 +130,9 @@ object(self)
      * When these containers are finally idle, the inactivity timer is started.
      * If they remain idle, they will be shut down when the timer expires.
      *)
+
+  val mutable limit_alert = false
+  val mutable last_limit_alert = 0.0
 
   method hello controller =
     esys <- lazy(controller # event_system);
@@ -174,12 +194,7 @@ object(self)
 	  (* Now decide... *)
 	  if free_cap < config#min_free_job_capacity then (
 	    let needed_cap = config#min_free_job_capacity - free_cap in
-	    let needed_threads = 
-	      (needed_cap - 1 ) / config#recommended_jobs_per_thread + 1 in
-	    let needed_threads' =
-	      max 0 ((min (all_threads+needed_threads) config#max_threads) -
-		       all_threads) in
-	    self # activate_containers sockserv sockctrl needed_threads'
+	    self # activate_containers sockserv sockctrl all_threads needed_cap
 	  )
 	  else 
 	    if free_cap > config#max_free_job_capacity then (
@@ -190,19 +205,8 @@ object(self)
 		(* Try to stop exceeding_thread containers. Look for
                  * the containers with the least numbers of jobs.
                  *)
-		let weight s =
-		  match s with
-		    | `Accepting(n,_) -> n
-		    | `Starting _ -> 0
-		    | `Busy -> max_int
-		    | `Shutting_down -> max_int in
-		let sorted_conts =
-		  List.sort
-		    (fun (cid1,s1,_) (cid2,s2,_) ->
-		       let n1 = weight s1 in
-		       let n2 = weight s2 in
-		       n1 - n2)
-		    container_state in
+		let sorted_conts = 
+		  containers_by_attractivity container_state in
 		let n = ref 0 in
 		List.iter
 		  (fun (cid,s,selected) ->
@@ -229,22 +233,48 @@ object(self)
 	  self # inactivation_check sockserv sockctrl
 
 
-  method private activate_containers sockserv sockctrl n =
-    let n = ref n in
-    (* First re-activate the inactivated containers: *)
+  method private activate_containers sockserv sockctrl all_threads needed_cap =
+    (* n is the capacity still needed. The method (re)claims resources
+     * and decreases n until it is 0 or negative.
+     *)
+    let n = ref needed_cap in
+    (* First re-activate the inactivated containers. Look at all containers,
+     * sort them by attractivity, and try to reactivate the most attractive
+     * inactive containers. In this pass, we only look at containers which
+     * are not yet overloaded.
+     *)
+    let container_state = sockctrl # container_state in
+    let sorted_conts = 
+      containers_by_attractivity container_state in
     let l = ref [] in
-    ContMap.iter
-      (fun cid g_opt ->
-	 if !n > 0 then (
-	   decr n;
-	   l := cid :: !l;
-	   match g_opt with
-	     | None -> ()
-	     | Some g ->
-		 Unixqueue.clear (Lazy.force esys) g;
-	 )
+    List.iter
+      (fun (cid, s, selected) ->
+	 try
+	   if !n <= 0 then raise Not_found;
+	   let g_opt = ContMap.find cid inactivated_conts in
+	   let cap =
+	     match s with
+	       | `Accepting(m,_) ->
+		   let d = config#recommended_jobs_per_thread - m in
+		   if d > 0 then (* not overloaded *)
+		     d
+		   else
+		     (-1) (* do not consider these in this pass *)
+	       | `Starting _ ->
+		   config#recommended_jobs_per_thread
+	       | _ -> (-1) (* do not consider these *) in
+	   if cap >= 0 then (
+	     n := !n - cap;
+	     l := cid :: !l;
+	     match g_opt with
+	       | None -> ()
+	       | Some g ->
+		   Unixqueue.clear (Lazy.force esys) g;
+	   )
+	 with
+	   | Not_found -> ()
       )
-      inactivated_conts;
+      sorted_conts;
     List.iter
       (fun cid ->
 	 inactivated_conts <- ContMap.remove cid inactivated_conts)
@@ -254,11 +284,69 @@ object(self)
 	"Dyn workload mng %s: Reclaiming %d inactivated containers"
 	sockserv#name (List.length !l)
     );
-    (* If needed, start further containers: *)
-    if !n > 0 then
-      sockctrl # start_containers !n
+    (* Second pass: If needed, start further containers: *)
+    if !n > 0 then (
+      let needed_threads =
+	(!n-1) / config#recommended_jobs_per_thread + 1 in
+      let needed_threads' =
+	min (max 0 (config#max_threads - all_threads)) needed_threads in
+      sockctrl # start_containers needed_threads';
+      n := !n - needed_threads' * config#recommended_jobs_per_thread
+    );
+    (* Third pass: Also reactivate overloaded containers *)
+    if !n > 0 then (
+      let l = ref [] in
+      List.iter
+	(fun (cid, s, selected) ->
+	   try
+	     if !n <= 0 then raise Not_found;
+	     let g_opt = ContMap.find cid inactivated_conts in
+	     let cap =
+	       match s with
+		 | `Accepting(m,_) ->
+		   let d = config#max_jobs_per_thread - m in
+		   if d > 0 then
+		     d
+		   else
+		     (-1) (* do not consider these in this pass *)
+		 | _ -> (-1) (* do not consider these *) in
+	     if cap >= 0 then (
+	       n := !n - cap;
+	       l := cid :: !l;
+	       match g_opt with
+		 | None -> ()
+		 | Some g ->
+		     Unixqueue.clear (Lazy.force esys) g;
+	     )
+	   with
+	     | Not_found -> ()
+	)
+	sorted_conts;
+      List.iter
+	(fun cid ->
+	   inactivated_conts <- ContMap.remove cid inactivated_conts)
+	!l;
+      if !Netplex_log.debug_scheduling && !l <> [] then (
+	debug_logf logger
+	  "Dyn workload mng %s: Reclaiming %d inactivated but overloaded containers"
+	  sockserv#name (List.length !l)
+      );
+    );
+    if !n > 0 && not limit_alert then (
+      let now = Unix.gettimeofday() in
+      if now >= last_limit_alert +. 60.0 then (
+	(Lazy.force logger) # log 
+	  ~component:sockserv#name
+	  ~level:`Alert
+	  ~message:"Dyn workload mng: Reaching configured capacity limit";
+	limit_alert <- true;
+	last_limit_alert <- now;
+      )
+    );
+    if !n <= 0 then limit_alert <- false
 
-	(* Note that the activation may not do enough because inactivated
+	(* [CHECK whether this is still true:]
+         * Note that the activation may not do enough because inactivated
          * containers can be quite busy. The next [adjust] call will fix
          * this.
          *)
@@ -266,6 +354,7 @@ object(self)
 
   method private inactivate_container sockserv sockctrl cid =
     inactivated_conts <- ContMap.add cid None inactivated_conts;
+    limit_alert <- false;
 
     if !Netplex_log.debug_scheduling then (
       debug_logf logger
@@ -285,6 +374,11 @@ object(self)
 	 try
 	   let g_opt = ContMap.find cid inactivated_conts in
 	   assert(not selected);
+	   (* Well, [not selected] means only the container was not selected
+            * at the time of inactivation. However, we know that the scheduler
+            * won't select the container again because [capacity] returns
+            * [`Unavailable] for it.
+            *)
 	   match (g_opt, s) with
 	     | None, `Accepting(0,_) ->
 		 if !Netplex_log.debug_scheduling then (

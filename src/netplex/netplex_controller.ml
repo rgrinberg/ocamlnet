@@ -103,6 +103,14 @@ object(self)
      * poll. Used to detect massive numbers of start-up failures.
      *)
 
+
+  initializer (
+    let esys = controller#event_system in
+    let g = Unixqueue.new_group esys in
+    Unixqueue.once esys g 1.0 (fun () -> self#alive_check esys g)
+  )
+
+
   method state = state
 
   method container_state =
@@ -118,6 +126,25 @@ object(self)
 	 )
       ) 
       clist
+
+
+  method private alive_check esys g =
+    (* To be called every second or so. This is a "parachute" to prevent
+     * problems caused by bugs in the workload manager.
+     *)
+    if state = `Enabled && action = `None then (
+      try
+	self # adjust();
+	self # schedule();
+      with
+	| error ->
+	    controller # logger # log 
+	      ~component:"netplex.controller"
+	      ~level:`Crit
+	      ~message:("Exception in alive_check: " ^ Printexc.to_string error)
+    );
+    Unixqueue.once esys g 1.0 (fun () -> self#alive_check esys g)
+
 
   method enable() =
     match state with
