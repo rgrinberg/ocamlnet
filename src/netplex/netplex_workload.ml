@@ -238,6 +238,7 @@ object(self)
      * and decreases n until it is 0 or negative.
      *)
     let n = ref needed_cap in
+    let n_overload = ref needed_cap in  (* includes overload capacity *)
     (* First re-activate the inactivated containers. Look at all containers,
      * sort them by attractivity, and try to reactivate the most attractive
      * inactive containers. In this pass, we only look at containers which
@@ -252,19 +253,22 @@ object(self)
 	 try
 	   if !n <= 0 then raise Not_found;
 	   let g_opt = ContMap.find cid inactivated_conts in
-	   let cap =
+	   let cap, ocap =
 	     match s with
 	       | `Accepting(m,_) ->
 		   let d = config#recommended_jobs_per_thread - m in
+		   let od = max 0 (config#max_jobs_per_thread - m) in
 		   if d > 0 then (* not overloaded *)
-		     d
+		     d, od
 		   else
-		     (-1) (* do not consider these in this pass *)
+		     (-1), od (* do not consider these in this pass *)
 	       | `Starting _ ->
-		   config#recommended_jobs_per_thread
-	       | _ -> (-1) (* do not consider these *) in
+		   (config#recommended_jobs_per_thread,
+		    config#max_jobs_per_thread)
+	       | _ -> (-1), 0 (* do not consider these *) in
 	   if cap >= 0 then (
 	     n := !n - cap;
+	     n_overload := !n_overload - ocap;
 	     l := cid :: !l;
 	     match g_opt with
 	       | None -> ()
@@ -291,15 +295,21 @@ object(self)
       let needed_threads' =
 	min (max 0 (config#max_threads - all_threads)) needed_threads in
       sockctrl # start_containers needed_threads';
-      n := !n - needed_threads' * config#recommended_jobs_per_thread
+      let cap = needed_threads' * config#recommended_jobs_per_thread in
+      let ocap = needed_threads' * config#max_jobs_per_thread in
+      n := !n - cap;
+      n_overload := !n_overload - ocap;
     );
     (* Third pass: Also reactivate overloaded containers *)
-    if !n > 0 then (
+    if !n_overload > 0 then (
+      (* We take n_overload because this number is based on
+       * max_jobs_per_thread.
+       *)
       let l = ref [] in
       List.iter
 	(fun (cid, s, selected) ->
 	   try
-	     if !n <= 0 then raise Not_found;
+	     if !n_overload <= 0 then raise Not_found;
 	     let g_opt = ContMap.find cid inactivated_conts in
 	     let cap =
 	       match s with
@@ -311,7 +321,7 @@ object(self)
 		     (-1) (* do not consider these in this pass *)
 		 | _ -> (-1) (* do not consider these *) in
 	     if cap >= 0 then (
-	       n := !n - cap;
+	       n_overload := !n_overload - cap;
 	       l := cid :: !l;
 	       match g_opt with
 		 | None -> ()
@@ -332,7 +342,7 @@ object(self)
 	  sockserv#name (List.length !l)
       );
     );
-    if !n > 0 && not limit_alert then (
+    if !n_overload > 0 && not limit_alert then (
       let now = Unix.gettimeofday() in
       if now >= last_limit_alert +. 60.0 then (
 	(Lazy.force logger) # log 
@@ -343,7 +353,7 @@ object(self)
 	last_limit_alert <- now;
       )
     );
-    if !n <= 0 then limit_alert <- false
+    if !n_overload <= 0 then limit_alert <- false
 
 	(* [CHECK whether this is still true:]
          * Note that the activation may not do enough because inactivated
