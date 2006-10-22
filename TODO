@@ -23,6 +23,11 @@ Equeue:
 	- ...
 
 Netplex:
+	- Officially allow that service names are not unique. A few lookups
+ 	  by name must be changed (e.g. enable/disable).
+
+	- Exception in "configure" crashes controller => Netplex catastrophe
+
 	- Move accepted() from Control to System? Implement totally different
 	  mechanisms?
 
@@ -59,3 +64,6 @@ Http_client.pipeline:
 	
 	aggressive caching does not work properly. Sometimes descriptors
 	are closed in the wrong moment.
+
+Later:
+	- Use poll() instead of select() to overcome fdset limitations
