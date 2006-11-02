@@ -2310,7 +2310,11 @@ object (self)
 	      
 	      new map_engine
 		~map_done:(fun _ ->
-			     `Done(`Socket(s, getsockspec stype s)))
+			     try
+			       `Done(`Socket(s, getsockspec stype s))
+			     with
+				 error -> `Error error
+			  )
 		(e :> Unixqueue.event engine)
 	    ) in
 	  (* It is possible that somebody aborts conn_eng. In this case,
