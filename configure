@@ -61,7 +61,7 @@ set_defaults () {
 ocamlc=`get_path ocamlc`
 set_defaults
 
-version="2.2test16"
+version="2.2test17"
 exec_suffix=""
 
 #######################################################################
