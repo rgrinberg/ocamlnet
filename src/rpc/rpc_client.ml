@@ -669,11 +669,18 @@ class default_socket_config : socket_config =
 object
   method non_blocking_connect = true
   method multiplexing ~close_inactive_descr prot fd esys =
-    let mplex = mplex_of_fd ~close_inactive_descr prot fd esys in
-    let eng = new Uq_engines.epsilon_engine (`Done mplex) esys in
+    let close() =
+      if close_inactive_descr then Unix.close fd in
+    let eng = 
+      try
+	let mplex = mplex_of_fd ~close_inactive_descr prot fd esys in
+	new Uq_engines.epsilon_engine (`Done mplex) esys 
+      with
+	| error -> 
+	    new Uq_engines.epsilon_engine (`Error error) esys in
     Uq_engines.when_state
-      ~is_aborted:(fun () -> mplex # inactivate())
-      ~is_error:(fun _ -> mplex # inactivate())
+      ~is_aborted:(fun () -> close())
+      ~is_error:(fun _ -> close())
       eng;
     eng
 end
