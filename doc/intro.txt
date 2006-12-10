@@ -92,7 +92,7 @@ time.
 {2:nethttpd The [nethttpd] library}
 
 The [nethttpd] library is a Web server component written in O'Caml. 
-For a full web server, you'll also need {!Intro.netplex}.
+For a full web server, you'll also need [netplex].
 
 {!modules:
    Nethttpd_types
@@ -109,8 +109,8 @@ For a full web server, you'll also need {!Intro.netplex}.
 {2:netplex The [netplex] library}
 
 The [netplex] library is a protocol-independent server framework. 
-Especially, it can be used in conjunction with {!Intro.nethttpd} to
-build web servers, and with {!Intro.rpc} to build RPC servers.
+Especially, it can be used in conjunction with [nethttpd] to
+build web servers, and with [rpc] to build RPC servers.
 
 {!modules:
     Netplex_types
@@ -128,7 +128,7 @@ build web servers, and with {!Intro.rpc} to build RPC servers.
     
 {3:nethttpd_intro Guides}
 
-- {!module:Netplex_intro}: Introduction into [Netplex]
+- {!module:Netplex_intro}: Introduction to [Netplex]
 
 
 {2:equeue The [rpc] library}
@@ -152,6 +152,7 @@ This library implements OncRPC (alias SunRPC).
 
 {3:rpc_intro Guides}
 
+- {!module:Rpc_intro}: Introduction
 - {!module:Rpc_mapping_ref}: RPC Language Mapping Reference
 
 {3:rpc_local The [rpc-auth-local] extension}
@@ -215,7 +216,7 @@ by a number of other libraries of Ocamlnet to parallelize network code
 
 {3:equeue_intro Guides}
 
-- {!module:Equeue_intro}: Introduction into programming with [equeue]
+- {!module:Equeue_intro}: Introduction to programming with [equeue]
 
 {3:equeue_gtk The [equeue-gtk1] and [equeue-gtk2] extensions}
 

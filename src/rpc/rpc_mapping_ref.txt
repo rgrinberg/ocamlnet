@@ -2,7 +2,7 @@
 
 The OncRPC (alias SunRPC) standard consists of two parts, namely the
 external data representation (XDR) and the RPC protocol. They are 
-defined in RFC 1014 and RFC 1015.
+defined in RFC 1831 and RFC 1832.
 
 In this document we describe how the various parts of XDR and RPC
 are mapped to the Objective Caml language.

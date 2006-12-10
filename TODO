@@ -1,3 +1,10 @@
+IMPORTANT:
+	- On [reply], UDP RPC servers should delete the connection from
+	  the list.
+	- Think: Define a default server timeout. At least, talk about
+   	  this issue in the docs.
+
+
 Overall:
 	Documentation:
 	- other

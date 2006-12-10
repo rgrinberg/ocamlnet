@@ -87,7 +87,7 @@ let main() =
 ;;
 
 Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
-start();;
+main();;
 ]}
 
 The configuration file:
@@ -146,17 +146,17 @@ which Netplex modules are made accessible for the configuration file.
 
 Here, we have:
 
-- The multi-execution provider is [Netplex_mp.mp] which implements
+- The multi-execution provider is {!Netplex_mp.mp} which implements
   multi-processing. (Btw, multi-processing is the preferred 
   parallelizing technique in Netplex.) Replace it with
-  [Netplex_mt.mt] to get multi-threading.
-- The [Netplex_log.logger_factories] are the list of all predefined
+  {!Netplex_mt.mt} to get multi-threading.
+- The {!Netplex_log.logger_factories} are the list of all predefined
   logging mechanisms. The configuration file can select one of these
   mechanisms.
-- The [Netplex_workload.workload_manager_factories] are the list of 
+- The {!Netplex_workload.workload_manager_factories} are the list of 
   all predefined worload management mechanisms. The configuration
   file can select one of these mechanisms per service.
-- Finally, we pass [Nethttpd_plex.nethttpd_factory] as the only
+- Finally, we pass {!Nethttpd_plex.nethttpd_factory} as the only
   service processor.
 
 The configuration file consists of nested sections whose extents are
@@ -184,7 +184,7 @@ Here, we have:
 - The [processor] section specifies the [type] and optionally a 
   lot of parameters (which may be structured into several sections).
   By setting [type] to "nethttpd" we select the
-  [Nethttpd_plex.nethttpd_factory] to create the processor 
+  {!Nethttpd_plex.nethttpd_factory} to create the processor 
   (because "nethttpd" is the default name for this factory).
   This factory now interprets the other parameters of the [processor]
   section. Here, a static HTTP server is defined that uses /usr
@@ -205,7 +205,7 @@ real name of the above file.
 
 Netplex creates a directory for its internal processing, and this is
 by default [/tmp/.netplex]. You can change this directory by 
-having a [socket_directory] parameter in the [controller] section.
+setting the [socket_directory] parameter in the [controller] section.
 In this directory, you can find:
 
 - A directory [netplex.controller] which refers to the controller
@@ -230,17 +230,240 @@ messages to all components:
 
 It is up to the components to interpret these messages.
 
+{2 The Process Model}
+
+Netplex uses a generalized pre-fork process model. Let me explain this
+model a bit, as it is important to know it in order to understand
+Netplex fully.
+
+The most trivial form of a multi-process Unix server is the post-fork
+model. Although it is not used by Netplex, it is the model explained
+in many books, and it is what many people think a Unix server has to
+look like. Actually, the post-fork model has lots of limitations, and
+is not suited for high-performance servers.
+
+In the post-fork model, the master process accepts new network
+connections in an endless loop, and whenever a new connection is
+established, a sub process (container process) is spawned that processes
+the network traffic. There is a serious logical limitation, and a
+performance limitation:
+
+- In the post-fork model every container process can only deal with
+  one connection at a time. The reason is that at the time of
+  spawning the container there is only one connection, and one cannot
+  assign the container another connection later.
+- The post-fork model spawns the container processes at a bad moment.
+  Spawning is a very expensive operation, and doing it just after
+  connection establishment is bad because this means that the
+  client has to wait longer for a response. Furthermore, spawning
+  for every connection wastes system resources.
+
+In the pre-fork model, these disadvantages can be avoided. Here, one
+or several processes are spawned in advance. Furthermore, these
+processes cannot only manage one connection but any number, and
+this can happen sequentially (one connection is processed after the
+other) or in parallel (using multiplexing).
+
+This is achieved by letting the containers themselves accept the new
+connections instead of the master process. In the Unix process model
+it is possible that server sockets are shared by several processes,
+and every container is allowed to accept the next connection. However,
+the containers should cooperate, and avoid that several containers call
+[Unix.accept] at the same time (as this leads to performance problems
+when a container must be able to watch several ports for new
+connections - a problem we do not discuss here). There are many ways to
+organize
+such cooperation, and for simplicity, Netplex implements this by
+exchanging RPC messages with the master process, the controller.
+Effectively, the controller has the task of scheduling which of the
+containers accepts the next arriving network connection.
+
+What actually happens is the following. We assume here that we have
+a number of idle container processes that could accept the next connection.
+
+- The controller selects one of the containers as the one that will get
+  the next connection.
+- The selected container watches the ports for incoming connections.
+  Note that this is done in a Unixqueue, so that if there are 
+  already connections to be processed, this can be done in a multiplexed
+  way in parallel with watching for new connections.
+- When the next connection arrives, the container accepts it, and
+  invokes the service component to process it.
+- Immediately after connection establishment, the container tells the
+  controller what happened, so the controller can watch out for another
+  container to take over the role of accepting further connections.
+- When the connection is fully processed, another control message
+  is sent to the controller because the controller must know at all
+  times how many connections are being processed by which containers.
+  This is simply an important load parameter.
+
+The details of this mechanism are not very interesting for using
+it. However, one must know that
+
+- connections are accepted by the sub processes and not by the
+  master process,
+- the sub processes can accept as many connections as they want to,
+  either one after the other, or even several at once,
+- the controller schedules tasks and determines which connection
+  is accepted by which container,
+- there is a certain protocol between controller and container, and
+  although the details are hidden from the user, this has consequences
+  for the user interface. In particular, the reason why the 
+  [when_done] function must be called upon connection termination
+  is that a control message must be sent to the controller.
+
+Another implication of the pre-fork model is that one needs workload
+management. As processes are created in advance, the question arises
+how many are created, and when the processes are terminated to free
+resources. Netplex comes with two workload managers: One manager
+simply creates a fixed number of processes which are never terminated, 
+and the other manager tries to adapt the number to the load by
+dynamically starting and stopping processes. This is discussed below in
+detail.
+
+
+{2 Creating Sockets}
+
+The server sockets are always created by the controller at program
+startup. This is a strict requirement because only this ensures that
+the created container processes share the same sockets.
+
+The sockets are descibed in the [protocol] section of the
+configuration file. For an Internet socket this section looks like
+
+{[
+    protocol {
+      name = "<name>";
+      address {
+        type = "internet";
+        bind = "<address>:<port>";
+      };
+    };
+]}
+
+The [<name>] is only important when there are several protocols in order
+to distinguish between them. The [<address>] can be:
+
+- An IP address of a network interface to bind the socket to this
+  particular interface. Both IPv4 and IPv6 addresses are supported.
+  IPv4 addresses are simply given in "dotted quad" notation 
+  (e.g. [192.168.76.23]), and IPv6 addresses must be enclosed in brackets
+  (e.g. [[fe80::250:56ff:fec0:1]]).
+- The special IPv4 address [0.0.0.0] to bind the socket to all IPv4
+  network interfaces, or the special IPv6 address [[::0]] to bind it
+  to all IPv6 network interfaces.
+- A resolvable host name which is the same as using the corresponding
+  IP address.
+
+The [<port>] must be the port number or 0 to use an anonymous port.
+
+For a local (Unix domain) socket, the [protocol] section looks like
+
+{[
+    protocol {
+      name = "<name>";
+      address {
+        type = "local";
+        path = "<path>";
+      };
+    };
+]}
+
+where the [<path>] is the filename of the socket.
+
+One can have several [address] sections to create several sockets for the
+same protocol.
+
+
+{2 Services And Processors}
+
+A Netplex system consists of exactly the services that are enumerated
+in the config file. This means it is not sufficient to build in support
+for a service into the program, one must also activate it in the config
+file. This gives the end user of the program a lot of flexibility when
+running the system: By simply changing the config file one can enable
+or disable services. It is also possible to run the same program binary
+several times with different config files.
+
+The services are implemented by processors, which are user-defined
+objects that handle the network connection after it is accepted by
+the component. The [processor] section of the service selects the
+processor by name, and optionally passes configuration parameters to 
+it:
+
+{[
+    processor {
+        type = "<name>";
+        ... further parameters allowed ...
+    }
+]}
+
+The mentioned name of the processor type is used to find the so-called
+factory for the processor (an object with a [create_processor] method).
+All factories must be available at Netplex startup so the library
+knows which factories exist when the config file is interpreted
+(the factories are an argument of {!Netplex_main.startup}).
+
+Processor objects are somewhat strange in so far as they exist both in
+the controller and in the container processes. In particular, these
+objects are created by the controller, and they are duplicated once
+for all container processes when these are actually created.
+
+The processor objects (of type {!Netplex_types.processor}) consist of
+a number of methods. We have already seen one of them, [process],
+which is called in the container process when a new connection is
+accepted. The other methods are called at other points of interest:
+
+{b Methods called on the controller instance of the processor}
+
+- [post_add_hook] is immediately called after the addtion of the
+  service to the controller.
+- [post_rm_hook] is immediately called after the removal of the
+  service from the controller.
+- [pre_start_hook] is called just before the next container process
+  is spawned.
+- [post_finish_hook] is called after termination of the container.
+
+{b Methods called on the container instance of the processor}
+
+- [post_start_hook] is called just after the container process
+  has been created, but now for the copy of the processor object
+  that lives in the container process. This is a very useful hook
+  method, because one can initialize the container process
+  (e.g. prepare database accesses etc.).
+- [pre_finish_hook] is called just before the container process
+  will (regularly) terminated.
+- [receive_message] is called when a message from another 
+  container arrives.
+- [receive_admin_message] is called when a message from the
+  administrator arrives.
+- [shutdown] is called when the shutdown notification arrives.
+  The shutdown will lead to the termination of the process
+  when all network connections managed by Unixqueue are finished.
+  This method must terminate such connections if they have been
+  created in addition to those Netplex manages.
+- [global_exception_handler] is called for exceptions falling through
+  to the container, and is the last chance to catch them.
+
+Because of the instances in the controller and the containers it is
+usually a bad idea to store state in the processor object.
+
+If multi-threading is used instead of multi-processing, there is only
+one instance of the processor that is used in the controller and
+all containers.
+
+
 {2 Defining Custom Processors}
 
-Using predefined processor factories like [Nethttpd_plex.nethttpd_factory]
+Using predefined processor factories like {!Nethttpd_plex.nethttpd_factory}
 is very easy. Fortunately, it is not very complicated to define a
 custom adapter that makes an arbitrary network service available as
 Netplex processor.
 
 In principle, you must define a class for the type 
-[Netplex_types.processor] and the corresponding factory implementing
-the type [Netplex_types.processor_factory]. To do the first,
-simply inherit from [Netplex_kit.processor_base] and override the
+{!Netplex_types.processor} and the corresponding factory implementing
+the type {!Netplex_types.processor_factory}. To do the first,
+simply inherit from {!Netplex_kit.processor_base} and override the
 methods that should do something instead of nothing. For example,
 to define a service that outputs the line "Hello world" on the
 TCP connection, define:
@@ -252,7 +475,7 @@ object(self)
   inherit Netplex_kit.processor_base empty_hooks
 
   method process ~when_done container fd proto_name =
-    let ch = Unix.out_channel_of_file_descr fd in
+    let ch = Unix.out_channel_of_descr fd in
     output_string ch "Hello world\n";
     close_out ch;
     when_done()
@@ -284,7 +507,7 @@ The class [hello_world_processor] can now be turned into a factory:
 class hello_world_factory : processor_factory =
 object(self) 
   method name = "hello_world"
-  method create ctrl_cfg cfg_file cfg_addr =
+  method create_processor ctrl_cfg cfg_file cfg_addr =
     new hello_world_processor
 end
 ]}
@@ -305,9 +528,11 @@ the [processor] section in the configuration file, i.e. you need
   ...
 ]}
 
-to activate this factory for a certain service definition.
+to activate this factory for a certain service definition. Of course,
+the instantiated [hello_world_factory] must also be passed to
+{!Netplex_main.startup} in order to be available at runtime.
 
-The [create] method simply creates an object of your class. The
+The [create_processor] method simply creates an object of your class. The
 argument [ctrl_cfg] is the configuration of the controller (e.g.
 you find there the name of the socket directory). In [cfg_file]
 the object is passed that accesses the configuration file as
@@ -342,3 +567,211 @@ end
 ]}
 
 and pass such a hook object into the factory.
+
+
+{2 Workload Management}
+
+Workload managers decide when to start new containers and when to stop
+useless ones. The simplest manager is created by the
+{!Netplex_workload.constant_workload_manager_factory}. The user
+simply defines how many containers are to be started. In the
+config file this is written as
+
+{[
+    workload_manager {
+        type = "constant";
+        threads = <n>;
+    }
+]}
+
+where [<n>] is the number of containers > 0. Often this manager is used
+to achieve n=1, i.e. to have exactly one container. An example would
+be a stateful RPC server where it is important that all network connections
+are handled by the same process. (N.B. n=1 for RPC servers does not
+enforce that the connections are serialized because Ocamlnet RPC servers
+can handle multiple connections in parallel, but of course it is enforced
+that the remote procedures are invoked in a strictly sequential way.)
+
+If n>1, it is tried to achieve that all containers get approximately 
+the same load.
+
+If processes die unexpectedly, the constant workload manager starts
+new components until the configured number of processes is again reached.
+
+The dynamic workload manager (created by 
+{!Netplex_workload.dynamic_workload_manager_factory}) is able to start
+and stop containers dynamically. There are a few parameters that control
+the manager. A "thread" is here another word for a started container.
+A "job" is an established network connection. Using this terms, the
+task of the workload manager is to decide how many threads are needed
+to do a varying number of jobs. The parameters now set how many jobs
+every thread may execute, and how quickly new threads are created or
+destroyed to adapt the available thread capacity to the current job
+load.
+
+If the service processor can only accept one network connection after
+the other (like Nethttpd_plex), the only reasonable setting is that
+there is at most one job per thread. If one configures a higher number
+in this case, unaccepted network connections will queue up resulting
+in poor performance.
+
+If the service processor can handle several connections in parallel it
+is possible to allow more than one job per thread. There is no general
+rule how many jobs per thread are reasonable, one has to experiment to
+find it out. In this mode of having more than one job per thread,
+Netplex even allows two service qualities, "normal" and "overload". If
+possible, Netplex tries to achieve that all containers deliver normal
+quality, but if the load goes beyond that, it is allowed that
+containers accept more connections than that. This is called an
+overload situation. Often it is better to allow overload than to
+refuse new connections.
+
+The dynamic workload manager is enabled by the section
+
+{[
+    workload_manager {
+        type = "dynamic";
+	... parameters, see below ...
+    }
+]}
+
+The required parameters are:
+
+- [max_threads]: How many containers can be created at maximum for
+  this service.
+- [max_jobs_per_thread]: How many jobs every container can execute
+  at maximum. The upper limit for the number of jobs is thus
+  [max_threads * max_jobs_per_thread].
+- [min_free_job_capacity]: This parameter controls how quickly new
+  containers are started when the load goes up. It is tried to
+  ensure that there are as many containers so this number of jobs
+  can be additionally performed. This parameter must
+  be at least 1.
+- [max_free_job_capacity]: This parameter controls how quickly 
+  containers are stopped when the load goes down. It is tried to
+  ensure that unused containers are stopped so the capacity for
+  additional jobs is not higher than this parameter. 
+  This parameter must be greater or equal than
+  [min_free_job_capacity].
+
+In order to configure the overload mode:
+
+- [recommended_jobs_per_thread]: The number of jobs a container
+  can do with normal service quality. A higher number is considered
+  as overload.
+
+The effect of this parameter is that it is avoided that a container
+gets more jobs than recommended as long as possible.
+
+Another parameter is:
+
+- [inactivity_timeout]: If a container idles longer than this number
+  of seconds and is not needed to ensure [min_free_job_capacity] it is
+  shut down. Defaults to 15 seconds.
+
+
+{2 Messaging}
+
+There are two kinds of messages one can send to Netplex containers:
+normal messages come from another Netplex container, and admin messages
+are sent using the [netplex-admin] command.
+
+Messages have a name and a (possibly empty) list of string parameters.
+They can be sent to an individual receiver container, or to a number
+of containers, even to all. The sender does not get an acknowledgment
+when the messages are delivered.
+
+Messages can e.g. be used 
+
+- to signal that internal state is output to log files in order to debug
+  a special situation
+- to enable or disable special features of the running system
+- to flush caches
+
+and for other comparably simple communication needs.
+
+In order to receive a normal message, one must define the
+[receive_message] method in the processor object, and to receive an
+admin message, one must define the [receive_admin_message] method.
+
+A normal message is sent by the container method [send_message].
+The receiver is identified by the service name, i.e. all containers
+with the passed name get the message. The name may even contain
+the wildcard [*] to select the containers by a name pattern.
+
+An admin message is sent using the [netplex-admin] command.
+
+There are a few predefined messages understood by all containers:
+
+- The admin message [netplex.threadlist] outputs to the log file
+  which process executes which service, and how loaded the processes are.
+- The admin message [netplex.logger.set_max_level] changes the maximum
+  log level for the container.
+- The admin message [netplex.debug_scheduling] enables debug messages
+  of the Netplex scheduler.
+- The admin message [netplex.debug_containers] enables debug messages
+  of the container implementation.
+
+In general, messages starting with "netplex." are reserved for 
+Netplex itself.
+
+
+{2 Logging}
+
+Log messages can be written in the containers. The messages are first
+sent to the controller where they are written to stderr, to files, or
+to any object of the type {!Netplex_types.logger}. That the messages
+are first sent to the controller has a lot of advantages: The messages
+are implicitly serialized, no locking is needed, and it is easy to
+support log file rotation.
+
+In order to write a log message, one needs the container object.
+It is passed as argument to [post_start_hook]. If the code
+only supports multi-processing anyway, it is suggested to store
+the container in a global variable, as in:
+
+{[
+let get_container = ref (fun () -> failwith "Container not yet available")
+
+(* later, when creating the processor: *)
+...
+  method post_start_hook cont =
+    get_container := (fun () -> cont)
+...
+]}
+
+In multi-threaded contexts it is more complicated to remember the container.
+It is also passed as argument to the [process] function, it is probably
+easiest to pass it around to all functions that need logging. Another
+possibility is to store the container in a hash table, and look it up by the
+[Thread.id].
+
+Logging is now done by
+
+{[
+let cont = get_container() in
+cont # log level message
+]}
+
+where [level] is one of [`Debug], [`Info], [`Notice], [`Warning], [`Err],
+[`Crit], [`Alert], [`Emerg], and [message] is a string. The levels are
+the same as for syslog. 
+
+The config file controls what to do with the log messages. The easiest
+way is to send all messages to stderr:
+
+{[
+  controller {
+    max_level = "debug";    (* Log level *)
+    logging {
+      type = "stderr";      (* Log to stderr *)
+    }
+  };
+]}
+
+Further types of logging are documented in the {!Netplex_log} module.
+
+{1:rpc_netplex Netplex RPC systems}
+
+A short description how to build systems of RPC services is given
+in {!Rpc_intro.rpc_netplex}.

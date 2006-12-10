@@ -11,7 +11,7 @@ DOBJECTS = rtypes.mli xdr.mli rpc.mli \
            rpc_packer.mli rpc_transport.mli rpc_client.mli \
            rpc_simple_client.mli rpc_portmapper_clnt.mli rpc_portmapper.mli \
            rpc_server.mli rpc_auth_sys.mli \
-	   rpc_mapping_ref.txt
+	   rpc_intro.txt rpc_mapping_ref.txt
 
 OCAMLOPT_OPTIONS += -inline 10
 

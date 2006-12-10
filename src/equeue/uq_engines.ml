@@ -2275,6 +2275,14 @@ object (self)
 	  Unix.Unix_error(Unix.EINPROGRESS,_,_) -> 
 	    (s,stype,false)
 	| error ->
+	    (* Remarks:
+             * We can get here EAGAIN. Unfortunately, this is a kind of
+             * "catch-all" error for Unix.connect, e.g. you can get it when
+             * you are run out of local ports, of if the backlog limit is
+             * exceeded. It is totally unclear what to do in this case,
+             * so we do not handle it here. The user is supposed to connect
+             * later again.
+             *)
 	    Unix.close s; raise error
     in
 
