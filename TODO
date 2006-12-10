@@ -1,28 +1,28 @@
-IMPORTANT:
-	- On [reply], UDP RPC servers should delete the connection from
-	  the list.
-	- Think: Define a default server timeout. At least, talk about
-   	  this issue in the docs.
-
+----------------------------------------------------------------------
+Things to do + roadmap
+----------------------------------------------------------------------
 
 Overall:
-	Documentation:
-	- other
-
-
-	- Improve Netplex .mli docs
-
-	- rpc:
-	  * Complete rpc_mapping_ref
-	  * Start rpc_intro
-
 	- Concept for signals
+	  Sched: after 2.2.0 is out
+
+	- Version string is not correctly set
+	  Sched: ASAP
 
 Feature request:
 	- netclient: Support for CONNECT
+	  Sched: 2.3
+
+	- Nethttp.Header.get_set_cookie
+	  Sched: after 2.2.0 is out
 
 Equeue:
-	Fix command engines as commented in the code.
+	- Report Unix.connect errors better (currently, one always gets
+	  ENOTCONN thrown by Unix.getpeername)
+	  Sched: ASAP
+
+	- Fix command engines as commented in the code.
+	  Sched: after 2.2.0 is out
 
 	Syntax for engine concatenation?
    	- when_state style:
@@ -32,45 +32,69 @@ Equeue:
 Netplex:
 	- Officially allow that service names are not unique. A few lookups
  	  by name must be changed (e.g. enable/disable).
+	  Sched: ASAP
 
 	- Exception in "configure" crashes controller => Netplex catastrophe
+	  Sched: ASAP
 
 	- Move accepted() from Control to System? Implement totally different
 	  mechanisms?
 
 	- Enhanced logging. Also allow non-error channels.
+	  Sched: 2.3
 
+	- 2-phase shutdown
+	  ("announce" callback)
+	  Sched: after 2.2.0 is out	
 
-	- Nethttpd_plex: TODOs
+	- overload alert comes too quickly
+	  Sched: ASAP
 
-	container # is_first_container
+	- Netplex_cenv: Container environment. get_container
+	  Sched: ASAP
 
+	- Check: Is it possible to have custom sections in config file?
+	  Sched: ASAP
+
+RPC:
+	- Check: connect + EAGAIN error for non-blocking clients.
+	  Implemented in a reasonable way?
+	  Sched: ASAP
 
 Integration of new netcgi2
 	- All the TODOs in Netcgi_common
+	  Sched: after 2.2.0 is out
+
 	- Test nethttpd when linked with netcgi2
 	- Move new cookie implementation to Nethttp, and make it a 
 	  class
+	  Sched: 2.3
+
 	- Faster URL encoding functions can be moved to Netencoding
 	  if really faster
+	  Sched: 2.3
 
 netcgi2-plex:
 	- Implement mount_dir/mount_at
+	  Sched: 2.3
 
 Bugs Tidalwave:
   * ocamlnet
 	- Bug: Netstring_pcre.global_replace
+	  Sched: after 2.2.0 is out
+
 	- Feature Netgzip hinzu
-
-Documentation:
-
-	- Check for texts not yet converted to ocamldoc
-	- RPC intro
+	  Sched: 2.3
 
 Http_client.pipeline:
+
+	- Assert_failure Http_client line 1870
+	  Sched: ASAP
 	
-	aggressive caching does not work properly. Sometimes descriptors
-	are closed in the wrong moment.
+	- aggressive caching does not work properly. Sometimes descriptors
+	  are closed in the wrong moment.
+	  Sched: 2.3
 
 Later:
 	- Use poll() instead of select() to overcome fdset limitations
+	  Sched: 2.3
