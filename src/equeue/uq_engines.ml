@@ -2245,6 +2245,16 @@ let getpeerspec stype s =
 ;;
 
 
+let getconnerror s = (* Call this after getpeerspec raised ENOTCONN *)
+  try 
+    let b = String.make 1 ' ' in
+    let _ = Unix.recv s b 0 1 [] in
+    assert false
+  with
+    | error -> error
+;;
+
+
 class direct_socket_connector() : client_socket_connector =
 object (self)
   method connect connaddr ues =
@@ -2278,7 +2288,7 @@ object (self)
 	    (* Remarks:
              * We can get here EAGAIN. Unfortunately, this is a kind of
              * "catch-all" error for Unix.connect, e.g. you can get it when
-             * you are run out of local ports, of if the backlog limit is
+             * you are run out of local ports, or if the backlog limit is
              * exceeded. It is totally unclear what to do in this case,
              * so we do not handle it here. The user is supposed to connect
              * later again.
@@ -2308,7 +2318,13 @@ object (self)
 		  ignore(Unix.getpeername s); 
 		  `Done(`Socket(s, getsockspec stype s))
 		with
-		    error -> `Error error in
+		  | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
+		      (* We did not succeed connecting. ENOTCONN is just a
+                       * substitute error code, not the real error, however.
+                       *)
+		      `Error (getconnerror s)
+		  | error -> 
+		      `Error error in
 	      new epsilon_engine status ues
 	    )
 	    else (
@@ -2319,9 +2335,14 @@ object (self)
 	      new map_engine
 		~map_done:(fun _ ->
 			     try
+			       ignore(Unix.getpeername s); 
 			       `Done(`Socket(s, getsockspec stype s))
 			     with
-				 error -> `Error error
+			       | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
+				   (* See comment above *)
+				   `Error (getconnerror s)
+			       | error -> 
+				   `Error error
 			  )
 		(e :> Unixqueue.event engine)
 	    ) in
