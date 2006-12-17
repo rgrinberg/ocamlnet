@@ -279,7 +279,7 @@ let run_forking_server
 	  Some(fst(restart U.accept master))
 	else
 	  None in
-      (dl', slave)
+      (dl'', slave)
     with
 	U.Unix_error(U.EINTR,_,_) ->
 	  wait_for_children();
