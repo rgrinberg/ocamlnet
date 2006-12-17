@@ -765,7 +765,7 @@ class telnet_session =
       if options.verbose_connection then 
 	prerr_endline "Telnet connection: Input event!";
 
-      let g = match group with
+      let _g = match group with
 	  Some x -> x
 	| None -> assert false
       in
@@ -856,7 +856,7 @@ class telnet_session =
 		    | '\255' -> Queue.add (Telnet_data(String.make 1 '\255'))
 			                  input_queue;
 			        interpret(pos+2)
-		    | ('\240'|'\250'..'\254') ->
+		    | ('\250'..'\254') ->
 			if pos+2 < length then begin
 			  let option = buffer.[pos+2] in
 			  match buffer.[pos+1] with
@@ -947,7 +947,7 @@ class telnet_session =
       if options.verbose_connection then 
 	prerr_endline "Telnet connection: Output event!";
 
-      let g = match group with
+      let _g = match group with
 	  Some x -> x
 	| None -> assert false
       in

@@ -129,6 +129,7 @@ object(self)
       match bufrecend with
 	  None   when not eof -> Netbuffer.length buf - String.length eor_s + 1
 	| None   when eof     -> Netbuffer.length buf
+	| None                -> assert false (* to keep the compiler happy *)
 	| Some n              -> n in
     let l' = min m l in
     if l > 0 && l' = 0 && bufrecend <> None then
@@ -160,6 +161,8 @@ object(self)
 	    (Netbuffer.length buf - String.length eor_s + 1, false)
 	| None   when eof     -> 
 	    (Netbuffer.length buf, true)
+	| None ->  (* to keep the compiler happy *)
+	    assert false
 	| Some n              -> 
 	    (n, true) in
     Netbuffer.delete buf 0 m;

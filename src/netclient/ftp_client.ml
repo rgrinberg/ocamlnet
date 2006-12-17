@@ -234,7 +234,7 @@ type reply = int * string
 
 
 let init_state s =
-  let s_name =
+  let _s_name =
     match Unix.getsockname s with
       | Unix.ADDR_INET(addr,_) ->
 	  Unix.string_of_inet_addr addr
@@ -453,7 +453,7 @@ object(self)
 	  )
 	  else (
 	    if reply_code = (-1) then
-	      proto_viol "Parse error of control message"
+	      proto_viol "Parse error of control message";
 	    Buffer.add_string reply_text line;
 	    Buffer.add_string reply_text "\n";
 	  )
@@ -1722,7 +1722,7 @@ object(self)
       current <- None;
       if self # still_running then self # next();
     in
-    let ftp_state = pi # ftp_state in
+    let _ftp_state = pi # ftp_state in
     self # protect (
       fun () ->
 	let action = ftpm # execute in
