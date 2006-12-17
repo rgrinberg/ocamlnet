@@ -279,10 +279,10 @@ let prng_init_from_file ?lock ?unlock ?(length = 256) filename =
     prng_init ?lock ?unlock buf;
     close_in f
   with
-      err -> 
-	close_in f; raise err
     | End_of_file -> 
 	close_in f; failwith "prng_init_from_file"
+    | err -> 
+	close_in f; raise err
 ;;
 
 
