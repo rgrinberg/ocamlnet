@@ -289,6 +289,7 @@ object(self)
 	sockserv#name (List.length !l)
     );
     (* Second pass: If needed, start further containers: *)
+    let started_ocap = ref 0 in
     if !n > 0 then (
       let needed_threads =
 	(!n-1) / config#recommended_jobs_per_thread + 1 in
@@ -299,6 +300,7 @@ object(self)
       let ocap = needed_threads' * config#max_jobs_per_thread in
       n := !n - cap;
       n_overload := !n_overload - ocap;
+      started_ocap := !started_ocap + ocap;
     );
     (* Third pass: Also reactivate overloaded containers *)
     if !n_overload > 0 then (
@@ -342,7 +344,29 @@ object(self)
 	  sockserv#name (List.length !l)
       );
     );
-    if !n_overload > 0 && not limit_alert then (
+    (* Check whether we reach the capacity limit. *)
+    let limit_reached =
+      !n_overload > 0 && (
+	(* [!n_overload > 0] only means we cannot start enough containers to
+         * ensure the required capacity. But it is possible that the running
+         * containers provide enough capacity nevertheless.
+         *)
+	let avail_cap = ref !started_ocap in
+	List.iter
+	  (fun (_, s, _) ->
+	     match s with
+	       | `Accepting(m,_) ->
+		   let od = max 0 (config#max_jobs_per_thread - m) in
+		   avail_cap := !avail_cap + od
+	       | `Starting _ ->
+		   avail_cap := !avail_cap + config#max_jobs_per_thread
+	       | _ -> ()
+	  )
+	  sorted_conts;
+	needed_cap > !avail_cap
+      ) in
+    (* Output a capacity alert, but not more often than every 60 seconds: *)
+    if limit_reached && not limit_alert then (
       let now = Unix.gettimeofday() in
       if now >= last_limit_alert +. 60.0 then (
 	(Lazy.force logger) # log 
@@ -353,7 +377,7 @@ object(self)
 	last_limit_alert <- now;
       )
     );
-    if !n_overload <= 0 then limit_alert <- false
+    if not limit_reached then limit_alert <- false
 
 	(* [CHECK whether this is still true:]
          * Note that the activation may not do enough because inactivated
