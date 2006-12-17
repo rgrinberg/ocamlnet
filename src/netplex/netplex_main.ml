@@ -117,24 +117,81 @@ let startup ?(late_initializer = fun _ _ -> ())
 	 let controller = 
 	   Netplex_controller.create_controller par controller_config in
 
-	 List.iter
-	   (fun (sockserv_cfg, 
-		 (procaddr, c_proc_cfg), 
-		 (wrkmngaddr, c_wrkmng_cfg)
-		) ->
-	      let processor =
+	 let processors =
+	   List.map
+	     (fun (sockserv_cfg, 
+		   (procaddr, c_proc_cfg), 
+		   (wrkmngaddr, c_wrkmng_cfg)
+		  ) ->
 		c_proc_cfg # create_processor
-		  controller_config config_file procaddr in
-	      let wrkmng =
-		c_wrkmng_cfg # create_workload_manager
-		  controller_config config_file wrkmngaddr in
-	      let sockserv = 
-		Netplex_sockserv.create_socket_service processor sockserv_cfg in
-	      controller # add_service sockserv wrkmng
-	   )
-	   netplex_config#services;
+		  controller_config config_file procaddr)
+	     netplex_config#services in
+	 (* An exception while creating the processors will prevent the
+          * startup of the whole system!
+	  *)
 
-	 late_initializer config_file controller;
+	 let services =
+	   List.map2
+	     (fun (sockserv_cfg, 
+		   (procaddr, c_proc_cfg), 
+		   (wrkmngaddr, c_wrkmng_cfg)
+		  ) 
+  		  processor ->
+		try
+		  let wrkmng =
+		    c_wrkmng_cfg # create_workload_manager
+		      controller_config config_file wrkmngaddr in
+		  let sockserv = 
+		    Netplex_sockserv.create_socket_service processor sockserv_cfg in
+		  Some (sockserv, wrkmng)
+		with
+		  | error ->
+		      (* An error while creating the sockets is quite
+                       * problematic. We do not add the service, but we cannot
+                       * prevent the system startup at that late point in time
+                       *)
+		      controller # logger # log
+			~component:"netplex.controller"
+			~level:`Crit
+			~message:("Uncaught exception preparing service " ^ 
+				    sockserv_cfg#name ^ ": " ^ 
+				    Printexc.to_string error);
+		      None
+	     )
+	     netplex_config#services
+	     processors in
+
+	 List.iter
+	   (function
+	      | Some(sockserv,wrkmng) ->
+		  ( try
+		      controller # add_service sockserv wrkmng
+		    with
+		      | error ->
+			  (* An error is very problematic now... *)
+			  controller # logger # log
+			    ~component:"netplex.controller"
+			    ~level:`Crit
+			    ~message:("Uncaught exception adding service " ^ 
+					sockserv#name ^ ": " ^ 
+					Printexc.to_string error);
+		  )
+	      | None ->
+		  ()
+	   )
+	   services;
+
+	 ( try
+	     late_initializer config_file controller
+	   with
+	     | error ->
+		 (* An error is ... *)
+		 controller # logger # log
+		   ~component:"netplex.controller"
+		   ~level:`Crit
+		   ~message:("Uncaught exception in late initialization: " ^ 
+			       Printexc.to_string error);
+	 );
 
 	 run controller
 
@@ -144,5 +201,4 @@ let startup ?(late_initializer = fun _ _ -> ())
              raise error
     )
     ()
-     
 ;;
