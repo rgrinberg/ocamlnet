@@ -92,7 +92,8 @@ object
 
   method add_service : socket_service -> workload_manager -> unit
     (** Adds a new service. Containers for these services will be started
-      * soon.
+      * soon. It is allowed to add several services with the same name
+      * (but it will be hard to distinguish them later).
      *)
 
   method add_admin : (Rpc_server.t -> unit) -> unit

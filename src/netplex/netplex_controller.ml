@@ -208,7 +208,9 @@ object(self)
     self # stop_all_containers()
 
   method shutdown() =
-    (* TODO: Close socket/remove socket file *)
+    (* We never close the master sockets or remove socket files. That would
+     * make it impossible to restart the service later.
+     *)
     if !debug_scheduling then
       debug_logf controller "Service %s: Shutdown" name;
     state <- `Down;
@@ -637,8 +639,8 @@ object(self)
 	  action <- `None;
 	  (* We call [adjust] here even although this can make workload
            * management much harder, because many containers are only
-           * `Busy for a short time. However, it were possible that 
-           * required containers are not started if we would not do it.
+           * `Busy for a short time. However, it would be possible that 
+           * required containers are not started if we did not do it.
            *)
 	  self # adjust();
 	  self # schedule()
@@ -846,10 +848,12 @@ end
 
 
 class controller_processor setup controller : processor =
-  let find_service name =
-    let (sockserv, sockctrl, _) =
-      List.find (fun (s,_,_) -> s#name = name) controller # ext_services in
-    (sockserv, sockctrl) 
+  let find_services name =
+    List.map
+      (fun (sockserv, sockctrl, _) -> (sockserv, sockctrl))
+      (List.filter
+	 (fun (s,_,_) -> s#name = name) 
+	 controller # ext_services)
   in
   let protect f arg =
     try
@@ -935,19 +939,22 @@ object(self)
 		 )
       ~proc_enable:(protect 
 		      (fun name -> 
-			 let (_, ctrl) = find_service name in (* or Not_found *)
-			 ctrl # enable()
-		      ))
+			 List.iter
+			   (fun (_, ctrl) -> ctrl # enable())
+			   (find_services name))
+		   )
       ~proc_disable:(protect
 		       (fun name -> 
-			  let (_, ctrl) = find_service name in (* or Not_found *)
-			  ctrl # disable()
-		       ))
+			 List.iter
+			   (fun (_, ctrl) -> ctrl # disable())
+			   (find_services name))
+		    )
       ~proc_restart:(protect 
 		       (fun name ->
-			  let (_, ctrl) = find_service name in (* or Not_found *)
-			  ctrl # restart()
-		       ))
+			  List.iter
+			    (fun (_, ctrl) -> ctrl # restart())
+			    (find_services name))
+		    )
       ~proc_restart_all:(protect (fun () ->
 				    controller # restart()))
       ~proc_shutdown:(protect (fun () ->
