@@ -435,7 +435,7 @@ module Base64 = struct
       s ;;
 
     let decode_ignore_spaces s =
-      let (s_,_,_) = decode_prefix s 0 (String.length s) true true true false in
+      let (s,_,_) = decode_prefix s 0 (String.length s) true true true false in
       s ;;
 
     let decode_substring s ~pos ~len ~url_variant ~accept_spaces =
