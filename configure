@@ -698,13 +698,17 @@ print_options
 echo
 
 pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 cgi netplex netcgi2-plex"
-full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh"
+full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi1 nethttpd-for-netcgi2"
 
 if [ $disable_core -gt 0 ]; then
     # Omit the core packages:
     pkglist=""
     with_rpc_auth_local=0
     with_rpc_xti=0
+fi
+
+if [ $with_nethttpd -gt 0 ]; then
+    pkglist="$pkglist nethttpd-for-netcgi1 nethttpd-for-netcgi2"
 fi
 
 for opt in $woptions rpc_auth_local rpc_xti equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl; do

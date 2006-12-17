@@ -14,6 +14,7 @@ html-doc:
 	for p in $$pkglist; do \
 		[ "$$p" != "cgi" ] || continue; \
 		[ "$$p" != "netcgi1" ] || continue; \
+		[ "$$p" != "nethttpd-for-netcgi1" ] || continue; \
 		[ "$$p" != "equeue-gtk1" ] || continue; \
 		[ "$$p" != "equeue-gtk2" ] || continue; \
 		[ "$$p" != "netcgi-apache" ] || continue; \

@@ -165,3 +165,35 @@ The options are documented in the modules where the class types are
 defined. Some of them are difficult to understand. In doubt, it is
 recommended to just copy the values found in the examples, because these
 are quite reasonable for typical usage scenarios.
+
+{2 Linking}
+
+Nethttpd needs some CGI functions. There are currently have two CGI
+implementations, [netcgi1] and [netcgi2], and it is required to know
+at compile time against which library to link. For that reason, there
+are also two Nethttpd libraries called [nethttpd-for-netcgi1] and
+[nethttpd-for-netcgi2]. They are identical except the first is linked
+against [netcgi1] and the latter is linked against [netcgi2].
+
+The name [nethttpd] resolves to either of the two mentioned libraries,
+depending on which CGI library is the "preferred" one (at config time).
+
+So do
+
+{[
+	ocamlfind ocamlc -package nethttpd-for-netcgi1 ...
+]}
+
+to use the version working together with [netcgi1], or
+
+{[
+	ocamlfind ocamlc -package nethttpd-for-netcgi2 ...
+]}
+
+to use the version working together with [netcgi2], or
+
+{[
+	ocamlfind ocamlc -package nethttpd ...
+]}
+
+if either version is ok.

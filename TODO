@@ -2,6 +2,12 @@
 Things to do + roadmap
 ----------------------------------------------------------------------
 
+TESTS:
+	- Netplex_cenv
+	- searcher
+	- examples
+
+
 Overall:
 	- Concept for signals
 	  Sched: after 2.2.0 is out

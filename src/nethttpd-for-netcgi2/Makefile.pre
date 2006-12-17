@@ -1,0 +1,23 @@
+TOP_DIR=../..
+
+COPY_OVER = \
+	nethttpd_engine.ml nethttpd_engine.mli \
+	nethttpd_kernel.ml nethttpd_kernel.mli \
+	nethttpd_plex.ml nethttpd_plex.mli \
+	nethttpd_reactor.ml nethttpd_reactor.mli \
+	nethttpd_services.ml nethttpd_services.mli \
+	nethttpd_types.ml nethttpd_types.mli \
+	nethttpd_intro.txt
+
+PRE = 1
+PKGNAME = nethttpd-for-netcgi2
+GENERATE = META $(COPY_OVER)
+
+INSTALL_EXTRA += LICENSE
+
+PP_OPTIONS = -package "camlp4, camlp4.macro" -syntax "camlp4o"
+
+include $(TOP_DIR)/Makefile.rules
+
+$(COPY_OVER):
+	cp ../nethttpd-for-netcgi1/$@ .

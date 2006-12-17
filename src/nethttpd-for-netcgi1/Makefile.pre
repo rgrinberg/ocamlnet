@@ -1,7 +1,7 @@
 TOP_DIR=../..
 
 PRE = 1
-PKGNAME = nethttpd
+PKGNAME = nethttpd-for-netcgi1
 GENERATE = META
 
 INSTALL_EXTRA += LICENSE
