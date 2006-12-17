@@ -112,7 +112,6 @@ let startup ?(late_initializer = fun _ _ -> ())
                (fun () -> ())
        in
        try
-	 let ptype = netplex_config # ptype in
 	 let controller_config = netplex_config # controller_config in
 	 
 	 let controller = 
