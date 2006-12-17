@@ -1807,7 +1807,11 @@ class io_buffer options conn_cache fd fd_state =
             *)
 	B.delete in_buf 0 in_pos;
 	in_pos <- 0;
-	in_eof_parsed <- in_eof
+	in_eof_parsed <- in_eof;
+	(* Ensure the 0-byte invariant holds (see comment in unix_read): *)
+	let b = B.unsafe_buffer in_buf in
+	if B.length in_buf < String.length b then
+	  b.[B.length in_buf] <- '\000'
       with
 	| Bad_message _ as err -> 
 	    call # private_api # set_error_exception err;
@@ -1868,7 +1872,7 @@ class io_buffer options conn_cache fd fd_state =
 	    let start = in_pos in
 	    in_pos <- Netstring_pcre.match_end m;
 	    assert(in_pos <= B.length in_buf);
-	    let ch =
+	    let _ch =
 	      new Netchannels.input_string ~pos:start ~len:(in_pos-start) b in
 	    let header_l, real_end_pos =
 	      try
@@ -2020,7 +2024,7 @@ class io_buffer options conn_cache fd fd_state =
 	    let start = in_pos in
 	    in_pos <- Netstring_pcre.match_end m;
 	    assert(in_pos <= B.length in_buf);
-	    let ch =
+	    let _ch =
 	      new Netchannels.input_string ~pos:start ~len:(in_pos-start) b in
 	    let trailer_l, real_end_pos = 
 	      try
@@ -3037,7 +3041,7 @@ class connection the_esys
       if options.verbose_connection then 
 	prerr_endline "HTTP connection: Input event!";
 
-      let g = match group with
+      let _g = match group with
 	  Some x -> x
 	| None -> assert false
       in
@@ -3534,7 +3538,7 @@ class connection the_esys
       if options.verbose_connection then 
 	prerr_endline "HTTP connection: Output event!";
 
-      let g = match group with
+      let _g = match group with
 	  Some x -> x
 	| None -> assert false
       in
@@ -3630,7 +3634,7 @@ class connection the_esys
 		  | Unix.Unix_error(Unix.EAGAIN,_,_) ->
 		      ()
 		      
-		  | Unix.Unix_error(e,a,b) as err ->
+		  | Unix.Unix_error(e,a,b) ->
 		      if options.verbose_connection then
 			prerr_endline("HTTP connection: Unix error " ^
 				      Unix.error_message e);
@@ -3715,7 +3719,7 @@ class connection the_esys
       let msg = msg_trans # message in
       let code = msg # private_api # response_code in
       let req_hdr = msg # request_header `Effective in
-      let resp_hdr = msg # private_api # response_header in
+      let _resp_hdr = msg # private_api # response_header in
       match code with
 	| 407 ->
 	    (* --------- Proxy authorization required: ---------- *)
