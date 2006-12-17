@@ -6,8 +6,8 @@ Overall:
 	- Concept for signals
 	  Sched: after 2.2.0 is out
 
-	- Version string is not correctly set
-	  Sched: ASAP
+	- Pluggable name service (for hosts, at least)
+	  Sched: 2.3
 
 Feature request:
 	- netclient: Support for CONNECT
@@ -17,10 +17,6 @@ Feature request:
 	  Sched: after 2.2.0 is out
 
 Equeue:
-	- Report Unix.connect errors better (currently, one always gets
-	  ENOTCONN thrown by Unix.getpeername)
-	  Sched: ASAP
-
 	- Fix command engines as commented in the code.
 	  Sched: after 2.2.0 is out
 
@@ -30,13 +26,6 @@ Equeue:
 	- ...
 
 Netplex:
-	- Officially allow that service names are not unique. A few lookups
- 	  by name must be changed (e.g. enable/disable).
-	  Sched: ASAP
-
-	- Exception in "configure" crashes controller => Netplex catastrophe
-	  Sched: ASAP
-
 	- Move accepted() from Control to System? Implement totally different
 	  mechanisms?
 
@@ -46,9 +35,6 @@ Netplex:
 	- 2-phase shutdown
 	  ("announce" callback)
 	  Sched: after 2.2.0 is out	
-
-	- overload alert comes too quickly
-	  Sched: ASAP
 
 	- Netplex_cenv: Container environment. get_container
 	  Sched: ASAP

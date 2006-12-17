@@ -243,7 +243,8 @@ object(self)
 	(container :> container_id);
       let par_thread =
 	par # start_thread
-	  (fun () ->
+	  (fun par_thread ->
+	     Netplex_cenv.register_cont container par_thread;
 	     ( try 
 		 container # start fd_clnt sys_fd_clnt;
 	       with 
@@ -252,10 +253,10 @@ object(self)
 		     prerr_endline ("Netplex Catastrophic Error: " ^ Printexc.to_string error);
 		     ()
 	     );
+	     Netplex_cenv.unregister_cont container par_thread;
 	     Unix.close fd_clnt;  (* indicates successful termination *)
 	     Unix.close sys_fd_clnt 
 	  )
-	  ()
 	  fd_list
 	  sockserv#name
 	  controller#logger in
@@ -828,21 +829,30 @@ end
 
 class admin_par : Netplex_types.parallelizer =
   (* A fake parallelizer used for the admin interface *)
-object
+object(self)
   method ptype = `Multi_threading
     (* This is a lie! *)
 
   method init() = ()
 
-  method start_thread : 't . ('t -> unit) -> 't -> 'x -> string -> logger -> par_thread =
-    fun f arg l srv_name logger ->
-      f arg;
-      ( object
-	  method ptype = `Multi_threading
-	  method info_string = "CtrlProcess " ^ string_of_int (Unix.getpid())
-	  method watch_shutdown _ = ()
-	end
-      )
+  method start_thread : (par_thread -> unit) -> 'x -> string -> logger -> par_thread =
+    fun f l srv_name logger ->
+      let pid = Unix.getpid() in
+      let throbj =
+	( object
+	    method ptype = `Multi_threading
+	    method info_string = "CtrlProcess " ^ string_of_int pid
+	    method sys_id = assert false
+	    method parallelizer = (self : #parallelizer :> parallelizer)
+	    method watch_shutdown _ = ()
+	  end
+	) in
+      f throbj;
+      throbj
+
+  method current_sys_id = assert false
+
+  method create_mem_mutex () = assert false
 
 end
 

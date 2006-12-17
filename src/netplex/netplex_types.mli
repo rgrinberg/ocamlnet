@@ -420,29 +420,58 @@ class type par_thread =
 object
   method ptype : parallelization_type
 
+  method sys_id : [ `Thread of int | `Process of int ]
+    (** Returns a system-dependent identifier for the thread:
+     * - [`Thread id]: The [id] as returned by [Thread.id]
+     * - [`Process id]: The [id] is the process ID
+     *)
+
   method info_string : string
     (** Outputs the process or thread ID *)
 
   method watch_shutdown : Unixqueue.unix_event_system -> unit
-    (** Called by the controller if it thinks the container is down *)
+    (** Called by the controller if it thinks the container is down.
+      * {b This method must not be called outside the internal Netplex
+      * implementation!}
+     *)
+
+  method parallelizer : parallelizer
+    (** Returns the parallelizer that created this thread. Can be used
+      * to start another thread of the same type. 
+     *)
 end
 
 
-class type parallelizer =
+and parallelizer =
 object
   method ptype : parallelization_type
 
   method init : unit -> unit
-    (** Initializes the main process for usage with this parallelizer *)
+    (** Initializes the main process for usage with this parallelizer.
+      * {b This method must not be called outside the internal Netplex
+      * implementation!}
+     *)
 
   method start_thread : 
-         't . ('t -> unit) -> 't -> Unix.file_descr list -> string -> logger -> par_thread
-    (** [start_thread f arg l]: Starts a new thread or process and calls
-      * [f arg] in that context. The list of file descriptors [l] is ensured
+         (par_thread -> unit) -> Unix.file_descr list -> string -> logger -> par_thread
+    (** [start_thread f l name logger]: Starts a new thread or process and calls
+      * [f thread] in that context. The list of file descriptors [l] is ensured
       * to be shared with the main process.
       *
       * There is no way to check when the thread terminates.
+      *
+      * It is allowed that the [par_thread] object passed to [f] is a different
+      * object as the returned [par_thread] object.
      *)
+
+  method create_mem_mutex : unit -> ( (unit -> unit) * (unit -> unit) )
+    (** [let lock, unlock = par#create_mem_locker()]: Creates a mutex that
+      * is sufficient to protect process memory from uncoordinated access.
+      * The function [lock] obtains the lock, and [unlock] releases it.
+     *)
+
+  method current_sys_id : [ `Thread of int | `Process of int ]
+    (** Returns the system-dependent thread identifier of the caller *)
 end
 
 

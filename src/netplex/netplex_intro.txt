@@ -726,36 +726,31 @@ are implicitly serialized, no locking is needed, and it is easy to
 support log file rotation.
 
 In order to write a log message, one needs the container object.
-It is passed as argument to [post_start_hook]. If the code
-only supports multi-processing anyway, it is suggested to store
-the container in a global variable, as in:
+The module [Netplex_cenv] always knows the container object of the 
+caller, to get it:
 
 {[
-let get_container = ref (fun () -> failwith "Container not yet available")
-
-(* later, when creating the processor: *)
-...
-  method post_start_hook cont =
-    get_container := (fun () -> cont)
-...
+let cont = Netplex_cenv.self_cont()
 ]}
 
-In multi-threaded contexts it is more complicated to remember the container.
-It is also passed as argument to the [process] function, it is probably
-easiest to pass it around to all functions that need logging. Another
-possibility is to store the container in a hash table, and look it up by the
-[Thread.id].
+If you call [self_conf] outside a container, the exception
+{!Netplex_cenv.Not_in_container_thread} is raised. This is e.g. the
+case if you call it from the [pre_start] or [post_finish] callbacks.
 
 Logging is now done by
 
 {[
-let cont = get_container() in
+let cont = Netplex_cenv.self_cont() in
 cont # log level message
 ]}
 
 where [level] is one of [`Debug], [`Info], [`Notice], [`Warning], [`Err],
 [`Crit], [`Alert], [`Emerg], and [message] is a string. The levels are
 the same as for syslog. 
+
+You can also call {!Netplex_cenv.log} and {!Netplex_cenv.logf},
+which simply use [self_cont] to get the container and call its [log]
+method to write the message.
 
 The config file controls what to do with the log messages. The easiest
 way is to send all messages to stderr:

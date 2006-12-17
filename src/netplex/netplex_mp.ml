@@ -6,10 +6,16 @@ open Netplex_types
 open Printf
 
 class mp () : Netplex_types.parallelizer =
-object
+object(self)
   val mutable pid_list = []
 
   method ptype = `Multi_processing
+
+  method current_sys_id =
+    `Process (Unix.getpid())
+
+  method create_mem_mutex() =
+    (fun () -> ()), (fun () -> ())
 
   method init() =
 (*
@@ -34,8 +40,8 @@ object
 
     ()
 
-  method start_thread : 't . ('t -> unit) -> 't -> 'x -> string -> logger -> par_thread =
-    fun f arg l srv_name logger ->
+  method start_thread : (par_thread -> unit) -> 'x -> string -> logger -> par_thread =
+    fun f l srv_name logger ->
       let (fd_rd, fd_wr) = Unix.pipe() in
       match Unix.fork() with
 	| 0 ->
@@ -63,12 +69,22 @@ object
 		)
 	    done;
 	    Unix.close fd_wr;
+	    let pid = Unix.getpid() in
+	    let arg =
+	      ( object
+		  method ptype = `Multi_processing
+		  method sys_id = `Process pid
+		  method info_string = "Process " ^ string_of_int pid
+		  method watch_shutdown _ = assert false
+		  method parallelizer = (self : #parallelizer :> parallelizer)
+		end
+	      ) in
 	    ( try
 		f arg
 	      with
 		| error ->
 		    prerr_endline
-		      ("Netplex Catastrophic Error: Uncaught exception in child process " ^ string_of_int (Unix.getpid()) ^ ": " ^ Printexc.to_string error);
+		      ("Netplex Catastrophic Error: Uncaught exception in child process " ^ string_of_int pid ^ ": " ^ Printexc.to_string error);
 		    exit 2
 	    );
 	    exit 0
@@ -85,7 +101,9 @@ object
 	      val mutable watching = false
 
 	      method ptype = `Multi_processing
+	      method sys_id = `Process pid
 	      method info_string = "Process " ^ string_of_int pid
+	      method parallelizer = (self : #parallelizer :> parallelizer)
 	      method watch_shutdown esys =
 		let g = Unixqueue.new_group esys in
 		let cnt = ref 0 in
@@ -156,4 +174,10 @@ object
 
 end
 
-let mp () = new mp()
+let the_mp = lazy(
+  let par = new mp() in
+  Netplex_cenv.register_par par;
+  par
+)
+
+let mp () = Lazy.force the_mp
