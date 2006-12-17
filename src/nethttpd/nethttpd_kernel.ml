@@ -1078,7 +1078,7 @@ object(self)
 	    if recv_eof then (
 	      IFDEF Testing THEN self # case "accept_body_chunked_contents/e_eof" ELSE () END;
 	      raise(Bad_request `Unexpected_eof);
-	    )
+	    );
 	    Netbuffer.delete recv_buf 0 pos;
 	    IFDEF Testing THEN self # case "accept_body_chunked_contents/e_restart" ELSE () END;
 
