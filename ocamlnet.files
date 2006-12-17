@@ -57,9 +57,6 @@ x src/netstring/netmappings_iso.ml
 x src/netstring/netmappings_jp.ml
 x src/netstring/netmappings_other.ml
 f src/netstring/netmappings_min.ml
-# The pattern:
-p src/netstring/.*\.ml
-p src/netstring/.*\.mli
 # Also include netdate.mlp:
 f src/netstring/netdate.mlp
 x src/netstring/netconst.ml
@@ -68,6 +65,9 @@ f src/netstring/nethtml_scanner.mll
 f src/netstring/netdb.mlp
 x src/netstring/netdb.ml
 f src/netstring/netaccel_c.c
+# The pattern:
+p src/netstring/.*\.ml
+p src/netstring/.*\.mli
 
 # src/netstring/doc: not yet ready
 # src/netstring/mappings: not necessary
