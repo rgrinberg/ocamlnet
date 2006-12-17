@@ -519,7 +519,7 @@ let unpack_reply prog proc pv =
 		  end
 	  end
     with
-	Match_failure _ as x ->
+	Match_failure _ ->
 	  (* raise x; *) (* DEBUG *)
 	  raise (Rpc_cannot_unpack "Unsupported RPC variant")
 
@@ -573,7 +573,7 @@ let unpack_reply_verifier prog proc pv =
 	    = reply_part1_v in
 	  auth_flavor_of_pos verf_flavor_pos, verf_data
     with
-	Match_failure _ as x ->
+	Match_failure _ ->
 	  (* raise x; *) (* DEBUG *)
 	  raise (Rpc_cannot_unpack "Unsupported RPC variant")
 

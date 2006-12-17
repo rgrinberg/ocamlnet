@@ -81,8 +81,6 @@ class http_environment (proc_config : #http_processor_config)
                        in_ch out_ch resp close_after_send_file
                       : internal_environment =
 
-  let in_header = req_hdr in
-
   (* Decode important input header fields: *)
   let (in_host, in_port_opt) =
     (* Host and port of the [Host] header *)
@@ -571,8 +569,8 @@ type x_reaction =
 
 let process_connection config fd (stage1 : 'a http_service) =
 
-  let fd_addr = Unix.getsockname fd in
-  let peer_addr = Unix.getpeername fd in
+  let _fd_addr = Unix.getsockname fd in
+  let _peer_addr = Unix.getpeername fd in
 
   let protect env f arg =
     try

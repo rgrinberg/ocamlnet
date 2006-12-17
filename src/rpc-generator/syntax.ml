@@ -508,7 +508,7 @@ let check_type_constraints dl =
 	 Typedef td ->
 	   ( let n = td.decl_symbol.xdr_name in
 	     try
-	       let t = Hashtbl.find typemap n in
+	       let _t = Hashtbl.find typemap n in
 	       (* Ignore the second type definition in some cases... *)
 	       ( match td.decl_type with
 		     T_refer_to (_,n') ->

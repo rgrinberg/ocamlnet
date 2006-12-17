@@ -36,17 +36,6 @@ Netplex:
 	  ("announce" callback)
 	  Sched: after 2.2.0 is out	
 
-	- Netplex_cenv: Container environment. get_container
-	  Sched: ASAP
-
-	- Check: Is it possible to have custom sections in config file?
-	  Sched: ASAP
-
-RPC:
-	- Check: connect + EAGAIN error for non-blocking clients.
-	  Implemented in a reasonable way?
-	  Sched: ASAP
-
 Integration of new netcgi2
 	- All the TODOs in Netcgi_common
 	  Sched: after 2.2.0 is out
@@ -74,8 +63,8 @@ Bugs Tidalwave:
 
 Http_client.pipeline:
 
-	- Assert_failure Http_client line 1870
-	  Sched: ASAP
+	- CHECK: Assert_failure Http_client line 1870
+	  A possible cause has been fixed. Check whether this holds.
 	
 	- aggressive caching does not work properly. Sometimes descriptors
 	  are closed in the wrong moment.

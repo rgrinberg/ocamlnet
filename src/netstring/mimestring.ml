@@ -348,7 +348,7 @@ let create_mime_scanner ~specials ~scan_options =
 let encoded_word_re =
   S.regexp "=\\?([^?]+)\\?([^?]+)\\?([^?]+)\\?=";;
 
-let scan_next_token ((spec,target) as scn) =
+let scan_next_token (spec,target) =
   let mk_pair t len =
     { token = t;
       token_pos = target.scanner_pos;
@@ -477,7 +477,7 @@ let scan_next_token ((spec,target) as scn) =
     if i < l then
       let c = s.[i] in
       match c with
-	  ('\000'..'\031'|'\127'..'\255'|'"'|'('|'['|' '|'\t'|'\r'|'\n') ->
+	  ('\000'..'\031'|'\127'..'\255'|'"'|'('|'['|' ') ->
 	    return_atom()
 	| _ ->
 	    if spec.is_special.( Char.code c ) then
@@ -632,7 +632,7 @@ let scan_token ((spec,target) as scn) =
 	 * twice. (The sole purpose of the queue.)
 	 *)
 	match target.last_token with
-	    EncodedWord(_,_,_) as ew ->
+	    EncodedWord(_,_,_) ->
 	      let ws_list, tok = collect_whitespace() in
 	      (* If tok is an EncodedWord, too, the tokens in ws_list must
 	       * be flagged as separating two adjacent encoded words. 

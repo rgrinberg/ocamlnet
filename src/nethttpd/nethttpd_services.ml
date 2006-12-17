@@ -496,7 +496,7 @@ object(self)
   method process_header (env : extended_environment) =
     try
       let req_path_esc = env#cgi_script_name in
-      let req_path = 
+      let _req_path = 
 	try uripath_decode req_path_esc 
 	with Failure _ -> raise Not_found in
 

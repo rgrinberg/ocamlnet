@@ -948,7 +948,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 			   (if sign then "__" else "_") ^ string_of_uint4 n
 		       | Some om_tag -> om_tag
 		   in
-		   let (n1,n2,n3,n4) = Rtypes.dest_uint4 n in
+		   let (_n1,_n2,_n3,_n4) = Rtypes.dest_uint4 n in
 		   fprintf f "@ @[<hv>";
 		   fprintf f "| (";
 		   printint_pattern f (sign,n);
@@ -1268,7 +1268,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	      (fun d ->
 		 if d.decl_type <> T_void then begin
 		   let ocaml_n = d.decl_symbol.ocaml_name in
-		   let xdr_n   = d.decl_symbol.xdr_name in
+		   let _xdr_n   = d.decl_symbol.xdr_name in
 		   fprintf f "  @[<hv 2>(";
 		   fprintf f "let x = %s.%s in@ " var ocaml_n;
 		   output_ofconv_for_type name "x" d.decl_type;

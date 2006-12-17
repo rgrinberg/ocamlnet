@@ -301,7 +301,7 @@ let status_of_cgi_header hdr =
 	Not_found ->
 	  (* Maybe there is a [Location] header: *)
 	  ( try
-	      let location = hdr # field "Location" in
+	      let _location = hdr # field "Location" in
 	      (302, "Found")
 	    with
 		Not_found ->

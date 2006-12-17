@@ -537,7 +537,7 @@ let run
 
         (* Exec the new program: *)
 
-	U.execve c.c_filename args !(c.c_environment);
+	U.execve c.c_filename args !(c.c_environment); (* Produces warning X *)
 
         (* On success, control_out will be closed. On failure, an exception
 	 * is raised and we can use control_out to pass the exception to the
@@ -546,7 +546,7 @@ let run
 
         (* This point will never be reached. However, we are careful. *)
 
-	failwith "exec() returned normally"
+	assert false
 
       with
 	  any_exception ->

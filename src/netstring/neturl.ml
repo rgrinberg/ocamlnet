@@ -273,7 +273,7 @@ let ( <=> ) (a:bool) b = ( a = b );;  (* equivalence *)
 
 let url_syntax_is_valid syn =
   let recognized x = x <> Url_part_not_recognized in
-  let not_recognized x = x = Url_part_not_recognized in
+  let _not_recognized x = x = Url_part_not_recognized in
   (recognized syn.url_enable_password   => recognized syn.url_enable_user) &&
   (recognized syn.url_enable_user_param => recognized syn.url_enable_user) &&
   (recognized syn.url_enable_port       => recognized syn.url_enable_host) &&
@@ -605,7 +605,6 @@ let modify_url
       url 
   =
 
-  let encode = Netencoding.Url.encode ~plus:true in
   let enc ?(plus=false) x =
     if encoded then
       x

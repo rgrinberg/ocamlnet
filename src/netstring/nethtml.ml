@@ -593,8 +593,8 @@ let parse_document ?(dtd = html40_dtd)
 	  parse_next()
   in
   try
-    parse_next();
-    List.rev !current_subs
+    parse_next();  (* never returns. Will get a warning X *)
+    assert false
   with
       End_of_scan ->
 	(* Close all remaining elements: *)

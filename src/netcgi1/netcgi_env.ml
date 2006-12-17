@@ -391,7 +391,10 @@ object (self)
     Array.iter
       (fun s ->
 	 try
-	   let [|_; name; value|] = Pcre.extract ~rex:equation_re s in
+	   let (name, value) =
+	     match Pcre.extract ~rex:equation_re s with
+	       | [|_; name; value|] -> (name, value)
+	       | _ -> assert false in
 	   (* or raise Not_found *)
 	   match name with
 	       "CONTENT_TYPE" ->
@@ -402,7 +405,10 @@ object (self)
 		 ih := ("CONTENT-LENGTH", value) :: !ih
 	     | _ ->
 		 try
-		   let [|_; hname|] = Pcre.extract ~rex:http_re name in
+		   let hname =
+		     match Pcre.extract ~rex:http_re name with
+		       | [|_; hname|] -> hname
+		       | _ -> assert false in
 		   (* or raise Not_found *)
 		   (* No Not_found: The variable begins with HTTP_ and
 		    * is a header field

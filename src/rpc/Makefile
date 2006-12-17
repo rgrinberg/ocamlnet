@@ -15,6 +15,14 @@ DOBJECTS = rtypes.mli xdr.mli rpc.mli \
 
 OCAMLOPT_OPTIONS += -inline 10
 
+# rpc_packer.ml is full of incomplete matchings, but this is ok:
+OCAMLC_OPTIONS_FOR_rpc_packer.ml = -w p
+OCAMLOPT_OPTIONS_FOR_rpc_packer.ml = -w p
+
+# rpc_portmapper.ml is full of incomplete matchings, but this is ok:
+OCAMLC_OPTIONS_FOR_rpc_portmapper.ml = -w p
+OCAMLOPT_OPTIONS_FOR_rpc_portmapper.ml = -w p
+
 INCLUDES += $(INC_EQUEUE)
 
 include $(TOP_DIR)/Makefile.rules

@@ -194,7 +194,7 @@ let encode_fcgi_end_request req id =
 let fcgi_read_header con = (* read the packet header *)
   try
     let buf = String.create 8 in
-    let read = read con buf 0 8 in
+    let _read = read con buf 0 8 in
       decode_fcgi_header buf 0
   with Unix_error (e, f, i) -> 
     raise (FCGI_error ("fcgi_read_header", Unix_error (e, f, i)))
@@ -214,8 +214,8 @@ let fcgi_read_packet con = (* read one full packet *)
   try
     let header = fcgi_read_header con in
     let buf = String.create header.contentlen in
-    let read = read con buf 0 header.contentlen in
-    let pad = fcgi_drop_padding con header.padlen in
+    let _read = read con buf 0 header.contentlen in
+    let _pad = fcgi_drop_padding con header.padlen in
       (header, buf)
   with Unix_error (e, f, i) -> 
     raise (FCGI_error ("fcgi_read_packet", Unix_error (e, f, i)))
