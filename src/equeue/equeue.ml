@@ -88,69 +88,71 @@ let run esys =
 	sprintf "run <queue has %d events, 1st will be processed: %s>" n qs
       ) in
       debug_print debug_msg;
-      let e::q' = esys.queue in
-      let accept = ref false in
-      esys.handlers <- esys.handlers @ esys.new_handlers;
-      esys.new_handlers <- [];
-      (* debug_print (lazy (sprintf "run <%d event handlers>" (List.length esys.handlers))); *)
-      (* Printing the handlers does not make sense; e.g. Unixqueue only adds one global handler *)
-      (* Exceptions occuring in 'h' have to be done: 
-       * - The exception is propagated up
-       * - The event is moved to the end of the queue
-       * - If 'run' is called again, the event is scheduled again
-       *)
-      begin try
-	esys.handlers <-
-	  List.filter
-	    (fun h ->
-	       if not !accept then
-		 try
-		   h esys e;
-		   accept := true;
-		   true
-		 with
-		     Reject ->
-		       true
-		   | Terminate ->
-		       accept := true;
-		       false
-	       else
-		 true
-	    )
-	    esys.handlers;
-	debug_print (lazy (sprintf "run <event %s: %s>" 
-			     (esys.string_of_event e) 
-			     (if !accept then "accepted" else "dropped")));
-	esys.queue <- q';
-      with
-	  any ->
-	    esys.queue <- q';
-	    esys.error_queue <- esys.error_queue @ [e];
-	    debug_print (lazy (sprintf "run <event %s: exception %s>"
-				 (esys.string_of_event e)
-				 (Printexc.to_string any)));
-	    raise any
-      end;
-      if esys.queue = [] then begin
-	if esys.new_queue = [] && esys.error_queue = [] then begin
-          (* try to get new events (or handlers!) *)
-	  debug_print (lazy "run <invoking source>");
-	  esys.source esys;
-	  if esys.new_queue <> [] && esys.handlers = [] && esys.new_handlers = []
-	  then (
-	    debug_print (lazy "run <out of handlers>");
-	    raise Out_of_handlers
-	  )
-	    (* If there are new events there must also be (new) handlers.
-	     * Otherwise the program would loop infinitely.
+      match esys.queue with
+	| []  -> assert false
+	| e :: q' ->
+	    let accept = ref false in
+	    esys.handlers <- esys.handlers @ esys.new_handlers;
+	    esys.new_handlers <- [];
+	    (* debug_print (lazy (sprintf "run <%d event handlers>" (List.length esys.handlers))); *)
+	    (* Printing the handlers does not make sense; e.g. Unixqueue only adds one global handler *)
+	    (* Exceptions occuring in 'h' have to be done: 
+             * - The exception is propagated up
+             * - The event is moved to the end of the queue
+             * - If 'run' is called again, the event is scheduled again
 	     *)
-	end;
-	(* schedule new events or events again that previously caused errors *)
-	debug_print (lazy "run <reloading queue>");
-	esys.queue <- esys.new_queue @ esys.error_queue;
-	esys.new_queue <- [];
-	esys.error_queue <- []
-      end;
+	    begin try
+	      esys.handlers <-
+		List.filter
+		(fun h ->
+		   if not !accept then
+		     try
+		       h esys e;
+		       accept := true;
+		       true
+		     with
+			 Reject ->
+			   true
+		       | Terminate ->
+			   accept := true;
+			   false
+		   else
+		     true
+		)
+		esys.handlers;
+	      debug_print (lazy (sprintf "run <event %s: %s>" 
+				   (esys.string_of_event e) 
+				   (if !accept then "accepted" else "dropped")));
+	      esys.queue <- q';
+	    with
+		any ->
+		  esys.queue <- q';
+		  esys.error_queue <- esys.error_queue @ [e];
+		  debug_print (lazy (sprintf "run <event %s: exception %s>"
+				       (esys.string_of_event e)
+				       (Printexc.to_string any)));
+		  raise any
+	    end;
+	    if esys.queue = [] then begin
+	      if esys.new_queue = [] && esys.error_queue = [] then begin
+		(* try to get new events (or handlers!) *)
+		debug_print (lazy "run <invoking source>");
+		esys.source esys;
+		if esys.new_queue <> [] && esys.handlers = [] && esys.new_handlers = []
+		then (
+		  debug_print (lazy "run <out of handlers>");
+		  raise Out_of_handlers
+		)
+		  (* If there are new events there must also be (new) handlers.
+   	           * Otherwise the program would loop infinitely.
+		   *)
+	      end;
+	      (* schedule new events or events again that previously caused errors *)
+	      debug_print (lazy "run <reloading queue>");
+	      esys.queue <- esys.new_queue @ esys.error_queue;
+	      esys.new_queue <- [];
+	      esys.error_queue <- []
+	    end;
     done;
     debug_print (lazy "run <returning normally>");
     esys.running <- false;

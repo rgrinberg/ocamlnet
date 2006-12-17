@@ -494,7 +494,7 @@ object(self)
     lock();
     try
       (* Find out which system events are interesting now: *)
-      let (infiles, outfiles, oobfiles, time) as watch_tuple = self#setup() in
+      let (infiles, outfiles, oobfiles, time) = self#setup() in
 
       debug_print
 	(lazy
