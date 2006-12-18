@@ -77,8 +77,6 @@ This is the revised library for Web applications, now called [netcgi2].
     Netcgi_ajp
     Netcgi_scgi
     Netcgi_test
-    Netcgi_mod
-    Netcgi_modtpl
     Netcgi_dbi
     Netcgi1_compat}
 

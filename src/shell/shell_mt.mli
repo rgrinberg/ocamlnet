@@ -3,7 +3,9 @@
  *
  *)
 
-(* In multi-threaded applications, make sure that Shell_mt is
+(** Multi-threading support *)
+
+(** In multi-threaded applications, make sure that Shell_mt is
  * linked into the final application. Do to so, you _must_
  * mention shell_mt.cmo or shell_mt.cmx on the command line,
  * or use ocamlfind -thread.

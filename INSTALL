@@ -22,6 +22,8 @@ netcgi2		CORE		Web applications (revised lib)
 netcgi2-plex	CORE		Web applications - support for netplex
 netclient	CORE		Clients for HTTP, FTP (exp), Telnet
 nethttpd	-with-nethttpd	Web server
+nethttpd-for-netcgi1 (same as nethttpd)
+nethttpd-for-netcgi2 (same as nethttpd)
 netplex		CORE		Generic server framework
 netshm		CORE		Shared memory for IPC
 netstring	CORE		String routines (e.g. URLs, HTML, Mail)

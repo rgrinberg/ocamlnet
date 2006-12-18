@@ -15,7 +15,6 @@ html-doc:
 		[ "$$p" != "cgi" ] || continue; \
 		[ "$$p" != "netcgi1" ] || continue; \
 		[ "$$p" != "nethttpd-for-netcgi1" ] || continue; \
-		[ "$$p" != "equeue-gtk1" ] || continue; \
 		[ "$$p" != "equeue-gtk2" ] || continue; \
 		[ "$$p" != "netcgi-apache" ] || continue; \
 		echo "-load ../src/$$p/ocamldoc.dump" >>loadopts.tmp; \
