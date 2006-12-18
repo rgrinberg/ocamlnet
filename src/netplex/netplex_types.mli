@@ -29,10 +29,14 @@ end
 type parallelization_type =
     [ `Multi_processing
     | `Multi_threading
+    | `Controller_attached
     ]
   (** Type of parallelization:
     * - [`Multi_processing] on a single host
     * - [`Multi_threading] on a single host
+    * - [`Controller_attached] means that the service runs within the 
+    *   controller. This is (for now) only allowed for controller-internal
+    *   services.
    *)
 
 type socket_state =

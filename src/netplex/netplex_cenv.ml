@@ -16,26 +16,30 @@ let register_par par =
 
 
 let register_cont cont thread =
-  let (lock, unlock, par, m) =
-    try Hashtbl.find cont_of_thread thread#ptype
-    with Not_found -> 
-      failwith "Netplex_cenv.register_cont: Unknown parallelizer type" in
-
-  lock();
-  Hashtbl.replace m thread#sys_id cont;
-  unlock()
+  if thread#ptype <> `Controller_attached then (
+    let (lock, unlock, par, m) =
+      try Hashtbl.find cont_of_thread thread#ptype
+      with Not_found -> 
+	failwith "Netplex_cenv.register_cont: Unknown parallelizer type" in
+    
+    lock();
+    Hashtbl.replace m thread#sys_id cont;
+    unlock()
+  )
 ;;
 
 
 let unregister_cont cont thread =
-  let (lock, unlock, par, m) =
-    try Hashtbl.find cont_of_thread thread#ptype
-    with Not_found -> 
-      failwith "Netplex_cenv.unregister_cont: Unknown parallelizer type" in
-
-  lock();
-  Hashtbl.remove m thread#sys_id;
-  unlock()
+  if thread#ptype <> `Controller_attached then (
+    let (lock, unlock, par, m) =
+      try Hashtbl.find cont_of_thread thread#ptype
+      with Not_found -> 
+	failwith "Netplex_cenv.unregister_cont: Unknown parallelizer type" in
+    
+    lock();
+    Hashtbl.remove m thread#sys_id;
+    unlock()
+  )
 ;;
 
 

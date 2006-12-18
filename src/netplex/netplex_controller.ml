@@ -828,10 +828,9 @@ end
 
 
 class admin_par : Netplex_types.parallelizer =
-  (* A fake parallelizer used for the admin interface *)
+  (* A special parallelizer used for the admin interface *)
 object(self)
-  method ptype = `Multi_threading
-    (* This is a lie! *)
+  method ptype = `Controller_attached
 
   method init() = ()
 
@@ -840,8 +839,8 @@ object(self)
       let pid = Unix.getpid() in
       let throbj =
 	( object
-	    method ptype = `Multi_threading
-	    method info_string = "CtrlProcess " ^ string_of_int pid
+	    method ptype = `Controller_attached
+	    method info_string = "AttachedToCtrlProcess " ^ string_of_int pid
 	    method sys_id = assert false
 	    method parallelizer = (self : #parallelizer :> parallelizer)
 	    method watch_shutdown _ = ()
@@ -876,7 +875,7 @@ class controller_processor setup controller : processor =
 object(self)
   inherit Netplex_kit.empty_processor_hooks()
 
-  method supported_ptypes = [ `Multi_processing; `Multi_threading ]
+  method supported_ptypes = [ `Controller_attached ]
 
   method process ~when_done cont fd proto =
     let rpc =
