@@ -155,7 +155,7 @@ f src/nethttpd/META.in
 f src/nethttpd/Makefile
 f src/nethttpd/Makefile.pre
 
-d src/nethttpd
+d src/nethttpd-for-netcgi1
 f src/nethttpd-for-netcgi1/META.in
 f src/nethttpd-for-netcgi1/Makefile
 f src/nethttpd-for-netcgi1/Makefile.pre
@@ -163,7 +163,7 @@ f src/nethttpd-for-netcgi1/LICENSE
 p src/nethttpd-for-netcgi1/.*\.ml
 p src/nethttpd-for-netcgi1/.*\.mli
 
-d src/nethttpd
+d src/nethttpd-for-netcgi2
 f src/nethttpd-for-netcgi2/META.in
 f src/nethttpd-for-netcgi2/Makefile
 f src/nethttpd-for-netcgi2/Makefile.pre
