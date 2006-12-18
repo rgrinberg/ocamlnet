@@ -68,8 +68,8 @@ f src/netstring/netaccel_c.c
 # The pattern:
 p src/netstring/.*\.ml
 p src/netstring/.*\.mli
+p src/netstring/.*\.txt
 
-# src/netstring/doc: not yet ready
 # src/netstring/mappings: not necessary
 # src/netstring/tests: not necessary
 
@@ -99,6 +99,7 @@ f src/netshm/Makefile.pre
 f src/netshm/META.in
 p src/netshm/.*\.ml
 p src/netshm/.*\.mli
+p src/netshm/.*\.txt
 
 d src/cgi
 f src/cgi/META.in
@@ -118,6 +119,7 @@ f src/netcgi2/Makefile.pre
 f src/netcgi2/META.in
 p src/netcgi2/.*\.ml
 p src/netcgi2/.*\.mli
+p src/netcgi2/.*\.txt
 #d src/netcgi2/mod_caml
 #f src/netcgi2/mod_caml/500mod_caml.info.in
 #f src/netcgi2/mod_caml/Makefile
@@ -176,6 +178,7 @@ f src/equeue/Makefile
 f src/equeue/Makefile.pre
 p src/equeue/.*\.ml
 p src/equeue/.*\.mli
+p src/equeue/.*\.txt
 
 d src/equeue-gtk1
 f src/equeue-gtk1/META.in
@@ -217,6 +220,7 @@ f src/shell/Makefile.pre
 p src/shell/.*\.ml
 p src/shell/.*\.mli
 p src/shell/.*\.c
+p src/shell/.*\.txt
 
 d src/netclient
 f src/netclient/META.in
@@ -245,13 +249,14 @@ d src/rpc
 f src/rpc/META.in
 f src/rpc/Makefile
 f src/rpc/Makefile.pre
-p src/rpc/.*\.ml
-p src/rpc/.*\.mli
 f src/rpc/rpc_portmapper.x
 x src/rpc/rpc_portmapper_aux.ml
 x src/rpc/rpc_portmapper_aux.mli
 x src/rpc/rpc_portmapper_clnt.ml
 x src/rpc/rpc_portmapper_clnt.mli
+p src/rpc/.*\.ml
+p src/rpc/.*\.mli
+p src/rpc/.*\.txt
 
 d src/rpc-generator
 f src/rpc-generator/META.in
