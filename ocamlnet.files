@@ -162,6 +162,7 @@ f src/nethttpd-for-netcgi1/Makefile.pre
 f src/nethttpd-for-netcgi1/LICENSE
 p src/nethttpd-for-netcgi1/.*\.ml
 p src/nethttpd-for-netcgi1/.*\.mli
+p src/nethttpd-for-netcgi1/.*\.txt
 
 d src/nethttpd-for-netcgi2
 f src/nethttpd-for-netcgi2/META.in
