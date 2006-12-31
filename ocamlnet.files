@@ -34,6 +34,7 @@ f Makefile
 f Makefile.rules
 f Makefile.xrules
 f configure
+f ChangeLog
 
 d src
 
