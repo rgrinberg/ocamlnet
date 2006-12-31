@@ -42,9 +42,12 @@ ARCHIVE  ?= $(PKGNAME)
 
 .PHONY: all opt all-mt-vm opt-mt-vm all-mt-posix opt-mt-posix
 
-all: $(ARCHIVE).cma $(ALL_EXTRA) all-mt-$(MT_TYPE)
+ARCHIVE_CMA ?= $(ARCHIVE).cma 
+ARCHIVE_CMXA ?= $(ARCHIVE).cmxa 
 
-opt: $(ARCHIVE).cmxa $(OPT_EXTRA) opt-mt-$(MT_TYPE)
+all: $(ARCHIVE_CMA) $(ALL_EXTRA) all-mt-$(MT_TYPE)
+
+opt: $(ARCHIVE_CMXA) $(OPT_EXTRA) opt-mt-$(MT_TYPE)
 
 all-mt-vm: $(ALLMT_EXTRA)
 all-mt-posix: $(ALLMT_EXTRA)
