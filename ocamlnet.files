@@ -234,8 +234,6 @@ d src/netplex
 f src/netplex/META.in
 f src/netplex/Makefile
 f src/netplex/Makefile.pre
-p src/netplex/.*\.ml
-p src/netplex/.*\.mli
 f src/netplex/netplex_ctrl.x
 x src/netplex/netplex_ctrl_aux.ml
 x src/netplex/netplex_ctrl_aux.mli
@@ -245,6 +243,8 @@ x src/netplex/netplex_ctrl_srv.ml
 x src/netplex/netplex_ctrl_srv.mli
 x src/netplex/netplex_vexec.mli
 f src/netplex/netplex_intro.txt
+p src/netplex/.*\.ml
+p src/netplex/.*\.mli
 
 d src/rpc
 f src/rpc/META.in
@@ -263,19 +263,17 @@ d src/rpc-generator
 f src/rpc-generator/META.in
 f src/rpc-generator/Makefile
 f src/rpc-generator/Makefile.pre
+x src/rpc-generator/lexer.ml
+x src/rpc-generator/parser.ml
 p src/rpc-generator/.*\.ml
 p src/rpc-generator/.*\.mli
 p src/rpc-generator/.*\.mll
 p src/rpc-generator/.*\.mly
-x src/rpc-generator/lexer.ml
-x src/rpc-generator/parser.ml
 
 d src/rpc-auth-dh
 f src/rpc-auth-dh/META.in
 f src/rpc-auth-dh/Makefile
 f src/rpc-auth-dh/Makefile.pre
-p src/rpc-auth-dh/.*\.ml
-p src/rpc-auth-dh/.*\.mli
 f src/rpc-auth-dh/rpc_key.x
 x src/rpc-auth-dh/rpc_key_aux.ml
 x src/rpc-auth-dh/rpc_key_aux.mli
@@ -283,6 +281,9 @@ x src/rpc-auth-dh/rpc_key_clnt.ml
 x src/rpc-auth-dh/rpc_key_clnt.mli
 f src/rpc-auth-dh/rpc_key_service.mlp
 x src/rpc-auth-dh/rpc_key_service.ml
+f src/rpc-auth-dh/rpc_auth_dh.x
+p src/rpc-auth-dh/.*\.ml
+p src/rpc-auth-dh/.*\.mli
 
 d src/rpc-auth-local
 f src/rpc-auth-local/META.in
