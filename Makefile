@@ -63,7 +63,7 @@ clean:
 		test ! -f $$pkg/Makefile || \
 			( cd $$pkg && $(MAKE) -f Makefile.pre clean); \
 	done
-	if -f doc/Makefile; then cd doc && $(MAKE) clean; fi
+	if test -f doc/Makefile; then cd doc && $(MAKE) clean; fi
 
 .PHONY: clean-doc
 clean-doc:
