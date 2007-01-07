@@ -13,3 +13,6 @@ include $(TOP_DIR)/Makefile.rules
 # Do not include that in the clean list because these symlinks are
 # created by "configure".
 # CLEAN_LIST += uq_gtk.ml uq_gtk.mli Makefile
+
+distclean::
+	rm -f Makefile uq_gtk.ml uq_gtk.mli

@@ -60,6 +60,7 @@ x src/netstring/netmappings_other.ml
 f src/netstring/netmappings_min.ml
 # Also include netdate.mlp:
 f src/netstring/netdate.mlp
+x src/netstring/netdate.ml
 x src/netstring/netconst.ml
 f src/netstring/netconst.mlp
 f src/netstring/nethtml_scanner.mll
@@ -193,8 +194,6 @@ d src/equeue-gtk2
 f src/equeue-gtk2/META.in
 f src/equeue-gtk2/Makefile.pre
 f src/equeue-gtk2/Makefile.gtk
-p src/equeue-gtk2/.*\.ml
-p src/equeue-gtk2/.*\.mli
 
 d src/equeue-tcl
 f src/equeue-tcl/META.in
@@ -265,6 +264,9 @@ f src/rpc-generator/Makefile
 f src/rpc-generator/Makefile.pre
 x src/rpc-generator/lexer.ml
 x src/rpc-generator/parser.ml
+x src/rpc-generator/parser.mli
+x src/rpc-generator/rtypes.ml
+x src/rpc-generator/rtypes.mli
 p src/rpc-generator/.*\.ml
 p src/rpc-generator/.*\.mli
 p src/rpc-generator/.*\.mll

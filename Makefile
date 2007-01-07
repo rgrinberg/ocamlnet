@@ -78,7 +78,8 @@ CLEAN: clean
 
 .PHONY: distclean
 distclean:
-	rm -f Makefile.conf
+	rm -f Makefile.conf 
+	rm -rf tmp
 	for pkg in src/*/.; do \
 		test ! -f $$pkg/Makefile || \
 			( cd $$pkg && $(MAKE) -f Makefile.pre distclean); \

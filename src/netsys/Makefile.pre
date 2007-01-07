@@ -5,3 +5,8 @@ PKGNAME = netsys
 GENERATE = META
 
 include $(TOP_DIR)/Makefile.rules
+
+distclean::
+	rm -f Makefile.conf config.h
+	rm -f configtests/*.cmi configtests/*.cmo configtests/*.o
+	rm -f configtests/*.err configtests/posix_shm

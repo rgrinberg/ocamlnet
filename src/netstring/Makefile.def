@@ -138,7 +138,8 @@ CLEAN_LIST += netconst.ml
 
 clean::
 	test ! -d mappings || rm -f $(PMAP)
+	rm -rf netdb
 	cd tools && $(MAKE) clean
 
 distclean::
-	cd tools && $(MAKE) distclean
+	$(MAKE) clean
