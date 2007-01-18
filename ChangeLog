@@ -1,3 +1,7 @@
+2007-01-18  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
+
+	* Fix: The library netshm needs bigarray as requirement.
+
 2007-01-07  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
 
 	* Releases 2.2.3 and 2.2.4:
