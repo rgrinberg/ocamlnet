@@ -52,6 +52,7 @@ type encoding =
   |  `Enc_jis0212_94x94  (* JIS-X-0212 in ISO-2022-style two byte encoding *)
 *)
   |  `Enc_eucjp      (* EUC-JP *)
+  |  `Enc_euckr      (* EUC-KR *)
 (* 
   |  `Enc_iso2022 of iso2022_state
   |  `Enc_iso2022jp of iso2022jp_state
@@ -136,6 +137,7 @@ type charset =
   |  `Set_jis0201    (* JIS-X-0201 *)
   |  `Set_jis0208    (* JIS-X-0208 *)
   |  `Set_jis0212    (* JIS-X-0212 *)
+  |  `Set_ks1001     (* KS-X-1001 *)
     (* Microsoft: *)
   |  `Set_windows1250  (* WINDOWS-1250 *)
   |  `Set_windows1251  (* WINDOWS-1251 *)
@@ -195,7 +197,7 @@ let ascii_compat_encodings =
     `Enc_cp437; `Enc_cp737; `Enc_cp775; `Enc_cp850; `Enc_cp852; `Enc_cp855;
     `Enc_cp856; `Enc_cp857; `Enc_cp860; `Enc_cp861; `Enc_cp862; `Enc_cp863;
     `Enc_cp864; `Enc_cp865; `Enc_cp866; `Enc_cp869; `Enc_cp874; `Enc_cp1006;
-    `Enc_eucjp;
+    `Enc_eucjp; `Enc_euckr;
     `Enc_macroman;
   ]
 ;;
@@ -216,6 +218,7 @@ let rec is_single_byte =
     | `Enc_utf16_le
     | `Enc_utf16_be -> false
     | `Enc_eucjp -> false
+    | `Enc_euckr -> false
     | `Enc_subset(e,_) -> is_single_byte e
     | _ -> true
 ;;
@@ -287,6 +290,7 @@ let names =
     `Enc_koi8r,        [ "KOI8-R"; "KOI8R"; "CP878" ];
     `Enc_jis0201,      [ "JIS_X0201"; "JIS0201"; "JISX0201"; "X0201" ];
     `Enc_eucjp,        [ "EUC-JP"; "EUCJP"; ];
+    `Enc_euckr,        [ "EUC-KR"; "EUCKR"; ];
     `Enc_windows1250,  [ "WINDOWS-1250"; "WINDOWS1250" ];
     `Enc_windows1251,  [ "WINDOWS-1251"; "WINDOWS1251" ];
     `Enc_windows1252,  [ "WINDOWS-1252"; "WINDOWS1252" ];
@@ -386,6 +390,7 @@ let internal_name (cs : charset) =
     | `Set_jis0201 -> "jis0201"
     | `Set_jis0208 -> "jis0208"
     | `Set_jis0212 -> "jis0212"
+    | `Set_ks1001 -> "ks1001"
     | `Set_windows1250 -> "windows1250"
     | `Set_windows1251 -> "windows1251"
     | `Set_windows1252 -> "windows1252"
@@ -453,6 +458,7 @@ let rec required_charsets (e : encoding) =
     | `Enc_koi8r -> [ `Set_koi8r ]
     | `Enc_jis0201 -> [ `Set_jis0201 ]
     | `Enc_eucjp -> [ `Set_jis0201; `Set_jis0208; `Set_jis0212 ]
+    | `Enc_euckr -> [ `Set_ks1001 ]
     | `Enc_windows1250 -> [ `Set_windows1250 ]
     | `Enc_windows1251 -> [ `Set_windows1251 ]
     | `Enc_windows1252 -> [ `Set_windows1252 ]
@@ -1106,6 +1112,14 @@ let read_eucjp () =
 ;;
 
 
+let read_euckr () =
+  let ks1001 = Netmappings.get_to_unicode "ks1001" in
+  let map x1 x2 =
+    ks1001.( (x1-160) * 96 + x2 - 160 ) in
+  read_euc 2 0 0 map map map `Enc_euckr
+;;
+
+
 let read_subset inner_read def slice_char slice_blen s_in p_in l_in =
   assert(Array.length slice_char = Array.length slice_blen);
   assert(p_in >= 0 && p_in + l_in <= String.length s_in && l_in >= 0);
@@ -1652,6 +1666,43 @@ let write_eucjp () =
 ;;
 
 
+let write_euckr () =
+  let ks1001 = Netmappings.get_from_unicode "ks1001" in
+
+  let ks1001_mask = Array.length ks1001 - 1 in
+
+  let map p =
+    let map_tbl kstbl kstbl_mask =
+      match kstbl.(p land kstbl_mask) with
+	  Netmappings.U_nil -> -1
+	| Netmappings.U_single (p0,q0) ->
+	    if p0 = p then q0 else -1
+	| Netmappings.U_double (p0,q0,p1,q1) ->
+	    if p0 = p then q0 else
+	      if p1 = p then q1 else -1
+	| Netmappings.U_array pq ->
+	    let r = ref (-1) in
+	    let h = ref 0 in
+	    while !r < 0 && !h < Array.length pq do
+	      if pq.( !h ) = p then
+		r := pq.( !h+1 )
+	      else
+		h := !h + 2
+	    done;
+	    !r
+    in
+    let cp_1001 = map_tbl ks1001 ks1001_mask in
+    if cp_1001 >= 0 then
+      let row = cp_1001 / 96 in
+      let col = cp_1001 - row * 96 in
+      (1, row + 160, col + 160)
+    else
+      (4,256,256)
+  in
+  write_euc map `Enc_euckr
+;;
+
+
 let special_cpoint = 0x110000;;
 
 
@@ -1851,6 +1902,7 @@ let rec get_reader1 (enc : encoding1) =
     | `Enc_utf16_le -> read_utf16_lebe 0 1 0 `Enc_utf16_le
     | `Enc_utf16_be -> read_utf16_lebe 1 0 0 `Enc_utf16_be
     | `Enc_eucjp    -> read_eucjp ()
+    | `Enc_euckr    -> read_euckr ()
     | `Enc_subset(e,def) ->
 	let reader' = get_reader1 (e :> encoding1) in
 	read_subset reader' def
@@ -1874,6 +1926,7 @@ let rec get_writer enc =
     | `Enc_utf16_le -> write_utf16_lebe 0 1
     | `Enc_utf16_be -> write_utf16_lebe 1 0
     | `Enc_eucjp    -> write_eucjp ()
+    | `Enc_euckr    -> write_euckr ()
     | `Enc_subset(e,def) ->
 	let writer' = get_writer e in
 	write_subset writer' def
@@ -1890,6 +1943,7 @@ let rec get_back_fn enc =
     | `Enc_utf16_le -> back_utf16_lebe 0 1
     | `Enc_utf16_be -> back_utf16_lebe 1 0
     | `Enc_eucjp    -> back_euc
+    | `Enc_euckr    -> back_euc
     | `Enc_subset(e,def) ->
 	get_back_fn e
     | _ -> 
@@ -2021,6 +2075,7 @@ let rec ustring_of_uchar enc =
     | `Enc_utf16 ->
 	invalid_arg "Netconversion.ustring_of_uchar: UTF-16 not possible"
     | `Enc_eucjp -> multi_byte (write_eucjp()) 3
+    | `Enc_euckr -> multi_byte (write_euckr()) 2
     | `Enc_subset(e,def) ->
 	(fun p -> if def p then ustring_of_uchar e p else raise (Cannot_represent p))
     | _ ->

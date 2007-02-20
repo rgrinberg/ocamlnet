@@ -59,6 +59,11 @@ netcgi2-plex:
 	- Implement mount_dir/mount_at
 	  Sched: 2.3
 
+RPC:
+	- Exceptions from client callbacks are suppressed by default:
+	  (1) Default handler re-raises exception
+	  (2) Allow the handler to re-raise exception
+
 Bugs Tidalwave:
   * ocamlnet
 	- Bug: Netstring_pcre.global_replace

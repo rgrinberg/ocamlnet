@@ -53,9 +53,11 @@ x src/netstring/netiso2022.ml
 # Make sure these exist:
 f src/netstring/netmappings_iso.pmap
 f src/netstring/netmappings_jp.pmap
+f src/netstring/netmappings_kr.pmap
 f src/netstring/netmappings_other.pmap
 x src/netstring/netmappings_iso.ml
 x src/netstring/netmappings_jp.ml
+x src/netstring/netmappings_kr.ml
 x src/netstring/netmappings_other.ml
 f src/netstring/netmappings_min.ml
 # Also include netdate.mlp:

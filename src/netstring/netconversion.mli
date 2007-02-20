@@ -226,7 +226,7 @@
  * that can be supported; especially ISO646 character sets, and many EBCDIC 
  * code pages. Stateful encodings like generic ISO-2022 have been omitted
  * (stateless subsets of ISO-2022 like EUC can be supported, however;
- * currently we support EUC-JP).
+ * currently we support EUC-JP and EUC-KR).
  *
  * Because of the copyright statement from Unicode, I cannot put the
  * source tables that describe the mappings into the distribution. They
@@ -287,6 +287,7 @@ exception Cannot_represent of int
  * - [`Enc_jis0201]: JIS-X-0201 (Roman and Katakana)
  * - [`Enc_eucjp]: EUC-JP (code points from US-ASCII, JIS-X-0202, -0208, and
  *   -0212)
+ * - [`Enc_euckr]: EUC-KR (code points from US-ASCII, KS-X-1001)
  * - [`Enc_windows]{i n}: WINDOWS-{i n}
  * - [`Enc_cp]{i n}: IBM code page {i n}. Note that there are both ASCII-
  *   and EBCDIC-based code pages
@@ -328,6 +329,7 @@ type encoding =
       This encoding is too weird.
   |  `Enc_sjis
 *)
+  |  `Enc_euckr      (* EUC-KR (includes US-ASCII, KS-X-1001) *)
     (* Microsoft: *)
   |  `Enc_windows1250  (* WINDOWS-1250 *)
   |  `Enc_windows1251  (* WINDOWS-1251 *)
@@ -404,6 +406,7 @@ type charset =
   |  `Set_jis0201    (* JIS-X-0201 *)
   |  `Set_jis0208    (* JIS-X-0208 *)
   |  `Set_jis0212    (* JIS-X-0212 *)
+  |  `Set_ks1001     (* KS-X-1001 *)
     (* Microsoft: *)
   |  `Set_windows1250  (* WINDOWS-1250 *)
   |  `Set_windows1251  (* WINDOWS-1251 *)

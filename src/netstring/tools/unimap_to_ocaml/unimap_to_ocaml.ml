@@ -9,6 +9,7 @@ type format =
     Normal
   | Jis0208
   | Jis0212
+  | Ks1001
 
 let comment_re = Str.regexp "#.*$";;
 let space_re = Str.regexp "[ \t\r\n]+";;
@@ -33,6 +34,12 @@ let read_unimap_format_a ?(fmt=Normal) fname f =
 	  assert (row >= 1 && row <= 94 && col >= 1 && col <= 94);
 	  (row * 96 + col, int_of_string unicode)
       | [ _; localcode; unicode ] when fmt=Jis0208 ->
+	  let local = int_of_string localcode in
+	  let row = (local lsr 8) - 0x20 in
+	  let col = (local land 255) - 0x20 in
+	  assert (row >= 1 && row <= 94 && col >= 1 && col <= 94);
+	  (row * 96 + col, int_of_string unicode)
+      | [ localcode; unicode ] when fmt=Ks1001 ->
 	  let local = int_of_string localcode in
 	  let row = (local lsr 8) - 0x20 in
 	  let col = (local land 255) - 0x20 in
@@ -324,7 +331,15 @@ let main() =
 		    [ mapname, unimap ]
 		  end
 		  else
-		    failwith ("Unknown filename suffix: " ^ filename)
+		    if Filename.check_suffix filename ".1001map" then begin
+		      let f = open_in filename in
+		      prerr_endline ("Reading " ^ filename);
+		      let unimap = read_unimap_format_a ~fmt:Ks1001 filename f in
+		      close_in f;
+		      [ mapname, unimap ]
+		    end
+		    else
+		      failwith ("Unknown filename suffix: " ^ filename)
 	 )
 	 !files
       )

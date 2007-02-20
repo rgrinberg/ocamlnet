@@ -15,19 +15,21 @@ INCLUDES += $(INC_NETSYS)
 
 ISO_MAPPINGS   = mappings/iso*.unimap
 JP_MAPPINGS    = mappings/jis*.*map
+KR_MAPPINGS    = mappings/ks*.*map
 OTHER_MAPPINGS = mappings/cp*.unimap \
                  mappings/adobe*.unimap \
                  mappings/koi*.unimap \
                  mappings/mac*.unimap \
                  mappings/windows*.unimap
 
-PMAP = netmappings_iso.pmap netmappings_other.pmap netmappings_jp.pmap
+PMAP = netmappings_iso.pmap netmappings_other.pmap netmappings_jp.pmap netmappings_kr.pmap
 
 # netconversion.cmx: Allow cross-library inlining for this module
 
 INSTALL_EXTRA = netstring_mt.cmo      netstring_mt.cmx      netstring_mt.o     \
 	        netmappings_iso.cmo   netmappings_iso.cmx   netmappings_iso.o  \
 	        netmappings_jp.cmo   netmappings_jp.cmx   netmappings_jp.o  \
+	        netmappings_kr.cmo   netmappings_kr.cmx   netmappings_kr.o  \
 	        netmappings_other.cmo netmappings_other.cmx netmappings_other.o\
 		netmappings_min.cmo  netmappings_min.cmx netmappings_min.o \
 		netconversion.cmx \
@@ -95,6 +97,14 @@ netmappings_jp.pmap: tools_done
 netmappings_jp.ml: netmappings_jp.pmap netdb.cmi
 	tools/unimap_to_ocaml/unimap_to_ocaml \
 		-o netmappings_jp.ml netmappings_jp.pmap
+
+netmappings_kr.pmap: tools_done
+	test ! -d mappings || tools/unimap_to_ocaml/unimap_to_ocaml \
+		-o netmappings_kr.pmap -pmap $(KR_MAPPINGS)
+
+netmappings_kr.ml: netmappings_kr.pmap netdb.cmi
+	tools/unimap_to_ocaml/unimap_to_ocaml \
+		-o netmappings_kr.ml netmappings_kr.pmap
 
 netmappings_other.pmap: tools_done
 	test ! -d mappings || tools/unimap_to_ocaml/unimap_to_ocaml \
