@@ -1,3 +1,7 @@
+2007-02-20  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
+
+	* Addition of EUC-KR, by Deokhwan Kim <dk@ropas.snu.ac.kr>
+
 2007-01-18  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
 
 	* Fix: The library netshm needs bigarray as requirement.

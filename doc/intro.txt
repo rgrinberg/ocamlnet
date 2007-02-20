@@ -306,6 +306,7 @@ Contributions by
 - Eric Stokes: FastCGI support
 - Pierre Habouzit: SMTP client
 - Christophe Troestler: Revised version of [netcgi]
+- Deokhwan Kim: Support for EUC-KR
 
 Sponsorships by
 
