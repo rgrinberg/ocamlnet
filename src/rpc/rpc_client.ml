@@ -207,10 +207,7 @@ let pass_result cl call f =
 	  if !debug then
 	    prerr_endline ("Rpc_client: Exception from callback: " ^
 			     Printexc.to_string any);
-	  try
-	    cl.exception_handler any
-	  with
-	      _ -> ()
+	  cl.exception_handler any
 	end
 
 
@@ -913,7 +910,10 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
       last_replier = None;
       timeout = if prot = Udp then 15.0 else (-.1.0);
       max_retransmissions = 3;
-      exception_handler = (fun _ -> ());
+      exception_handler = (fun exn -> 
+			     prerr_endline ("Rpc_client: Uncaught exception " ^ 
+					      Printexc.to_string exn)
+			  );
       auth_methods = [ ];
       current_auth_method = auth_none;
       unused_auth_sessions = []
