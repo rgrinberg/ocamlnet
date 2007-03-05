@@ -1,3 +1,11 @@
+2007-03-05  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
+
+	* Release 2.2.5
+
+	* Addition of Rpc_client.set_dgram_destination and
+	  get_sender_of_last_response to support unconnected
+	  UDP sockets.
+
 2007-02-20  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
 
 	* Addition of EUC-KR, by Deokhwan Kim <dk@ropas.snu.ac.kr>
