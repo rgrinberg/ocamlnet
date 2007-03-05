@@ -85,6 +85,7 @@ type call =
 	mutable state : call_state;
 	mutable retrans_count : int;        (* retransmission counter *)
 	mutable xid : int;
+	mutable destination : Unix.sockaddr option;
 
 	mutable call_timeout : float;
 	mutable timeout_group : group option;
@@ -111,10 +112,12 @@ and t =
 	mutable pending_calls : call SessionMap.t;
 
 	mutable next_xid : int;
+	mutable last_replier : Unix.sockaddr option;
 
 	(* configs: *)
 	mutable timeout : float;
         mutable max_retransmissions : int;
+	mutable next_destination : Unix.sockaddr option;
 
 	(* authentication: *)
 	mutable auth_methods : t pre_auth_method list;     (* methods to try *)
@@ -310,6 +313,7 @@ let add_call ?(when_sent = fun () -> true) cl procname param receiver =
       state = Waiting;
       retrans_count = cl.max_retransmissions;
       xid = cl.next_xid;
+      destination = cl.next_destination;
       call_timeout = cl.timeout;
       timeout_group = None;
       call_auth_session = s;
@@ -502,6 +506,11 @@ let rec handle_incoming_message cl r =
     | `Ok(pv,addr) ->
 	if !debug then prerr_endline "Rpc_client: Message arrived";
 	( try
+	    ( match addr with
+		| `Implied -> ()
+		| `Sockaddr a ->
+		    cl.last_replier <- Some a
+	    );
 	    process_incoming_message cl pv
 	  with
 	      Message_not_processable ->
@@ -608,12 +617,17 @@ and next_outgoing_message' cl trans =
 
 	  (* Send the message: *)
 
+	  let dest =
+	    match call.destination with
+	      | Some d -> `Sockaddr d
+	      | None -> trans#getpeername in
+
 	  if !debug then prerr_endline "Rpc_client: start_writing";
 	  trans # start_writing
 	    ~when_done:(fun r ->
 			  handle_outgoing_message cl call r)
 	    call.value
-	    trans#getpeername
+	    dest
 
 	);
 
@@ -895,6 +909,8 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
       waiting_calls = Queue.create();
       pending_calls = SessionMap.empty;
       next_xid = initial_xid;
+      next_destination = None;
+      last_replier = None;
       timeout = if prot = Udp then 15.0 else (-.1.0);
       max_retransmissions = 3;
       exception_handler = (fun _ -> ());
@@ -937,6 +953,8 @@ let configure cl max_retransmission_trials timeout =
   cl.max_retransmissions <- max_retransmission_trials;
   cl.timeout <- timeout
 
+let set_dgram_destination cl addr_opt =
+  cl.next_destination <- addr_opt
 
 let set_exception_handler cl xh =
   cl.exception_handler <- xh
@@ -975,6 +993,11 @@ let get_peer_name cl =
 		failwith "Rpc_client.get_peer_name: not applicable"
 	    | `Sockaddr a -> a
 	)
+
+let get_sender_of_last_response cl =
+  match cl.last_replier with
+    | None -> failwith "Rpc_client.get_sender_of_last_response: nothing received yet or sender's address not available from transport layer"
+    | Some addr -> addr
 
 let get_protocol cl =
   cl.prot

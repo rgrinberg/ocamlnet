@@ -238,6 +238,19 @@ val configure : t -> int -> float -> unit
    * the list of pending calls such that this list will not become too long.
    *)
 
+val set_dgram_destination : t -> Unix.sockaddr option -> unit
+  (** [set_dgram_destination client addr_opt]: This function is required
+    * for using the client in conjunction with unconnected UDP sockets.
+    * For connected sockets, the destination of datagrams is implicitly
+    * given. For unconnected sockets, one has to set the destination
+    * explicitly. Do so by calling [set_dgram_destination] with
+    * [Some addr] as [addr_opt] argument before doing the next call.
+    * Passing [None] as [addr_opt] removes the explicit destination again.
+    * Note that unconnected sockets differ from connected sockets also in
+    * the relaxation that they can receive messages from any IP address,
+    * and not only the one they are connected to.
+   *)
+
 val set_exception_handler : t -> (exn -> unit) -> unit
   (** sets an exception handler (the default is a 'do nothing' exception
    * handler). Only exceptions resulting from invocations of a
@@ -297,6 +310,9 @@ val get_peer_name : t -> Unix.sockaddr
     * The function calls fail in this case. It is also possible that the
     * underlying transport mechanism does not know these data.
    *)
+
+val get_sender_of_last_response : t -> Unix.sockaddr
+  (** Return the address of the sender of the last received response. *)
 
 val get_protocol : t -> Rpc.protocol
   (** Get the protocol flavour *)
