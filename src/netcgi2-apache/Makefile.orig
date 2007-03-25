@@ -1,0 +1,34 @@
+TOP_DIR=../..
+
+PKGNAME  = netcgi_apache
+# For the Apache mod connector, if enabled
+ifdef APACHE_MAJOR
+OBJECTS  = netcgi_mod.cmo
+DOBJECTS = netcgi_mod.mli
+
+INCLUDES += $(INC_NETSTRING)
+
+BUILD_EXTRA=mod_caml
+
+# FIXME: mod_caml requires a special installation procedure
+endif
+
+mod_caml/%:
+	cd mod_caml/; \
+	$(MAKE) PACKAGE=$(PKGNAME) VERSION=$(VERSION) \
+		-f Makefile.pre realgenerate; \
+	$(MAKE) $*
+
+netcgi_apache.cmi: netcgi_apache.mli mod_caml/apache.cmi \
+	mod_caml/apache.cmi mod_caml/mod_caml.cmi
+
+netcgi_apache.cmo: netcgi_apache.cmi mod_caml/apache.cmo \
+	mod_caml/mod_caml_config.cmo mod_caml/apache.cmo mod_caml/mod_caml.cmo
+
+
+include $(TOP_DIR)/Makefile.rules
+
+include depend
+
+clean::
+	cd mod_caml/; $(MAKE) clean

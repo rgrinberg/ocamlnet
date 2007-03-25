@@ -1,0 +1,19 @@
+TOP_DIR=../..
+
+PKGNAME = netcgi_apache
+BUILD_EXTRA = netcgi_apache.so
+
+INCLUDES += $(INC_NETSTRING) $(INC_NETSYS) $(INC_NETCGI2)
+
+CMA_SO = unix.cma str.cma pcre.cma netsys.cma netstring.cma netcgi.cma
+
+netcgi_apache.so: apache.o handler.o wrappers.o netcgi_apache.cmo
+	$(OCAMLC) -o $@ -linkall -custom \
+	  dynlink.cma $(CMA_SO) $^ \
+	  -cclib '$(APACHE_CFLAGS) $(APACHE_LDFLAGS_SHLIB) $(APACHE_OCAMLLIBS)'
+
+%.o: %.c
+	$(APACHE_CC) $(APACHE_CFLAGS) -I $(APACHE_OCAMLLIBDIR) -c $<
+
+
+include $(TOP_DIR)/Makefile.rules
