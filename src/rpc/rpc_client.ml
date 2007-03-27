@@ -32,6 +32,7 @@ exception Client_is_down
    *)
 
 exception Keep_call
+exception Unbound_exception of exn
 
 
 
@@ -105,7 +106,8 @@ and t =
 	mutable prog :  Rpc_program.t;
 	mutable prot :  protocol;
         mutable esys :  event_system;
-
+	
+	mutable est_engine : Rpc_transport.rpc_multiplex_controller Uq_engines.engine option;
 	mutable shutdown_connector : t -> Rpc_transport.rpc_multiplex_controller -> unit;
 
 	mutable waiting_calls : call Queue.t;
@@ -201,6 +203,9 @@ let pass_result cl call f =
   with
     | Keep_call as x ->
 	if !debug then prerr_endline "Rpc_client: Keep_call";
+	raise x
+    | Unbound_exception x ->
+	if !debug then prerr_endline "Rpc_client: Unbound_exception";
 	raise x
     | any ->
 	begin  (* pass the exception to the exception handler: *)
@@ -321,7 +326,7 @@ let remove_pending_call cl call =
   (*****)
 
 let retransmit cl call =
-  if call.state = Pending then begin
+  if call.state = Pending || call.state = Waiting then begin
     if call.retrans_count > 0 then begin
       if !debug then prerr_endline "Rpc_client: Retransmitting";
       (* Make the 'call' waiting again *)
@@ -330,7 +335,8 @@ let retransmit cl call =
       call.retrans_count <- call.retrans_count - 1;
       (* Check state of reources: *)
       !check_for_output cl
-      (* Note: The [call] remains in state [Pending]. This prevents the [call]
+      (* Note: The [call] remains in state [Pending] (if it is already). 
+       * This prevents the [call]
        * from being added to [cl.pending_calls] again.
        *)
     end
@@ -913,6 +919,7 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
       prog = prog;
       prot = prot;
       esys = esys;
+      est_engine = Some establish_engine;
       shutdown_connector = shutdown;
       waiting_calls = Queue.create();
       pending_calls = SessionMap.empty;
@@ -936,13 +943,17 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
 		if !debug then 
 		  prerr_endline ("Rpc_client: Fully connected for " ^ id_s);
 		cl.trans <- Some mplex;
+		cl.est_engine <- None;
 		(* Maybe we already have messages to send: *)
 		!check_for_output cl
 	     )
     ~is_error:(fun err ->
+		 cl.est_engine <- None;
 		 close cl;
 		 cl.exception_handler err
 	      )
+    ~is_aborted:(fun () ->
+		   cl.est_engine <- None)
     establish_engine;
 
   cl
@@ -972,6 +983,10 @@ let set_exception_handler cl xh =
 
 let shut_down cl =
   if cl.ready then (
+    ( match cl.est_engine with
+	| None -> ()
+	| Some e -> e#abort()
+    );
     close cl;
     if not (Unixqueue.is_running cl.esys) then
       (* assume synchronous invocation *)
@@ -1026,6 +1041,8 @@ type result =
   | Error of exn
 
 
+exception Stop_call
+
 let sync_call cl proc arg =
   let r = ref No in
   let get_result transmitter =
@@ -1033,12 +1050,14 @@ let sync_call cl proc arg =
       r := Reply (transmitter())
     with
       x ->
-	r := Error x
+	r := Error x;
+	if x = Message_timeout then 
+	  raise (Unbound_exception Stop_call)
   in
   (* push the request onto the queue: *)
   add_call cl proc arg get_result;
   (* run through the queue and process all elements: *)
-  Unixqueue.run cl.esys;
+  ( try Unixqueue.run cl.esys with Stop_call -> ());
   (* now a call back of 'get_result' should have happened. *)
   match !r with
     No -> failwith "Rpc_client.sync_call: internal error"

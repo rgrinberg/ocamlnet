@@ -75,6 +75,14 @@ exception Keep_call
    * I.e. one call can be replied several times (batching).
    *)
 
+exception Unbound_exception of exn
+  (** This exception can be raised by the callback function that is invoked
+   * when the server response arrives. It simply causes that the inner
+   * exception bypasses the exception handler, and falls through to the 
+   * caller of [Unixqueue.run]. This is useful to jump out of the running RPC
+   * routines.
+   *)
+
 
 type t
   (** The type of RPC clients *)
@@ -225,7 +233,7 @@ val configure : t -> int -> float -> unit
    * next retransmission is done, or, if no more retransmissions are
    * permitted, a [Message_timeout] exception is delivered to the receiving
    * callback function. A [timeout] value of 0.0 means immediate timeout
-   * and is usually senseless. A negative [timeout] value means 'no timeout'.
+   * (see next paragraph). A negative [timeout] value means 'no timeout'.
    * Positive [timeout] values are possible for both Udp and Tcp connections.
    * Timeout values are measured in seconds.
    *
@@ -233,9 +241,22 @@ val configure : t -> int -> float -> unit
    * don't expect an answer from the server at all ("batch mode"), this
    * timeout value will cause that the message handler will get
    * a [Message_timeout] exception immediately. You should ignore this
-   * timeout for batch mode. The positive effect from the timeout is that
+   * exception for batch mode. The positive effect from the timeout is that
    * the internal management routines will remove the remote call from
    * the list of pending calls such that this list will not become too long.
+   *
+   * Note that the meaning of timeouts for TCP connections is unclear.
+   * The TCP stream may be in an undefined state. Because of this, the
+   * client does not make any attempt to clean the state up for TCP.
+   * The user is advised to shut down the client, and reconnect.
+   *
+   * There is another subtle difference between UDP and TCP. For UDP,
+   * the timer is started when the packet is sent. For TCP, however,
+   * the timer is already started when the RPC call is added to the
+   * queue, i.e. much earlier. This means that the time for connecting
+   * to the remote service is also bound by the timeout. The rationale
+   * is that TCP timeouts are usually set to catch total service failures
+   * rather than packet losses, and this behaviour is best for this purpose.
    *)
 
 val set_dgram_destination : t -> Unix.sockaddr option -> unit
@@ -252,10 +273,13 @@ val set_dgram_destination : t -> Unix.sockaddr option -> unit
    *)
 
 val set_exception_handler : t -> (exn -> unit) -> unit
-  (** sets an exception handler (the default is a 'do nothing' exception
-   * handler). Only exceptions resulting from invocations of a
-   * callback function are forwarded to this handler.
-   * Exceptions occuring in the handler itself are silently dropped.
+  (** sets an exception handler (the default prints the exception to stderr).
+   * Only exceptions resulting from invocations of a
+   * callback function are forwarded to this handler (unless wrapped
+   * by [Unbound_exception]).
+   *
+   * Exceptions occuring in the handler itself are not caught, and will
+   * fall through.
    *)
 
 val add_call :
