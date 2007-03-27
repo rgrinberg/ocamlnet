@@ -42,6 +42,10 @@ Netplex:
 	  ("announce" callback)
 	  Sched: after 2.2.0 is out	
 
+	- Netplex_main.startup: Option [ctrl_initializer : controller -> unit]
+	  to allow initialization of the controller right after it has been
+          created, and before services are added.
+
 Integration of new netcgi2
 	- All the TODOs in Netcgi_common
 	  Sched: after 2.2.0 is out
@@ -80,6 +84,10 @@ Http_client.pipeline:
 	- aggressive caching does not work properly. Sometimes descriptors
 	  are closed in the wrong moment.
 	  Sched: 2.3
+
+Shell_uq:
+	- Double close von stderr-Descriptor falls in when_done eine
+          exception geworfen wird
 
 Later:
 	- Use poll() instead of select() to overcome fdset limitations

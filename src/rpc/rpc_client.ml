@@ -278,53 +278,7 @@ let find_or_make_auth_session cl =
 	s
 ;;
 
-
-(* Note: For asynchronous authentication, it would be sufficient that
- * add_call (and add_call_again) are rewritten such that they first
- * schedule the authentication request, and when the request is replied,
- * the call is scheduled.
- *)
-
-let add_call ?(when_sent = fun () -> true) cl procname param receiver =
-  if not cl.ready then
-    raise Client_is_down;
-
-  let s = find_or_make_auth_session cl in
-
-  let (cred_flav, cred_data, verf_flav, verf_data) = s # next_credentials cl in
-
-  let value =
-    Rpc_packer.pack_call
-      cl.prog
-      (uint4_of_int cl.next_xid)
-      procname
-      cred_flav cred_data verf_flav verf_data
-      param
-  in
-
-  let new_call =
-    { proc = procname;
-      xdr_value = param;
-      value = value;
-      get_result = receiver;
-      state = Waiting;
-      retrans_count = cl.max_retransmissions;
-      xid = cl.next_xid;
-      destination = cl.next_destination;
-      call_timeout = cl.timeout;
-      timeout_group = None;
-      call_auth_session = s;
-      call_auth_method = cl.current_auth_method;
-      when_sent = when_sent
-    }
-  in
-
-  Queue.add new_call cl.waiting_calls;
-  cl.next_xid <- cl.next_xid + 1;
-
-  !check_for_output cl
-;;
-
+  (*****)
 
 let add_call_again cl call =
   (* Add a call again to the queue of waiting calls. The call is authenticated
@@ -391,6 +345,81 @@ let retransmit cl call =
     end
   end
 
+
+  (*****)
+
+(* Note: For asynchronous authentication, it would be sufficient that
+ * add_call (and add_call_again) are rewritten such that they first
+ * schedule the authentication request, and when the request is replied,
+ * the call is scheduled.
+ *)
+
+let set_timeout cl call =
+  if call.call_timeout > 0.0 && call.timeout_group = None then (
+    (* Note: Case call_timeout = 0.0 is handled elsewhere *)
+    (* CHECK: What happens when the timeout comes before the message
+     * is fully written? (Low priority because for stream connections
+     * a timeout is usually not set.)
+     *)
+    let g = new_group cl.esys in
+    Unixqueue.once cl.esys g call.call_timeout
+      (fun () ->
+	 call.timeout_group <- None;
+	 if !debug then prerr_endline "Rpc_client: Timeout handler";
+	 retransmit cl call;
+	 (* Maybe we have to cancel reading: *)
+	 !check_for_input cl
+      );
+    call.timeout_group <- Some g
+  )
+
+
+let add_call ?(when_sent = fun () -> true) cl procname param receiver =
+  if not cl.ready then
+    raise Client_is_down;
+
+  let s = find_or_make_auth_session cl in
+
+  let (cred_flav, cred_data, verf_flav, verf_data) = s # next_credentials cl in
+
+  let value =
+    Rpc_packer.pack_call
+      cl.prog
+      (uint4_of_int cl.next_xid)
+      procname
+      cred_flav cred_data verf_flav verf_data
+      param
+  in
+
+  let new_call =
+    { proc = procname;
+      xdr_value = param;
+      value = value;
+      get_result = receiver;
+      state = Waiting;
+      retrans_count = cl.max_retransmissions;
+      xid = cl.next_xid;
+      destination = cl.next_destination;
+      call_timeout = cl.timeout;
+      timeout_group = None;
+      call_auth_session = s;
+      call_auth_method = cl.current_auth_method;
+      when_sent = when_sent
+    }
+  in
+
+  Queue.add new_call cl.waiting_calls;
+  cl.next_xid <- cl.next_xid + 1;
+
+  (* For TCP and timeout > 0.0 set the timeout handler immediately, so the
+     timeout includes connecting
+   *)
+  if cl.prot = Rpc.Tcp && new_call.call_timeout > 0.0 then
+    set_timeout cl new_call;
+
+
+  !check_for_output cl
+;;
 
   (*****)
 
@@ -592,25 +621,7 @@ and next_outgoing_message' cl trans =
 	  );
 
 	  (* If there should be a timeout handler, add it: *)
-
-	  if call.call_timeout > 0.0 then (
-	    (* Note: Case call_timeout = 0.0 is handled elsewhere *)
-	    (* CHECK: What happens when the timeout comes before the message
-             * is fully written? (Low priority because for stream connections
-             * a timeout is usually not set.)
-             *)
-	    stop_retransmission_timer cl call;  (* To be sure! *)
-	    let g = new_group cl.esys in
-	    Unixqueue.once cl.esys g call.call_timeout
-	      (fun () ->
-		 call.timeout_group <- None;
-		 if !debug then prerr_endline "Rpc_client: Timeout handler";
-		 retransmit cl call;
-		 (* Maybe we have to cancel reading: *)
-		 next_incoming_message cl
-	      );
-	    call.timeout_group <- Some g
-	  );
+	  set_timeout cl call;
 
 	  (* Send the message: *)
 
