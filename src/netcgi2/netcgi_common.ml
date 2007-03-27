@@ -625,7 +625,7 @@ struct
 	  unsafe_set s !j '\\'; incr j;
 	  unsafe_set s !j 'r'; incr j
       | '\000' .. '\031' ->
-	  () (* Ignore these control chars, useless fo comments *)
+	  () (* Ignore these control chars, useless for comments *)
       | c ->
 	  unsafe_set s !j c; incr j
       );
@@ -1959,7 +1959,7 @@ let handle_uncaught_exn (env:cgi_environment) = function
 	(Printexc.to_string exn)
 	"This indicates an error in the application (not in the supporting
 	library).  Please report it to the author or company that runs this
-	sofware."
+	software."
 
 
 

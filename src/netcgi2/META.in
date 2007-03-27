@@ -1,4 +1,4 @@
-# Specifications for the Benchmark module                   -*-conf-*-
+# Specifications for the Netcgi module                   -*-conf-*-
 #name = "netcgi"
 version = "@VERSION@"
 description = "Connectors for CGI, FCGI, AJP"
