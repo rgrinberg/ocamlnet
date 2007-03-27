@@ -45,7 +45,7 @@ set_defaults () {
     enable_gtk2=0
     enable_tcl=0
     enable_ssl=0
-    enable_modcaml=0
+    enable_apache=0
     with_nethttpd=0
     with_rpc_auth_dh=0
     prefer_netcgi2=0
@@ -71,12 +71,12 @@ ehelp_gtk="Enable/disable parts that depend on lablgtk"
 ehelp_gtk2="Enable/disable parts that depend on lablgtk2"
 ehelp_tcl="Enable/disable parts that depend on tcl/tk"
 ehelp_ssl="Enable/disable parts that depend on SSL"
-ehelp_modcaml="Enable/disable Apache mod connector"
+ehelp_apache="Enable/disable Apache mod connector"
 whelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
 whelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
 
 # Which options exist? eoptions for enable/disable, woptions for with/without:
-eoptions="gtk gtk2 tcl ssl modcaml"
+eoptions="gtk gtk2 tcl ssl apache"
 woptions="nethttpd rpc_auth_dh"
 
 # Packages to include anyway:
@@ -191,10 +191,10 @@ _EOF_
         Set style of keyserv connector (see README.authdh)
 
 -apxs /path/to/apxs
-        Set which apxs to use for -enable-modcaml
+        Set which apxs to use for -enable-apache
 
 -apache /path/to/apache
-        Set which apache executable to use for -enable-modcaml
+        Set which apache executable to use for -enable-apache
 
 -prefer-netcgi2
         Use netcgi2 as default CGI implementation instead of netcgi1.
@@ -362,8 +362,8 @@ if check_library pcre pcre.cmi; then
 else
     echo "not found"
     echo "Sorry, installation is not possible without PCRE."
-    echo "Get the PCRE library from:"
-    echo "http://miss.wu-wien.ac.at/~mottl/ocaml_sources/"
+    echo "Get the PCRE-OCaml library from:"
+    echo "http://www.ocaml.info/home/ocaml_sources.html"
     exit 1
 fi
 
@@ -643,38 +643,41 @@ fi
 ######################################################################
 # Check Apache
 
-if [ $enable_modcaml -gt 0 ]; then
+if [ $enable_apache -gt 0 ]; then
     echo -n "Apache mod connector... "
 
-    echo "CURRENTLY BROKEN - disabling for now"
+#     echo "CURRENTLY BROKEN - disabling for now"
+#     enable_apache=0
 
-    enable_modcaml=0
+    if [ -z "$apxs" ]; then
+	# guess
+	apxs=`get_path apxs`
+    fi
+    if [ -z "$apache" ]; then
+	# guess
+	apache=`get_path apache`
+    fi
 
-#     if [ -z "$apxs" ]; then
-# 	# guess
-# 	apxs=`get_path apxs`
-#     fi
-#     if [ -z "$apache" ]; then
-# 	# guess
-# 	apache=`get_path apache`
-#     fi
-
-#     if [ -x "$apxs" ] && [ -x "$apache" ]; then
-# 	apache_major=`$apache -v | head -n1 | sed -e "s,.*/\([1-9]\).*,\1,"`
-# 	apache_libdir="`$apxs -q LIBEXECDIR`"
-# 	apache_incdir="`$apxs -q INCLUDEDIR`"
-# 	apache_confdir="`$apxs -q SYSCONFDIR`"
-# 	apache_ldflags_shlib="`$apxs -q LDFLAGS_SHLIB`"
-# 	apache_cc="`$apxs -q CC`"
-# 	apache_cflags="-I \$(APACHE_INCDIR) \
-# 	  `$apxs -q CFLAGS` `$apxs -q CFLAGS_SHLIB`"
-# 	apache_ocamllibdir=`ocamlfind printconf destdir`
-# 	echo "enabled (Apache $apache_major)"
-#     else
-# 	apache_major=
-# 	enable_modcaml=0
-# 	echo "disabled (apxs or apache not found)"
-#     fi
+    if [ -x "$apxs" ] && [ -x "$apache" ]; then
+	apache_major=`$apache -v | head -n1 | sed -e "s,.*/\([1-9]\).*,\1,"`
+	apache_libdir="`$apxs -q LIBEXECDIR`"
+	apache_incdir="`$apxs -q INCLUDEDIR`"
+	apache_confdir="`$apxs -q SYSCONFDIR`"
+	apache_ldflags_shlib="`$apxs -q LDFLAGS_SHLIB`"
+	apache_cc="`$apxs -q CC`"
+	apache_cflags="-I \$(APACHE_INCDIR) \
+	  `$apxs -q CFLAGS` `$apxs -q CFLAGS_SHLIB`"
+	# This is to allow modules residing in the standard  ocaml library 
+	# directory to be loaded with relative paths.
+	#apache_ocamllibdir=`ocamlfind printconf destdir`
+	apache_ocamllibdir=`ocamlc -where`
+	echo "enabled (Apache $apache_major)"
+    else
+	apache_major=
+	enable_apache=0
+	echo "disabled (apxs or apache not found)"
+	echo "    Maybe you need to use the -apache option?"
+    fi
 
 fi
 
@@ -697,7 +700,12 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 cgi netplex netcgi2-plex"
+pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 netplex netcgi2-plex"
+
+if [ $enable_apache -gt 0 ]; then
+    pkglist="$pkglist netcgi2-apache"
+fi
+
 full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi1 nethttpd-for-netcgi2"
 
 if [ $disable_core -gt 0 ]; then
@@ -725,6 +733,7 @@ done
 
 echo "Writing Makefile.conf"
 cat <<_EOF_ >Makefile.conf
+# Makefike.conf written by configure
 # The Ocamlnet version
 VERSION = $version
 
@@ -773,7 +782,7 @@ GTK_EXTRA_DEFINES = $gtk2_io_add_watch_supports_lists
 RPC_AUTH_DH_CONNECTOR = $adh_style
 AUTHDHREQS = $adh_reqs
 
-# For -enable-modcaml
+# For -enable-apache
 APACHE_MAJOR = $apache_major
 APACHE_LIBDIR = $apache_libdir
 APACHE_OCAMLLIBS = -lcamlrun -ltermcap -lunix -lstr
