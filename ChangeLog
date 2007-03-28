@@ -1,5 +1,7 @@
 2007-03-28  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
 
+	* Release 2.2.6
+
 	* Improving timeout handling in Rpc_client. TCP timeouts are now
 	  handled better. Added Unbound_exception.
 
