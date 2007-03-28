@@ -474,7 +474,7 @@ module Header : sig
     (** Returns the [Content-length] header as number. If the number
       * is too big for int64, the exception [Bad_header_field
       * "Content-length"] will be raised.
-      * @raise [Not_found] when the header is missing.
+      * @raise Not_found when the header is missing.
       *)
 
   val set_content_length : #http_header -> int64 -> unit
@@ -482,7 +482,7 @@ module Header : sig
 
   val get_content_location : #http_header_ro -> string
     (** Returns the [Content-location] header as string.
-      * @raise [Not_found] when the header is missing.
+      * @raise Not_found when the header is missing.
       *)
 
   val set_content_location : #http_header -> string -> unit
@@ -658,7 +658,7 @@ module Header : sig
   val get_proxy_authorization : #http_header_ro ->
                                  (string * (string * string) list)
     (** Returns the [Proxy-authorization] header as pair
-      * [(auth_scheme,auth_params)].@raise Not_found when the header is
+      * [(auth_scheme,auth_params)]. @raise Not_found when the header is
       * missing.
       *
       * The "Basic" authentication scheme is represented specially as
