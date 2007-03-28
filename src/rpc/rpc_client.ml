@@ -344,6 +344,10 @@ let retransmit cl call =
       (* still no answer after maximum number of retransmissions *)
       if !debug then prerr_endline "Rpc_client: Call timed out!";
       remove_pending_call cl call;
+      (* Note that we do not remove the call from waiting_calls for
+         performance reasons. We simply skip it there if we find it.
+         pass_exception will set call.state to Done.
+       *)
       pass_exception cl call Message_timeout;
       (* Note: The call_auth_session is dropped. *)
       (* Check state of reources: *)
@@ -608,6 +612,7 @@ and next_outgoing_message' cl trans =
   	(* Change the state of the call. It is now 'pending': *)
 
 	if call.state = Done then (
+	  (* That can happen for calls that timeout before they are sent *)
 	  if !debug then
 	    prerr_endline "Rpc_client: found call that has been done";
 	  next_outgoing_message cl
