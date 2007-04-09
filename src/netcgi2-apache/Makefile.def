@@ -7,13 +7,27 @@ INCLUDES += $(INC_NETSTRING) $(INC_NETSYS) $(INC_NETCGI2)
 
 CMA_SO = unix.cma str.cma pcre.cma netsys.cma netstring.cma netcgi.cma
 
+OBJECTS = netcgi_modtpl.cmo
+
+ALL_EXTRA = netcgi_apache.so
+INSTALL_EXTRA = netcgi_apache.so 500netcgi_apache.info
+
+#netcgi_apache.so: apache.o handler.o wrappers.o netcgi_apache.cmo
+#	$(OCAMLC) -o $@ -linkall -custom \
+#	  dynlink.cma $(CMA_SO) $^ \
+#	  -cclib '$(APACHE_CFLAGS) $(APACHE_LDFLAGS_SHLIB) $(APACHE_OCAMLLIBS)'
+
 netcgi_apache.so: apache.o handler.o wrappers.o netcgi_apache.cmo
 	$(OCAMLC) -o $@ -linkall -custom \
-	  dynlink.cma $(CMA_SO) $^ \
-	  -cclib '$(APACHE_CFLAGS) $(APACHE_LDFLAGS_SHLIB) $(APACHE_OCAMLLIBS)'
+		-cc '$(APXS) -c' \
+		dynlink.cma $(CMA_SO) $^
+
+#%.o: %.c
+#	$(APACHE_CC) $(APACHE_CFLAGS) -I $(APACHE_OCAMLLIBDIR) -c $<
 
 %.o: %.c
-	$(APACHE_CC) $(APACHE_CFLAGS) -I $(APACHE_OCAMLLIBDIR) -c $<
+	$(APXS) -c -I$(APACHE_OCAMLLIBDIR) -o ignore.so $<
+	rm -f ignore.so
 
 
 include $(TOP_DIR)/Makefile.rules

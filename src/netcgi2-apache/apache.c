@@ -46,7 +46,7 @@
 #if APACHE2
 #define ap_pstrdup apr_pstrdup
 #define ap_palloc apr_palloc
-#define ap_clear_table apr_clear_table
+#define ap_clear_table apr_table_clear
 #define ap_table_get apr_table_get
 #define ap_table_set apr_table_set
 #define ap_table_unset apr_table_unset

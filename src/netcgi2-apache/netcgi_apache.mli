@@ -350,11 +350,11 @@ val run :
     You need to put in an Apache configuration file (we recommend
     /etc/apache/conf.d/netcgi_apache) the following line:
     {v
-    LoadModule caml_module /usr/lib/apache/1.x/netcgi_apache.so
+    LoadModule netcgi_module /usr/lib/apache/1.x/netcgi_apache.so
     v}
     for Apache 1.x and
     {v
-    LoadModule caml_module /usr/lib/apache/2.x/netcgi_apache.so
+    LoadModule netcgi_module /usr/lib/apache/2.x/netcgi_apache.so
     v}
     for Apache 2.x.
 
@@ -382,7 +382,7 @@ val run :
     v}
     or by distinguishing them by their extension (here [.cmo]):
     {v
-    CamlHandler Netcgi_apache.bytecode
+    NetcgiHandler Netcgi_apache.bytecode
     AddHandler ocaml-bytecode .cmo
     v}
 *)

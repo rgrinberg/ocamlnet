@@ -124,16 +124,21 @@ f src/netcgi2/META.in
 p src/netcgi2/.*\.ml
 p src/netcgi2/.*\.mli
 p src/netcgi2/.*\.txt
-#d src/netcgi2/mod_caml
-#f src/netcgi2/mod_caml/500mod_caml.info.in
-#f src/netcgi2/mod_caml/Makefile
-#f src/netcgi2/mod_caml/Makefile.pre
-#p src/netcgi2/mod_caml/.*\.c
-#p src/netcgi2/mod_caml/.*\.h
-#f src/netcgi2/mod_caml/mod_caml_config.ml.in
-#x src/netcgi2/mod_caml/mod_caml_config.ml
-#p src/netcgi2/mod_caml/.*\.ml
-#p src/netcgi2/mod_caml/.*\.mli
+
+d src/netcgi2-apache
+f src/netcgi2-apache/Makefile
+f src/netcgi2-apache/Makefile.def
+f src/netcgi2-apache/Makefile.pre
+f src/netcgi2-apache/META.in
+f src/netcgi2-apache/apache.c
+f src/netcgi2-apache/wrappers.c
+f src/netcgi2-apache/handler.c
+f src/netcgi2-apache/config.h.in
+f src/netcgi2-apache/netcgi_apache.ml.in
+f src/netcgi2-apache/netcgi_apache.mli
+f src/netcgi2-apache/netcgi_modtpl.ml
+f src/netcgi2-apache/netcgi_modtpl.mli
+f src/netcgi2-apache/500netcgi_apache.info.in
 
 d src/netcgi2-plex
 f src/netcgi2-plex/Makefile

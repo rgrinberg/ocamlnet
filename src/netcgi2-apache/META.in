@@ -2,7 +2,7 @@
 #name = "netcgi_apache"
 version = "@VERSION@"
 description = "Apache mod connector"
-requires = "unix netstring netsys"
+requires = "unix netstring netsys netcgi2"
 archive(byte) = "netcgi_apache.cma"
 archive(native) = "netcgi_apache.cmxa"
 error(pkg_netcgi1) = "The packages netcgi1 and netcgi2 cannot be used together"

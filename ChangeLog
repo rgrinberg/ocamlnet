@@ -1,11 +1,21 @@
-2007-03-28  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
+2007-04-09  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
+
+        * Release 2.2.7
+	
+        * Including netcgi2-apache into the release
+	
+	* Fix: Error handling in Nethttpd.
+
+	* Fix: Build of nethttpd examples
+
+2007-03-28  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Release 2.2.6
 
 	* Improving timeout handling in Rpc_client. TCP timeouts are now
 	  handled better. Added Unbound_exception.
 
-2007-03-05  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
+2007-03-05  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Release 2.2.5
 
@@ -13,21 +23,21 @@
 	  get_sender_of_last_response to support unconnected
 	  UDP sockets.
 
-2007-02-20  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
+2007-02-20  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Addition of EUC-KR, by Deokhwan Kim <dk@ropas.snu.ac.kr>
 
-2007-01-18  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
+2007-01-18  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Fix: The library netshm needs bigarray as requirement.
 
-2007-01-07  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
+2007-01-07  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Releases 2.2.3 and 2.2.4:
 
 	Minor clean-ups in the build system.
 
-2006-12-31  Gerd Stolpmann  <gerd@flake.lan.gerd-stolpmann.de>
+2006-12-31  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Releases 2.2.1 and 2.2.2:
 
