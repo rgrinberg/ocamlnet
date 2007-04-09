@@ -1355,7 +1355,7 @@ object(self)
 	  ()             (* socket not ready *)
       | Unix.Unix_error(Unix.EINTR,_,_) ->
 	  ()             (* got signal *)
-      | Unix.Unix_error(Unix.ECONNRESET, _,_) ->
+      | Unix.Unix_error(_, _,_) ->  (* Any other error means we are done! *)
 	  lingering <- false;
 	  Unix.close fd
 

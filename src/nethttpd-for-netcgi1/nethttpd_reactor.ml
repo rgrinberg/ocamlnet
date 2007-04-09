@@ -546,7 +546,11 @@ object(self)
 	  self # next_request()
 
   method close () =
-    self # synch();
+    ( try
+	self # synch();
+      with
+	| err -> Unix.close fd; raise err
+    );
     if proto # need_linger then (
       let lc = new Nethttpd_kernel.lingering_close fd in
       while lc # lingering do
@@ -698,7 +702,17 @@ let process_connection config fd (stage1 : 'a http_service) =
 	  fetch_requests reactor
   in
   
-  let reactor = new http_reactor config fd in
+  let reactor = 
+    try
+      new http_reactor config fd 
+    with
+	err ->
+	  (* An exception means here that getsockname or getpeername failed.
+             We can only close the descriptor!
+           *)
+	  Unix.close fd;
+	  raise err
+  in
   ( try
       fetch_requests reactor
     with

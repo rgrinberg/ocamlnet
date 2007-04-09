@@ -31,7 +31,13 @@ object(self)
        container # log `Err s
     in
     let config = mk_config error_logger in
-    Nethttpd_reactor.process_connection config fd srv;
+    ( try
+	Nethttpd_reactor.process_connection config fd srv
+      with
+	| err ->
+	    container # log `Err ("Uncaught exception: " ^ 
+				    Printexc.to_string err)
+    );
     when_done()
 
   method receive_message _ _ _ = ()
