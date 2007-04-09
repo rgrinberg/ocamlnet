@@ -88,6 +88,7 @@ let serve_connection ues fd =
       method config_limit_pipeline_size = 250000  (* no effect here! *)
       method config_input_flow_control = false
       method config_output_flow_control = true
+      method config_announce_server = `Ocamlnet
     end
   in
   Unix.set_nonblock fd;

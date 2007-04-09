@@ -63,6 +63,7 @@ object
   method config_max_trailer_length = max_trailer_length
   method config_limit_pipeline_length = limit_pipeline_length
   method config_limit_pipeline_size = limit_pipeline_size
+  method config_announce_server = `Ocamlnet
 end
 ;;
 

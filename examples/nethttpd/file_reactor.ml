@@ -80,6 +80,7 @@ let start () =
       method config_max_trailer_length = 32768
       method config_limit_pipeline_length = 5
       method config_limit_pipeline_size = 250000
+      method config_announce_server = `Ocamlnet
     end in
 
   let master_sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in

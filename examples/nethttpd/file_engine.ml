@@ -92,6 +92,7 @@ let serve_connection ues fd =
 
       method config_input_flow_control = true
       method config_output_flow_control = true
+      method config_announce_server = `Ocamlnet
     end in
   
   let pconfig = new Nethttpd_engine.buffering_engine_processing_config in
