@@ -131,8 +131,8 @@ f src/netcgi2-apache/Makefile.def
 f src/netcgi2-apache/Makefile.pre
 f src/netcgi2-apache/META.in
 f src/netcgi2-apache/config.h.in
-f src/netcgi2-apache/apache.h
 f src/netcgi2-apache/apache.c
+f src/netcgi2-apache/wrappers.h
 f src/netcgi2-apache/wrappers.c
 f src/netcgi2-apache/handler.c
 f src/netcgi2-apache/netcgi_apache.ml.in
