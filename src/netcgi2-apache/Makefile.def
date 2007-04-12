@@ -12,22 +12,42 @@ OBJECTS = netcgi_modtpl.cmo
 ALL_EXTRA = netcgi_apache.so
 INSTALL_EXTRA = netcgi_apache.so 500netcgi_apache.info
 
-#netcgi_apache.so: apache.o handler.o wrappers.o netcgi_apache.cmo
-#	$(OCAMLC) -o $@ -linkall -custom \
-#	  dynlink.cma $(CMA_SO) $^ \
-#	  -cclib '$(APACHE_CFLAGS) $(APACHE_LDFLAGS_SHLIB) $(APACHE_OCAMLLIBS)'
+# netcgi_apache.so: apache.o handler.o wrappers.o netcgi_apache.cmo
+# 	$(OCAMLC) -o $@ -linkall -custom \
+# 	  dynlink.cma $(CMA_SO) $^ \
+# 	  -cclib '$(APACHE_CFLAGS) $(APACHE_LDFLAGS_SHLIB) $(APACHE_OCAMLLIBS)'
 
-netcgi_apache.so: apache.o handler.o wrappers.o netcgi_apache.cmo
-	$(OCAMLC) -o $@ -linkall -custom \
-		-cc '$(APXS) -c' \
-		dynlink.cma $(CMA_SO) $^
+# %.o: %.c
+# 	$(APACHE_CC) $(APACHE_CFLAGS) -I $(APACHE_OCAMLLIBDIR) -c $<
 
-#%.o: %.c
-#	$(APACHE_CC) $(APACHE_CFLAGS) -I $(APACHE_OCAMLLIBDIR) -c $<
-
-%.o: %.c
-	$(APXS) -c -I$(APACHE_OCAMLLIBDIR) -o ignore.so $<
-	rm -f ignore.so
-
+# netcgi_apache.so: apache.o handler.o wrappers.o netcgi_apache.cmo
+# 	$(OCAMLC) -o $@ -linkall -custom \
+# 		-cc '$(APXS) -c' \
+# 		dynlink.cma $(CMA_SO) $^
 
 include $(TOP_DIR)/Makefile.rules
+
+# must be after the `include'
+ifeq ($(APACHE_MAJOR),2)
+CAML_CODE=caml_netcgi_apache.lo
+caml_netcgi_apache.lo: caml_netcgi_apache.o
+else
+CAML_CODE=caml_netcgi_apache.o
+endif
+
+netcgi_apache.so: apache.c handler.c wrappers.c $(CAML_CODE)
+	$(APXS) -c -o $@ $^ -L$(APACHE_OCAMLLIBDIR) -lunix -lcamlrun
+	if [ -f .libs/$@ ]; then cp .libs/$@ . ; fi
+
+caml_netcgi_apache.o: netcgi_apache.ml
+	$(OCAMLC) -cc '$(APXS) -c' -output-obj -o $@ dynlink.cma $(CMA_SO)
+
+%.o: %.c
+	$(APXS) -c -I$(APACHE_OCAMLLIBDIR) $<
+
+# FIXME: does not work:
+CLEAN_LIST += netcgi_apache.so
+
+clean::
+	rm -f *.lo *.slo *.la
+	if [ -d .libs ]; then rm -rf .libs; fi

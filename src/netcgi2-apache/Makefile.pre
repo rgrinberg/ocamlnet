@@ -25,6 +25,5 @@ netcgi_apache.ml: netcgi_apache.ml.in
 500netcgi_apache.info: 500netcgi_apache.info.in
 	sed -e 's,@APACHE_LIBDIR@,$(APACHE_LIBDIR),g' < $< > $@
 
-CLEAN_LIST += netcgi_apache.so
 
 include $(TOP_DIR)/Makefile.rules
