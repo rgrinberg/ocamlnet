@@ -79,9 +79,7 @@ sig
 
     external remote_ip : t -> string 	= "netcgi2_apache_connection_remote_ip"
       (** [conn_rec] [remote_ip] field. Throws [Not_found] if NULL. *)
-    external auth_type : t -> string = "netcgi2_apache_connection_ap_auth_type"
     external remote_host : t -> string = "netcgi2_apache_connection_remote_host"
-    external user : t -> string		= "netcgi2_apache_connection_user"
   end
 
   module Request :
@@ -159,12 +157,6 @@ sig
       = "netcgi2_apache_request_set_content_type"
       (** Set [request_rec] [content_type] field. *)
 
-    external user : t -> string = "netcgi2_apache_request_user"
-      (** The authenticated user.  In Apache 1.3 this field is actually
-          in the [conn_rec] structure, and was moved here in Apache
-          2.0.  We transparently hide this detail for you.
-          @raise Not_found if NULL. *)
-
     external uri : t -> string = "netcgi2_apache_request_uri"
       (** [request_rec] [uri] field. Throws [Not_found] if NULL. *)
     external set_uri : t -> string -> unit = "netcgi2_apache_request_set_uri"
@@ -216,6 +208,10 @@ sig
       (** Discard client request body.
           @raise Netcgi_common.HTTP in case of problems. *)
 
+    external user : t -> string = "netcgi2_apache_request_user"
+      (** The authenticated user.
+          @raise Not_found if NULL. *)
+    external auth_type : t -> string = "netcgi2_apache_auth_type"
     external note_auth_failure : t -> unit
       = "netcgi2_apache_request_note_auth_failure"
       (** Set headers to tell browser that authentication failed. *)

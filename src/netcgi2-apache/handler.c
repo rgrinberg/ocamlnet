@@ -42,9 +42,9 @@
 
 #include "wrappers.h"
 
-#if APACHE2
-#define pool apr_pool_t
-#define ap_palloc apr_palloc
+#if !(APACHE2)
+#define apr_pool_t pool
+#define apr_palloc ap_palloc
 #endif
 
 #define VERSION_STRING "Netcgi_apache/" VERSION
@@ -59,8 +59,7 @@ extern module netcgi_module;
 static void init (void) __attribute__((constructor));
 #pragma init(init)
 
-static void
-init (void)
+static void init (void)
 {
   static char *argv[] = {
     APACHE_LIBDIR "/netcgi_apache.so",
@@ -86,17 +85,15 @@ init (void)
 }
 
 #if APACHE2
-static int
-post_config (apr_pool_t *pPool, apr_pool_t *pLog, apr_pool_t *pTemp,
-	     server_rec *s)
+static int post_config (apr_pool_t *pPool, apr_pool_t *pLog,
+                        apr_pool_t *pTemp, server_rec *s)
 {
   ap_add_version_component (pPool, VERSION_STRING);
   /* No interesting Caml callback to execute */
   return OK;
 }
 #else
-static void
-module_init (server_rec *s, pool *p)
+static void module_init (server_rec *s, pool *p)
 {
   ap_add_version_component (VERSION_STRING);
   /* No interesting Caml callback to execute */
@@ -151,18 +148,16 @@ module_init (server_rec *s, pool *p)
  * to unregister the global root.
  */
 #if APACHE2
-static int
-remove_root_value (void *vp)
+static int remove_root_value (void *vp)
 {
   remove_global_root ((value *) vp);
   return OK;
 }
 #endif
 
-static value *
-alloc_root_value (pool *p)
+static value * alloc_root_value (apr_pool_t *p)
 {
-  value *v = (value *) ap_palloc (p, sizeof (value));
+  value *v = (value *) apr_palloc(p, sizeof (value));
   *v = Val_unit;
   register_global_root (v);
 #if APACHE2
@@ -174,8 +169,7 @@ alloc_root_value (pool *p)
   return v;
 }
 
-static void *
-create_dir_config (pool *p, char *dirname)
+static void * create_dir_config (apr_pool_t *p, char *dirname)
 {
   value arg = Val_optstring (dirname);
   value *v = alloc_root_value (p);
@@ -187,7 +181,7 @@ create_dir_config (pool *p, char *dirname)
 }
 
 static void *
-merge_dir_config (pool *p, void *base, void *add)
+merge_dir_config (apr_pool_t *p, void *base, void *add)
 {
   value *v = alloc_root_value (p);
   static value *f = NULL;
@@ -198,7 +192,7 @@ merge_dir_config (pool *p, void *base, void *add)
 }
 
 static void *
-create_server_config (pool *p, server_rec *s)
+create_server_config (apr_pool_t *p, server_rec *s)
 {
   value arg = Val_server_rec (s);
   value *v = alloc_root_value (p);
@@ -210,7 +204,7 @@ create_server_config (pool *p, server_rec *s)
 }
 
 static void *
-merge_server_config (pool *p, void *base, void *add)
+merge_server_config (apr_pool_t *p, void *base, void *add)
 {
   value *v = alloc_root_value (p);
   static value *f = NULL;
@@ -228,8 +222,7 @@ merge_server_config (pool *p, void *base, void *add)
 
 /* Handlers are not supposed to raise exceptions (these should be
  * caught on the Caml side) but leave this anyway for security. */
-static int
-exception_in_handler (value exn, const char *function_name)
+static int exception_in_handler (value exn, const char *function_name)
 {
   char strtime[26];
   time_t secs;
@@ -283,7 +276,7 @@ cmd_load (cmd_parms *parms, void *dummy, const char *filename)
   if (f == NULL) f = caml_named_value("netcgi2_apache_cmd_load");
   exn = callback_exn(*f, arg);
   if (Is_exception_result (exn))
-    /* XXX ap_pstrdup into pool? */
+    /* FIXME: ap_pstrdup into pool? */
     return caml_format_exception (Extract_exception (exn));
   return NULL;
 }
@@ -300,7 +293,7 @@ cmd_translate_handler (cmd_parms *parms, void *dummy, const char *name)
   if (f == NULL) f = caml_named_value("netcgi2_apache_cmd_translate_handler");
   exn = callback2_exn(*f, *sconfig, arg);
   if (Is_exception_result (exn))
-    /* XXX ap_pstrdup into pool? */
+    /* FIXME: ap_pstrdup into pool? */
     return caml_format_exception (Extract_exception (exn));
   *sconfig = exn;		/* Update server config. */
   return NULL;

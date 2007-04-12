@@ -43,15 +43,16 @@
 
 #include "wrappers.h"
 
-#if APACHE2
-#define ap_pstrdup apr_pstrdup
-#define ap_palloc apr_palloc
-#define ap_clear_table apr_table_clear
-#define ap_table_get apr_table_get
-#define ap_table_set apr_table_set
-#define ap_table_unset apr_table_unset
-#define ap_table_add apr_table_add
-#define ap_table_do apr_table_do
+#if !(APACHE2)
+/* Apache 1 */
+#define apr_pstrdup ap_pstrdup
+#define apr_palloc  ap_palloc
+#define apr_table_clear ap_clear_table
+#define apr_table_get ap_table_get
+#define apr_table_set ap_table_set
+#define apr_table_unset ap_table_unset
+#define apr_table_add ap_table_add
+#define apr_table_do ap_table_do
 #endif
 
 extern module netcgi_module;
@@ -64,7 +65,7 @@ netcgi2_apache_table_clear(value tv)
 {
   CAMLparam1(tv);
   table *t = Table_val(tv);
-  ap_clear_table(t);
+  apr_table_clear(t);
   CAMLreturn(Val_unit);
 }
 
@@ -73,7 +74,7 @@ netcgi2_apache_table_get (value tv, value str)
 {
   CAMLparam2(tv, str);
   table *t = Table_val (tv);
-  const char *res = ap_table_get (t, String_val (str));
+  const char *res = apr_table_get(t, String_val (str));
   if (res)
     CAMLreturn (copy_string (res));
   else
@@ -102,7 +103,7 @@ netcgi2_apache_table_get_all(value tv, value str)
   res = Val_int(0); /* empty list [] */
 
   /* Only iterates over values associated with [key]. */
-  ap_table_do(&netcgi2_apache_table_get_loop, &res, t, key, NULL);
+  apr_table_do(&netcgi2_apache_table_get_loop, &res, t, key, NULL);
   CAMLreturn(res);
 }
 
@@ -133,7 +134,7 @@ netcgi2_apache_table_fields(value tv)
   res = Val_int(0); /* empty list [] */
 
   /* Only iterates over *all* values of the table. */
-  ap_table_do(&netcgi2_apache_table_fields_loop, &res, t, NULL);
+  apr_table_do(&netcgi2_apache_table_fields_loop, &res, t, NULL);
   CAMLreturn(res);
 }
 
@@ -143,7 +144,7 @@ netcgi2_apache_table_set (value tv, value key, value val)
 {
   CAMLparam3 (tv, key, val);
   table *t = Table_val (tv);
-  ap_table_set (t, String_val (key), String_val (val));
+  apr_table_set(t, String_val (key), String_val (val));
   CAMLreturn (Val_unit);
 }
 
@@ -152,7 +153,7 @@ netcgi2_apache_table_add (value tv, value key, value val)
 {
   CAMLparam3 (tv, key, val);
   table *t = Table_val (tv);
-  ap_table_add (t, String_val (key), String_val (val));
+  apr_table_add (t, String_val (key), String_val (val));
   CAMLreturn (Val_unit);
 }
 
@@ -161,7 +162,7 @@ netcgi2_apache_table_unset (value tv, value key)
 {
   CAMLparam2 (tv, key);
   table *t = Table_val (tv);
-  ap_table_unset (t, String_val (key));
+  apr_table_unset (t, String_val (key));
   CAMLreturn (Val_unit);
 }
 
@@ -220,9 +221,7 @@ netcgi2_apache_connection_ ## field (value cv)        \
 }
 
 CONNECTION(remote_ip)
-CONNECTION(ap_auth_type)
 CONNECTION(remote_host)
-CONNECTION(user)
 
 /*----- Request structure. -----*/
 
@@ -356,7 +355,7 @@ netcgi2_apache_request_set_status_line (value rv, value str)
 {
   CAMLparam2 (rv, str);
   request_rec *r = Request_rec_val (rv);
-  r->status_line = ap_pstrdup (r->pool, String_val (str));
+  r->status_line = apr_pstrdup (r->pool, String_val (str));
   CAMLreturn (Val_unit);
 }
 
@@ -449,7 +448,7 @@ netcgi2_apache_request_set_content_type (value rv, value str)
 {
   CAMLparam2 (rv, str);
   request_rec *r = Request_rec_val (rv);
-  r->content_type = ap_pstrdup (r->pool, String_val (str));
+  r->content_type = apr_pstrdup (r->pool, String_val (str));
   CAMLreturn (Val_unit);
 }
 
@@ -485,7 +484,7 @@ netcgi2_apache_request_set_uri (value rv, value str)
 {
   CAMLparam2 (rv, str);
   request_rec *r = Request_rec_val (rv);
-  r->uri = ap_pstrdup (r->pool, String_val (str));
+  r->uri = apr_pstrdup (r->pool, String_val (str));
   CAMLreturn (Val_unit);
 }
 
@@ -505,7 +504,7 @@ netcgi2_apache_request_set_filename (value rv, value str)
 {
   CAMLparam2 (rv, str);
   request_rec *r = Request_rec_val (rv);
-  r->filename = ap_pstrdup (r->pool, String_val (str));
+  r->filename = apr_pstrdup (r->pool, String_val (str));
   CAMLreturn (Val_unit);
 }
 
@@ -525,7 +524,7 @@ netcgi2_apache_request_set_path_info (value rv, value str)
 {
   CAMLparam2 (rv, str);
   request_rec *r = Request_rec_val (rv);
-  r->path_info = ap_pstrdup (r->pool, String_val (str));
+  r->path_info = apr_pstrdup (r->pool, String_val (str));
   CAMLreturn (Val_unit);
 }
 
@@ -545,7 +544,7 @@ netcgi2_apache_request_set_args (value rv, value str)
 {
   CAMLparam2 (rv, str);
   request_rec *r = Request_rec_val (rv);
-  r->args = ap_pstrdup (r->pool, String_val (str));
+  r->args = apr_pstrdup (r->pool, String_val (str));
   CAMLreturn (Val_unit);
 }
 
@@ -559,8 +558,7 @@ static int file_kind_table[] = {
 };
 #endif
 
-static value
-cst_to_constr (int n, int *tbl, int size, int deflt)
+static value cst_to_constr (int n, int *tbl, int size, int deflt)
 {
   int i;
   for (i = 0; i < size; i++)
@@ -568,8 +566,7 @@ cst_to_constr (int n, int *tbl, int size, int deflt)
   return Val_int(deflt);
 }
 
-CAMLprim value
-netcgi2_apache_request_finfo (value rv)
+CAMLprim value netcgi2_apache_request_finfo (value rv)
 {
   CAMLparam1 (rv);
   request_rec *r = Request_rec_val (rv);
@@ -598,8 +595,8 @@ netcgi2_apache_request_finfo (value rv)
       Field (sb, 4) = Val_int (r->finfo.nlink);
       Field (sb, 5) = Val_int (r->finfo.user);
       Field (sb, 6) = Val_int (r->finfo.group);
-      Field (sb, 7) = Val_int (0); /* XXX rdev? */
-      Field (sb, 8) = Val_int (r->finfo.size); /* XXX 64 bit file offsets */
+      Field (sb, 7) = Val_int (0); /* FIXME rdev? */
+      Field (sb, 8) = Val_int (r->finfo.size); /* FIXME 64 bit file offsets */
 
       Field (sb, 9) = atime;
       Field (sb, 10) = mtime;
@@ -631,7 +628,7 @@ else
       Field (sb, 5) = Val_int (r->finfo.st_uid);
       Field (sb, 6) = Val_int (r->finfo.st_gid);
       Field (sb, 7) = Val_int (r->finfo.st_rdev);
-      Field (sb, 8) = Val_int (r->finfo.st_size); /* XXX 64 bit file offsets */
+      Field (sb, 8) = Val_int (r->finfo.st_size); /* FIXME: 64 bit file offsets */
       Field (sb, 9) = atime;
       Field (sb, 10) = mtime;
       Field (sb, 11) = ctime;
@@ -651,7 +648,7 @@ netcgi2_apache_request_send_http_header (value rv)
 {
   CAMLparam1 (rv);
 #if APACHE2
-  /* XXX do nothing in Apache 2.x? */
+  /* FIXME do nothing in Apache 2.x? */
 #else
   request_rec *r = Request_rec_val (rv);
   ap_send_http_header (r);
@@ -732,6 +729,23 @@ netcgi2_apache_request_discard_request_body (value rv)
   CAMLreturn (Val_int(i)); /* possible error dealt with on the Caml side */
 }
 
+
+CAMLprim value netcgi2_apache_auth_type(value rv)
+{
+  CAMLparam1(rv);
+  request_rec *r = Request_rec_val(rv);
+#if APACHE2
+  if (r->ap_auth_type)
+    CAMLreturn(copy_string(r->ap_auth_type));
+#else
+  if (r->connection->ap_auth_type)
+    CAMLreturn(copy_string(r->connection->ap_auth_type));
+#endif  
+  else
+    raise_not_found();
+}
+
+
 CAMLprim value
 netcgi2_apache_request_note_auth_failure (value rv)
 {
@@ -769,7 +783,7 @@ netcgi2_apache_request_get_basic_auth_pw (value rv)
   int i = ap_get_basic_auth_pw (r, &pw); /* no need to free(pw) */
   /* Return [i] as the first component of a couple so we can deal with
    * the possible errors on the Caml side. */
-  if (i == DECLINED) pw = NULL;	/* XXX */
+  if (i == DECLINED) pw = NULL;	/* FIXME */
   c = alloc_tuple (2);
   Store_field(c, 0, Val_int(i));
   Store_field(c, 1, Val_optstring(pw));
@@ -832,7 +846,7 @@ netcgi2_apache_request_register_cleanup (value rv, value f)
 {
   CAMLparam2 (rv, f);
   request_rec *r = Request_rec_val (rv);
-  value *v = (value *) ap_palloc (r->pool, sizeof (value));
+  value *v = (value *) apr_palloc (r->pool, sizeof (value));
 
   *v = f;
   register_global_root (v);

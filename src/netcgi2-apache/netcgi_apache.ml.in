@@ -86,16 +86,14 @@ struct
     type t				(* Actual conn_rec structure. *)
 
     external remote_ip : t -> string = "netcgi2_apache_connection_remote_ip"
-    external auth_type : t -> string = "netcgi2_apache_connection_ap_auth_type"
     external remote_host : t -> string = "netcgi2_apache_connection_remote_host"
-    external user : t -> string      = "netcgi2_apache_connection_user"
 
   (* ... etc ... *)
   end
 
 
   module Request = struct (* Request_rec functions. *)
-    type t				(* Actual request_rec structure. *)
+    type t (* Actual request_rec structure. *)
 
     external connection : t -> Connection.t
       = "netcgi2_apache_request_connection"
@@ -138,8 +136,6 @@ struct
     external set_content_type : t -> string -> unit
       = "netcgi2_apache_request_set_content_type"
 
-    external user : t -> string		  = "netcgi2_apache_request_user"
-
     external uri : t -> string		  = "netcgi2_apache_request_uri"
     external set_uri : t -> string -> unit = "netcgi2_apache_request_set_uri"
     external filename : t -> string	  = "netcgi2_apache_request_filename"
@@ -158,9 +154,9 @@ struct
     external rflush : t -> int		= "netcgi2_apache_request_rflush"
 
     type read_policy = NO_BODY
-                     | CHUNKED_ERROR
-		     | CHUNKED_DECHUNK
-		     | CHUNKED_PASS
+                       | CHUNKED_ERROR
+		       | CHUNKED_DECHUNK
+		       | CHUNKED_PASS
 
     external setup_client_block : t -> read_policy -> int
       = "netcgi2_apache_request_setup_client_block"
@@ -184,7 +180,7 @@ struct
       let r = get_client_block_buffer r buf ofs len in
       if r < 0 then
         raise(HTTP(`Internal_server_error,
-                   "Netcgi_apache.Apache.Request.get_client_block_buf"))
+                  "Netcgi_apache.Apache.Request.get_client_block_buf"))
       else r
 
     external discard_request_body : t -> int
@@ -193,6 +189,11 @@ struct
       possible_error "Netcgi_apache.Apache.Request.discard_request_body"
         (discard_request_body r)
 
+    external user : t -> string		  = "netcgi2_apache_request_user"
+      (* In Apache 1.3 this field is actually in the [conn_rec]
+         structure, and was moved here in Apache 2.0.  We
+         transparently hide this detail for you. *)
+    external auth_type : t -> string = "netcgi2_apache_auth_type"
     external note_auth_failure : t -> unit
       = "netcgi2_apache_request_note_auth_failure"
     external note_basic_auth_failure : t -> unit
@@ -903,14 +904,12 @@ object(self)
   method cgi_script_name = script_name
   method cgi_path_info = path_info
   method cgi_path_translated = "" (* FIXME: don't know how to get it *)
-  method cgi_auth_type =
-    try Connection.auth_type(Request.connection r) with Not_found -> ""
+  method cgi_auth_type = try Request.auth_type r with Not_found -> ""
   method cgi_remote_addr =
     try Connection.remote_ip(Request.connection r) with Not_found -> ""
   method cgi_remote_host =
     try Connection.remote_host(Request.connection r) with Not_found -> ""
-  method cgi_remote_user =
-    try Connection.user(Request.connection r) with Not_found -> ""
+  method cgi_remote_user = try Request.user r with Not_found -> ""
   method cgi_remote_ident = "" (* FIXME: is it only supported? *)
   method cgi_query_string = query_string
     (* method protocol is inherited and use [server_protocol]; OK *)

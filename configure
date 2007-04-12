@@ -701,7 +701,7 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 cgi netplex netcgi2-plex"
+pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 netplex netcgi2-plex"
 
 if [ $enable_apache -gt 0 ]; then
     pkglist="$pkglist netcgi2-apache"
