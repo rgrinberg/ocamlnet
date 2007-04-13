@@ -338,21 +338,27 @@ val run :
 
 (** {2:setup Setup}
 
-    In order to use the above function, you need to have mod_caml
-    installed (in fact, only partly, as we only use [Apache] and
-    [Mod_caml] -- and thus also [Mod_caml_config]).
-
+    {3 Apache 1.x}
 
     You need to put in an Apache configuration file (we recommend
-    /etc/apache/conf.d/netcgi_apache) the following line:
+    /etc/apache/conf.d/netcgi_apache.conf) the following line:
     {v
     LoadModule netcgi_module /usr/lib/apache/1.x/netcgi_apache.so
     v}
-    for Apache 1.x and
+
+    {3 Apache 2.2 or later}
+
+    You need to put in an Apache configuration file (we recommend
+    /etc/apache2/mods-available/netcgi_apache.load) the following line:
     {v
-    LoadModule netcgi_module /usr/lib/apache/2.x/netcgi_apache.so
+    LoadModule netcgi_module /usr/lib/apache2/modules/netcgi_apache.so
     v}
-    for Apache 2.x.
+    and make a symbolic link from /etc/apache2/mods-enabled/ to it to
+    actually enable it.  Subsequent configuration is recommended to be
+    in /etc/apache2/mods-available/netcgi_apache.conf (also to be
+    linked to /etc/apache2/mods-enabled/).
+
+    {3 Loading libraries}
 
     If your scripts depend on other libraries, you need to load them
     using NetcgiLoad.  More specifically, if your library is x.cma and
@@ -363,6 +369,8 @@ val run :
     v}
     If x.cma is not in a subdirectory of `ocamlc -where`, you need to
     specify the full path.
+
+    {3 Installing scripts}
 
     You need also to tell Apache how to detect whether a script is to
     be handled by netcgi_apache, either by putting them in a special

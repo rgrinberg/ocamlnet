@@ -1,3 +1,0 @@
-This is a copy of mod_caml files needed by Netcgi.  This is for your
-convenience only; the build generates a minimal mod_caml.so file to be
-able to use Netcgi_mod.

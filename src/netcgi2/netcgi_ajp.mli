@@ -90,14 +90,13 @@ val handle_request :
   ?script_name:string ->
   config -> output_type -> arg_store -> exn_handler ->
   (cgi -> unit) -> log:(string -> unit) option ->
-  Unix.file_descr -> 
+  Unix.file_descr ->
     connection_directive
-  (** [handle_request config output_type arg_store eh f ~log fd]:
-      This is a 
-      lower-level interface that processes exactly one request arriving 
-      on the existing connection [fd].
+  (** [handle_request config output_type arg_store eh f ~log fd]: This
+      is a lower-level interface that processes exactly one request
+      arriving on the existing connection [fd].
 
-      [log] is the error logger function or [None], in which case 
+      [log] is the error logger function or [None], in which case
       errors are passed through to the FCGI client.
 
       The other arguments are just like for [run].
@@ -120,7 +119,7 @@ val handle_request :
     with mod_jk}.
 
     In httpd.conf or in a file, say mod_jk.conf, in
-    /etc/apache/conf.d/, add the following:
+    /etc/apache{,2}/conf.d/, add the following:
     {v
     # Shared memory file name (Unix only).  The parent dir must exist.
     JkShmFile  /var/tmp/jk-runtime-status
@@ -130,8 +129,12 @@ val handle_request :
 
     <IfModule mod_jk.c>
       # Configure mod_jk
-      JkWorkersFile /etc/libapache-mod-jk/workers.properties
-      JkLogFile     /var/log/apache/mod_jk.log
+      # Apache 1.x
+      #JkWorkersFile /etc/libapache-mod-jk/workers.properties
+      #JkLogFile     /var/log/apache/mod_jk.log
+      # Apache 2.x
+      JkWorkersFile /etc/libapache2-mod-jk/workers.properties
+      JkLogFile     /var/log/apache2/mod_jk.log
       JkLogLevel    info
 
       # JkMount [URL prefix] [Worker name]

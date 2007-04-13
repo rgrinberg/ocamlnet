@@ -11,7 +11,9 @@
    LICENSE for more details.
 *)
 
-(** Mod_caml style of templates.
+(** Mod_caml style of templates.  This template module is simple to use.
+ * It is here to provide a simple upgrade path from mod_caml.  It
+ * should not be considered as the default template system of Netcgi.
  *
  * @version $Id: netcgi_modtpl.mli,v 1.4 2005/10/19 20:25:54 chris_77 Exp $ *)
 

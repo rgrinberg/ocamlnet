@@ -200,12 +200,12 @@ end
 class ajp_out_channel fd =
   let prim_ch = new prim_out_channel fd in
 object (self)
-  inherit Netchannels.buffered_raw_out_channel 
+  inherit Netchannels.buffered_raw_out_channel
             ~buffer_size:max_packet_size
 	    prim_ch
 
   inherit Netchannels.augment_raw_out_channel
-    (* reduces additional methods like really_output to the more 
+    (* reduces additional methods like really_output to the more
        primitive ones from Netchannels.buffered_raw_out_channel
      *)
 
@@ -279,7 +279,7 @@ object(self)
   val mutable pos_out = 0
 
   inherit Netchannels.augment_raw_out_channel
-    (* reduces additional methods like really_output to the more 
+    (* reduces additional methods like really_output to the more
        primitive ones implemented below
      *)
 
@@ -293,7 +293,7 @@ object(self)
 
   method close_out() =
     ajp_ch # flush()
-    
+
   method pos_out = pos_out
 
 end
@@ -338,7 +338,7 @@ object(self)
 	    prim_ch
 
   inherit Netchannels.augment_raw_in_channel
-    (* reduces additional methods like really_input to the more 
+    (* reduces additional methods like really_input to the more
        primitive ones from Netchannels.buffered_raw_in_channel.
        Note that input_line is slow (but not used here)
      *)
@@ -382,13 +382,13 @@ object(self)
 
     (* Get packet: *)
     let payload_len = self # input_packet() in
-    if payload_len < 2 then 
+    if payload_len < 2 then
       raise(Invalid "Data packet payload too small");
 
     let data_len = (Char.code(buf.[0]) lsl 8) lor (Char.code(buf.[1])) in
     if data_len+2 > payload_len then
       raise(Invalid "Length exceeds payload length");
-    
+
     (* Return (pos,len) of buf *)
     (2, data_len)
 
@@ -465,7 +465,7 @@ object(self)
     buf_len <- buf_len - l;
     pos_in <- pos_in + l;
     l
-    
+
   method close_in() = ()
 
   method pos_in = pos_in
@@ -486,7 +486,7 @@ let http_headers =
 (** Input [num] headers from [ajp_ch] and prepend them to [headers].
     Headers are represented as (string * string) list *)
 let rec scan_request_headers ajp_ch num headers =
-  if num = 0 then 
+  if num = 0 then
     headers
   else
     let l = ajp_ch # scan_int() in
@@ -512,8 +512,8 @@ let rec scan_attributes ajp_ch attr =
   if 0x01 <= b && b <= 0x0B then
     let name =
       if b = 0x0A then  (* req_attribute *)
-	ajp_ch # scan_string() 
-      else 
+	ajp_ch # scan_string()
+      else
 	attributes.(b - 1) in
     let value = ajp_ch # scan_string () in
     scan_attributes ajp_ch ((name, value) :: attr)
@@ -529,7 +529,7 @@ let request_methods =
      "MERGE"; "BASELINE_CONTROL"; "MKACTIVITY" |]
 
 (** Assumes that the first byte of the AJP13_FORWARD_REQUEST packet
-    is already read, and returns [(props, inheader)].  
+    is already read, and returns [(props, inheader)].
 *)
 let scan_props_inheader ?script_name log_error ajp_ch =
   let m = ajp_ch # scan_byte () in
@@ -642,7 +642,7 @@ let rec input_forward_request ?script_name log_error ajp_ch =
 class ajp_environment ?log_error ~config ~properties ~input_header ajp_ch =
   let user_ch = new user_out_channel ajp_ch in
 object(self)
-  inherit 
+  inherit
     Netcgi_common.cgi_environment ~config ~properties ~input_header user_ch
 
   (* @override *)
@@ -655,7 +655,7 @@ object(self)
       end
 
   (* Override to use the correct channel *)
-  method log_error msg = 
+  method log_error msg =
     match log_error with
       | None -> ajp_log_error msg
       | Some f -> f msg
@@ -679,8 +679,8 @@ let handle_request ?script_name config output_type arg_store exn_handler f ~log 
       input_forward_request ?script_name log_error ajp_ch in
 
     (* Creates the environment. ajp_ch will be wrapped as user_out_channel *)
-    let env = 
-      new ajp_environment 
+    let env =
+      new ajp_environment
 	?log_error:log ~config ~properties ~input_header ajp_ch in
 
     (* Now that one knows the environment, one can warn about exceptions *)
@@ -690,7 +690,7 @@ let handle_request ?script_name config output_type arg_store exn_handler f ~log 
 	   (* This channel decodes user data from ajp packets: *)
 	   let in_ch = new user_in_channel ajp_ch in
 
-           let cgi = 
+           let cgi =
 	     cgi_with_args (new cgi) env output_type in_ch arg_store in
            (try
               f(cgi: Netcgi.cgi);
@@ -726,11 +726,12 @@ let rec handle_connection fd ~config ?script_name output_type arg_store
   let cdir =
     try
       let in_socks, _, _ =  Netsys.restarting_select [fd] [] [] 1. in
-      if in_socks = [] then
-	(* log_error "Timeout waiting for the next connection.  Closing."; *)
+      if in_socks = [] then (
+	(* ajp_log_error "Timeout waiting for the next connection.  Closing.";*)
 	`Conn_close
+      )
       else
-	handle_request config output_type arg_store exn_handler f ~log fd 
+	handle_request config output_type arg_store exn_handler f ~log fd
     with
       | error -> `Conn_error error in
 

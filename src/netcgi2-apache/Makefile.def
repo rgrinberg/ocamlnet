@@ -7,13 +7,19 @@ INCLUDES += $(INC_NETSTRING) $(INC_NETSYS) $(INC_NETCGI2)
 
 CMA_SO = unix.cma str.cma pcre.cma netsys.cma netstring.cma netcgi.cma
 
-OBJECTS = netcgi_modtpl.cmo
+OBJECTS = netcgi_apache.cmo netcgi_modtpl.cmo
 
 ALL_EXTRA = netcgi_apache.so
 INSTALL_EXTRA = netcgi_apache.so 500netcgi_apache.info
 
-# netcgi_apache.so: apache.o handler.o wrappers.o netcgi_apache.cmo
-# 	$(OCAMLC) -o $@ -linkall -custom \
+include $(TOP_DIR)/Makefile.rules
+
+# ifeq ($(APACHE_MAJOR),2)
+# APACHE_LDFLAGS_SHLIB += -lapr-1 -laprutil-1
+# endif
+
+# netcgi_apache.so: apache.lo handler.lo wrappers.lo netcgi_apache.cmo
+# 	$(OCAMLC) -o $@ -custom \
 # 	  dynlink.cma $(CMA_SO) $^ \
 # 	  -cclib '$(APACHE_CFLAGS) $(APACHE_LDFLAGS_SHLIB) $(APACHE_OCAMLLIBS)'
 
@@ -25,9 +31,8 @@ INSTALL_EXTRA = netcgi_apache.so 500netcgi_apache.info
 # 		-cc '$(APXS) -c' \
 # 		dynlink.cma $(CMA_SO) $^
 
-include $(TOP_DIR)/Makefile.rules
 
-# must be after the `include'
+# must be after the `include' for APACHE_MAJOR to be defined
 ifeq ($(APACHE_MAJOR),2)
 CAML_CODE=caml_netcgi_apache.lo
 caml_netcgi_apache.lo: caml_netcgi_apache.o
@@ -35,12 +40,14 @@ else
 CAML_CODE=caml_netcgi_apache.o
 endif
 
+### requires caml_startup instead of caml_main in handler.c :
 netcgi_apache.so: apache.c handler.c wrappers.c $(CAML_CODE)
-	$(APXS) -c -o $@ $^ -L$(APACHE_OCAMLLIBDIR) -lunix -lcamlrun
+	$(APXS) -c -o $@ $^ -L$(APACHE_OCAMLLIBDIR) \
+	  -L$(APACHE_OCAMLLIBDIR)/stublibs $(APACHE_OCAMLLIBS)
 	if [ -f .libs/$@ ]; then cp .libs/$@ . ; fi
 
-caml_netcgi_apache.o: netcgi_apache.ml
-	$(OCAMLC) -cc '$(APXS) -c' -output-obj -o $@ dynlink.cma $(CMA_SO)
+caml_netcgi_apache.o: netcgi_apache.ml netcgi_apache.cmi
+	$(OCAMLC) -cc '$(APXS) -c' -output-obj -o $@  dynlink.cma $(CMA_SO) $<
 
 %.o: %.c
 	$(APXS) -c -I$(APACHE_OCAMLLIBDIR) $<

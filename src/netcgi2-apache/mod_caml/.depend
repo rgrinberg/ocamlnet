@@ -1,5 +1,0 @@
-mod_caml.cmi: apache.cmi 
-apache.cmo: apache.cmi 
-apache.cmx: apache.cmi 
-mod_caml.cmo: mod_caml_config.cmo apache.cmi mod_caml.cmi 
-mod_caml.cmx: mod_caml_config.cmx apache.cmx mod_caml.cmi 

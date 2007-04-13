@@ -36,8 +36,9 @@
 #include <httpd.h>
 #include <http_config.h>
 #if APACHE2
-#include <http_request.h>
 #include <http_protocol.h>
+#include <ap_config.h>
+#include <http_request.h>
 #endif
 
 #include "wrappers.h"
@@ -90,7 +91,7 @@ static int post_config (apr_pool_t *pPool, apr_pool_t *pLog,
                         apr_pool_t *pTemp, server_rec *s)
 {
   ap_add_version_component (pPool, VERSION_STRING);
-  /* No interesting Caml callback to execute */
+  /* FIXME: should we protect against apache threads? */
   return OK;
 }
 #else
@@ -239,8 +240,7 @@ static int exception_in_handler (value exn, const char *function_name)
 }
 
 #define MAKE_HANDLER(name)					\
-static int							\
-name (request_rec *r)						\
+static int name (request_rec *r)				\
 {								\
   static value *f = NULL;					\
   value rv, arg;						\
@@ -334,54 +334,53 @@ MAKE_CMD(cmd_handler)
 
 static command_rec cmds[] = {
   AP_INIT_TAKE1 ("NetcgiLoad", cmd_load,
-		 NULL,
-		 RSRC_CONF,
-		 "load OCaml module"),
+                 NULL,
+                 RSRC_CONF,
+                 "load OCaml module"),
   AP_INIT_TAKE1 ("NetcgiTranslateHandler", cmd_translate_handler,
-		 NULL,
-		 RSRC_CONF,
-		 "set module as translate handler"),
+                 NULL,
+                 RSRC_CONF,
+                 "set module as translate handler"),
   AP_INIT_TAKE1 ("NetcgiCheckUserIDHandler", cmd_check_user_id_handler,
-		 NULL,
-		 RSRC_CONF|ACCESS_CONF|OR_ALL,
-		 "set module as check user ID handler"),
+                 NULL,
+                 RSRC_CONF|ACCESS_CONF|OR_ALL,
+                 "set module as check user ID handler"),
   AP_INIT_TAKE1 ("NetcgiAuthCheckerHandler", cmd_auth_checker_handler,
-		 NULL,
-		 RSRC_CONF|ACCESS_CONF|OR_ALL,
-		 "set module as auth checker handler"),
+                 NULL,
+                 RSRC_CONF|ACCESS_CONF|OR_ALL,
+                 "set module as auth checker handler"),
   AP_INIT_TAKE1 ("NetcgiAccessCheckerHandler", cmd_access_checker_handler,
-		 NULL,
-		 RSRC_CONF|ACCESS_CONF|OR_ALL,
-		 "set module as access checker handler"),
+                 NULL,
+                 RSRC_CONF|ACCESS_CONF|OR_ALL,
+                 "set module as access checker handler"),
   AP_INIT_TAKE1 ("NetcgiTypeCheckerHandler", cmd_type_checker_handler,
-		 NULL,
-		 RSRC_CONF|ACCESS_CONF|OR_ALL,
-		 "set module as type checker handler"),
+                 NULL,
+                 RSRC_CONF|ACCESS_CONF|OR_ALL,
+                 "set module as type checker handler"),
   AP_INIT_TAKE1 ("NetcgiFixerUpperHandler", cmd_fixer_upper_handler,
-		 NULL,
-		 RSRC_CONF|ACCESS_CONF|OR_ALL,
-		 "set module as fixer upper handler"),
+                 NULL,
+                 RSRC_CONF|ACCESS_CONF|OR_ALL,
+                 "set module as fixer upper handler"),
   AP_INIT_TAKE1 ("NetcgiLoggerHandler", cmd_logger_handler,
-		 NULL,
-		 RSRC_CONF|ACCESS_CONF|OR_ALL,
-		 "set module as logger handler"),
+                 NULL,
+                 RSRC_CONF|ACCESS_CONF|OR_ALL,
+                 "set module as logger handler"),
   AP_INIT_TAKE1 ("NetcgiHeaderParserHandler", cmd_header_parser_handler,
-		 NULL,
-		 RSRC_CONF|ACCESS_CONF|OR_ALL,
-		 "set module as header parser handler"),
+                 NULL,
+                 RSRC_CONF|ACCESS_CONF|OR_ALL,
+                 "set module as header parser handler"),
   AP_INIT_TAKE1 ("NetcgiPostReadRequestHandler", cmd_post_read_request_handler,
-		 NULL,
-		 RSRC_CONF|ACCESS_CONF|OR_ALL,
-		 "set module as post read request handler"),
+                 NULL,
+                 RSRC_CONF|ACCESS_CONF|OR_ALL,
+                 "set module as post read request handler"),
   AP_INIT_TAKE1 ("NetcgiHandler", cmd_handler,
-		 NULL,
-		 RSRC_CONF|ACCESS_CONF|OR_ALL,
-		 "set module as output handler"),
+                 NULL,
+                 RSRC_CONF|ACCESS_CONF|OR_ALL,
+                 "set module as output handler"),
   { NULL }
 };
 
-static void
-register_hooks (apr_pool_t *p)
+static void register_hooks (apr_pool_t *p)
 {
   ap_hook_post_config (post_config, 		NULL, NULL, APR_HOOK_MIDDLE);
   ap_hook_translate_name (translate_handler, 	NULL, NULL, APR_HOOK_MIDDLE);
@@ -398,12 +397,12 @@ register_hooks (apr_pool_t *p)
 
 module netcgi_module = {
   STANDARD20_MODULE_STUFF,
-  create_dir_config,
-  merge_dir_config,
-  create_server_config,
-  merge_server_config,
-  cmds,
-  register_hooks,
+  create_dir_config,	/* per-directory config creator */
+  merge_dir_config,	/* dir config merger */
+  create_server_config,	/* server config creator */
+  merge_server_config,	/* server config merger */
+  cmds,			/* command table */
+  register_hooks,	/* register hooks */
 };
 
 #else
