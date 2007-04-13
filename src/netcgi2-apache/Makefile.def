@@ -1,7 +1,8 @@
 TOP_DIR=../..
 
 PKGNAME = netcgi_apache
-BUILD_EXTRA = netcgi_apache.so
+# Keep the name in sync with the one on handler.c :
+BUILD_EXTRA = mod_netcgi_apache.so
 
 INCLUDES += $(INC_NETSTRING) $(INC_NETSYS) $(INC_NETCGI2)
 
@@ -9,8 +10,8 @@ CMA_SO = unix.cma str.cma pcre.cma netsys.cma netstring.cma netcgi.cma
 
 OBJECTS = netcgi_apache.cmo netcgi_modtpl.cmo
 
-ALL_EXTRA = netcgi_apache.so
-INSTALL_EXTRA = netcgi_apache.so 500netcgi_apache.info
+ALL_EXTRA = mod_netcgi_apache.so
+INSTALL_EXTRA = mod_netcgi_apache.so 500netcgi_apache.info
 
 include $(TOP_DIR)/Makefile.rules
 
@@ -18,43 +19,46 @@ include $(TOP_DIR)/Makefile.rules
 # APACHE_LDFLAGS_SHLIB += -lapr-1 -laprutil-1
 # endif
 
-# netcgi_apache.so: apache.lo handler.lo wrappers.lo netcgi_apache.cmo
-# 	$(OCAMLC) -o $@ -custom \
-# 	  dynlink.cma $(CMA_SO) $^ \
+# mod_netcgi_apache.so: apache.lo handler.lo wrappers.lo netcgi_apache.cmo
+# 	$(OCAMLC) -o $@ -cc "$(APXS) -c $(filter %.lo,$^)" -custom \
+# 	  dynlink.cma $(CMA_SO) \
+# 	  $(filter-out %.lo,$^) \
 # 	  -cclib '$(APACHE_CFLAGS) $(APACHE_LDFLAGS_SHLIB) $(APACHE_OCAMLLIBS)'
+# # $(patsubst %.o,.libs/%.o,$^) \
 
 # %.o: %.c
 # 	$(APACHE_CC) $(APACHE_CFLAGS) -I $(APACHE_OCAMLLIBDIR) -c $<
 
-# netcgi_apache.so: apache.o handler.o wrappers.o netcgi_apache.cmo
-# 	$(OCAMLC) -o $@ -linkall -custom \
-# 		-cc '$(APXS) -c' \
-# 		dynlink.cma $(CMA_SO) $^
+# %.lo: %.c
+# 	$(APXS) -c -I$(APACHE_OCAMLLIBDIR) $<
 
+# mod_netcgi_apache.so: netcgi_apache.cmo apache.o handler.o wrappers.o
+# 	$(OCAMLC) -o $@ -linkall -custom -cclib -shared \
+# 	  dynlink.cma $(CMA_SO) \
+# 	  $(patsubst %.o, ./.libs/%.o, $^) \
+# 	  -cclib '$(APACHE_CFLAGS) $(APACHE_LDFLAGS_SHLIB) $(APACHE_OCAMLLIBS)'
+
+MOD_OBJECTS := apache.o handler.o wrappers.o netcgi_apache_byte.o
 
 # must be after the `include' for APACHE_MAJOR to be defined
 ifeq ($(APACHE_MAJOR),2)
-CAML_CODE=caml_netcgi_apache.lo
-caml_netcgi_apache.lo: caml_netcgi_apache.o
+MOD_OBJECTS := $(patsubst %.o,%.lo,$(MOD_OBJECTS))
 else
-CAML_CODE=caml_netcgi_apache.o
+MOD_OBJECTS := $(MOD_OBJECTS)
 endif
 
-### requires caml_startup instead of caml_main in handler.c :
-netcgi_apache.so: apache.c handler.c wrappers.c $(CAML_CODE)
-	$(APXS) -c -o $@ $^ -L$(APACHE_OCAMLLIBDIR) \
-	  -L$(APACHE_OCAMLLIBDIR)/stublibs $(APACHE_OCAMLLIBS)
-	if [ -f .libs/$@ ]; then cp .libs/$@ . ; fi
+### Embed Caml code into the C code.
+### Requires `caml_startup' instead of `caml_main' in handler.c
+mod_netcgi_apache.so: $(MOD_OBJECTS)
+	$(APXS) -c -o $@ $^ -L$(APACHE_OCAMLLIBDIR) $(APACHE_OCAMLLIBS)
+	test -f .libs/$@ && cp .libs/$@ .
 
-caml_netcgi_apache.o: netcgi_apache.ml netcgi_apache.cmi
-	$(OCAMLC) -cc '$(APXS) -c' -output-obj -o $@  dynlink.cma $(CMA_SO) $<
+netcgi_apache_byte.lo: netcgi_apache_byte.o
+netcgi_apache_byte.o: netcgi_apache.cmo
+	$(OCAMLC) -output-obj -o $@ -cc '$(APXS) -c' dynlink.cma $(CMA_SO) $^
 
 %.o: %.c
 	$(APXS) -c -I$(APACHE_OCAMLLIBDIR) $<
+%.lo: %.c
+	$(APXS) -c -I$(APACHE_OCAMLLIBDIR) $<
 
-# FIXME: does not work:
-CLEAN_LIST += netcgi_apache.so
-
-clean::
-	rm -f *.lo *.slo *.la
-	if [ -d .libs ]; then rm -rf .libs; fi

@@ -63,8 +63,8 @@ static void init (void) __attribute__((constructor));
 static void init (void)
 {
   static char *argv[] = {
-    APACHE_LIBDIR "/netcgi_apache.so",
-    APACHE_LIBDIR "/netcgi_apache.so",
+    APACHE_LIBDIR "/mod_netcgi_apache.so",
+    APACHE_LIBDIR "/mod_netcgi_apache.so",
     NULL
   };
 

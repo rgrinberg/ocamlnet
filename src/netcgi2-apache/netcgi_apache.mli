@@ -1,4 +1,4 @@
-(* netcgi_mod.mli
+(* netcgi_apache.mli
 
    Copyright (C) 2005-2006
 
@@ -14,7 +14,7 @@
    LICENSE for more details.
 *)
 
-(** Apache "mod" connector.
+(** Netcgi Apache "mod" connector.
  *
  * See the {!Netcgi_mod.setup} section at the end of this file to know
  * how to configure Apache.
@@ -280,14 +280,14 @@ sig
                      declines to handle the phase; the server tries to
                      find another. *)
       | DONE	 (** The request is completely satisfied. *)
+      | HTTP of int (** The request returns the HTTP status code given
+                        as argument. *)
 
   type t = Apache.Request.t -> result
-  (** The type of handler functions.  May raise
-      [Netcgi_common.HTTP(st, msg)] to indicate that a response with
-      status [st] must be sent.  The exception [Exit] is considered as
-      a normal way of terminating early.  All other exceptions are
-      logged and result in an Internal_server_error response by
-      Apache. *)
+    (** The type of handler functions.  The exception [Exit] is
+        considered as a normal way of terminating early.  All other
+        exceptions are logged and result in an Internal_server_error
+        response by Apache. *)
 
   val register : t -> string -> unit
     (** Modules may call [register fn name] to register one or more
@@ -343,7 +343,7 @@ val run :
     You need to put in an Apache configuration file (we recommend
     /etc/apache/conf.d/netcgi_apache.conf) the following line:
     {v
-    LoadModule netcgi_module /usr/lib/apache/1.x/netcgi_apache.so
+    LoadModule netcgi_module /usr/lib/apache/1.x/mod_netcgi_apache.so
     v}
 
     {3 Apache 2.2 or later}
@@ -351,7 +351,7 @@ val run :
     You need to put in an Apache configuration file (we recommend
     /etc/apache2/mods-available/netcgi_apache.load) the following line:
     {v
-    LoadModule netcgi_module /usr/lib/apache2/modules/netcgi_apache.so
+    LoadModule netcgi_module /usr/lib/apache2/modules/mod_netcgi_apache.so
     v}
     and make a symbolic link from /etc/apache2/mods-enabled/ to it to
     actually enable it.  Subsequent configuration is recommended to be

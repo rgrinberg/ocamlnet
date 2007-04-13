@@ -2,7 +2,7 @@ TOP_DIR=../..
 
 PRE = 1
 PKGNAME = netcgi_apache
-GENERATE = config.h netcgi_apache.ml META 500netcgi_apache.info
+GENERATE = config.h netcgi_apache_mod.ml META 500netcgi_apache.info
 
 INSTALL_EXTRA = netcgi_modtpl.cma 500netcgi_apache.info
 
@@ -14,7 +14,7 @@ config.h: config.h.in
 	-e 's,@APACHE_MAJOR@,$(APACHE_MAJOR),g' \
 	< $< > $@
 
-netcgi_apache.ml: netcgi_apache.ml.in
+netcgi_apache-mod.ml: netcgi_apache_mod.ml.in
 	sed -e 's,@APACHE_OCAMLLIBDIR@,$(APACHE_OCAMLLIBDIR),g' \
 	-e 's,@PACKAGE@,$(PACKAGE),g' \
 	-e 's,@VERSION@,$(VERSION),g' \
@@ -27,3 +27,10 @@ netcgi_apache.ml: netcgi_apache.ml.in
 
 
 include $(TOP_DIR)/Makefile.rules
+
+CLEAN_LIST += $(wildcard *.so) $(wildcard *.lo) $(wildcard *.slo) \
+  $(wildcard *.la)
+
+clean::
+	test -d .libs && rm -rf .libs/
+
