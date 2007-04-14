@@ -79,7 +79,6 @@ struct
     type t				(* Actual server_rec structure. *)
     external hostname : t -> string 	= "netcgi2_apache_server_hostname"
     external admin : t -> string	= "netcgi2_apache_server_admin"
-    external port : t -> int		= "netcgi2_apache_server_port"
     external is_virtual : t -> bool	= "netcgi2_apache_server_is_virtual"
 
   (* ... etc ... *)
@@ -140,6 +139,7 @@ struct
       = "netcgi2_apache_request_set_content_type"
 
     external uri : t -> string		  = "netcgi2_apache_request_uri"
+    external port : t -> int		  = "netcgi2_apache_request_port"
     external set_uri : t -> string -> unit = "netcgi2_apache_request_set_uri"
     external filename : t -> string	  = "netcgi2_apache_request_filename"
     external set_filename : t -> string -> unit
@@ -235,7 +235,6 @@ struct
 
   let _server_hostname = Server.hostname
   let _server_admin = Server.admin
-  let _server_port = Server.port
   let _server_is_virtual = Server.is_virtual
 
   let _connection_remote_ip = Connection.remote_ip
@@ -267,6 +266,7 @@ struct
   let _request_content_type = Request.content_type
   let _request_set_content_type = Request.set_content_type
   let _request_uri = Request.uri
+  let _request_port = Request.port
   let _request_set_uri = Request.set_uri
   let _request_filename = Request.filename
   let _request_set_filename = Request.set_filename

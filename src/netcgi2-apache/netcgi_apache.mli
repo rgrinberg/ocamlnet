@@ -70,9 +70,6 @@ sig
     external admin : t -> string	= "netcgi2_apache_server_admin"
       (** [server_admin] field.
 	  @raise Not_found if NULL. *)
-    external port : t -> int		= "netcgi2_apache_server_port"
-      (** [port] field.
-	  @raise Not_found if NULL. *)
     external is_virtual : t -> bool	= "netcgi2_apache_server_is_virtual"
       (** [is_virtual] field.
 	  @raise Not_found if NULL. *)
@@ -173,6 +170,8 @@ sig
     external uri : t -> string = "netcgi2_apache_request_uri"
       (** [request_rec] [uri] field.
           @raise Not_found if NULL. *)
+    external port : t -> int		= "netcgi2_apache_request_port"
+      (** Server port. *)
     external set_uri : t -> string -> unit = "netcgi2_apache_request_set_uri"
       (** Set [request_rec] [uri] field. *)
     external filename : t -> string = "netcgi2_apache_request_filename"
@@ -422,11 +421,11 @@ val run :
 
     {3 Compiling scripts}
 
-    If your script reside in the file [x.ml], compile it to [x.cma].
-    You need not include the [netcgi_apache.cma], [netcgi.cma],
-    [netstring.cma], [netsys.cma], or [pcre.cma] modules as these are
-    already loaded into Apache (see above).  If youe script depends on
-    other libraries, you may either load them with [NetcgiLoad] (see
-    above) or include them in [x.cma].
+    If your script reside in the file [x.ml], compile it to [x.cmo] or
+    [x.cma].  If your script depends on other libraries, you may
+    either load them with [NetcgiLoad] (see above) or include them in
+    [x.cma].  You need not include the [netcgi_apache.cma],
+    [netcgi.cma], [netstring.cma], [netsys.cma], or [pcre.cma] modules
+    as these are already loaded into Apache (see above).
 *)
 

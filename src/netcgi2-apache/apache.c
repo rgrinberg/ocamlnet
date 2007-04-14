@@ -191,14 +191,6 @@ netcgi2_apache_server_admin(value sv)
 }
 
 CAMLprim value
-netcgi2_apache_server_port(value sv)
-{
-  CAMLparam1(sv);
-  server_rec *s = Server_rec_val(sv);
-  CAMLreturn(Val_int(s->port));
-}
-
-CAMLprim value
 netcgi2_apache_server_is_virtual(value sv)
 {
   CAMLparam1(sv);
@@ -480,6 +472,16 @@ netcgi2_apache_request_uri (value rv)
 }
 
 CAMLprim value
+netcgi2_apache_request_port(value rv)
+{
+  CAMLparam1(rv);
+  request_rec *r = Request_rec_val (rv);
+
+  CAMLreturn(Val_int(ap_get_server_port(r)));
+}
+
+
+CAMLprim value
 netcgi2_apache_request_set_uri (value rv, value str)
 {
   CAMLparam2 (rv, str);
@@ -698,7 +700,7 @@ netcgi2_apache_request_get_client_block (value rv)
     /* FIXME: It seems there is now way to get more info about the error. */
     caml_failwith("ap_get_client_block");
   }
-  
+
   str = alloc_string (i);
   memcpy (String_val (str), buffer, i);
 
@@ -740,7 +742,7 @@ CAMLprim value netcgi2_apache_auth_type(value rv)
 #else
   if (r->connection->ap_auth_type)
     CAMLreturn(copy_string(r->connection->ap_auth_type));
-#endif  
+#endif
   else
     raise_not_found();
 }

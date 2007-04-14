@@ -50,7 +50,6 @@ sig
     type t (** Apache [server_rec] structure. *)
     external hostname : t -> string 	= "netcgi2_apache_server_hostname"
     external admin : t -> string	= "netcgi2_apache_server_admin"
-    external port : t -> int		= "netcgi2_apache_server_port"
     external is_virtual : t -> bool	= "netcgi2_apache_server_is_virtual"
   end
 
@@ -105,7 +104,8 @@ sig
     external set_content_type : t -> string -> unit
       = "netcgi2_apache_request_set_content_type"
 
-    external uri : t -> string = "netcgi2_apache_request_uri"
+    external uri : t -> string            = "netcgi2_apache_request_uri"
+    external port : t -> int		  = "netcgi2_apache_request_port"
     external set_uri : t -> string -> unit = "netcgi2_apache_request_set_uri"
     external filename : t -> string = "netcgi2_apache_request_filename"
     external set_filename : t -> string -> unit

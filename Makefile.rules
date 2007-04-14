@@ -21,15 +21,16 @@ TOOLS_DIR = $(TOP_DIR)/tools
 COLLECT_FILES = $(TOOLS_DIR)/collect_files
 
 # To be overridden by the command line:
-INC_NETSYS     = -I ../netsys
-INC_NETSTRING  = -I ../netstring
-INC_EQUEUE     = -I ../equeue
-INC_EQUEUE_SSL = -I ../equeue-ssl
-INC_NETCGI1    = -I ../netcgi1
-INC_NETCGI2    = -I ../netcgi2
-INC_NETPLEX    = -I ../netplex
-INC_RPC        = -I ../rpc
-INC_SHELL      = -I ../shell
+INC_NETSYS         = -I $(TOP_DIR)/src/netsys
+INC_NETSTRING      = -I $(TOP_DIR)/src/netstring
+INC_EQUEUE         = -I $(TOP_DIR)/src/equeue
+INC_EQUEUE_SSL     = -I $(TOP_DIR)/src/equeue-ssl
+INC_NETCGI1        = -I $(TOP_DIR)/src/netcgi1
+INC_NETCGI2        = -I $(TOP_DIR)/src/netcgi2
+INC_NETCGI2_APACHE = -I $(TOP_DIR)/src/netcgi2-apache
+INC_NETPLEX        = -I $(TOP_DIR)/src/netplex
+INC_RPC            = -I $(TOP_DIR)/src/rpc
+INC_SHELL          = -I $(TOP_DIR)/src/shell
 
 # Select either "cgi" or "netcgi" as default CGI implementation (this
 # is normally set in Makefile.config):
@@ -147,10 +148,10 @@ META: META.in
 # general rules:
 
 
-DEP_FILES ?= *.ml *.mli
+DEP_FILES ?= $(wildcard *.ml) $(wildcard *.mli)
 
 depend: $(DEP_FILES)
-	$(OCAMLDEP) *.ml *.mli >depend || { rm -f depend; exit 1; }
+	$(OCAMLDEP) *.ml *.mli >$@ || { rm -f $@; exit 1; }
 
 .PHONY: clean
 clean::

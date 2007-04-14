@@ -450,7 +450,7 @@ object(self)
      "" instead. *)
   method cgi_gateway_interface = Conf.gateway_interface
   method cgi_server_name = try Request.hostname r with Not_found -> ""
-  method cgi_server_port = Some(Server.port(Request.server r))
+  method cgi_server_port = Some(Request.port r)
   method cgi_server_protocol = try Request.protocol r with Not_found -> ""
   method cgi_server_software = Conf.server_software
   method cgi_request_method = try Request.method_name r with Not_found -> ""

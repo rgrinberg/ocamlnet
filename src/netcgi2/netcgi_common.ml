@@ -1292,7 +1292,7 @@ object(self)
 		else "http", 80
 	    | `Other ->
 		raise(HTTP(`Not_implemented,
-			   "Cannot cope with the protocol (Netcgi.cgi#url)"))
+			   "Netcgi.cgi#url: Cannot cope with the protocol"))
 	  in
 	  p_scheme ^ "://" ^ env#cgi_server_name
 	  ^ (match env#cgi_server_port with
