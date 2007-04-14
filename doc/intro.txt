@@ -87,6 +87,14 @@ time.
 
 - {!module:Netcgi_porting}: Porting [netcgi1] programs to [netcgi2]
 
+{2:netcgi2 The [netcgi2-apache] library}
+
+This is an Apache connector for the {!netcgi2} library.
+
+{!modules:
+    Netcgi_apache
+    Netcgi_modtpl}
+
 {2:nethttpd The [nethttpd] library}
 
 The [nethttpd] library is a Web server component written in O'Caml. 

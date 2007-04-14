@@ -16,7 +16,6 @@ html-doc:
 		[ "$$p" != "netcgi1" ] || continue; \
 		[ "$$p" != "nethttpd-for-netcgi1" ] || continue; \
 		[ "$$p" != "equeue-gtk2" ] || continue; \
-		[ "$$p" != "netcgi2-apache" ] || continue; \
 		echo "-load ../src/$$p/ocamldoc.dump" >>loadopts.tmp; \
 	done
 	$(OCAMLDOC) -d html-main -stars -t "Ocamlnet 2 Reference Manual" \

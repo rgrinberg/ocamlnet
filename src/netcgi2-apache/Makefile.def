@@ -7,6 +7,7 @@ BUILD_EXTRA = mod_netcgi_apache.so
 INCLUDES += $(INC_NETSTRING) $(INC_NETSYS) $(INC_NETCGI2)
 
 OBJECTS = netcgi_apache.cmo netcgi_modtpl.cmo
+DOBJECTS = netcgi_apache.mli netcgi_modtpl.mli
 
 ALL_EXTRA = mod_netcgi_apache.so
 INSTALL_EXTRA = mod_netcgi_apache.so 500netcgi_apache.info

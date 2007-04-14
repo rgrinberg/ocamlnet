@@ -65,12 +65,17 @@ sig
     type t (** Apache [server_rec] structure. *)
 
     external hostname : t -> string 	= "netcgi2_apache_server_hostname"
-      (** [server_rec] [hostname] field (as declared in Apache
-	  configuration file).
+      (** [server_hostname] field (as declared in Apache configuration file).
 	  @raise Not_found if NULL. *)
     external admin : t -> string	= "netcgi2_apache_server_admin"
+      (** [server_admin] field.
+	  @raise Not_found if NULL. *)
     external port : t -> int		= "netcgi2_apache_server_port"
+      (** [port] field.
+	  @raise Not_found if NULL. *)
     external is_virtual : t -> bool	= "netcgi2_apache_server_is_virtual"
+      (** [is_virtual] field.
+	  @raise Not_found if NULL. *)
   end
 
   module Connection :
@@ -78,8 +83,11 @@ sig
     type t (** Apache [conn_rec] structure. *)
 
     external remote_ip : t -> string 	= "netcgi2_apache_connection_remote_ip"
-      (** [conn_rec] [remote_ip] field. Throws [Not_found] if NULL. *)
+      (** [conn_rec] [remote_ip] field.
+          @raise Not_found if NULL. *)
     external remote_host : t -> string = "netcgi2_apache_connection_remote_host"
+      (** [conn_rec] [remote_host] field.
+          @raise Not_found if NULL. *)
   end
 
   module Request :
@@ -92,13 +100,17 @@ sig
     external server : t -> Server.t 	= "netcgi2_apache_request_server"
       (** [request_rec] [server] field. *)
     external next : t -> t 		= "netcgi2_apache_request_next"
-      (** [request_rec] [next] field. Raises [Not_found] if NULL. *)
+      (** [request_rec] [next] field.
+          @raise Not_found if NULL. *)
     external prev : t -> t 		= "netcgi2_apache_request_prev"
-      (** [request_rec] [prev] field. Raises [Not_found] if NULL. *)
+      (** [request_rec] [prev] field.
+          @raise Not_found if NULL. *)
     external main : t -> t 		= "netcgi2_apache_request_main"
-      (** [request_rec] [main] field. Raises [Not_found] if NULL. *)
+      (** [request_rec] [main] field.
+          @raise Not_found if NULL. *)
     external the_request : t -> string 	= "netcgi2_apache_request_the_request"
-      (** [request_rec] [the_request] field. Throws [Not_found] if NULL. *)
+      (** [request_rec] [the_request] field.
+          @raise Not_found if NULL. *)
     external assbackwards : t -> bool	= "netcgi2_apache_request_assbackwards"
       (** [request_rec] [assbackwards] field; [true] if HTTP/0.9,
 	  "simple" request. *)
@@ -152,27 +164,32 @@ sig
       (** [request_rec] [notes] field. *)
     external content_type : t -> string
       = "netcgi2_apache_request_content_type"
-      (** [request_rec] [content_type] field. Throws [Not_found] if NULL. *)
+      (** [request_rec] [content_type] field.
+          @raise Not_found if NULL. *)
     external set_content_type : t -> string -> unit
       = "netcgi2_apache_request_set_content_type"
       (** Set [request_rec] [content_type] field. *)
 
     external uri : t -> string = "netcgi2_apache_request_uri"
-      (** [request_rec] [uri] field. Throws [Not_found] if NULL. *)
+      (** [request_rec] [uri] field.
+          @raise Not_found if NULL. *)
     external set_uri : t -> string -> unit = "netcgi2_apache_request_set_uri"
       (** Set [request_rec] [uri] field. *)
     external filename : t -> string = "netcgi2_apache_request_filename"
-      (** [request_rec] [filename] field. Throws [Not_found] if NULL. *)
+      (** [request_rec] [filename] field.
+          @raise Not_found if NULL. *)
     external set_filename : t -> string -> unit
       = "netcgi2_apache_request_set_filename"
       (** Set [request_rec] [filename] field. *)
     external path_info : t -> string = "netcgi2_apache_request_path_info"
-      (** [request_rec] [path_info] field. Throws [Not_found] if NULL. *)
+      (** [request_rec] [path_info] field.
+          @raise Not_found if NULL. *)
     external set_path_info : t -> string -> unit
       = "netcgi2_apache_request_set_path_info"
       (** Set [request_rec] [path_info] field. *)
     external args : t -> string = "netcgi2_apache_request_args"
-      (** [request_rec] [args] field. Throws [Not_found] if NULL. *)
+      (** [request_rec] [args] field.
+          @raise Not_found if NULL. *)
     external set_args : t -> string -> unit
       = "netcgi2_apache_request_set_args"
       (** Set [request_rec] [args] field. *)
@@ -240,7 +257,7 @@ sig
 
     val rflush : t -> unit
       (** Flush any buffered data waiting to be written to the client.
-          @raise End_of_file  *)
+          @raise End_of_file if it is not possible. *)
 
     external print_char : t -> char -> unit =
       "netcgi2_apache_request_print_char"
@@ -270,6 +287,7 @@ end
 
 (* ---------------------------------------------------------------------- *)
 
+(** Registering Apache handlers. *)
 module Handler :
 sig
   type result =
@@ -337,12 +355,18 @@ val run :
 
 (** {2:setup Setup}
 
-    {3 Apache 1.x}
+    {3 Apache 1.3}
 
     You need to put in an Apache configuration file (we recommend
-    /etc/apache/conf.d/netcgi_apache.conf) the following line:
+    /etc/apache/conf.d/netcgi_apache.conf) the following lines:
     {v
-    LoadModule netcgi_module /usr/lib/apache/1.x/mod_netcgi_apache.so
+    LoadModule netcgi_module /usr/lib/apache/1.3/mod_netcgi_apache.so
+    NetcgiLoad pcre/pcre.cma
+    NetcgiLoad netsys/netsys.cma
+    NetcgiLoad netstring/netstring.cma
+    NetcgiLoad str.cma
+    NetcgiLoad netcgi2/netcgi.cma
+    NetcgiLoad netcgi2-apache/netcgi_apache.cma
     v}
 
     {3 Apache 2.2 or later}
@@ -351,6 +375,12 @@ val run :
     /etc/apache2/mods-available/netcgi_apache.load) the following line:
     {v
     LoadModule netcgi_module /usr/lib/apache2/modules/mod_netcgi_apache.so
+    NetcgiLoad pcre/pcre.cma
+    NetcgiLoad netsys/netsys.cma
+    NetcgiLoad netstring/netstring.cma
+    NetcgiLoad str.cma
+    NetcgiLoad netcgi2/netcgi.cma
+    NetcgiLoad netcgi2-apache/netcgi_apache.cma
     v}
     and make a symbolic link from /etc/apache2/mods-enabled/ to it to
     actually enable it.  Subsequent configuration is recommended to be
@@ -360,7 +390,7 @@ val run :
     {3 Loading libraries}
 
     If your scripts depend on other libraries, you need to load them
-    using NetcgiLoad.  More specifically, if your library is x.cma and
+    using [NetcgiLoad].  More specifically, if your library is x.cma and
     is in the subdirectory y of standard OCaml directory (given by
     `ocamlc -where`), use
     {v
@@ -368,6 +398,7 @@ val run :
     v}
     If x.cma is not in a subdirectory of `ocamlc -where`, you need to
     specify the full path.
+
 
     {3 Installing scripts}
 
@@ -383,10 +414,19 @@ val run :
       Allow from all
     </Location>
     v}
-    or by distinguishing them by their extension (here [.cmo]):
+    or by distinguishing them by their extension (here [.cma]):
     {v
     NetcgiHandler Netcgi_apache.bytecode
-    AddHandler ocaml-bytecode .cmo
+    AddHandler ocaml-bytecode .cma
     v}
+
+    {3 Compiling scripts}
+
+    If your script reside in the file [x.ml], compile it to [x.cma].
+    You need not include the [netcgi_apache.cma], [netcgi.cma],
+    [netstring.cma], [netsys.cma], or [pcre.cma] modules as these are
+    already loaded into Apache (see above).  If youe script depends on
+    other libraries, you may either load them with [NetcgiLoad] (see
+    above) or include them in [x.cma].
 *)
 

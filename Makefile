@@ -34,7 +34,7 @@ opt:
 .PHONY: doc
 doc:
 	for pkg in src/*/.; do \
-	    test ! -f $$pkg/Makefile -o $$pkg = src/netcgi2-apache/. || \
+	    test ! -f $$pkg/Makefile || \
 		{ ( cd $$pkg && $(MAKE) -f Makefile.pre generate ) || exit; \
 		  ( cd $$pkg && $(MAKE) -f Makefile.pre depend ) || exit; \
 		  ( cd $$pkg && $(MAKE) ocamldoc.dump ) || exit; \

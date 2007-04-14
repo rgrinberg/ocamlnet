@@ -119,7 +119,8 @@ val handle_request :
     with mod_jk}.
 
     In httpd.conf or in a file, say mod_jk.conf, in
-    /etc/apache{,2}/conf.d/, add the following:
+    /etc/apache2/conf.d/ (or /etc/apache2/conf.d/ for Apache 1.x), add
+    the following:
     {v
     # Shared memory file name (Unix only).  The parent dir must exist.
     JkShmFile  /var/tmp/jk-runtime-status
