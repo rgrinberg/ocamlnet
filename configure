@@ -786,7 +786,7 @@ AUTHDHREQS = $adh_reqs
 # For -enable-apache
 APACHE_MAJOR = $apache_major
 APACHE_LIBDIR = $apache_libdir
-APACHE_OCAMLLIBS = -lcamlrun -ltermcap -lunix -lstr -lpcre_stubs -lnetsys
+APACHE_OCAMLLIBS = -lcamlrun -ltermcap -lunix -lstr
 APACHE_INCDIR = $apache_incdir
 APACHE_CONFDIR = $apache_confdir
 APACHE_LDFLAGS_SHLIB = $apache_ldflags_shlib

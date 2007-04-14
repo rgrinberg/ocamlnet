@@ -238,10 +238,9 @@ sig
 	  and Content-Type with [set_status] and [set_content_type]
 	  respectively. *)
 
-    external rflush : t -> int
-      = "netcgi2_apache_request_rflush"
+    val rflush : t -> unit
       (** Flush any buffered data waiting to be written to the client.
-          Returns [0] on success and [-1] for EOF.  *)
+          @raise End_of_file  *)
 
     external print_char : t -> char -> unit =
       "netcgi2_apache_request_print_char"
@@ -292,9 +291,9 @@ sig
   val register : t -> string -> unit
     (** Modules may call [register fn name] to register one or more
         handler functions.  The handler functions are then referred to
-        in the [Caml*Handler] configuration commands as
+        in the [Netcgi*Handler] configuration commands as
         [Module_name.name] where [Module_name] is derived from the
-        filename (given to the [CamlLoad] directive) and [name] is the
+        filename (given to the [NetcgiLoad] directive) and [name] is the
         string passed here.  *)
 end
 

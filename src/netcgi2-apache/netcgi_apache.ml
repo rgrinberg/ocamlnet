@@ -30,138 +30,29 @@ module Handler = Netcgi_apache_mod.Handler
 
 module Apache =
 struct
-  (* Forked from mod_caml on May 29, 2006 and adapted to be closer to
-     netcgi conventions. *)
+  (* Here we shadow some external functions of the Apache stub to make
+     them safer or respecting Netcgi conventions. *)
 
-  (* If the return code [i] is an error, raise HTTP with the message [msg]. *)
-  let possible_error msg i : unit =
-    (* DECLINED -1, DONE -2, OK 0 *)
-    if i > 0 then raise(HTTP(Nethttp.http_status_of_int i, msg))
-
-  module Table = struct (* Table functions. *)
-    type t
-    external clear : t -> unit			= "netcgi2_apache_table_clear"
-    external get : t -> string -> string	= "netcgi2_apache_table_get"
-    external get_all : t -> string -> string list
-      = "netcgi2_apache_table_get_all"
-    external fields : t -> (string * string) list
-      = "netcgi2_apache_table_fields"
-    external set : t -> string -> string -> unit	= "netcgi2_apache_table_set"
-    external add : t -> string -> string -> unit	= "netcgi2_apache_table_add"
-    external unset : t -> string -> unit	= "netcgi2_apache_table_unset"
-
-  (*
-    Non-copying version. Not a great idea to allow access to this.
-    external setn : t -> string -> string -> unit = "netcgi2_apache_table_setn"
-  *)
-
-  (* ... etc ... *)
-  end
-
-
-  module Server = struct  (* Server_rec functions. *)
-    type t				(* Actual server_rec structure. *)
-    external hostname : t -> string 	= "netcgi2_apache_server_hostname"
-    external admin : t -> string	= "netcgi2_apache_server_admin"
-    external port : t -> int		= "netcgi2_apache_server_port"
-    external is_virtual : t -> bool	= "netcgi2_apache_server_is_virtual"
-
-  (* ... etc ... *)
-  end
-
-  module Connection = (* Conn_rec functions. *)
-  struct
-    type t				(* Actual conn_rec structure. *)
-
-    external remote_ip : t -> string = "netcgi2_apache_connection_remote_ip"
-    external remote_host : t -> string = "netcgi2_apache_connection_remote_host"
-
-  (* ... etc ... *)
-  end
-
+  module Table = Netcgi_apache_mod.Raw_Apache.Table
+  module Server = Netcgi_apache_mod.Raw_Apache.Server
+  module Connection = Netcgi_apache_mod.Raw_Apache.Connection
 
   module Request = struct (* Request_rec functions. *)
-    type t = Netcgi_apache_mod.apache_request (* request_rec structure. *)
+    include Netcgi_apache_mod.Raw_Apache.Request
 
-    external connection : t -> Connection.t
-      = "netcgi2_apache_request_connection"
-    external server : t -> Server.t	= "netcgi2_apache_request_server"
-    external next : t -> t		= "netcgi2_apache_request_next"
-    external prev : t -> t		= "netcgi2_apache_request_prev"
-    external main : t -> t		= "netcgi2_apache_request_main"
-    external the_request : t -> string	= "netcgi2_apache_request_the_request"
-    external assbackwards : t -> bool	= "netcgi2_apache_request_assbackwards"
+    (* If the return code [i] is an error, raise HTTP with the message [msg]. *)
+    let possible_error msg i : unit =
+      (* DECLINED -1, DONE -2, OK 0 *)
+      if i > 0 then raise(HTTP(Nethttp.http_status_of_int i, msg))
 
-    external header_only : t -> bool	= "netcgi2_apache_request_header_only"
-    external protocol : t -> string	= "netcgi2_apache_request_protocol"
-    external proto_num : t -> int	= "netcgi2_apache_request_proto_num"
-    external hostname : t -> string	= "netcgi2_apache_request_hostname"
-    external request_time : t -> float	= "netcgi2_apache_request_request_time"
-    external status_line : t -> string	= "netcgi2_apache_request_status_line"
-    external set_status_line : t -> string -> unit
-      = "netcgi2_apache_request_set_status_line"
-    external status : t -> int		  = "netcgi2_apache_request_status"
-    external set_status : t -> int -> unit = "netcgi2_apache_request_set_status"
-    external method_name : t -> string	  = "netcgi2_apache_request_method"
-    external method_number : t -> int = "netcgi2_apache_request_method_number"
-    let request_methods =
-      [| `GET; `PUT; `POST; `DELETE; `CONNECT; `OPTIONS; `TRACE; `PATCH;
-         `PROPFIND; `PROPPATCH; `MKCOL; `COPY; `MOVE; `LOCK; `UNLOCK;
-         `INVALID |]
-    let method_number r =
-      let n = method_number r in
-      if n < 0 || n >= Array.length request_methods then assert false;
-      Array.unsafe_get request_methods n
-
-    external headers_in : t -> Table.t	  = "netcgi2_apache_request_headers_in"
-    external headers_out : t -> Table.t	  = "netcgi2_apache_request_headers_out"
-    external err_headers_out : t -> Table.t
-      = "netcgi2_apache_request_err_headers_out"
-    external subprocess_env : t -> Table.t
-      = "netcgi2_apache_request_subprocess_env"
-    external notes : t -> Table.t	  = "netcgi2_apache_request_notes"
-    external content_type : t -> string = "netcgi2_apache_request_content_type"
-    external set_content_type : t -> string -> unit
-      = "netcgi2_apache_request_set_content_type"
-
-    external uri : t -> string		  = "netcgi2_apache_request_uri"
-    external set_uri : t -> string -> unit = "netcgi2_apache_request_set_uri"
-    external filename : t -> string	  = "netcgi2_apache_request_filename"
-    external set_filename : t -> string -> unit
-      = "netcgi2_apache_request_set_filename"
-    external path_info : t -> string	  = "netcgi2_apache_request_path_info"
-    external set_path_info : t -> string -> unit
-      = "netcgi2_apache_request_set_path_info"
-    external args : t -> string		  = "netcgi2_apache_request_args"
-    external set_args : t -> string -> unit = "netcgi2_apache_request_set_args"
-    external finfo : t -> Unix.stats option = "netcgi2_apache_request_finfo"
-
-    external send_http_header : t -> unit
-      = "netcgi2_apache_request_send_http_header"
-
-    external rflush : t -> int		= "netcgi2_apache_request_rflush"
-
-    type read_policy = NO_BODY
-                       | CHUNKED_ERROR
-		       | CHUNKED_DECHUNK
-		       | CHUNKED_PASS
-
-    external setup_client_block : t -> read_policy -> int
-      = "netcgi2_apache_request_setup_client_block"
     let setup_client_block r p =
       possible_error "Netcgi_apache.Apache.Request.setup_client_block"
         (setup_client_block r p)
 
-    external should_client_block : t -> bool
-      = "netcgi2_apache_request_should_client_block"
-    external get_client_block : t -> string
-      = "netcgi2_apache_request_get_client_block"
     let get_client_block r =
       try get_client_block r
       with Failure msg -> raise(HTTP(`Internal_server_error, msg))
 
-    external get_client_block_buffer : t -> string -> int -> int -> int
-      = "netcgi2_apache_request_get_client_block_buffered"
     let get_client_block_buf r buf ofs len =
       if ofs < 0 || ofs + len > String.length buf then
         invalid_arg "Netcgi_apache.Apache.Request.get_client_block_buf";
@@ -171,122 +62,18 @@ struct
                   "Netcgi_apache.Apache.Request.get_client_block_buf"))
       else r
 
-    external discard_request_body : t -> int
-      = "netcgi2_apache_request_discard_request_body"
     let discard_request_body r =
       possible_error "Netcgi_apache.Apache.Request.discard_request_body"
         (discard_request_body r)
 
-    external user : t -> string		  = "netcgi2_apache_request_user"
-      (* In Apache 1.3 this field is actually in the [conn_rec]
-         structure, and was moved here in Apache 2.0.  We
-         transparently hide this detail for you. *)
-    external auth_type : t -> string = "netcgi2_apache_auth_type"
-    external note_auth_failure : t -> unit
-      = "netcgi2_apache_request_note_auth_failure"
-    external note_basic_auth_failure : t -> unit
-      = "netcgi2_apache_request_note_basic_auth_failure"
-    external note_digest_auth_failure : t -> unit
-      = "netcgi2_apache_request_note_digest_auth_failure"
-    external get_basic_auth_pw : t -> int * string option
-      = "netcgi2_apache_request_get_basic_auth_pw"
     let get_basic_auth_pw r =
       let i, pw = get_basic_auth_pw r in
       possible_error "Netcgi_apache.Apache.Request.get_basic_auth_pw" i;
       pw
 
-    external internal_redirect : string -> t -> unit
-      = "netcgi2_apache_request_internal_redirect"
-    external internal_redirect_handler : string -> t -> unit
-      = "netcgi2_apache_request_internal_redirect_handler"
-
-    external print_char : t -> char -> unit
-      = "netcgi2_apache_request_print_char"
-
-    external unsafe_output : t -> string -> int -> int -> int
-      = "netcgi2_apache_request_output"
-    let output r s ofs len =
-      if ofs < 0 || len < 0 || ofs + len > String.length s then
-        invalid_arg "Netcgi_apache.Apache.Request.output";
-      unsafe_output r s ofs len
-
-    let print_string r s =
-      let n = String.length s in
-      let i = ref 0 in
-      while !i < n do
-        let w = unsafe_output r s !i (n - !i) in
-        if w <= 0 then failwith "print_string: end of file or error";
-        i := !i + w;
-      done
-
-    let print_int r i =     print_string r (string_of_int i)
-    let print_float r f =   print_string r (string_of_float f)
-    let print_newline r =   print_string r "\r\n"
-    let print_endline r s = print_string r s; print_newline r
-
-    (* ... etc ... *)
-
-    external register_cleanup : t -> (unit -> unit) -> unit
-      = "netcgi2_apache_request_register_cleanup"
+    let rflush r =
+      if rflush r < 0 then raise End_of_file
   end
-
-
-  (* Unless we actually reference the external C functions, OCaml
-     doesn't load them into the primitive table and we won't be able to
-     access them.  Duh!  *)
-  let _table_get = Table.get
-  let _table_set = Table.set
-  let _table_add = Table.add
-  let _table_unset = Table.unset
-  let _server_hostname = Server.hostname
-  let _connection_remote_ip = Connection.remote_ip
-  let _request_connection = Request.connection
-  let _request_server = Request.server
-  let _request_next = Request.next
-  let _request_prev = Request.prev
-  let _request_main = Request.main
-  let _request_the_request = Request.the_request
-  let _request_assbackwards = Request.assbackwards
-  let _request_header_only = Request.header_only
-  let _request_protocol = Request.protocol
-  let _request_proto_num = Request.proto_num
-  let _request_hostname = Request.hostname
-  let _request_request_time = Request.request_time
-  let _request_status_line = Request.status_line
-  let _request_set_status_line = Request.set_status_line
-  let _request_status = Request.status
-  let _request_set_status = Request.set_status
-  let _request_method_name = Request.method_name
-  let _request_method_number = Request.method_number
-  let _request_headers_in = Request.headers_in
-  let _request_headers_out = Request.headers_out
-  let _request_err_headers_out = Request.err_headers_out
-  let _request_subprocess_env = Request.subprocess_env
-  let _request_notes = Request.notes
-  let _request_content_type = Request.content_type
-  let _request_set_content_type = Request.set_content_type
-  let _request_user = Request.user
-  let _request_uri = Request.uri
-  let _request_set_uri = Request.set_uri
-  let _request_filename = Request.filename
-  let _request_set_filename = Request.set_filename
-  let _request_path_info = Request.path_info
-  let _request_set_path_info = Request.set_path_info
-  let _request_args = Request.args
-  let _request_set_args = Request.set_args
-  let _request_finfo = Request.finfo
-  let _request_send_http_header = Request.send_http_header
-  let _request_setup_client_block = Request.setup_client_block
-  let _request_should_client_block = Request.should_client_block
-  let _request_get_client_block = Request.get_client_block
-  let _request_discard_request_body = Request.discard_request_body
-  let _request_note_auth_failure = Request.note_auth_failure
-  let _request_note_basic_auth_failure = Request.note_basic_auth_failure
-  let _request_note_digest_auth_failure = Request.note_digest_auth_failure
-  let _request_get_basic_auth_pw = Request.get_basic_auth_pw
-  let _request_internal_redirect = Request.internal_redirect
-  let _request_internal_redirect_handler = Request.internal_redirect_handler
-  let _request_register_cleanup = Request.register_cleanup
 
 end (* module Apache -------------------------------------------------- *)
 
@@ -454,8 +241,8 @@ object(self)
 
   method flush () =
     if closed then raise Netchannels.Closed_channel;
-    if Request.rflush r < 0 then
-      raise(Sys_error "Netcgi_apache#out_channel#flush")
+    try Request.rflush r
+    with _ -> raise(Sys_error "Netcgi_apache#out_channel#flush: EOF")
 
   method close_out () = (* Apache closes the channel itself *)
     if closed then raise Netchannels.Closed_channel;
@@ -817,7 +604,7 @@ let run ?(config=Netcgi.default_config)
 (************************************************************************)
 (** Registry *)
 
-(* This partis loosely based on mod_caml Registry *)
+(* This part is loosely based on mod_caml Registry *)
 
 
 (* This is an error page for the exceptions launched before the
@@ -902,8 +689,7 @@ let handler r =
 	Hashtbl.add loaded_scripts filename (handler, mtime);
 	handler in
 
-    (* Run the script.  Exceptions passed upwards are handled in
-       mod_caml_c.c: exception_in_handler *)
+    (* Run the script. *)
     script r
   with Error(status, log_msg, user_msg) ->
     error_page r status log_msg user_msg;
@@ -916,4 +702,4 @@ let handler r =
 let () =
   (* We are in the same module than the Handler (no bytecode to load),
      so specify the full module name to use. *)
-  Handler.register_module handler "Netcgi_apache.bytecode"
+  Handler.register handler "bytecode"

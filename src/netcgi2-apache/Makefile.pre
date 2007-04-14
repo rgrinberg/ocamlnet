@@ -14,9 +14,9 @@ config.h: config.h.in
 	-e 's,@APACHE_MAJOR@,$(APACHE_MAJOR),g' \
 	< $< > $@
 
-netcgi_apache-mod.ml: netcgi_apache_mod.ml.in
+netcgi_apache_mod.ml: netcgi_apache_mod.ml.in
 	sed -e 's,@APACHE_OCAMLLIBDIR@,$(APACHE_OCAMLLIBDIR),g' \
-	-e 's,@PACKAGE@,$(PACKAGE),g' \
+	-e 's,@PKGNAME@,$(PKGNAME),g' \
 	-e 's,@VERSION@,$(VERSION),g' \
 	-e 's,@APACHE_MAJOR@,$(APACHE_MAJOR),g' \
 	-e 's,@APACHE_LIBDIR@,$(APACHE_LIBDIR),g' \

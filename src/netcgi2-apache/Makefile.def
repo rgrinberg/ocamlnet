@@ -6,8 +6,6 @@ BUILD_EXTRA = mod_netcgi_apache.so
 
 INCLUDES += $(INC_NETSTRING) $(INC_NETSYS) $(INC_NETCGI2)
 
-CMA_SO = unix.cma str.cma pcre.cma netsys.cma netstring.cma netcgi.cma
-
 OBJECTS = netcgi_apache.cmo netcgi_modtpl.cmo
 
 ALL_EXTRA = mod_netcgi_apache.so
@@ -29,16 +27,13 @@ include $(TOP_DIR)/Makefile.rules
 # %.o: %.c
 # 	$(APACHE_CC) $(APACHE_CFLAGS) -I $(APACHE_OCAMLLIBDIR) -c $<
 
-# %.lo: %.c
-# 	$(APXS) -c -I$(APACHE_OCAMLLIBDIR) $<
-
 # mod_netcgi_apache.so: netcgi_apache.cmo apache.o handler.o wrappers.o
 # 	$(OCAMLC) -o $@ -linkall -custom -cclib -shared \
 # 	  dynlink.cma $(CMA_SO) \
 # 	  $(patsubst %.o, ./.libs/%.o, $^) \
 # 	  -cclib '$(APACHE_CFLAGS) $(APACHE_LDFLAGS_SHLIB) $(APACHE_OCAMLLIBS)'
 
-MOD_OBJECTS := apache.o handler.o wrappers.o netcgi_apache_byte.o
+MOD_OBJECTS := wrappers.o handler.o apache.o netcgi_apache_mod.o
 
 # must be after the `include' for APACHE_MAJOR to be defined
 ifeq ($(APACHE_MAJOR),2)
@@ -53,9 +48,10 @@ mod_netcgi_apache.so: $(MOD_OBJECTS)
 	$(APXS) -c -o $@ $^ -L$(APACHE_OCAMLLIBDIR) $(APACHE_OCAMLLIBS)
 	test -f .libs/$@ && cp .libs/$@ .
 
-netcgi_apache_byte.lo: netcgi_apache_byte.o
-netcgi_apache_byte.o: netcgi_apache.cmo
-	$(OCAMLC) -output-obj -o $@ -cc '$(APXS) -c' dynlink.cma $(CMA_SO) $^
+netcgi_apache_mod.lo: netcgi_apache_mod.o
+netcgi_apache_mod.o: netcgi_apache_mod.cmo
+	$(OCAMLC) -output-obj -o $@ -cc '$(APXS) -c' -linkall \
+	  dynlink.cma unix.cma $^
 
 %.o: %.c
 	$(APXS) -c -I$(APACHE_OCAMLLIBDIR) $<
