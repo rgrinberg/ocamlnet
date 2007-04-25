@@ -20,7 +20,7 @@ let template = T.template_from_string "\
   <p>
     This is a simple form which POSTs data to the script:
   </p>
-  <form method=\"post\" action=\"params.cmo\">
+  <form method=\"post\" action=\"::self::\">
     Name: <input name=\"name\" value=\"\">
     <input type=\"submit\" name=\"submit\" value=\"Send\">
   </form>
@@ -35,6 +35,7 @@ let display_params (cgi:cgi) =
   ) cgi#arguments in
   template#set "title" "Params demonstration CGI script";
   template#table "params" table;
+  template#set "self" (cgi#url());
   template#output cgi
 
 
