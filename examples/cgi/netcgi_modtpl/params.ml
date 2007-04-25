@@ -35,6 +35,8 @@ let display_params (cgi:cgi) =
   ) cgi#arguments in
   template#set "title" "Params demonstration CGI script";
   template#table "params" table;
+  (* Note the unescaped "self" parameter that allows to locate and
+     name the script the way you like. *)
   template#set "self" (cgi#url());
   template#output cgi
 
