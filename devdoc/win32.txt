@@ -1,0 +1,101 @@
+Investigations on porting ocamlnet to win32
+
+Problems:
+
+- No Unix.fork
+
+  1. Netplex
+
+  This just means we cannot support Netplex multi-processing. This is
+  ok as long as at least multi-threading works. Multi-processing is 
+  simply no win32 thing.
+
+  2. The Shell library
+
+  Shell is currently a wrapper around fork/exec. This is ok for Unix,
+  and makes a lot of things possible that do not work with
+  Unix.open_process. The question arises what a powerful
+  command-calling library has to look like for win32:
+
+  * Command pipelines
+  * Descriptor redirections
+  * Changing environment and cwd
+  * Drivers to write data to the command/read data from the command
+
+  The last point is the most complicated, as we get pipe handles to do
+  the multiplexing, i.e. we have to emulate Unix.select for pipe
+  handles.
+
+- Unix.select works only for sockets
+
+  This is no real limitation, as we are mostly interested in sockets.
+  However, there a few usages of non-sockets, and we must find
+  workarounds.
+
+  1. Multi-threaded Unixqueues
+  
+  If unixqueues are used in multi-threaded programs, we add a pipe
+  descriptor to the set of descriptors to Unix.select. The purpose is
+  to wake up Unix.select when a different thread adds events to the
+  unixqueue. We are very interested to make the multi-threaded case
+  working under win32, so this is a real issue.
+
+  Unfortunately, there are no socketpairs under win32. So we have to
+  find another method.
+
+  The clean solution is to use "overlapped I/O" and emulate
+  Unix.select (or implement the whole Unixqueue) on top of
+  WSAWaitForMultipleEvents after associating Windows events with the
+  file descriptors. Difficulties: Requires winsock2 but the O'Caml
+  runtime binds to the winsock 1.1 compatibility DLL, so it is unclear
+  whether this is available at all. Furthermore, it is unclear whether
+  the other socket functions need to be changed. I'm not familiar with
+  the details.
+
+  PostgreSQL emulates Unix.select this way:
+
+  Link: http://developer.postgresql.org/cvsweb.cgi/pgsql/src/backend/port/win32/#dirlist
+
+  By searching in the Internet, I found another approach. One can
+  schedule that an APC is run by the thread calling Unix.select.  This
+  APC then can take measures to stop Unix.select. It is reported that
+  calling a socket function is sufficient to get this behavior.
+  Disadvantage of this approach: Relies on undocumented win32
+  "features". (APC is poorly documented.)
+
+  Link: http://archives.postgresql.org/pgsql-hackers-win32/2004-03/msg00061.php
+
+  Another approach: Emulate socketpair using IPv4 sockets. This is
+  quite heavy-weight, and a bad choice for a frequently used
+  notification mechanism.
+
+  Further links on win32 sockets:
+
+  - http://tangentsoft.net/wskfaq/, especially
+    http://tangentsoft.net/wskfaq/articles/bsd-compatibility.html
+
+  - http://msdn2.microsoft.com/en-us/library/ms740673.aspx
+
+  - http://www.datanerds.net/~mike/libevent.html
+    (A better win32 port of the libevent API than the original 
+    libevent distribution. Seems to handle non-sockets well.)
+
+  2. Netplex
+
+  The Netplex controller communicates with the Netplex containers over
+  socketpairs. As these are not supported, the question arises how to
+  do the same under Windows.
+
+  As the multiprocessing option of Netplex does not work at all under
+  win32 (no fork syscall), we only need support for multi-threading.
+  Of course, we can assume here that we solved problem 1 already;
+  unixqueues are elementary for Netplex.
+
+  The solution is to bypass sockets for process-local RPC calls.
+  Instead of marshalling the RPC call to a string only to unmarshal it
+  in the same process, we directly pass the RPC call from the client
+  to the server. Unixqueues support custom events that can have any
+  type, so making an RPC call just means to add such a custom event
+  to the Unixqueue, and receiving a call means to fetch it from the
+  queue. We would need, however, a process-global registry for
+  the unixqueues in order to name these.
