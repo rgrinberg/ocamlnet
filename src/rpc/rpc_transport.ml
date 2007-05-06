@@ -551,7 +551,10 @@ let stream_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
     try
       `Sockaddr(Unix.getpeername fd)
     with
-      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP|Unix.ENOTSOCK),
+	(* also catching ENOTCONN - which might happen for strange socket
+           implementations
+         *)
+      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP|Unix.ENOTSOCK|Unix.ENOTCONN),
 			_,_) -> `Implied in
   let mplex = 
     Uq_engines.create_multiplex_controller_for_connected_socket
