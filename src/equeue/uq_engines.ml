@@ -1441,6 +1441,7 @@ let anyway ~finally f arg =
 type fd_style =
     [ `Read_write
     | `Recv_send of Unix.sockaddr
+    | `Recv_send_implied
     | `Recvfrom_sendto
     ]
 
@@ -1461,6 +1462,12 @@ class socket_multiplex_controller
       | Unix.Unix_error(Unix.ENOTSOCK,_,_) -> 
 	  (* fd is not a socket *)
 	  `Read_write
+      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP),_,_) ->
+	  (* EAFNOSUPPORT is returned by the OCaml runtime for unexpected
+             socket names. EOPNOTSUPP is the official SUS code for 
+             sockets lacking an address.
+           *)
+	  `Recv_send_implied
   in
 
 object(self)
@@ -1491,7 +1498,7 @@ object(self)
 
   method received_from =
     match rcvd_from with
-      | None -> failwith "#received_from: Nothing received yet"
+      | None -> failwith "#received_from: Nothing received yet, or unknown address"
       | Some a -> a
 
   method send_to a =
@@ -1680,6 +1687,8 @@ object(self)
 			      let n = Unix.recv fd s pos len [] in
 			      rcvd_from <- Some a;
 			      n
+			  | `Recv_send_implied ->
+			      Unix.recv fd s pos len []
 			  | `Recvfrom_sendto ->
 			      let (n, a) = Unix.recvfrom fd s pos len [] in
 			      rcvd_from <- Some a;
@@ -1746,7 +1755,7 @@ object(self)
 		    try
 		      let n = 
 			match fd_style with
-			  | `Recv_send _ ->
+			  | `Recv_send _ | `Recv_send_implied ->
 			      Unix.send fd s pos len []
 			  | `Recvfrom_sendto ->
 			      ( match send_to with

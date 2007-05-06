@@ -222,11 +222,25 @@ end
 
 
 let datagram_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
-  let sockname = `Sockaddr(Unix.getsockname fd) in
+  let sockname = 
+    try
+      `Sockaddr(Unix.getsockname fd) 
+    with
+	(* The OCaml runtime sometimes returns EAFNOSUPPORT when asked
+           for inaccessible socket names. EOPNOTSUPP is documented
+           by SUS.
+         *)
+      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP),_,_) -> `Implied in
   let peername_opt =
     try Some(`Sockaddr(Unix.getpeername fd))
     with
-      | _ -> None in
+      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP),_,_) -> 
+	  Some `Implied
+      | Unix.Unix_error(Unix.ENOTCONN,_,_) -> 
+	  (* ENOTCONN is special because we allow to set the peer address
+             per datagram in this case!
+           *)
+	  None in
   let mplex = 
     Uq_engines.create_multiplex_controller_for_datagram_socket
       ~close_inactive_descr
@@ -521,8 +535,24 @@ end
 
 
 let stream_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
-  let sockname = `Sockaddr(Unix.getsockname fd) in
-  let peername = `Sockaddr(Unix.getpeername fd) in
+  let sockname = 
+    try
+      `Sockaddr(Unix.getsockname fd) 
+    with
+	(* The OCaml runtime sometimes returns EAFNOSUPPORT when asked
+           for inaccessible socket names. EOPNOTSUPP is documented
+           by SUS. We also catch ENOTSOCK to allow using RPC with
+           bidirectional pipes that are not socket-based (i.e. SysV
+           bidirectional pipes).
+         *)
+      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP|Unix.ENOTSOCK),
+			_,_) -> `Implied in
+  let peername = 
+    try
+      `Sockaddr(Unix.getpeername fd)
+    with
+      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP|Unix.ENOTSOCK),
+			_,_) -> `Implied in
   let mplex = 
     Uq_engines.create_multiplex_controller_for_connected_socket
       ~close_inactive_descr
