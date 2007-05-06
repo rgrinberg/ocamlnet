@@ -42,7 +42,7 @@ file_engine: file_engine.ml
 		file_engine.ml -linkpkg -g
 
 netplex: netplex.ml
-	ocamlfind ocamlc -o netplex -package "netstring,cgi,unix,nethttpd,netplex" \
+	ocamlfind ocamlc -o netplex -package "netstring,netcgi2,unix,nethttpd-for-netcgi2,netplex" \
 		-thread netplex.ml -linkpkg -g
 
 clean:

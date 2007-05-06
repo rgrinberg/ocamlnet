@@ -7,8 +7,7 @@
 (* Dynamic page: The "adder", known from cgi                          *)
 (**********************************************************************)
 
-open Netcgi;;
-open Netcgi_types;;
+open Netcgi1_compat.Netcgi_types;;
 open Printf;;
 
 let text = Netencoding.Html.encode_from_latin1;;
@@ -39,7 +38,7 @@ let end_page cgi =
 ;;
 
 
-let generate_query_page (cgi : cgi_activation) =
+let generate_query_page (cgi : Netcgi.cgi_activation) =
   (* Display the query form. *)
   begin_page cgi "Add Two Numbers";
   let out = cgi # output # output_string in
@@ -62,7 +61,7 @@ let generate_query_page (cgi : cgi_activation) =
 ;;
 
 
-let generate_result_page (cgi : cgi_activation) =
+let generate_result_page (cgi : Netcgi.cgi_activation) =
   (* Compute the result, and display it *)
   begin_page cgi "Sum";
   let out = cgi # output # output_string in
@@ -74,7 +73,7 @@ let generate_result_page (cgi : cgi_activation) =
   out (sprintf "<P><A HREF=\"%s\">Add further numbers</A>\n" 
 	 (text (cgi#url 
 		  ~with_query_string:
-		                   (`Args [new simple_argument "page" "query"])
+		                   (`Args [new Netcgi.simple_argument "page" "query"])
 		  ()
 	       )));
   (* Here, the URL contains the CGI argument "page", but no other arguments. *)
@@ -82,7 +81,7 @@ let generate_result_page (cgi : cgi_activation) =
 ;;
 
 
-let generate_page (cgi : cgi_activation) =
+let generate_page (cgi : Netcgi.cgi_activation) =
   (* Check which page is to be displayed. This is contained in the CGI
    * argument "page".
    *)
@@ -101,7 +100,7 @@ let generate_page (cgi : cgi_activation) =
 ;;
 
 
-let process (cgi : cgi_activation) =
+let process2 (cgi : Netcgi.cgi_activation) =
   (* The [try] block catches errors during the page generation. *)
   try
     (* Set the header. The header specifies that the page must not be
@@ -149,6 +148,12 @@ let process (cgi : cgi_activation) =
 	cgi # output # commit_work()
 ;;
 
+
+let process1 (cgi : Netcgi1_compat.Netcgi_types.cgi_activation) =
+  let cgi' = Netcgi1_compat.Netcgi_types.of_compat_activation cgi in
+  process2 cgi'
+
+
 (**********************************************************************)
 (* Create the webserver                                               *)
 (**********************************************************************)
@@ -174,7 +179,7 @@ let start() =
     else
       Netplex_mp.mp() in  (* multi-processing *)
   let adder =
-    { Nethttpd_services.dyn_handler = (fun _ -> process);
+    { Nethttpd_services.dyn_handler = (fun _ -> process1);
       dyn_activation = Nethttpd_services.std_activation `Std_activation_buffered;
       dyn_uri = None;                 (* not needed *)
       dyn_translator = (fun _ -> ""); (* not needed *)

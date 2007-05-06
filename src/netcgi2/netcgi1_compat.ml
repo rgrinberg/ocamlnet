@@ -257,15 +257,65 @@ struct
     new to_compat_environment
 
   let of_compat_environment (env:cgi_environment) : Netcgi.cgi_environment =
-  object
-    inherit Netcgi_common.cgi_environment
-      ~config:(of_compat_config env#config)
-      ~properties:env#cgi_properties
-      ~input_header:[]
-      env#output_ch
+  object(self)
+    method config = of_compat_config env#config
+    method cgi_gateway_interface  = env#cgi_gateway_interface
+    method cgi_server_software    = env#cgi_server_software
+    method cgi_server_name        = env#cgi_server_name
+    method cgi_server_protocol    = env#cgi_server_protocol
+    method cgi_server_port        = env#cgi_server_port
+    method cgi_request_method     = env#cgi_request_method
+    method cgi_path_info          = env#cgi_path_info
+    method cgi_path_translated    = env#cgi_path_translated
+    method cgi_script_name        = env#cgi_script_name
+    method cgi_query_string       = env#cgi_query_string
+    method cgi_remote_host        = env#cgi_remote_host
+    method cgi_remote_addr        = env#cgi_remote_addr
+    method cgi_auth_type          = env#cgi_auth_type
+    method cgi_remote_user        = env#cgi_remote_user
+    method cgi_remote_ident       = env#cgi_remote_ident
+    method cgi_property           = env#cgi_property
+    method cgi_properties 	  = env#cgi_properties
+    method cgi_https              = env#cgi_https
+    method protocol               = env#protocol
 
-    method input_header = env#input_header
-    method output_header = env#output_header
+    method input_header           = env#input_header
+    method input_header_field     = env#input_header_field
+    method multiple_input_header_field = env#multiple_input_header_field
+    method input_header_fields    = env#input_header_fields
+    method user_agent             = env#user_agent
+    method input_content_length   = env#input_content_length
+    method input_content_type_string = env#input_content_type_string
+    method input_content_type()   = env#input_content_type
+
+    method output_header          = env#output_header
+    method output_header_field    = env#output_header_field
+    method multiple_output_header_field = env#multiple_output_header_field
+    method output_header_fields   = env#output_header_fields
+    method set_output_header_field = env#set_output_header_field
+    method set_multiple_output_header_field =
+                                    env#set_multiple_output_header_field
+    method set_output_header_fields = env#set_output_header_fields
+    method set_status             = env#set_status
+
+    val mutable header_sent = false
+    method send_output_header()   =
+      if not header_sent then (
+	env#send_output_header();
+	header_sent <- true
+      )
+    method output_ch              = env#output_ch
+    method out_channel            = env#output_ch
+
+    method log_error              = env#log_error
+
+    method cookies =
+      List.map
+	(fun (n,v) -> Netcgi_common.Cookie.make n v)
+	env#cookies
+
+    method cookie n = 
+      List.find (fun c -> Netcgi_common.Cookie.name c = n) self#cookies
   end
 end
 

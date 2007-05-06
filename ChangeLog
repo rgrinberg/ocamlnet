@@ -8,6 +8,10 @@
 
 	* Fix: IPv6 is now supported by most functionality. Exception
 	  is the SOCKS stuff.
+
+	* Fix netcgi2: Improving compatibility of Netcgi1_compat,
+	  such that nethttpd works together with netcgi2. Porting
+	  examples/nethttpd/netplex.ml to nethttpd+netcgi2.
 	
 2007-04-09  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
