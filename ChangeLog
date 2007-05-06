@@ -6,6 +6,9 @@
 	  We handle this case as a connected socket with inaccessible
 	  address. The problem was reported to happen for MacOS.
 
+	* Fix: IPv6 is now supported by most functionality. Exception
+	  is the SOCKS stuff.
+	
 2007-04-09  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
         * Release 2.2.7

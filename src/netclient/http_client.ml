@@ -2912,7 +2912,8 @@ class connection the_esys
       if options.verbose_connection then
 	prerr_endline ("HTTP connection: Connecting to server " ^ peer_host);
 
-      let s = syscall (fun () -> Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0) in
+      let dom = Netsys.domain_of_inet_addr addr in
+      let s = syscall (fun () -> Unix.socket dom Unix.SOCK_STREAM 0) in
       connect_started <- Unix.gettimeofday();
       (* Connect in non-blocking mode: *)
       Unix.set_nonblock s;

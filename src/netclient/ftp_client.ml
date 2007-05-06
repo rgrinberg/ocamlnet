@@ -877,12 +877,13 @@ object(self)
 	let line = 
 	  match cmd with
 	    | `PORT ->
-		let server_sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
 		let addr =  (* of control connection *)
 		  match Unix.getsockname sock with
 		    | Unix.ADDR_INET(addr,_) -> addr
 		    | _ -> assert false in
 		let addr_str = Unix.string_of_inet_addr addr in
+		let dom = Netsys.domain_of_inet_addr addr in
+		let server_sock = Unix.socket dom Unix.SOCK_STREAM 0 in
 		Unix.bind server_sock (Unix.ADDR_INET(addr,0));
 		Unix.listen server_sock 1;
 		let port =

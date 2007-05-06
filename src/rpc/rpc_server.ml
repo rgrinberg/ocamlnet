@@ -1038,9 +1038,11 @@ let create2_socket_server ?(config = default_socket_config)
   in
 
   let bind_to_internet addr port =
+    let dom = Netsys.domain_of_inet_addr addr in
+
     let s =
       Unix.socket
-	Unix.PF_INET
+	dom
 	(if prot = Tcp then Unix.SOCK_STREAM else Unix.SOCK_DGRAM)
 	0
     in

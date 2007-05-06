@@ -23,7 +23,7 @@ OCAMLOPT_OPTIONS_FOR_rpc_packer.ml = -w p
 OCAMLC_OPTIONS_FOR_rpc_portmapper.ml = -w p
 OCAMLOPT_OPTIONS_FOR_rpc_portmapper.ml = -w p
 
-INCLUDES += $(INC_EQUEUE)
+INCLUDES += $(INC_EQUEUE) $(INC_NETSYS)
 
 include $(TOP_DIR)/Makefile.rules
 

@@ -7,6 +7,8 @@ open Uq_engines;;
 (** This module implements a SOCKS version 5 client (see RFC 1928) for
  * use with the {!Uq_engines.connector}, {!Uq_engines.listener}, and
  * {!Uq_engines.datagram_provider} engine factories.
+ *
+ * This implementation is limited to IPv4.
  *)
 
 exception Socks_error of string;;

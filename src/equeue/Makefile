@@ -11,6 +11,8 @@ OPTMT_EXTRA = unixqueue_mt.cmx
 OCAMLC_OPTIONS_FOR_unixqueue_mt.ml = $(THREAD)
 OCAMLOPT_OPTIONS_FOR_unixqueue_mt.ml = $(THREAD)
 
+INCLUDES += $(INC_NETSYS)
+
 include $(TOP_DIR)/Makefile.rules
 
 include depend

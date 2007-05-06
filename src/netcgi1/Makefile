@@ -10,7 +10,7 @@ DOBJECTS = netcgi_env.mli netcgi_types.mli netcgi.mli \
 	   netcgi_jserv.mli netcgi_jserv_ajp12.mli netcgi_jserv_app.mli \
 	   netcgi_fcgi_10.mli netcgi_fcgi.mli netcgi1_compat.mli
 
-INCLUDES += $(INC_NETSTRING)
+INCLUDES += $(INC_NETSTRING) $(INC_NETSYS)
 
 include $(TOP_DIR)/Makefile.rules
 

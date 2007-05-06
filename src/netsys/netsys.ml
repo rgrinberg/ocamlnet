@@ -76,6 +76,10 @@ let really_read fd s pos len =
     ()
 
 
+let domain_of_inet_addr addr =
+  Unix.domain_of_sockaddr(Unix.ADDR_INET(addr,0))
+
+
 (* Misc *)
 
 let int_of_file_descr =

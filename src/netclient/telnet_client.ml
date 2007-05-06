@@ -533,8 +533,9 @@ class telnet_session =
 
 	    let addr = self # inet_addr hostname in
 
+	    let dom = Netsys.domain_of_inet_addr addr in
 	    let s = syscall 
-		      (fun () -> Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0) in
+		      (fun () -> Unix.socket dom Unix.SOCK_STREAM 0) in
 	    (* Connect in non-blocking mode: *)
 	    syscall (fun () -> Unix.set_nonblock s);
 	    (* Urgent data is received inline: *)

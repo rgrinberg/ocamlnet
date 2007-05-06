@@ -93,7 +93,8 @@ let server_init
       ?(reuseaddr = true)
       addr
       port =
-  let master = U.socket U.PF_INET U.SOCK_STREAM 0 in
+  let dom = Netsys.domain_of_inet_addr addr in
+  let master = U.socket dom U.SOCK_STREAM 0 in
   U.setsockopt master U.SO_REUSEADDR reuseaddr;
   U.bind master (U.ADDR_INET(addr,port));
   U.listen master backlog;

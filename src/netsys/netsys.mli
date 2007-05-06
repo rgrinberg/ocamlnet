@@ -48,6 +48,11 @@ val really_read : Unix.file_descr -> string -> int -> int -> unit
     * [s]. The conditions [EINTR], [EAGAIN] and [EWOULDBLOCK] are handled.
    *)
 
+val domain_of_inet_addr : Unix.inet_addr -> Unix.socket_domain
+  (** Returns the socket domain of Internet addresses, i.e. whether the
+    * address is IPv4 or IPv6
+   *)
+
 
 (** {1 Standard POSIX functions} *)
 

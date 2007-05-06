@@ -2313,11 +2313,13 @@ object (self)
 		  let s = Unix.socket Unix.PF_UNIX stype 0 in
 		  setup_socket s stype (Unix.ADDR_UNIX path) opts;
 	      | `Sock_inet(stype, addr, port) ->
-		  let s = Unix.socket Unix.PF_INET stype 0 in
+		  let dom = Netsys.domain_of_inet_addr addr in
+		  let s = Unix.socket dom stype 0 in
 		  setup_socket s stype (Unix.ADDR_INET(addr,port)) opts;
 	      | `Sock_inet_byname(stype, name, port) ->
 		  let addr = addr_of_name name in
-		  let s = Unix.socket Unix.PF_INET stype 0 in
+		  let dom = Netsys.domain_of_inet_addr addr in
+		  let s = Unix.socket dom stype 0 in
 		  setup_socket s stype (Unix.ADDR_INET(addr,port)) opts;
 	  in
 	  let conn_eng =
@@ -2555,7 +2557,8 @@ object(self)
 		    Unix.listen s opts.lstn_backlog;
 		    s
 		| `Sock_inet(stype, addr, port) ->
-		    let s = Unix.socket Unix.PF_INET stype 0 in
+		    let dom = Netsys.domain_of_inet_addr addr in
+		    let s = Unix.socket dom stype 0 in
 		    Unix.set_nonblock s;
 		    if opts.lstn_reuseaddr then 
 		      Unix.setsockopt s Unix.SO_REUSEADDR true;
@@ -2564,7 +2567,8 @@ object(self)
 		    s
 		| `Sock_inet_byname(stype, name, port) ->
 		    let addr = addr_of_name name in
-		    let s = Unix.socket Unix.PF_INET stype 0 in
+		    let dom = Netsys.domain_of_inet_addr addr in
+		    let s = Unix.socket dom stype 0 in
 		    Unix.set_nonblock s;
 		    if opts.lstn_reuseaddr then 
 		      Unix.setsockopt s Unix.SO_REUSEADDR true;
@@ -2605,6 +2609,7 @@ let listener ?proxy lstnaddr ues =
 type datagram_type =
     [ `Unix_dgram
     | `Inet_udp
+    | `Inet6_udp
     ]
 ;;
 
@@ -2686,6 +2691,7 @@ let datagram_provider ?proxy dgtype ues =
 	  match dgtype with
 	      `Unix_dgram -> (Unix.PF_UNIX, Unix.SOCK_DGRAM, 0)
 	    | `Inet_udp   -> (Unix.PF_INET, Unix.SOCK_DGRAM, 0)
+	    | `Inet6_udp  -> (Unix.PF_INET6, Unix.SOCK_DGRAM, 0)
 	in
 	let wsock =
 	  new direct_datagram_socket dgtype (sdom,stype,sproto) in

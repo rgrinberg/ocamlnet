@@ -30,7 +30,7 @@ include $(TOP_DIR)/Makefile.rules
 
 netplex-admin$(EXEC_SUFFIX): netplex.cma netplex_admin.cmo
 	$(OCAMLC) -o netplex-admin -custom \
-		unix.cma equeue.cma netstring.cma rpc.cma netsys.cma \
+		unix.cma netsys.cma equeue.cma netstring.cma rpc.cma \
 		netplex.cma netplex_admin.cmo
 
 netplex-packlist:

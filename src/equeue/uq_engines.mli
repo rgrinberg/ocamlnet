@@ -895,9 +895,11 @@ val listener : ?proxy:#server_socket_listener ->
 type datagram_type =
     [ `Unix_dgram
     | `Inet_udp
+    | `Inet6_udp
     ]
   (** - [`Unix_dgram]: Datagrams over Unix domain sockets
-   *  - [`Inet_udp]:   Internet UDP protocol
+   *  - [`Inet_udp]:   Internet v4 UDP protocol
+   *  - [`Inet6_udp]:   Internet v6 UDP protocol
    *)
 ;;
 
