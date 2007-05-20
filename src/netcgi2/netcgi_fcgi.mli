@@ -92,29 +92,36 @@ val run :
       @param exn_handler See {!Netcgi.exn_handler}.  Default: delegate
       all exceptions to the default handler.
 
+      @param sockaddr tells on what socket to contact the script.  If
+      not specified, the script expects to be launched by the web
+      server and to communicate with it through stdin.  For external
+      scripts (launched independently of the web server and possibly
+      on a different machine), set [sockaddr] to the address the web
+      server needs to connect to to talk to the script (this address
+      must also be specified in the wen server config file).
+
       Your application should be ready handle SIGUSR1, used to
       resquest a "graceful" process shutdown, and SIGTERM to request a
       quick shutdown.  *)
 
 
 val handle_request :
-      config -> output_type -> arg_store -> exn_handler ->
-      (cgi -> unit) -> max_conns:int -> log:(string -> unit) option ->
-      Unix.file_descr -> 
-        connection_directive
-  (** [handle_request config output_type arg_store eh f ~max_conns ~log fd]:
-      This is a 
-      lower-level interface that processes exactly one request arriving 
-      on the existing connection [fd].
+  config -> output_type -> arg_store -> exn_handler ->
+  (cgi -> unit) -> max_conns:int -> log:(string -> unit) option ->
+  Unix.file_descr ->
+  connection_directive
+    (** [handle_request config output_type arg_store eh f ~max_conns
+        ~log fd]: This is a lower-level interface that processes
+        exactly one request arriving on the existing connection [fd].
 
-      [max_conns] is passed to the FCGI client and indicates how many
-      connections this server can process in parallel.
+        [max_conns] is passed to the FCGI client and indicates how many
+        connections this server can process in parallel.
 
-      [log] is the error logger function or [None], in which case 
-      errors are passed through to the FCGI client.
+        [log] is the error logger function or [None], in which case
+        errors are passed through to the FCGI client.
 
-      The other arguments are just like for [run].
+        The other arguments are just like for [run].
 
-      The return value indicates whether the connection can be kept
-      open or must be closed.
-   *)
+        The return value indicates whether the connection can be kept
+        open or must be closed.
+    *)

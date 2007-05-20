@@ -18,10 +18,10 @@
 
 
 type var =
-    | VarString of string				(** ::tag:: *)
-  | VarTable of table_row list			(** ::table(tag):: *)
-  | VarConditional of bool			(** ::if(tag):: *)
-  | VarCallback of (string list -> string)	(** ::call(f, x1,...):: *)
+    | VarString of string			(** ::tag:: *)
+    | VarTable of table_row list		(** ::table(tag):: *)
+    | VarConditional of bool			(** ::if(tag):: *)
+    | VarCallback of (string list -> string)	(** ::call(f, x1,...):: *)
 and table_row = (string * var) list
 
 (** Variables are either simple string, tables, conditionals or callbacks.
