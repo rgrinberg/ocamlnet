@@ -8,7 +8,9 @@ INCLUDES += $(INC_NETSTRING) $(INC_NETSYS) $(INC_NETCGI2) $(INC_NETCGI2_APACHE)
 # Tell where you cryptokit module is (leave blank otherwise):
 CRYPTOKIT_LIBS=
 #CRYPTOKIT_LIBS= nums.cma cryptokit.cma
+ifneq "$(CRYPTOKIT_LIBS)" ""
 INCLUDES += -I $(shell ocamlc -where)/cryptokit
+endif
 
 LIBS_CMA	= str.cma pcre.cma unix.cma netsys.cma netstring.cma \
   $(CRYPTOKIT_LIBS)
