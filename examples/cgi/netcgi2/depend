@@ -1,0 +1,16 @@
+add_apache.cmo: add.cmo 
+add_apache.cmx: add.cmx 
+add_cgi.cmo: add.cmo 
+add_cgi.cmx: add.cmx 
+counter_apache.cmo: counter.cmo 
+counter_apache.cmx: counter.cmx 
+counter_cgi.cmo: counter.cmo 
+counter_cgi.cmx: counter.cmx 
+filemanager_apache.cmo: filemanager.cmo 
+filemanager_apache.cmx: filemanager.cmx 
+filemanager_cgi.cmo: filemanager.cmo 
+filemanager_cgi.cmx: filemanager.cmx 
+filemanager_fcgi.cmo: filemanager.cmo 
+filemanager_fcgi.cmx: filemanager.cmx 
+filemanager_scgi.cmo: filemanager.cmo 
+filemanager_scgi.cmx: filemanager.cmx 

@@ -1,5 +1,9 @@
-# $Id: Makefile,v 1.4 2005/09/04 22:10:24 chris_77 Exp $
+
 TOP_DIR=../../..
+# No archive to make, only programs:
+ARCHIVE_CMA=
+ARCHIVE_CMXA=
+ARCHIVE=
 
 include $(TOP_DIR)/Makefile.rules
 
@@ -68,7 +72,6 @@ filemanager_apache.cma: filemanager.cmo filemanager_apache.ml
 	  netcgi.cmxa $(filter-out %.ml, $^) $(filter %.ml, $^)
 %.cma: %.ml
 	$(OCAMLC) -a -o $@ $(OCAMLC_FLAGS) $^
-
 
 include depend
 
