@@ -12,6 +12,9 @@ open Netcgi
    error handling function and set it via the [exn_handler] optional
    argument of the connector.  *)
 let () =
+  let port = 1201 in
+  Printf.printf "%s (FCGI) listening on port %i.\n%!" Sys.argv.(0) port;
   let buffered _ ch = new Netchannels.buffered_trans_channel ch in
    Netcgi_fcgi.run ~output_type:(`Transactional buffered)
+    ~sockaddr:(Unix.ADDR_INET(Unix.inet_addr_any, port))
      (fun cgi -> Add.main(cgi :> cgi))
