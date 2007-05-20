@@ -16,7 +16,7 @@ let text = Netencoding.Html.encode_from_latin1
      characters as character entities.  E.g. text "<" = "&lt;", and
      text "ä" = "&auml;" *)
 
-let counter (cgi:cgi) =
+let main (cgi:cgi) =
   cgi#set_header
     ~cache:`No_cache
     ~content_type:"text/html; charset=\"iso-8859-1\""
@@ -39,9 +39,3 @@ let counter (cgi:cgi) =
   out "  </body>\n";
   out "</html>\n"
 
-
-let () =
-  let buffered _ ch = new Netchannels.buffered_trans_channel ch in
-(*   Netcgi_cgi.run ~output_type:(`Transactional buffered) counter *)
-  Netcgi_apache.run ~output_type:(`Transactional buffered)
-    (fun cgi -> counter(cgi :> cgi))
