@@ -17,15 +17,16 @@ endif
 
 LIBS_CMA	= str.cma pcre.cma unix.cma netsys.cma netstring.cma \
   $(CRYPTOKIT_LIBS)
+LIBS_CMXA	= $(LIBS_CMA:.cma=.cmxa)
 OCAMLC_FLAGS	= -dtypes $(INCLUDES)
 OCAMLOPT_FLAGS	= -dtypes $(INCLUDES)
 
 
-PROGRAMS=counter_cgi.ml add_cgi.ml
+PROGRAMS=counter_cgi.ml counter_fcgi.ml add_cgi.ml add_fcgi.ml \
+  icfp2001_cgi.ml
 
 ifneq "$(CRYPTOKIT_PATH)" ""
-PROGRAMS += filemanager_cgi.ml filemanager_fcgi.ml filemanager_scgi.ml \
-  icfp2001.ml
+PROGRAMS += filemanager_cgi.ml filemanager_fcgi.ml filemanager_scgi.ml
 endif
 
 ifneq "$(APACHE_MAJOR)" ""
@@ -44,33 +45,27 @@ byte: $(PROGRAMS:.ml=.exe)
 opt: $(PROGRAMS:.ml=.com)
 mod: $(MOD_PROGRAMS)
 
-counter_cgi.exe: counter.cmo counter_cgi.ml
-add_cgi.exe: add.cmo add_cgi.ml
-filemanager_cgi.exe: filemanager.cmo filemanager_cgi.ml
-filemanager_fcgi.exe: filemanager.cmo filemanager_fcgi.ml
-filemanager_ajp.exe: filemanager.cmo filemanager_ajp.ml
-filemanager_scgi.exe: filemanager.cmo filemanager_scgi.ml
-
-counter_cgi.com: counter.cmx counter_cgi.ml
-add_cgi.com: add.cmx add_cgi.ml
-filemanager_cgi.com: filemanager.cmx filemanager_cgi.ml
-filemanager_fcgi.com: filemanager.cmx filemanager_fcgi.ml
-filemanager_ajp.com: filemanager.cmx filemanager_ajp.ml
-filemanager_scgi.com: filemanager.cmx filemanager_scgi.ml
-
-counter_apache.cma: counter.cmo counter_apache.ml
-add_apache.cma: add.cmo add_apache.ml
-filemanager_apache.cma: filemanager.cmo filemanager_apache.ml
 
 
+%_cgi.exe: %.cmo %_cgi.cmo
+	$(OCAMLC) -o $@ $(OCAMLC_FLAGS) $(LIBS_CMA) netcgi.cma $^
+%_fcgi.exe: %.cmo %_fcgi.cmo
+	$(OCAMLC) -o $@ $(OCAMLC_FLAGS) $(LIBS_CMA) netcgi.cma $^
+%_scgi.exe: %.cmo %_scgi.cmo
+	$(OCAMLC) -o $@ $(OCAMLC_FLAGS) $(LIBS_CMA) netcgi.cma $^
+%_ajp.exe: %.cmo %_ajp.cmo
+	$(OCAMLC) -o $@ $(OCAMLC_FLAGS) $(LIBS_CMA) netcgi.cma $^
 
-%.exe: %.ml
-	$(OCAMLC) -o $@ $(OCAMLC_FLAGS) $(LIBS_CMA) \
-	  netcgi.cma $(filter-out %.ml, $^) $(filter %.ml, $^)
-%.com: %.ml
-	$(OCAMLOPT) -o $@ $(OCAMLOPT_FLAGS) $(LIBS_CMA:.cma=.cmxa) \
-	  netcgi.cmxa $(filter-out %.ml, $^) $(filter %.ml, $^)
-%.cma: %.ml
+%_cgi.com: %.cmx %_cgi.cmx
+	$(OCAMLOPT) -o $@ $(OCAMLOPT_FLAGS) $(LIBS_CMXA) netcgi.cmxa $^
+%_fcgi.com: %.cmx %_fcgi.cmx
+	$(OCAMLOPT) -o $@ $(OCAMLOPT_FLAGS) $(LIBS_CMXA) netcgi.cmxa $^
+%_scgi.com: %.cmx %_scgi.cmx
+	$(OCAMLOPT) -o $@ $(OCAMLOPT_FLAGS) $(LIBS_CMXA) netcgi.cmxa $^
+%_ajp.com: %.cmx %_ajp.cmx
+	$(OCAMLOPT) -o $@ $(OCAMLOPT_FLAGS) $(LIBS_CMXA) netcgi.cmxa $^
+
+%.cma: %.cmo
 	$(OCAMLC) -a -o $@ $(OCAMLC_FLAGS) $^
 
 include depend

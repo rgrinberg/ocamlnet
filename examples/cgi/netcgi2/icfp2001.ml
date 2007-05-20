@@ -466,3 +466,53 @@ let () =
   Netcgi_cgi.run ~config ~arg_store ~exn_handler
     ~output_type:(`Transactional buffered)
     main
+
+
+
+(* Custom exn handler *)
+let exn_handler env f =
+  try f()
+  with
+  | Netcgi_common.HTTP _ as e -> raise e (* browser error *)
+  | Exit -> () (* Acceptable way of ending early *)
+  | exn ->
+      let exn = Printexc.to_string exn in
+      env#log_error(sprintf "The script %S raised %S" Sys.argv.(0) exn);
+      (* Send email to the judges *)
+      let msg = Netsendmail.compose
+        ~from_addr:("ICFP 2001", "webmaster@pauillac.inria.fr")
+        ~to_addrs:[("Judges", judges_email)]
+        ~subject:"Erreur script ICFP"
+        (sprintf "Error in CGI script: uncaught exception %s\n" exn) in
+      Netsendmail.sendmail msg;
+      (* Generate error page *)
+      env#send_output_header();
+      let out = env#out_channel#output_string in
+      begin_html out "Internal error in CGI script";
+      out (sprintf "\
+  <p>This CGI script encountered an internal error during processing:
+  <pre>Uncaught exception %s</pre>
+  The judges have been notified.  Try resubmitting your entry in a
+  couple of hours.  If the deadline is approaching, send it by e-mail
+  to <a href=\"mailto:judges@pauillac.inria.fr\">the contest judges</a>
+  (preferred format: MIME attachment).  Thanks for your patience!</p>"
+              exn);
+      end_html out;
+      env#out_channel#close_out()
+
+
+
+let config = { default_config with
+  tmp_directory = Filename.concat submission_dir ".tmp" }
+
+let () =
+  (* Setup: create the dirs and files if needed *)
+  (try
+    Unix.mkdir submission_dir 0o770;
+    Unix.mkdir config.tmp_directory 0o770;
+    if not(Sys.file_exists counter_file) then (
+      let fh = open_out counter_file in
+      fprintf fh "0\n";
+      close_out fh
+    )
+   with _ -> ())
