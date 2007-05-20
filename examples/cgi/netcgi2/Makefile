@@ -5,11 +5,10 @@ include $(TOP_DIR)/Makefile.rules
 
 INCLUDES += $(INC_NETSTRING) $(INC_NETSYS) $(INC_NETCGI2) $(INC_NETCGI2_APACHE)
 
-# Tell where you cryptokit module is (leave blank otherwise):
-CRYPTOKIT_LIBS=
-#CRYPTOKIT_LIBS= nums.cma cryptokit.cma
-ifneq "$(CRYPTOKIT_LIBS)" ""
-INCLUDES += -I $(shell ocamlc -where)/cryptokit
+CRYPTOKIT_PATH= $(shell $(OCAMLFIND) query cryptokit)
+ifneq "$(CRYPTOKIT_PATH)" ""
+CRYPTOKIT_LIBS= nums.cma cryptokit.cma
+INCLUDES += -I $(CRYPTOKIT_PATH)
 endif
 
 LIBS_CMA	= str.cma pcre.cma unix.cma netsys.cma netstring.cma \
@@ -20,14 +19,14 @@ OCAMLOPT_FLAGS	= -dtypes $(INCLUDES)
 
 PROGRAMS=counter_cgi.ml add_cgi.ml
 
-ifneq "$(CRYPTOKIT_LIBS)" ""
+ifneq "$(CRYPTOKIT_PATH)" ""
 PROGRAMS += filemanager_cgi.ml filemanager_fcgi.ml filemanager_scgi.ml \
   icfp2001.ml
 endif
 
 ifneq "$(APACHE_MAJOR)" ""
 PROGRAMS += counter_apache.cma add_apache.cma
-ifneq "$(CRYPTOKIT_LIBS)" ""
+ifneq "$(CRYPTOKIT_PATH)" ""
 PROGRAMS += filemanager_apache.cma
 endif
 endif
@@ -54,7 +53,6 @@ filemanager_cgi.com: filemanager.cmx filemanager_cgi.ml
 filemanager_fcgi.com: filemanager.cmx filemanager_fcgi.ml
 filemanager_ajp.com: filemanager.cmx filemanager_ajp.ml
 filemanager_scgi.com: filemanager.cmx filemanager_scgi.ml
-filemanager.cmx: ../netcgi.cmxa
 
 counter_apache.cma: counter.cmo counter_apache.ml
 add_apache.cma: add.cmo add_apache.ml
