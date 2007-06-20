@@ -46,6 +46,12 @@ Netplex:
 	  to allow initialization of the controller right after it has been
           created, and before services are added.
 
+	- Bug: Netplex_controller's alive_check isn't stopped when the
+ 	  controller is shut down
+
+	- Bug: daemonization doesn't wait until the inner process is
+	  initialized (enough)
+
 Integration of new netcgi2
 	- All the TODOs in Netcgi_common
 	  Sched: after 2.2.0 is out
