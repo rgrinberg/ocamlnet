@@ -23,7 +23,7 @@ else
     read answer
     case "$answer" in
 	y|Y|yes|YES)
-	    svn cp https://godirepo.camlcity.org/svn/lib-ocamlnet2/trunk/code https://gps.dynxs.de/svn/lib-ocamlnet2/tags/ocamlnet-$version
+	    svn cp https://godirepo.camlcity.org/svn/lib-ocamlnet2/trunk/code https://godirepo.camlcity.org/svn/lib-ocamlnet2/tags/ocamlnet-$version
 	    echo "New tag: https://godirepo.camlcity.org/svn/lib-ocamlnet2/tags/ocamlnet-$version"
 	    ;;
 	*)
