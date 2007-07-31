@@ -6,6 +6,7 @@
 type t = 
     { mutable buffer : string;
       mutable length : int;
+      create_length : int;
     }
 
 (* To help the garbage collector:
@@ -46,20 +47,37 @@ type t =
 let word_length = Sys.word_size / 8       (* in bytes *)
 
 let create n =
-  { buffer = String.create (max n 31); length = 0; }
+  { buffer = String.create (max n 31); length = 0; create_length = n }
+
+let reset b =
+  let n = b.create_length in
+  b.buffer <- String.create (max n 31);
+  b.length <- 0
 
 let contents b =
   String.sub b.buffer 0 b.length
+
+let e_get() =
+  invalid_arg "Netbuffer.get"
+
+let get b k =
+  if k < 0 || k >= b.length then e_get();
+  String.unsafe_get b.buffer k
     
+let nth = get
+
 let sub b k n =
   if k < 0 || n < 0 || k+n > b.length then
     raise (Invalid_argument "Netbuffer.sub");
   String.sub b.buffer k n
 
-let blit b srcpos dest destpos n =
+let blit_to_string b srcpos dest destpos n =
   if srcpos < 0 || n < 0 || srcpos+n > b.length then
-    raise (Invalid_argument "Netbuffer.blit");
+    raise (Invalid_argument "Netbuffer.blit_to_string");
   String.blit b.buffer srcpos dest destpos n
+
+let blit = blit_to_string
+
     
 let unsafe_buffer b =
   b.buffer
@@ -91,12 +109,14 @@ let add_sub_string b s k l =
     invalid_arg "Netbuffer.add_sub_string";
   add_sub_string_int b s k l
 
+let add_substring = add_sub_string
+
 let add_string b s =
   add_sub_string b s 0 (String.length s)
 
 let add_char b c =
   ensure_space b (b.length+1);
-  b.buffer.[b.length] <- c;
+  String.unsafe_set b.buffer b.length c;
   b.length <- b.length + 1
 
 let add_inplace ?len b f =
@@ -112,6 +132,13 @@ let add_inplace ?len b f =
   let n = f b.buffer b.length len' in
   b.length <- b.length + n;
   n
+
+let add_buffer b1 b2 =
+  let len = b1.length + b2.length in
+  ensure_space b1 len;
+  String.blit b2.buffer 0 b1.buffer b1.length b2.length;
+  b1.length <- len
+
 
 let insert_sub_string_int b p s k l =
   if p < 0 || p > b.length then
@@ -136,6 +163,30 @@ let insert_char b p c =
   String.blit b.buffer p b.buffer (p+1) (b.length - p);
   b.buffer.[p] <- c;
   b.length <- b.length + 1
+
+
+let e_set() =
+  invalid_arg "Netbuffer.set"
+
+let set b k c =
+  if k < 0 || k >= b.length then e_set();
+  String.unsafe_set b.buffer k c
+
+let put_string b p s =
+  if p < 0 || p > b.length then
+    invalid_arg "Netbuffer.put_string";
+  let len = max b.length (p + String.length s) in
+  ensure_space b len;
+  String.blit s 0 b.buffer p (String.length s);
+  b.length <- len
+
+let blit_from_string src srcpos b p n =
+  if p < 0 || p > b.length || srcpos < 0 || n < 0 || srcpos+n > String.length src then
+    invalid_arg "Netbuffer.blit_from_string";
+  let len = max b.length (p + n) in
+  ensure_space b len;
+  String.blit src srcpos b.buffer p n;
+  b.length <- len
 
 
 let delete b k l =

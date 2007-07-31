@@ -16,19 +16,31 @@ val create : int -> t
 val contents : t -> string
     (** Returns the contents of the buffer as fresh string. *)
 
+val length : t -> int
+    (** Returns the logical length of the buffer *)
+
+(** {2 Extracting strings} *)
+
+val get : t -> int -> char
+    (** [get nb pos]: Get the character at [pos] *)
+
+val nth : t -> int -> char
+    (** Alias for [get] *)
+
 val sub : t -> int -> int -> string
     (** [sub nb k n]: returns the n characters starting at position [n] from 
      * netbuffer [nb] as fresh string
      *)
 
-val blit : t -> int -> string -> int -> int -> unit
-    (** [blit nb srcpos dest destpos len]: Copies the [len] bytes at
+val blit_to_string : t -> int -> string -> int -> int -> unit
+    (** [blit_to_string nb srcpos dest destpos len]: Copies the [len] bytes at
      * position [srcpos] from [nb] to the string [dest] at position [destpos].
      *)
 
+val blit : t -> int -> string -> int -> int -> unit
+    (** Compatibility name for [blit_to_string], now deprecated *)
 
-val length : t -> int
-    (** Returns the logical length of the buffer *)
+(** {2 Appending strings} *)
 
 val add_string : t -> string -> unit
     (** [add_string nb s]: Adds a copy of the string [s] to the logical end of
@@ -44,6 +56,12 @@ val add_sub_string : t -> string -> int -> int -> unit
      * [add_string nb (String.sub s k n)], but the extra copy is avoided.
      *)
 
+val add_substring : t -> string -> int -> int -> unit
+    (** Alias for add_sub_string *)
+
+val add_char : t -> char -> unit
+    (** [add_char nb c]: Adds a single char at the end of the buffer *)
+
 val add_inplace : ?len:int -> t -> (string -> int -> int -> int) -> int
     (** [add_inplace nb f]: Calls the function [f] to add bytes to the
      * netbuffer [nb]. The arguments of [f] are the buffer, the position
@@ -57,6 +75,11 @@ val add_inplace : ?len:int -> t -> (string -> int -> int -> int) -> int
      * [f]). It defaults to the number of free bytes in the buffer after space
      * for at least one byte has been allocated.
      *)
+
+val add_buffer : t -> t -> unit
+  (** [add_buffer nb1 nb2]: Adds the contents of [nb2] to the end of [nb1] *)
+
+(** {2 Inserting strings} *)
 
 val insert_string : t -> int -> string -> unit
     (** [insert_string nb p s]: Inserts the value of string [s] at position
@@ -74,6 +97,27 @@ val insert_char : t -> int -> char -> unit
      * the netbuffer [nb]
      *)
 
+(** {2 Overwriting strings} *)
+
+val set : t -> int -> char -> unit
+    (** [set nb pos c]: Sets the character at [pos] to [c] *)
+
+val put_string : t -> int -> string -> unit
+    (** [put_string nb pos s]: Copies the string [s] to the position [pos]
+        of netbuffer [nb]
+     *)
+
+val blit_from_string : string -> int -> t -> int -> int -> unit
+    (** [blit_from_string src srcpos dest destpos len]: Copies the [len] bytes
+     * at position [srcpos] from the string [src] to the netbuffer [dest] at
+     * position [destpos].
+     *
+     * It is possible to copy the string beyond the end of the buffer. The
+     * buffer is automatically enlarged in this case.
+     *)
+
+(** {2 Deleting} *)
+
 val delete : t -> int -> int -> unit
     (** [delete nb k n]: Deletes the [n] bytes at position [k] of netbuffer 
      * [nb] in-place.
@@ -87,17 +131,27 @@ val clear : t -> unit
      * not shrink.
      *)
 
+val reset : t -> unit
+    (** Empty the buffer, deallocate the internal string, and replace it
+        with a new string of length [n] that was allocated by
+        {!Netbuffer.create} [n].
+     *)
+
 val try_shrinking : t -> unit
     (** [try_shrinking nb]: If the length of the buffer is less than half of
      * the allocated space, the netbuffer is reallocated in order to save
      * memory.
      *)
 
+(** {2 Searching} *)
+
 val index_from : t -> int -> char -> int
     (** [index_from nb k c]: Searches the character [c] in the netbuffer beginning
      * at position [k]. If found, the position of the left-most occurence is
      * returned. Otherwise, [Not_found] is raised.
      *)
+
+(** {2 Miscelleneous} *)
 
 val unsafe_buffer : t -> string
     (** {b Warning! This is a low-level function!}
