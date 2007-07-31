@@ -1,3 +1,13 @@
+2007-07-31  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
+
+        * Release 2.2.8
+	
+	* Fix: stop all timers on Netplex shutdown
+
+	* Improved Netbuffer module
+
+	* [ChriS]: Improved examples for netcgi2
+	
 2007-05-06  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Fix: For Unix domain sockets, getsockname and getpeername
@@ -12,7 +22,9 @@
 	* Fix netcgi2: Improving compatibility of Netcgi1_compat,
 	  such that nethttpd works together with netcgi2. Porting
 	  examples/nethttpd/netplex.ml to nethttpd+netcgi2.
-	
+
+        * [ChriS]: Netcgi2-apache builds for Apache 2
+	 
 2007-04-09  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
         * Release 2.2.7
