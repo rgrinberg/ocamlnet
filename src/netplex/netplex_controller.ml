@@ -94,6 +94,7 @@ class std_socket_controller ?(no_disable = false)
                             controller sockserv wrkmng
       : extended_socket_controller =
   let name = sockserv # name in
+  let esys = controller # event_system in
 object(self)
   val mutable state = (`Disabled : socket_state)
   val mutable clist = []
@@ -103,11 +104,12 @@ object(self)
      * poll. Used to detect massive numbers of start-up failures.
      *)
 
+  val mutable group = Unixqueue.new_group esys
+    (* The group for timers etc. *)
+
 
   initializer (
-    let esys = controller#event_system in
-    let g = Unixqueue.new_group esys in
-    Unixqueue.once esys g 1.0 (fun () -> self#alive_check esys g)
+    Unixqueue.once esys group 1.0 (fun () -> self#alive_check esys group)
   )
 
 
@@ -214,6 +216,7 @@ object(self)
     if !debug_scheduling then
       debug_logf controller "Service %s: Shutdown" name;
     state <- `Down;
+    Unixqueue.clear esys group;
     self # stop_all_containers();
 
   method start_containers n =
@@ -309,8 +312,7 @@ object(self)
       (* Watch the new container. If it does not call [poll] within 60 seconds,
        * drop the process/thread.
        *)
-      let g = Unixqueue.new_group controller#event_system in
-      Unixqueue.once controller#event_system g 60.0
+      Unixqueue.once esys group 60.0
 	(fun () ->
 	   let is_starting =
 	     match c.cont_state with `Starting _ -> true | _ -> false in
