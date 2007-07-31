@@ -34,7 +34,7 @@ opt:
 .PHONY: doc
 doc:
 	for pkg in src/*/.; do \
-	    test ! -f $$pkg/Makefile || \
+	    test ! -f $$pkg/Makefile -o -f $$pkg/doc-ignore || \
 		{ ( cd $$pkg && $(MAKE) -f Makefile.pre generate ) || exit; \
 		  ( cd $$pkg && $(MAKE) -f Makefile.pre depend ) || exit; \
 		  ( cd $$pkg && $(MAKE) ocamldoc.dump ) || exit; \
@@ -68,7 +68,7 @@ clean:
 .PHONY: clean-doc
 clean-doc:
 	for pkg in src/*/.; do \
-		test ! -f $$pkg/Makefile || \
+		test ! -f $$pkg/Makefile -o -f $$pkg/doc-ignore || \
 			( cd $$pkg && $(MAKE) -f Makefile.pre clean-doc); \
 	done
 	cd doc && $(MAKE) clean-doc

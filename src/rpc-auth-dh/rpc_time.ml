@@ -10,7 +10,7 @@ let remote_time ?(timeout = 5) peer =
   let add_action f = cleanup := f :: !cleanup in
   let do_cleanup() = List.iter (fun f -> f()) !cleanup; cleanup := [] in
   try
-    let dom = Netsys.domain_of_inet_addr in
+    let dom = Netsys.domain_of_inet_addr peer in
     let s = Unix.socket dom Unix.SOCK_STREAM 0 in
     add_action (fun () -> Unix.close s);
     Unix.set_nonblock s;               (* so that Unix.connect does not block *)

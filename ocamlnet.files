@@ -135,8 +135,10 @@ f src/netcgi2-apache/apache.c
 f src/netcgi2-apache/wrappers.h
 f src/netcgi2-apache/wrappers.c
 f src/netcgi2-apache/handler.c
-f src/netcgi2-apache/netcgi_apache.ml.in
+f src/netcgi2-apache/netcgi_apache.ml
 f src/netcgi2-apache/netcgi_apache.mli
+f src/netcgi2-apache/netcgi_apache_mod.ml.in
+f src/netcgi2-apache/netcgi_apache_mod.mli
 f src/netcgi2-apache/netcgi_modtpl.ml
 f src/netcgi2-apache/netcgi_modtpl.mli
 f src/netcgi2-apache/500netcgi_apache.info.in
@@ -346,6 +348,10 @@ d examples/cgi/netcgi1/fcgi_raw
 f examples/cgi/netcgi1/fcgi_raw/Makefile
 f examples/cgi/netcgi1/fcgi_raw/fcgi_raw.ml
 
+d examples/cgi/netcgi2
+p examples/cgi/netcgi2/.*\.ml
+f examples/cgi/netcgi2/Makefile
+
 d examples/cgi/netcgi2-plex
 f examples/cgi/netcgi2-plex/Makefile
 f examples/cgi/netcgi2-plex/README
@@ -357,6 +363,10 @@ f examples/cgi/netcgi2-plex/run.sh
 d examples/cgi/netcgi2-plex/lighttpd
 f examples/cgi/netcgi2-plex/lighttpd/lighttpd.conf
 f examples/cgi/netcgi2-plex/lighttpd/start-www
+
+d examples/cgi/netcgi_modtpl
+p examples/cgi/netcgi_modtpl/.*\.ml
+f examples/cgi/netcgi_modtpl/Makefile
 
 d examples/pop
 f examples/pop/Makefile

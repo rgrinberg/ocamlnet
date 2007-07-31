@@ -8,7 +8,7 @@ DOBJECTS = rpc_auth_dh.mli rpc_key_service.mli rpc_time.mli
 
 include $(TOP_DIR)/Makefile.rules
 
-INCLUDES += $(INC_RPC) $(INC_EQUEUE)
+INCLUDES += $(INC_RPC) $(INC_EQUEUE) $(INC_NETSYS)
 REQUIRES += cryptgps
 
 include depend
