@@ -32,6 +32,9 @@ Equeue:
 	- ...
 
 Netplex:
+	- Make the container easily accessible: Netplex_container.get_current.
+	  Implementation is actually in Netplex_mp and Netplex_mt.
+
 	- Move accepted() from Control to System? Implement totally different
 	  mechanisms?
 
