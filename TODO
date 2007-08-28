@@ -21,6 +21,7 @@ Feature request:
 
 	- Nethttp.Header.get_set_cookie
 	  Sched: after 2.2.0 is out
+	   (see get-set-cookie.ml)	   
 
 Equeue:
 	- Fix command engines as commented in the code.
