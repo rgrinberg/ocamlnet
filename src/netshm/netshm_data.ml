@@ -260,7 +260,7 @@ let pair_manager x_manager y_manager =
 	 if l = [] then
 	   raise(Netshm.Corrupt_file "Netshm_data.pair_manager: Cannot decode");
 	 let l' = List.rev l in
-	 let vl = List.hd l in
+	 let vl = List.hd l' in
 	 let lx = Int32.to_int vl.{0} in
 	 
 	 let l1 = ref [] in
