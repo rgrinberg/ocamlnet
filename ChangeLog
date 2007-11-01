@@ -1,3 +1,10 @@
+2007-11-01  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
+
+	* Fix: Http_client becomes more robust when it sees illegal header
+ 	  fields.
+
+	* Fix: Netshm decodes pairs correctly
+	
 2007-07-31  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
         * Release 2.2.8
