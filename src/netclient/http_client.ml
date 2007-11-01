@@ -2377,16 +2377,18 @@ class transmitter
        *)
       let resp_header = msg # private_api # response_header in
       let proto_str = msg # private_api # response_proto in
-      let proto = Nethttp.protocol_of_string proto_str in
       let b1 =
-	match proto with
-	  | `Http((1,n),_) when n >= 1 ->  (* HTTP/1.1 <= proto < HTTP/2.0 *)
-	      let conn_list = 
-		try Nethttp.Header.get_connection resp_header 
-		with Not_found -> [] in
-	      not (List.mem "close" conn_list)
-	  | _ ->
-	      false in
+	try
+	  let proto = Nethttp.protocol_of_string proto_str in
+	  match proto with
+	    | `Http((1,n),_) when n >= 1 ->  (* HTTP/1.1 <= proto < HTTP/2.0 *)
+		let conn_list = 
+		  try Nethttp.Header.get_connection resp_header 
+		  with _ (* incl. syntax error *) -> [] in
+		not (List.mem "close" conn_list)
+	    | _ ->
+		false
+	with _ -> false in
       b1 && (
 	try
 	  let server = resp_header # field "Server" in
@@ -2405,19 +2407,21 @@ class transmitter
        *)
       let resp_header = msg # private_api # response_header in
       let proto_str = msg # private_api # response_proto in
-      let proto = Nethttp.protocol_of_string proto_str in
       let is_http_11 =
-	match proto with
-	  | `Http((1,n),_) when n >= 1 ->  (* HTTP/1.1 <= proto < HTTP/2.0 *)
-	      true
-	  | _ ->
-	      false in
+	try
+	  let proto = Nethttp.protocol_of_string proto_str in
+	  match proto with
+	    | `Http((1,n),_) when n >= 1 ->  (* HTTP/1.1 <= proto < HTTP/2.0 *)
+		true
+	    | _ ->
+		false
+	with _ -> false in
       let proxy_connection =
 	List.map String.lowercase
 	  (resp_header # multiple_field "proxy-connection") in
       let connection = 
 	try Nethttp.Header.get_connection resp_header 
-	with Not_found -> [] in
+	with _ (* incl. syntax error *) -> [] in
       let normal_persistency =
 	not peer_is_proxy && 
 	  (not (List.mem "close" connection)) &&
