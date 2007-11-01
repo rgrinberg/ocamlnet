@@ -1,5 +1,7 @@
 2007-11-01  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
+	* Release 2.2.9
+
 	* Fix: Http_client becomes more robust when it sees illegal header
  	  fields.
 
