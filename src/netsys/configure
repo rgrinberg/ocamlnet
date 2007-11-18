@@ -2,6 +2,9 @@
 
 netsys_link_options=""
 have_posix_shm=0
+have_posix_fadvise=0
+
+######################################################################
 
 printf "Checking for POSIX shared memory... "
 
@@ -38,12 +41,70 @@ fi
 
 ######################################################################
 
+printf "Checking for POSIX fadvise... "
+
+posix_fadv_compile=0
+posix_fadv_link_options=""
+rm -f configtests/posix_fadvise.err
+if (cd configtests; ocamlc -o posix_fadvise posix_fadvise.c main.ml -custom ) \
+      >>configtests/posix_fadvise.err 2>&1
+then
+    posix_fadv_compile=1
+fi
+
+if [ $posix_fadv_compile -gt 0 ]; then
+    if configtests/posix_fadvise >>configtests/posix_fadvise.err 2>&1; then
+	have_posix_fadvise=1
+	netsys_link_options="$netsys_link_options $posix_fadv_link_options"
+    fi
+fi
+
+if [ $have_posix_fadvise -gt 0 ]; then
+    echo "found"
+    def_have_posix_fadvise="#define HAVE_POSIX_FADVISE"
+else
+    echo "not found"
+    def_have_posix_fadvise="#undef HAVE_POSIX_FADVISE"
+fi
+
+######################################################################
+
+printf "Checking for POSIX fallocate... "
+
+posix_fallo_compile=0
+posix_fallo_link_options=""
+rm -f configtests/posix_fallocate.err
+if (cd configtests; ocamlc -o posix_fallocate posix_fallocate.c main.ml -custom ) \
+      >>configtests/posix_fallocate.err 2>&1
+then
+    posix_fallo_compile=1
+fi
+
+if [ $posix_fallo_compile -gt 0 ]; then
+    if configtests/posix_fallocate >>configtests/posix_fallocate.err 2>&1; then
+	have_posix_fallocate=1
+	netsys_link_options="$netsys_link_options $posix_fallo_link_options"
+    fi
+fi
+
+if [ $have_posix_fallocate -gt 0 ]; then
+    echo "found"
+    def_have_posix_fallocate="#define HAVE_POSIX_FALLOCATE"
+else
+    echo "not found"
+    def_have_posix_fallocate="#undef HAVE_POSIX_FALLOCATE"
+fi
+
+######################################################################
+
 cat <<EOF >Makefile.conf
 NETSYS_LINK_OPTIONS = $netsys_link_options
 EOF
 
 cat <<EOF >config.h
 $def_have_posix_shm
+$def_have_posix_fadvise
+$def_have_posix_fallocate
 EOF
 
 exit 0

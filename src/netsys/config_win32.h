@@ -11,3 +11,6 @@
 #undef HAVE_GETSID
 #undef HAVE_SETREUID
 #undef HAVE_SETREGID
+#undef HAVE_FSYNC
+#undef HAVE_FDATASYNC
+#undef HAVE_POLL

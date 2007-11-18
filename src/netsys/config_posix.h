@@ -11,3 +11,6 @@
 #define HAVE_GETSID
 #define HAVE_SETREUID
 #define HAVE_SETREGID
+#define HAVE_FSYNC
+#define HAVE_FDATASYNC
+#define HAVE_POLL
