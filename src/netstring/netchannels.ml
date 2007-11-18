@@ -1250,7 +1250,7 @@ object (self)
       | Unix.Unix_error(Unix.EAGAIN,_,_)
       | Unix.Unix_error(Unix.EWOULDBLOCK,_,_) ->
 	  if blocking then (
-	    let _  = Netsys.restarting_select [fd] [] [] (-1.0) in
+	    let _  = Netsys.restart (Netsys.wait_until_readable fd) (-1.0) in
 	    self # input buf pos len
 	  )
 	  else 0
@@ -1293,7 +1293,7 @@ object (self)
       | Unix.Unix_error(Unix.EAGAIN,_,_)
       | Unix.Unix_error(Unix.EWOULDBLOCK,_,_) ->
 	  if blocking then (
-	    let _  = Netsys.restarting_select [] [fd] [] (-1.0) in
+	    let _  = Netsys.restart (Netsys.wait_until_writable fd) (-1.0) in
 	    self # output buf pos len
 	  )
 	  else

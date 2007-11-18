@@ -255,35 +255,40 @@ let sleep t =
 let restarting_sleep t =
   restart_tmo sleep t
 
-let poll_non_blocking fd r w pri =
+let poll_non_blocking fd r w pri tmo =
   let a = create_poll_array 1 in
   set_poll_cell a 0 { poll_fd = fd; 
 		      poll_events = poll_in_events r w pri;
 		      poll_revents = poll_out_events()
 		    };
-  poll a 1 0.0 > 0
+  poll a 1 tmo > 0
 
 
-let is_readable fd =
+let wait_until_readable fd tmo =
   if have_poll then
-    poll_non_blocking fd true false false
+    poll_non_blocking fd true false false tmo
   else
-    let l,_,_ = Unix.select [fd] [] [] 0.0 in
+    let l,_,_ = Unix.select [fd] [] [] tmo in
     l <> []
 
-let is_writable fd =
+let wait_until_writable fd tmo =
   if have_poll then
-    poll_non_blocking fd false true false
+    poll_non_blocking fd false true false tmo
   else
-    let _,l,_ = Unix.select [] [fd] [] 0.0 in
+    let _,l,_ = Unix.select [] [fd] [] tmo in
     l <> []
 
-let is_prireadable fd =
+let wait_until_prireadable fd tmo =
   if have_poll then
-    poll_non_blocking fd false false true
+    poll_non_blocking fd false false true tmo
   else
-    let _,_,l = Unix.select [] [] [fd] 0.0 in
+    let _,_,l = Unix.select [] [] [fd] tmo in
     l <> []
+
+let is_readable fd = wait_until_readable fd 0.0
+let is_writable fd = wait_until_writable fd 0.0
+let is_prireadable fd = wait_until_prireadable fd 0.0
+
 
 (* Optional POSIX functions *)
 

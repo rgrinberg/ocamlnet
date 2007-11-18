@@ -394,8 +394,8 @@ object(self)
 	| Some p ->
 	    ( try
 		while true do
-		  let have_ctrl_data, _, _ = select [ p ] [] [] 0.0 in
-		  if have_ctrl_data = [] then
+		  let have_ctrl_data = Netsys.is_readable p in
+		  if not have_ctrl_data then
 		    raise(Unix_error(EAGAIN,"(artificial)",""));
 		  ignore(read p dummy_buf 0 1)
 		done;

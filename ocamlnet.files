@@ -92,6 +92,7 @@ f src/netsys/config_posix.h
 f src/netsys/config_win32.h
 d src/netsys/configtests
 f src/netsys/configtests/posix_shm.c
+f src/netsys/configtests/posix_fadvise.c
 f src/netsys/configtests/main.ml
 p src/netsys/.*\.ml
 p src/netsys/.*\.mli

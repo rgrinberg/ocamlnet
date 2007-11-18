@@ -2,6 +2,10 @@
 Things to do + roadmap
 ----------------------------------------------------------------------
 
+Unix.select => poll:
+	- nethttpd_kernel: Still uses select
+	- netcgi1/jserv: Still uses select (just document, won't fix)
+
 TESTS:
 	- Netplex_cenv
 	- searcher
@@ -26,6 +30,9 @@ Feature request:
 Equeue:
 	- Fix command engines as commented in the code.
 	  Sched: after 2.2.0 is out
+
+	- Uq_engines.connector: currently raises Not_found for a name
+	  resolution error. Do something better.
 
 	Syntax for engine concatenation?
    	- when_state style:

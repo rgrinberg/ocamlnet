@@ -1,3 +1,8 @@
+2007-11-18  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
+
+	* Adding syscalls to Netsys: poll, fsync, fdatasync,
+	  fadvise, fallocate, ioprio_get/set
+
 2007-11-01  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Release 2.2.9

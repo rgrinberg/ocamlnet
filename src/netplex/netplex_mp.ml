@@ -94,7 +94,7 @@ object(self)
 	  pid_list <- pid :: pid_list;
 	  (* Wait until the child completes the critical section: *)
 	  Unix.close fd_wr;
-	  ignore (Netsys.restart (Unix.select [ fd_rd ] [] []) (-1.0));
+	  ignore (Netsys.restart (Netsys.wait_until_readable fd_rd) (-1.0));
 	  Unix.close fd_rd;
 
 	  ( object

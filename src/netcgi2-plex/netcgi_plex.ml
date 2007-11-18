@@ -11,10 +11,8 @@ let wait_for_request timeout fd =
   let rec wait t =
     let t0 = Unix.gettimeofday() in
     try
-      let (l,_,_) =
-	Unix.select
-	  [ fd ] [] [] t in
-      if l = [] then
+      let ok = Netsys.wait_until_readable fd t in
+      if not ok then
 	`Conn_close
       else
 	`Conn_keep_alive

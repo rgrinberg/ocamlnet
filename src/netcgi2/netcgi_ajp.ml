@@ -725,8 +725,8 @@ let rec handle_connection fd ~config ?script_name output_type arg_store
      if I have to wait more and 1 sec for the next request. *)
   let cdir =
     try
-      let in_socks, _, _ =  Netsys.restarting_select [fd] [] [] 1. in
-      if in_socks = [] then (
+      let ok = Netsys.restart_tmo (Netsys.wait_until_readable fd) 1.0 in
+      if not ok then (
 	(* ajp_log_error "Timeout waiting for the next connection.  Closing.";*)
 	`Conn_close
       )

@@ -97,6 +97,15 @@ val restart : ('a -> 'b) -> 'a -> 'b
     *   well-enough specified by POSIX
    *)
 
+val restart_tmo : (float -> 'b) -> float -> 'b
+  (** [restart_tmo f tmo] calls [f] with a timeout argument [tmo], and
+    * restarted the call if the exception [Unix_error(EINTR,_,_)] is caught.
+    * In the restart case, the timeout argument is reduced by the
+    * already elapsed time.
+    *
+    * Negative timeout arguments are interpreted as "no timeout".
+   *)
+
 val restarting_select : 
       Unix.file_descr list -> Unix.file_descr list -> Unix.file_descr list ->
       float ->
@@ -141,6 +150,21 @@ val is_prireadable : Unix.file_descr -> bool
       are done by calling [Unix.select], and the restrictions of this syscall
       apply.
    *)
+
+val wait_until_readable : Unix.file_descr -> float -> bool
+val wait_until_writable : Unix.file_descr -> float -> bool
+val wait_until_prireadable : Unix.file_descr -> float -> bool
+  (** Wait until an operation for a single descriptor becomes possible.
+      The float argument is the timeout (negative value means no timeout).
+      Returns whether the operation is possible ([true]). Otherwise,
+      there was a timeout ([false]).
+
+      Like the [is_*] functions, these tests are based on [poll] if
+      available, and on [select] otherwise.
+
+      Additional Unix conditions like [EINTR] are not handled.
+   *)
+
 
 val sleep : float -> unit
 val restarting_sleep : float -> unit
