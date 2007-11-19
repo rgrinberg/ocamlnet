@@ -284,7 +284,7 @@ object(self)
     if new_res <> RID_Map.empty then begin
       (* Append new_res to res, and change negative tlast to tref.
        * A negative event time tlast indicates that the
-       * resource has just been added; such a resouce is handled as if 
+       * resource has just been added; such a resource is handled as if 
        * the last event has just been seen.
        *)    
       res <- RID_Map.fold 
