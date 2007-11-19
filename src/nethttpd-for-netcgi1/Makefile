@@ -7,7 +7,8 @@ OBJECTS  = nethttpd_types.cmo nethttpd_kernel.cmo nethttpd_reactor.cmo \
 DOBJECTS = nethttpd_types.mli nethttpd_kernel.mli nethttpd_reactor.mli \
 	  nethttpd_engine.mli nethttpd_services.mli nethttpd_plex.mli
 
-INCLUDES += $(INC_EQUEUE) $(INC_NETSTRING) $(INC_NETCGI1) $(INC_NETPLEX)
+INCLUDES += $(INC_EQUEUE) $(INC_NETSTRING) $(INC_NETCGI1) $(INC_NETPLEX) \
+            $(INC_NETSYS)
 PP_OPTIONS = -package "camlp4, camlp4.macro" -syntax "camlp4o"
 
 #PP_OPTIONS_FINDLIB += -ppopt "-DTesting"

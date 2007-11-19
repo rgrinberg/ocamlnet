@@ -9,6 +9,10 @@
  * See also the explanations under examples/jserv.
  *)
 
+(* Note that there is no support for using [Netsys.poll] as a replacement
+   for [Unix.select].
+ *)
+
 open Netchannels
 
 type t

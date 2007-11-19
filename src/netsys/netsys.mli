@@ -79,7 +79,11 @@ val poll : poll_array -> int -> float -> int
       Wait for at most [tmo] seconds (a negative value means there is
       no timeout). Returns the number of ready file descriptors.
 
-      [poll] is not available on Win32.
+      On platforms without native support for [poll] the function is
+      emulated using [Unix.select]. Note, however, that there is a
+      performance penalty for the emulation, and that the output
+      flags [poll_error_result], [poll_hangup_result], and
+      [poll_invalid_result] are not emulated.
    *)
 
 

@@ -132,7 +132,6 @@ let the_pollfd_size = pollfd_size()
 
 let have_poll = the_pollfd_size > 0
 
-type poll_array = string
 type poll_in_events = int
 type poll_out_events = int
 type poll_cell =
@@ -140,6 +139,10 @@ type poll_cell =
       mutable poll_events : poll_in_events;
       mutable poll_revents : poll_out_events;
     }
+type poll_mem
+type poll_array =
+  | Poll_mem of poll_mem * int (*length*)
+  | Poll_emu of poll_cell array
 
 let null_poll_cell =
   { poll_fd = Unix.stdin;
@@ -147,11 +150,17 @@ let null_poll_cell =
     poll_revents = 0
   }
 
-external mk_string_poll_cell : Unix.file_descr -> int -> int -> string
-  = "netsys_mk_string_poll_cell"
+external mk_poll_mem : int -> poll_mem
+  = "netsys_mk_poll_mem"
 
-external rd_string_poll_cell : string -> (Unix.file_descr * int * int)
-  = "netsys_rd_string_poll_cell"
+external set_poll_mem : poll_mem -> int -> Unix.file_descr -> int -> int -> unit
+  = "netsys_set_poll_mem"
+
+external get_poll_mem : poll_mem -> int -> (Unix.file_descr * int * int)
+  = "netsys_get_poll_mem"
+
+external blit_poll_mem : poll_mem -> int -> poll_mem -> int -> int -> unit
+  = "netsys_blit_poll_mem"
 
 external poll_constants : unit -> int array = "netsys_poll_constants"
 
@@ -184,41 +193,113 @@ let poll_error_result p = p land pollerr_const <> 0
 let poll_hangup_result p = p land pollhup_const <> 0
 let poll_invalid_result p = p land pollnval_const <> 0
 
-let poll_array_length a =
-  String.length a / the_pollfd_size
+let poll_array_length =
+  function
+    | Poll_mem(_,n) -> n
+    | Poll_emu e -> Array.length e
 
 let set_poll_cell a k c =
   if k < 0 || k >= poll_array_length a then
     invalid_arg "Netsys.set_poll_cell";
-  let u = mk_string_poll_cell c.poll_fd c.poll_events 0 in
-  String.blit u 0 a (k*the_pollfd_size) the_pollfd_size
+  match a with
+    | Poll_mem(s,_) ->
+	set_poll_mem s k c.poll_fd c.poll_events (* c.revents *) 0
+    | Poll_emu e ->
+	e.(k) <- { c with poll_fd = c.poll_fd } (* copy *)
 
 let get_poll_cell a k =
   if k < 0 || k >= poll_array_length a then
     invalid_arg "Netsys.get_poll_cell";
-  let u = String.create the_pollfd_size in
-  String.blit a (k*the_pollfd_size) u 0 the_pollfd_size;
-  let (fd, ev, rev) = rd_string_poll_cell u in
-  { poll_fd = fd; poll_events = ev; poll_revents = rev }
+  match a with
+    | Poll_mem(s,_) ->
+	let (fd, ev, rev) = get_poll_mem s k in
+	{ poll_fd = fd; poll_events = ev; poll_revents = rev }
+    | Poll_emu e ->
+	let c = e.(k) in
+	{ c with poll_fd = c.poll_fd }   (* copy *)
 
 let blit_poll_array a1 k1 a2 k2 len =
   let l1 = poll_array_length a1 in
   let l2 = poll_array_length a2 in
   if len < 0 || k1 < 0 || k1+len > l1 || k2 < 0 || k2+len > l2 then
     invalid_arg "Netsys.get_poll_cell";
-  String.blit 
-    a1 (k1*the_pollfd_size) a2 (k2*the_pollfd_size) (len*the_pollfd_size)
+  match (a1, a2) with
+    | (Poll_mem(s1,_), Poll_mem(s2,_)) ->
+	blit_poll_mem s1 k1 s2 k2 len
+    | (Poll_emu e1, Poll_emu e2) ->
+	Array.blit e1 k1 e2 k2 len
+    | _ ->
+	assert false
 
 let create_poll_array n =
-  if not have_poll then
-    invalid_arg "Netsys.create_poll_array: unsupported";
-  let s = String.create (n*the_pollfd_size) in
-  for k = 0 to n - 1 do
-    set_poll_cell s k null_poll_cell
-  done;
-  s
+  if have_poll then (
+    let s = mk_poll_mem n in
+    Poll_mem(s,n)
+  )
+  else (
+    let e = Array.create n null_poll_cell in
+    Poll_emu e
+  )
 
-external netsys_poll : poll_array -> int -> float -> int = "netsys_poll"
+external netsys_poll : poll_mem -> int -> float -> int = "netsys_poll"
+
+
+let mem_sorted_array x a =
+  let rec search l h =
+    if l < h then (
+      let m = (l+h) / 2 in
+      let r = Pervasives.compare x a.(m) in
+      if r = 0 then
+	true
+      else
+	if r < 0 then
+	  search l m
+	else
+	  search (m+1) h
+    )
+    else false
+  in
+  search 0 (Array.length a)
+
+
+let do_poll a k tmo =
+  match a with
+    | Poll_mem(s,_) ->
+	netsys_poll s k tmo
+    | Poll_emu e ->
+	(* Emulate poll using Unix.select. This is slow! *)
+	let l_inp = ref [] in
+	let l_out = ref [] in
+	let l_pri = ref [] in
+	for j = 0 to k-1 do
+	  let c = e.(j) in
+	  let (f_inp, f_out, f_pri) = poll_in_triple c.poll_events in
+	  if f_inp then l_inp := c.poll_fd :: !l_inp;
+	  if f_out then l_out := c.poll_fd :: !l_out;
+	  if f_pri then l_pri := c.poll_fd :: !l_pri;
+	done;
+	let (o_inp, o_out, o_pri) = Unix.select !l_inp !l_out !l_pri tmo in
+	let a_inp = Array.of_list o_inp in
+	let a_out = Array.of_list o_out in
+	let a_pri = Array.of_list o_pri in
+	Array.sort Pervasives.compare a_inp;
+	Array.sort Pervasives.compare a_out;
+	Array.sort Pervasives.compare a_pri;
+	let n = ref 0 in
+	for j = 0 to k-1 do
+	  let c = e.(j) in
+	  let g_inp = mem_sorted_array c.poll_fd a_inp in
+	  let g_out = mem_sorted_array c.poll_fd a_out in
+	  let g_pri = mem_sorted_array c.poll_fd a_pri in
+	  let rev =
+	    (if g_inp then pollin_const else 0) lor
+	    (if g_out then pollout_const else 0) lor
+	    (if g_pri then pollpri_const else 0) in
+	  c.poll_revents <- rev;
+	  if rev <> 0 then incr n
+	done;
+	!n
+
 
 let max_tmo =
   2147483.0
@@ -234,15 +315,15 @@ let poll a k tmo =
     let n = ref 0 in
     while !n = 0 && !twaited +. max_tmo < tmo do
       twaited := !twaited +. max_tmo;
-      n := netsys_poll a k max_tmo
+      n := do_poll a k max_tmo
     done;
     if !n = 0 then
-      n := netsys_poll a k (max 0.0 (tmo -. !twaited));  
+      n := do_poll a k (max 0.0 (tmo -. !twaited));  
                            (* One sub is unavoidable *)
     !n
   )
   else
-    netsys_poll a k (-1.0)
+    do_poll a k (-1.0)
   
 let restarting_poll a k tmo =
   restart_tmo (poll a k) tmo

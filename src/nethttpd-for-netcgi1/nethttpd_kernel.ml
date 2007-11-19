@@ -581,6 +581,7 @@ type cont =
 module StrSet = Set.Make(String)
 
 class http_protocol (config : #http_protocol_config) (fd : Unix.file_descr) =
+  let pa = Netsys.create_poll_array 1 in
 object(self)
   val mutable resp_queue = Queue.create()
     (* The queue of [http_response] objects. The first is currently being transmitted *)
@@ -655,12 +656,15 @@ object(self)
     (* If d < 0 wait for undefinite time. If d >= 0 wait for a maximum of d seconds.
      * On expiration, raise [Timeout].
      *)
-    let l_in = if self#do_input then [fd] else [] in
-    let l_out = if self#do_output then [fd] else [] in
+    Netsys.set_poll_cell pa 0
+      { Netsys.poll_fd = fd;
+	poll_events = Netsys.poll_in_events self#do_input self#do_output false;
+	poll_revents = Netsys.poll_out_events()
+      };
     let t = Unix.gettimeofday() in
     try
-      let s_in, s_out, _ = Unix.select l_in l_out [] d in
-      if s_in = [] && s_out = [] then raise Timeout;
+      let n = Netsys.poll pa 1 d in
+      if n = 0 then raise Timeout
     with
 	Unix.Unix_error(Unix.EINTR,_,_) ->
 	  if d < 0.0 then
@@ -1341,7 +1345,7 @@ object(self)
       if block then (
 	let now = Unix.gettimeofday() in
 	let sel_time = timeout -. (now -. start_time) in
-	let _ = Unix.select [ fd ] [] [] sel_time in
+	Netsys.wait_until_readable fd sel_time;
 	()
       );
 
