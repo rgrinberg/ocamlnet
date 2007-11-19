@@ -186,6 +186,7 @@ let poll_in_triple p =
 
 let poll_out_events() = 0
 
+let poll_result p = p <> 0
 let poll_input_result p = p land pollin_const <> 0
 let poll_output_result p = p land pollout_const <> 0
 let poll_priority_result p = p land pollpri_const <> 0

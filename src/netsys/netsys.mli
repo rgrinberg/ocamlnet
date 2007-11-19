@@ -4,89 +4,6 @@
 
 open Unix
 
-(** {1 File descriptor polling} *)
-
-type poll_array
-  (** The array of [poll_cell] entries *)
-
-type poll_in_events
-type poll_out_events
-  (** Poll events *)
-
-type poll_cell =
-    { mutable poll_fd : Unix.file_descr;
-      mutable poll_events : poll_in_events;
-      mutable poll_revents : poll_out_events;
-    }
-  (** The poll cell refers to the descriptor [poll_fd]. The [poll_events]
-      are the events the descriptor is polled for. The [poll_revents]
-      are the output events.
-   *)
-
-val poll_in_events : bool -> bool -> bool -> poll_in_events
-  (** [poll_in_events inp out pri]: Create a set of in events consisting
-      of the bits [inp], [out], and [pri]. [inp] means to poll for 
-      input data, [out] to poll for output data, and [pri] to poll for urgent
-      input data.
-   *)
-
-val poll_in_triple : poll_in_events -> bool * bool * bool
-  (** Looks into a [poll_in_events] value, and returns the triple
-      [(inp,out,pri)].
-   *)
-
-val poll_out_events : unit -> poll_out_events
-  (** Create an empty set of [poll_out_events], for initilization
-      of poll cells.
-   *)
-
-val poll_input_result : poll_out_events -> bool
-val poll_output_result : poll_out_events -> bool
-val poll_priority_result : poll_out_events -> bool
-val poll_error_result : poll_out_events -> bool
-val poll_hangup_result : poll_out_events -> bool
-val poll_invalid_result : poll_out_events -> bool
-  (** Look for the bit in [poll_out_events] and return the status *)
-
-val create_poll_array : int -> poll_array
-  (** Create a poll array with the given size. The [poll_fd] member is
-      initialized with [Unix.stdin], and the two event members are empty.
-   *)
-
-val set_poll_cell : poll_array -> int -> poll_cell -> unit
-  (** [set_poll_cell a k c]: Sets the poll cell [k] to [c].
-      The index [k] must be in the range from [0] to [N-1] when [N] is the
-      length of the poll array.
-   *)
-
-val get_poll_cell : poll_array -> int -> poll_cell
-  (** [get_poll_cell a k]: Returns the poll cell [k].
-      The index [k] must be in the range from [0] to [N-1] when [N] is the
-      length of the poll array.
-   *)
-
-val blit_poll_array : poll_array -> int -> poll_array -> int -> int -> unit
-  (** [blit_poll_array a1 p1 a2 p2 len]: Copies the [len] cells at index [p1]
-      from [a1] to [a2] at index [p2].
-   *)
-
-val poll_array_length : poll_array -> int
-  (** Return the number of cells in the poll array *)
-
-val poll : poll_array -> int -> float -> int
-  (** [poll a n tmo]: Poll for the events of the cells 0 to [n-1] of 
-      poll array [a], and set the [poll_revents] member of all cells.
-      Wait for at most [tmo] seconds (a negative value means there is
-      no timeout). Returns the number of ready file descriptors.
-
-      On platforms without native support for [poll] the function is
-      emulated using [Unix.select]. Note, however, that there is a
-      performance penalty for the emulation, and that the output
-      flags [poll_error_result], [poll_hangup_result], and
-      [poll_invalid_result] are not emulated.
-   *)
-
-
 (** {1 Helper functions} *)
 
 val restart : ('a -> 'b) -> 'a -> 'b
@@ -115,10 +32,6 @@ val restarting_select :
       float ->
         (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list)
   (** A wrapper around [Unix.select] that handles the [EINTR] condition *)
-
-val restarting_poll :
-      poll_array -> int -> float -> int
-  (** A wrapper around [poll] that handles the [EINTR] condition *)
 
 val really_write : Unix.file_descr -> string -> int -> int -> unit
   (** [really_write fd s pos len]: Writes exactly the [len] bytes from [s]
@@ -180,6 +93,96 @@ val domain_of_inet_addr : Unix.inet_addr -> Unix.socket_domain
   (** Returns the socket domain of Internet addresses, i.e. whether the
     * address is IPv4 or IPv6
    *)
+
+
+(** {1 File descriptor polling} *)
+
+type poll_array
+  (** The array of [poll_cell] entries *)
+
+type poll_in_events
+type poll_out_events
+  (** Poll events *)
+
+type poll_cell =
+    { mutable poll_fd : Unix.file_descr;
+      mutable poll_events : poll_in_events;
+      mutable poll_revents : poll_out_events;
+    }
+  (** The poll cell refers to the descriptor [poll_fd]. The [poll_events]
+      are the events the descriptor is polled for. The [poll_revents]
+      are the output events.
+   *)
+
+val poll_in_events : bool -> bool -> bool -> poll_in_events
+  (** [poll_in_events inp out pri]: Create a set of in events consisting
+      of the bits [inp], [out], and [pri]. [inp] means to poll for 
+      input data, [out] to poll for output data, and [pri] to poll for urgent
+      input data.
+   *)
+
+val poll_in_triple : poll_in_events -> bool * bool * bool
+  (** Looks into a [poll_in_events] value, and returns the triple
+      [(inp,out,pri)].
+   *)
+
+val poll_out_events : unit -> poll_out_events
+  (** Create an empty set of [poll_out_events], for initilization
+      of poll cells.
+   *)
+
+val poll_result : poll_out_events -> bool
+  (** Look whether there is any event in [poll_out_events] *)
+
+val poll_input_result : poll_out_events -> bool
+val poll_output_result : poll_out_events -> bool
+val poll_priority_result : poll_out_events -> bool
+val poll_error_result : poll_out_events -> bool
+val poll_hangup_result : poll_out_events -> bool
+val poll_invalid_result : poll_out_events -> bool
+  (** Look for the bit in [poll_out_events] and return the status *)
+
+val create_poll_array : int -> poll_array
+  (** Create a poll array with the given size. The [poll_fd] member is
+      initialized with [Unix.stdin], and the two event members are empty.
+   *)
+
+val set_poll_cell : poll_array -> int -> poll_cell -> unit
+  (** [set_poll_cell a k c]: Sets the poll cell [k] to [c].
+      The index [k] must be in the range from [0] to [N-1] when [N] is the
+      length of the poll array.
+   *)
+
+val get_poll_cell : poll_array -> int -> poll_cell
+  (** [get_poll_cell a k]: Returns the poll cell [k].
+      The index [k] must be in the range from [0] to [N-1] when [N] is the
+      length of the poll array.
+   *)
+
+val blit_poll_array : poll_array -> int -> poll_array -> int -> int -> unit
+  (** [blit_poll_array a1 p1 a2 p2 len]: Copies the [len] cells at index [p1]
+      from [a1] to [a2] at index [p2].
+   *)
+
+val poll_array_length : poll_array -> int
+  (** Return the number of cells in the poll array *)
+
+val poll : poll_array -> int -> float -> int
+  (** [poll a n tmo]: Poll for the events of the cells 0 to [n-1] of 
+      poll array [a], and set the [poll_revents] member of all cells.
+      Wait for at most [tmo] seconds (a negative value means there is
+      no timeout). Returns the number of ready file descriptors.
+
+      On platforms without native support for [poll] the function is
+      emulated using [Unix.select]. Note, however, that there is a
+      performance penalty for the emulation, and that the output
+      flags [poll_error_result], [poll_hangup_result], and
+      [poll_invalid_result] are not emulated.
+   *)
+
+val restarting_poll :
+      poll_array -> int -> float -> int
+  (** A wrapper around [poll] (see below) that handles the [EINTR] condition *)
 
 
 (** {1 Standard POSIX functions} *)
