@@ -89,20 +89,45 @@ let setup srv root_dir =
 ;;
 
 
+let esys_style style =
+  match style with
+    | "select" ->
+	Unixqueue.set_event_system_factory
+	  Unixqueue.select_event_system
+    | "poll" ->
+	Unixqueue.set_event_system_factory
+	  (fun () ->
+	     let pset = Netsys_pollset.poll_based_pollset 10 in
+	     Unixqueue2.pollset_event_system pset
+	  )
+    | _ ->
+	raise(Arg.Bad("Unknown event system style: " ^ style))
+
+
 let start() =
   let (opt_list, cmdline_cfg) = Netplex_main.args() in
 
   let use_mt = ref false in
+  let debug = ref false in
 
   let opt_list' =
     [ "-mt", Arg.Set use_mt,
-      "  Use multi-threading instead of multi-processing"
-    ] @ opt_list in
+      "  Use multi-threading instead of multi-processing";
+      
+      "-esys-style", Arg.String esys_style,
+      " (select|poll)  Set the style of the event system (EXPERIMENTAL)";
+ 
+      "-debug", Arg.Set debug,
+      "  Enable (some) debug messages";
+   ] @ opt_list in
 
   Arg.parse
     opt_list'
     (fun s -> raise (Arg.Bad ("Don't know what to do with: " ^ s)))
     "usage: netplex [options]";
+
+  Unixqueue_util.set_debug_mode !debug;
+
   let parallelizer =
     if !use_mt then
       Netplex_mt.mt()     (* multi-threading *)

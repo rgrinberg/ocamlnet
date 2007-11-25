@@ -176,7 +176,7 @@ let string_of_fd = Unixqueue_util.string_of_fd
 (**********************************************************************)
 
 
-class unix_event_system () : event_system =
+class select_event_system () : event_system =
   let es_lock, es_unlock = !create_lock_unlock_pair() in
 object(self)
 
@@ -964,11 +964,13 @@ object(self)
 end
 ;;
 
+class unix_event_system = select_event_system
+
 (**********************************************************************)
 (* Classic interface                                                  *)
 (**********************************************************************)
 
-let create_unix_event_system() =
+let select_event_system() =
   new unix_event_system()
 
 let new_group ues =
@@ -1015,3 +1017,12 @@ let exn_log ues =
 
 let debug_log ues =
   ues # debug_log
+
+let event_system_factory = ref select_event_system
+
+let set_event_system_factory f =
+  event_system_factory := f
+
+let create_unix_event_system() =
+  !event_system_factory()
+

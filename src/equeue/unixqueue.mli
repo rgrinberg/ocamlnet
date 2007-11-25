@@ -180,11 +180,23 @@ end
    * 
    *)
 
+class select_event_system : unit -> event_system
+  (** The standalone, select-based implementation of an event system *)
+
 class unix_event_system : unit -> event_system
-  (** The standalone implementation of an event system *)
+  (** {b Deprecated.} Compatibility name for [select_event_system] *)
+
+val select_event_system : unit -> event_system
+  (** Create a new, empty, select-based event system *)
 
 val create_unix_event_system : unit -> event_system
-  (** Create a new, empty event system *)
+  (** Create a new, empty event system using the configurable
+      factory. {b Use this function to create the [event_system]
+      if you don't have special wishes about its kind.}
+   *)
+
+val set_event_system_factory : (unit -> event_system) -> unit
+  (** Sets the factory function for [create_unix_event_system] *)
 
 val new_group : event_system -> group
   (** Create a new, empty group for the event system *)

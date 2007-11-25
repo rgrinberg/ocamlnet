@@ -1,11 +1,37 @@
 (* $Id$ *)
 
+let esys_style style =
+  match style with
+    | "select" ->
+	Unixqueue.set_event_system_factory
+	  Unixqueue.select_event_system
+    | "poll" ->
+	Unixqueue.set_event_system_factory
+	  (fun () ->
+	     let pset = Netsys_pollset.poll_based_pollset 10 in
+	     Unixqueue2.pollset_event_system pset
+	  )
+    | _ ->
+	raise(Arg.Bad("Unknown event system style: " ^ style))
+
+
 let start() =
   let host = ref "localhost" in
   let query = ref None in
+  let tmo = ref (-1.0) in
+  let debug = ref false in
   Arg.parse
     [ "-host", Arg.Set_string host,
       "<hostname>  Contact the finder daemon on this host";
+      
+      "-timeout", Arg.Set_float tmo,
+      "<tmo>  Set a timeout value in seconds";
+
+      "-esys-style", Arg.String esys_style,
+      " (select|poll)  Set the style of the event system (EXPERIMENTAL)";
+
+      "-debug", Arg.Set debug,
+      "  Enable (some) debug messages";
     ]
     (fun s -> query := Some s)
     "usage: finder_client [options] <query>";
@@ -15,8 +41,11 @@ let start() =
       | None -> failwith "Query is missing on the command-line"
       | Some q -> q in
 
+  Unixqueue_util.set_debug_mode !debug;
+
   let rpc_client =
     Finder_service_clnt.Finder.V1.create_portmapped_client !host Rpc.Tcp in
+  Rpc_client.configure rpc_client 0 !tmo;
 
   try
     match Finder_service_clnt.Finder.V1.find rpc_client query_string with

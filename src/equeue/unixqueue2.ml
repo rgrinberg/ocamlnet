@@ -1,5 +1,9 @@
 (* $Id$ *)
 
+(* TODO:
+   - call #dispose for pset
+ *)
+
 open Unixqueue_util
 open Printf
 
@@ -119,7 +123,12 @@ object(self)
 	  ([], false)
 	)
 	else (
-	  debug_print (lazy (sprintf "wait tmo=%f" delta));
+	  debug_print (lazy (
+			 let ops = 
+			   Hashtbl.fold (fun op _ l -> op::l) tmo_of_op [] in
+			 let op_str = 
+			   String.concat ";" (List.map string_of_op ops) in
+			 sprintf "wait tmo=%f ops=<%s>" delta op_str));
 	  (pset # wait delta, false)
 	)
       with
@@ -170,6 +179,9 @@ object(self)
 
     let ops_timed_out =
       ops_until t1 ops_of_tmo in
+    (* Note: this _must_ include operations until <= t1 (not <t1), otherwise
+       a timeout value of 0.0 won't work
+     *)
 
     let timeout_events = 
       (* Generate timeout events for all ops in [tmo_of_op] that have timed
@@ -248,7 +260,7 @@ object(self)
 	| Unixqueue.Wait_oob fd ->
 	    [Unixqueue.Out_of_band(g,fd)]
 	| Unixqueue.Wait _ ->
-	    assert false
+	    [Unixqueue.Timeout(g,op)]
     with
       | Not_found ->
 	  (* A "ghost event", i.e. there is no handler anymore
@@ -263,6 +275,7 @@ object(self)
       | Unixqueue.Input_arrived(_,fd)    -> Unixqueue.Wait_in fd
       | Unixqueue.Output_readiness(_,fd) -> Unixqueue.Wait_out fd
       | Unixqueue.Out_of_band(_,fd)      -> Unixqueue.Wait_oob fd
+      | Unixqueue.Timeout(_,op)          -> op
       | _ -> assert false
 
 
