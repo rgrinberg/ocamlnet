@@ -42,7 +42,7 @@ open Sys;;
  * The TCL extension is not thread-safe.
  *)
 
-type group
+type group = Unixqueue_util.group
   (** A group is an abstract tag for a set of events, resources, and
    * event handlers. Usually every event handler creates a new group,
    * and all events and resources processed by the handler are 
@@ -61,13 +61,13 @@ exception Abort of (group * exn);;
    *)
 
 
-type wait_id
+type wait_id = Unixqueue_util.wait_id
   (** A wait identifier is used to distinguish between several
    * timers, see type [operation].
    *)
 
 
-type operation =
+type operation = Unixqueue_util.operation =
     Wait_in  of file_descr          (** wait for input data *)
   | Wait_out of file_descr          (** wait until output can be written *)
   | Wait_oob of file_descr          (** wait for out-of-band data *)
@@ -77,7 +77,7 @@ type operation =
    *)
 
 
-type event =
+type event = Unixqueue_util.event =
     Input_arrived of    (group * file_descr)  (** Input data has arrived *)
   | Output_readiness of (group * file_descr)  (** Output is possible now *)
   | Out_of_band of      (group * file_descr)  (** OOB data has arrived *)

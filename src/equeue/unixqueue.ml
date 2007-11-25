@@ -61,38 +61,18 @@ let set_of_list =
 (* Basic type definitions                                             *)
 (**********************************************************************)
 
-(* [group] and [wait_id] are now objects. The structural equality
- * ( = ) compares object IDs if applied to objects, so that this
- * is exactly what we need. It is no longer necessary to manage
- * the IDs ourselves, because the language already manages object IDs.
- *
- * This has also the advantage that groups can now have additional
- * properties.
- *)
 
-class group_object =
-object
-  val mutable terminating = false
-      (* Whether the group is terminating *)
-  method is_terminating = terminating
-  method terminate() = terminating <- true
-end
+type group = Unixqueue_util.group
 
-type group = group_object
+type wait_id = Unixqueue_util.wait_object
 
-class wait_object =
-object
-end
-
-type wait_id = wait_object
-
-type operation =
+type operation = Unixqueue_util.operation = 
     Wait_in  of file_descr
   | Wait_out of file_descr
   | Wait_oob of file_descr
   | Wait of wait_id
 
-type event =
+type event = Unixqueue_util.event =
     Input_arrived of (group * file_descr)
   | Output_readiness of (group * file_descr)
   | Out_of_band of (group * file_descr)
@@ -120,44 +100,6 @@ module RID_Map = Map.Make(RID)
 exception Exists;;
 
 
-
-let string_of_fd fd =
-  (* For Unix, the fd is an integer that can be simply casted and printed.
-   * For other systems: don't know
-   *)
-  if Obj.is_int(Obj.repr fd) then
-    string_of_int(Obj.magic fd : int)
-  else
-    "<abstr>"
-;;
-
-
-let string_of_op =
-  function
-      Wait_in fd   -> sprintf "Wait_in(%s)" (string_of_fd fd)
-    | Wait_out fd  -> sprintf "Wait_out(%s)" (string_of_fd fd)
-    | Wait_oob fd  -> sprintf "Wait_oob(%s)" (string_of_fd fd)
-    | Wait id      -> sprintf "Wait(wait_id %d)" (Oo.id id)
-;;
-
-
-let string_of_event ev =
-  match ev with
-    Input_arrived (g,fd) ->
-      sprintf "Input(group %d, fd %s)" (Oo.id g) (string_of_fd fd)
-  | Output_readiness (g, fd) ->
-      sprintf "Output(group %d, fd %s)" (Oo.id g) (string_of_fd fd)
-  | Out_of_band (g, fd) ->
-      sprintf "Out_of_band(group %d, fd %s)" (Oo.id g) (string_of_fd fd)
-  | Timeout (g, op) ->
-      sprintf "Timeout(group %d, %s)" (Oo.id g) (string_of_op op)
-  | Signal ->
-      "Signal"
-  | Extra x ->
-      sprintf "Extra(%s)" (Printexc.to_string x)
-;;
-
-
 let rid_map_exists f map =
   try
     RID_Map.iter
@@ -168,35 +110,14 @@ let rid_map_exists f map =
       Exists -> true
 ;;
 
-
-let debug_mode = ref false;;
-
-let debug_print s =
-  if !debug_mode then
-    prerr_endline("Unixqueue debug msg: " ^ Lazy.force s)
-;;
-
-
-let set_debug_mode b =
-  debug_mode := b;
-  Equeue.set_debug_mode b
-;;
-
-
-type resource_prop =
-    group * float * float
-    (* group, timeout value, time of last event *)
-
-
-class type event_system = 
+class type event_system =
 object
   (* Public interface *)
   method new_group : unit -> group
   method new_wait_id : unit -> wait_id
   method exists_resource : operation -> bool
   method add_resource : group -> (operation * float) -> unit
-  method add_close_action : group -> (file_descr * (file_descr -> unit)) -> unit
-  method add_abort_action : group -> (group -> exn -> unit) -> unit
+  method add_close_action : group -> (file_descr * (file_descr -> unit)) -> unit  method add_abort_action : group -> (group -> exn -> unit) -> unit
   method remove_resource : group -> operation -> unit
   method add_handler : group -> (event_system -> event Equeue.t -> event -> unit) -> unit
   method add_event : event -> unit
@@ -208,13 +129,17 @@ object
   method debug_log : ?label:string -> string -> unit
   (* Protected interface *)
   method private setup : unit -> (file_descr list * file_descr list * file_descr list * float)
-  method private queue_events : (file_descr list * file_descr list * file_descr list) -> bool
+  method private queue_events : (file_descr list * file_descr list * file_descr
+list) -> bool
   method private source : event Equeue.t -> unit
 end
+  (* Note: This has to match the object type Unixqueue_util.event_system *)
 
 
-type handler =
-    event_system -> event Equeue.t -> event -> unit
+type resource_prop = Unixqueue_util.resource_prop
+
+type handler = Unixqueue_util.handler
+
 
 
 (* The control pipe:
@@ -234,10 +159,17 @@ type handler =
  * file descriptors when lots of queues are created. 
  *)
 
-exception Abort of (group * exn)
+exception Abort = Unixqueue_util.Abort
 
 exception Exit;;   (* used locally in uq_handler *)
 
+
+let debug_print = Unixqueue_util.debug_print
+let debug_mode = Unixqueue_util.debug_mode
+let set_debug_mode = Unixqueue_util.set_debug_mode
+
+let string_of_op = Unixqueue_util.string_of_op
+let string_of_fd = Unixqueue_util.string_of_fd
 
 (**********************************************************************)
 (* The class unix_event_system                                        *)
@@ -264,14 +196,16 @@ object(self)
   val mutable blocking = false
   val mutable ctrl_pipe_rd = None
   val mutable ctrl_pipe_wr = None
-  val mutable ctrl_pipe_group = new group_object
+  val mutable ctrl_pipe_group = new Unixqueue_util.group_object
 
   (**********************************************************************)
   (* Implementation of the queue                                        *)
   (**********************************************************************)
 
   initializer
-    let equeue_sys = Equeue.create ~string_of_event self#source in
+    let equeue_sys = 
+      Equeue.create 
+	~string_of_event:Unixqueue_util.string_of_event self#source in
     sys <- lazy equeue_sys;
     ignore(Lazy.force sys);
 
@@ -584,10 +518,10 @@ object(self)
 	  any -> unlock(); raise any
 
   method new_group () =
-    new group_object
+    new Unixqueue_util.group_object
 
   method new_wait_id () =
-    new wait_object
+    new Unixqueue_util.wait_object
 
   method private exists_resource_nolock op =
     try
