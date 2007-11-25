@@ -52,7 +52,7 @@ exception Keep_alive
 
 
 
-let pset_add (pset:Netsys_pollset.pollset) fd (i,o,p) =
+let pset_set (pset:Netsys_pollset.pollset) fd (i,o,p) =
   if not i && not o && not p then
     pset # remove fd
   else
@@ -107,12 +107,21 @@ object(self)
     let delta = if tmin < 0.0 then (-1.0) else max (tmin -. t0) 0.0 in
 
     debug_print (lazy (
-		   sprintf "t0 = %f; delta = %f" t0 delta));
-    debug_print (lazy "wait");
+		   sprintf "t0 = %f" t0));
+
+    let nothing_to_do =
+      Hashtbl.length tmo_of_op = 0 in
 
     let pset_events, have_eintr = 
       try
-	(pset # wait delta, false)
+	if nothing_to_do then (
+	  debug_print (lazy "nothing_to_do");
+	  ([], false)
+	)
+	else (
+	  debug_print (lazy (sprintf "wait tmo=%f" delta));
+	  (pset # wait delta, false)
+	)
       with
 	| Unix.Unix_error(Unix.EINTR,_,_) ->
 	    debug_print (lazy "wait signals EINTR");
@@ -192,7 +201,7 @@ object(self)
       Equeue.add_event _sys Unixqueue.Signal
     )
     else
-      if events = [] && timeout_events = [] then (
+      if events = [] && timeout_events = [] && not nothing_to_do then (
         (* Ensure we always add an event to keep the event loop running: *)
 	debug_print (lazy "delivering Keep_alive");
 	Equeue.add_event _sys (Unixqueue.Extra Keep_alive)
@@ -205,7 +214,10 @@ object(self)
       )
       ops_timed_out;
 
-    (* Set a new timeout for all delivered events: *)
+    (* Set a new timeout for all delivered events:
+       (Note that [pset] remains unchanged, because the set of watched
+       resources remains unchanged.)
+     *)
     List.iter
       (fun evlist ->
 	 List.iter
@@ -273,6 +285,20 @@ object(self)
       | Not_found -> ()
 
 
+  method private pset_remove op =
+    match op with
+      | Wait_in fd ->
+	  let (i,o,p) = pset_find pset fd in
+	  pset_set pset fd (false,o,p)
+      | Wait_out fd ->
+	  let (i,o,p) = pset_find pset fd in
+	  pset_set pset fd (i,false,p)
+      | Wait_oob fd ->
+	  let (i,o,p) = pset_find pset fd in
+	  pset_set pset fd (i,o,false)
+      | Wait _ ->
+	  ()
+	    
 
   method private sched_add g op tmo t1 =
     debug_print(lazy (sprintf "sched_add %s tmo=%f t1=%f"
@@ -284,6 +310,20 @@ object(self)
       ops_of_tmo <- FloatMap.add t1 (op :: l_ops) ops_of_tmo
 
 
+  method private pset_add op =
+    match op with
+      | Wait_in fd ->
+	  let (i,o,p) = pset_find pset fd in
+	  pset_set pset fd (true,o,p)
+      | Wait_out fd ->
+	  let (i,o,p) = pset_find pset fd in
+	  pset_set pset fd (i,true,p)
+      | Wait_oob fd ->
+	  let (i,o,p) = pset_find pset fd in
+	  pset_set pset fd (i,o,true)
+      | Wait _ ->
+	  ()
+		
   method exists_resource op =
     Hashtbl.mem tmo_of_op op
 
@@ -298,19 +338,7 @@ object(self)
     if g # is_terminating then
       invalid_arg "Unixqueue.add_resource: the group is terminated";
     if not (Hashtbl.mem tmo_of_op op) then (
-      ( match op with
-	  | Wait_in fd ->
-	      let (i,o,p) = pset_find pset fd in
-	      pset_add pset fd (true,o,p)
-	  | Wait_out fd ->
-	      let (i,o,p) = pset_find pset fd in
-	      pset_add pset fd (i,true,p)
-	  | Wait_oob fd ->
-	      let (i,o,p) = pset_find pset fd in
-	      pset_add pset fd (i,o,true)
-	  | Wait _ ->
-	      ()
-      );
+      self#pset_add op;
       let t1 = if tmo < 0.0 then tmo else Unix.gettimeofday() +. tmo in
       self#sched_add g op tmo t1
     )
@@ -326,19 +354,7 @@ object(self)
     if g <> g_found then
       failwith "remove_resource: descriptor belongs to different group";
     self#sched_remove op;
-    ( match op with
-	| Wait_in fd ->
-	    let (i,o,p) = pset_find pset fd in
-	    pset_add pset fd (false,o,p)
-	| Wait_out fd ->
-	    let (i,o,p) = pset_find pset fd in
-	    pset_add pset fd (i,false,p)
-	| Wait_oob fd ->
-	    let (i,o,p) = pset_find pset fd in
-	    pset_add pset fd (i,o,false)
-	| Wait _ ->
-	    ()
-    );
+    self#pset_remove op;
     (* is there a close action ? *)
     let fd_opt =
       match op with
@@ -558,6 +574,9 @@ object(self)
 	[] in
     List.iter
       self#sched_remove
+      ops;
+    List.iter
+      self#pset_remove
       ops;
 
     (* (ii) delete all handlers of g: *)
