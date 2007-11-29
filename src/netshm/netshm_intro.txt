@@ -109,6 +109,11 @@ It is discouraged to open shared memory objects several times in
 parallel from the same process, as locking methods (see below) are
 confused by this.
 
+If you create several processes by calling [Unix.fork] it is required
+that every process opens the shared memory object anew. It is not
+sufficient to open the object in the master process, and to use
+it in the child processes after forking. This will cause subtle
+malfunctions.
 
 {2 Data structures}
 

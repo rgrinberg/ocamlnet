@@ -139,6 +139,13 @@ val manage : ?pagesize:int ->
     * for the number of elements the table will contain. The data
     * structure is then created such that this many elements can be added
     * without needing expensive data reorganization.
+    *
+    * Special note for using [shm_table] with multiple processes: Every
+    * process must create its own [shm_descr], and every process must
+    * call [manage] to manage it. It is not sufficient to just fork
+    * a new process, and to keep using the already existing
+    * [shm_descr] or [shm_table] in the subprocess. (This doesn't work
+    * because the underlying file descriptor would be shared.)
    *)
 
 val group : shm_table -> ('a -> 'b ) -> 'a -> 'b
