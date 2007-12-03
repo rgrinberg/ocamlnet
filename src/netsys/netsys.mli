@@ -100,8 +100,8 @@ val domain_of_inet_addr : Unix.inet_addr -> Unix.socket_domain
 type poll_array
   (** The array of [poll_cell] entries *)
 
-type poll_in_events
-type poll_out_events
+type poll_in_events = int
+type poll_out_events = int
   (** Poll events *)
 
 type poll_cell =

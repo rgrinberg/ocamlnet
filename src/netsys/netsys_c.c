@@ -6,25 +6,7 @@
 #define _GNU_SOURCE
 #define _XOPEN_SOURCE 600
 
-#include "config.h"
-
-#ifdef _WIN32
-#include "config_win32.h"
-#else
-#include "config_posix.h"
-#include <unistd.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <signal.h>
-#endif
-
-#include "caml/mlvalues.h"
-#include "caml/alloc.h"
-#include "caml/memory.h"
-#include "caml/fail.h"
-#include "caml/signals.h"
-#include "caml/custom.h"
+#include "netsys_c.h"
 
 #ifdef HAVE_POSIX_SHM
 #include <sys/types.h>
@@ -40,16 +22,6 @@
 #include <sys/poll.h>
 #endif
 
-#include <string.h>
-
-/**********************************************************************/
-/* From unixsupport.h                                                 */
-/**********************************************************************/
-
-#define Nothing ((value) 0)
-
-extern void unix_error (int errcode, char * cmdname, value arg) Noreturn;
-extern void uerror (char * cmdname, value arg) Noreturn;
 
 /**********************************************************************/
 /* Standard POSIX stuff                                               */
@@ -313,23 +285,6 @@ value netsys_blit_poll_mem(value s1, value k1, value s2, value k2, value l) {
     invalid_argument("netsys_blit_poll_mem");
 #endif
 };
-
-
-#ifdef HAVE_POLL
-#define CONST_POLLIN POLLIN
-#define CONST_POLLPRI POLLPRI
-#define CONST_POLLOUT POLLOUT
-#define CONST_POLLERR POLLERR
-#define CONST_POLLHUP POLLHUP
-#define CONST_POLLNVAL POLLNVAL
-#else
-#define CONST_POLLIN 0x1
-#define CONST_POLLPRI 0x2
-#define CONST_POLLOUT 0x4
-#define CONST_POLLERR 0x8
-#define CONST_POLLHUP 0x10
-#define CONST_POLLNVAL 0x20
-#endif
 
 
 value netsys_poll_constants(value dummy) {

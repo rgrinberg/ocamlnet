@@ -88,14 +88,14 @@ let int_of_file_descr =
     | "Unix" | "Cygwin" ->
 	(fun fd -> (Obj.magic (fd:file_descr) : int))
     | _ ->
-	invalid_arg "Netsys.int_of_file_descr"
+	(fun fd -> invalid_arg "Netsys.int_of_file_descr")
 
 let file_descr_of_int =
   match Sys.os_type with
     | "Unix" | "Cygwin" ->
 	(fun n -> (Obj.magic (n:int) : file_descr))
     | _ ->
-	invalid_arg "Netsys.file_descr_of_int"
+	(fun n -> invalid_arg "Netsys.file_descr_of_int")
 
 
 external _exit : int -> unit = "netsys__exit";;

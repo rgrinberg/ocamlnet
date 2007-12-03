@@ -1,6 +1,6 @@
 (* $Id$ *)
 
-(** Polling sets of file descriptors *)
+(** Sets of file descriptors for polling *)
 
 class type pollset =
 object
@@ -35,11 +35,19 @@ object
 
   method dispose : unit -> unit
     (** Release any OS resources associated with the poll set. *)
+
+  method cancel_wait : unit -> unit
+    (** Cancel any [wait] invocation that has been started in a different
+        thread. [wait] will immediately time out. Note that there is no
+        protection against race conditions: It is possible that [wait]
+        returns events that are found at the same time the cancellation
+        is carried out, i.e. you cannot rely on that the list returned
+        by [wait] is empty.
+
+        This is the only method of a pollset that is allowed to be started
+        in a different thread. In single-threaded programs, this method
+        is a no-op. If not supported on a platform this method will
+        fail.
+     *)
+
 end
-
-
-val poll_based_pollset : int -> pollset
-  (** Returns a poll set whose implementation is based on the [poll] system
-      call. The passed integer is the minimum size of the poll array. The
-      array will grow beyond that if necessary.
-   *)

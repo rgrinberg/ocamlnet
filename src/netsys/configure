@@ -3,6 +3,7 @@
 netsys_link_options=""
 have_posix_shm=0
 have_posix_fadvise=0
+have_posix_fallocate=0
 
 ######################################################################
 
