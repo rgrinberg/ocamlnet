@@ -79,7 +79,7 @@ object
   method try_lock : unit -> bool
     (** In a multi-threaded program: Tries to immediately lock the mutex,
         and returns whether the lock could be obtained.
-        In a single-threaded program: This is a no-op
+        In a single-threaded program: returns [true]
      *)
 
   method repr : exn
@@ -113,6 +113,6 @@ object
 
 end
 
-val mtprovider : mtprovider ref
+val provider : mtprovider ref
   (** Return the multi-threading provider *)
 
