@@ -8,7 +8,9 @@ type wsa_event
 
 val wsa_create_event : unit -> wsa_event
 
-val wsa_close_event : wsa_event -> unit
+val wsa_set_event : wsa_event -> unit
+
+val wsa_reset_event : wsa_event -> unit
 
 val wsa_event_select : 
       wsa_event -> Unix.file_descr -> Netsys.poll_in_events -> unit

@@ -13,8 +13,11 @@ val socket_pollset : unit -> pollset
       maximum number of descriptors that can be added to the set.
       If the number is exceeded the exception [Too_many_descriptors]
       is raised (by [add]).
+
+      POLLERR, POLLHUP, and POLLNVAL are not detected by this impl.
    *)
 
+(*
 val pipe_pollset : unit -> pollset
   (** This is a pollset implementation that works only for pipes and
       consoles. Of course, there are some restrictions:
@@ -42,3 +45,4 @@ val threaded_pollset : unit -> pollset
       to the set. It is, however, only available for multi-threaded
       programs, because it uses helper threads.
    *)
+ *)

@@ -27,8 +27,11 @@ struct event {
 
 #define event_val(v) ((struct event *) (Data_custom_val(v)))
 
+#endif
+
 
 value netsys_wsa_create_event(value dummy) {
+#ifdef _WIN32
     WSAEVENT e;
     value r;
     struct event e0;
@@ -45,21 +48,64 @@ value netsys_wsa_create_event(value dummy) {
     *(event_val(r)) = e0;
 
     return r;
+#else
+    invalid_argument("netsys_wsa_create_event");
+#endif
 }
 
 value netsys_wsa_close_event(value ev) {
+#ifdef _WIN32
     struct event e;
 
     e = *(event_val(ev));
     if (!WSACloseEvent(e.wsaev)) {
-	win32_maperr(WSAGetLastError());
-	uerror("WSACloseEvent", Nothing);
+	/* ignore - this is a finaliser! */
+	/* win32_maperr(WSAGetLastError()); */
+	/* uerror("WSACloseEvent", Nothing); */
     }
 
     return Val_unit;
+#else
+    invalid_argument("netsys_wsa_close_event");
+#endif
 }
 
+
+value netsys_wsa_set_event(value ev) {
+#ifdef _WIN32
+    struct event e;
+
+    e = *(event_val(ev));
+    if (!WSASetEvent(e.wsaev)) {
+	win32_maperr(WSAGetLastError());
+	uerror("WSASetEvent", Nothing);
+    }
+
+    return Val_unit;
+#else
+    invalid_argument("netsys_wsa_set_event");
+#endif
+}
+
+value netsys_wsa_reset_event(value ev) {
+#ifdef _WIN32
+    struct event e;
+
+    e = *(event_val(ev));
+    if (!WSAResetEvent(e.wsaev)) {
+	win32_maperr(WSAGetLastError());
+	uerror("WSAResetEvent", Nothing);
+    }
+
+    return Val_unit;
+#else
+    invalid_argument("netsys_wsa_reset_event");
+#endif
+}
+
+
 value netsys_wsa_event_select(value ev, value fdv, value evmaskv) {
+#ifdef _WIN32
     struct event e;
     SOCKET s;
     int m;
@@ -83,13 +129,21 @@ value netsys_wsa_event_select(value ev, value fdv, value evmaskv) {
     }
 
     return Val_unit;
+#else
+    invalid_argument("netsys_wsa_event_select");
+#endif
 }
 
 value netsys_wsa_maximum_wait_events(value dummy) {
+#ifdef _WIN32
     return Val_int(WSA_MAXIMUM_WAIT_EVENTS);
+#else
+    invalid_argument("netsys_wsa_maximum_wait_events");
+#endif
 }
 
 value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
+#ifdef _WIN32
     WSAEVENT earray[WSA_MAXIMUM_WAIT_EVENTS];
     struct event e;
     DWORD tmo;
@@ -106,7 +160,10 @@ value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
     }
 
     if (n == 0) {
+	if (tmo < 0) tmo = INFINITE;
+	enter_blocking_section();
 	r = SleepEx(tmo, 1);
+	leave_blocking_section();
 	
 	if (r == WAIT_IO_COMPLETION) {
 	    win32_maperr(EINTR);
@@ -116,7 +173,10 @@ value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 	return Val_int(0);    /* None */
     }
     else {
+	if (tmo < 0) tmo = WSA_INFINITE;
+	enter_blocking_section();
 	r = WSAWaitForMultipleEvents(n, earray, 0, tmo, 1);
+	leave_blocking_section();
     
 	if (r == WSA_WAIT_FAILED) {
 	    win32_maperr(WSAGetLastError());
@@ -139,9 +199,13 @@ value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
     }
     
     invalid_argument("netsys_wsa_wait_for_multiple_events: bad return value from Win32");
+#else
+    invalid_argument("netsys_wsa_wait_for_multiple_events");
+#endif
 }
 
 value netsys_wsa_enum_network_events(value fdv, value ev) {
+#ifdef _WIN32
     struct event e;
     SOCKET s;
     WSANETWORKEVENTS ne;
@@ -195,12 +259,12 @@ value netsys_wsa_enum_network_events(value fdv, value ev) {
     /* printf("e.mask=%d\n", e.mask); fflush(stdout); */
 
     return Val_int(r);
+#else
+    invalid_argument("netsys_wsa_enum_network_events");
+#endif
 }
 
 /* CHECK:
    - maybe we have to make the FD_CLOSE event last forever (it is not
      level-triggered)
 */
-
-
-#endif

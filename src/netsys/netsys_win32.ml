@@ -2,11 +2,22 @@
 
 type wsa_event
 
-external wsa_create_event : unit -> wsa_event 
+external wsa_create_event0 : unit -> wsa_event 
   = "netsys_wsa_create_event"
 
 external wsa_close_event : wsa_event -> unit
   = "netsys_wsa_close_event"
+
+let wsa_create_event() =
+  let e = wsa_create_event0() in
+  Gc.finalise wsa_close_event e;
+  e
+
+external wsa_set_event : wsa_event -> unit
+  = "netsys_wsa_set_event"
+
+external wsa_reset_event : wsa_event -> unit
+  = "netsys_wsa_reset_event"
 
 external wsa_event_select :  
   wsa_event -> Unix.file_descr -> Netsys.poll_in_events -> unit

@@ -386,3 +386,11 @@ external ioprio_get : ioprio_target -> ioprio = "netsys_ioprio_get"
 external ioprio_set : ioprio_target -> ioprio -> unit = "netsys_ioprio_set"
     (** Sets the priority of the target processes. *)
 
+(**/**)
+
+val pollin_const : int
+val pollpri_const : int
+val pollout_const : int
+val pollerr_const : int
+val pollhup_const : int
+val pollnval_const : int
