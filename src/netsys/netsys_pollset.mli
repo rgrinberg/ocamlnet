@@ -36,18 +36,22 @@ object
   method dispose : unit -> unit
     (** Release any OS resources associated with the poll set. *)
 
-  method cancel_wait : unit -> unit
-    (** Cancel any [wait] invocation that has been started in a different
-        thread. [wait] will immediately time out. Note that there is no
+  method cancel_wait : bool -> unit
+    (** There is a cancel bit in the pollset, and this method sets it
+        to the argument value.
+
+        When the bit is [true], any [wait] invocation will immediately
+        time out. It is allowed to set the cancel bit from another thread,
+        and when it becomes [true], a parallel running [wait] will
+        see that and timeout. Note that there is no
         protection against race conditions: It is possible that [wait]
         returns events that are found at the same time the cancellation
         is carried out, i.e. you cannot rely on that the list returned
         by [wait] is empty.
 
-        This is the only method of a pollset that is allowed to be started
-        in a different thread. In single-threaded programs, this method
-        is a no-op. If not supported on a platform this method will
-        fail.
+        This is the only method of a pollset that is allowed to be called
+        from a different thread. If not supported on a platform this method
+        will fail.
      *)
 
 end

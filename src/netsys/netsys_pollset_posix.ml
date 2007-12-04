@@ -117,7 +117,7 @@ object(self)
   method dispose() = ()
 
 
-  method cancel_wait() = assert false (* TODO *)
+  method cancel_wait _ = assert false (* TODO *)
     
 
 end

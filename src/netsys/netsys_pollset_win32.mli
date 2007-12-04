@@ -36,6 +36,7 @@ val sigchannel_pollset : unit -> pollset
       - There is a maximum for the number of descriptors. If the number is 
         exceeded the exception [Too_many_descriptors] is raised (by [add]).
    *)
+ *)
 
 
 val threaded_pollset : unit -> pollset
@@ -45,4 +46,3 @@ val threaded_pollset : unit -> pollset
       to the set. It is, however, only available for multi-threaded
       programs, because it uses helper threads.
    *)
- *)

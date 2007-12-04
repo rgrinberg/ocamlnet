@@ -10,5 +10,5 @@ object
 		  Netsys.poll_in_events * 
 		  Netsys.poll_out_events ) list
   method dispose : unit -> unit
-  method cancel_wait : unit -> unit
+  method cancel_wait : bool -> unit
 end

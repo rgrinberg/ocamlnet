@@ -129,15 +129,17 @@ object(self)
 	ht;
       ( try 
 	  let w_opt = wait_for_multiple_events evobjs tmo in
+	  ()
+(*
 	  match w_opt with
 	    | None -> prerr_endline "None"
 	    | Some i -> prerr_endline ("Some " ^ string_of_int i)
+ *)
 	with
 	  | error ->
 	      wsa_reset_event evobj_cancel; (* always reset this guy *)
 	      raise error
       );
-      wsa_reset_event evobj_cancel;
       (* Check again for pending events *)
       let (in_set'', out_set'', pri_set'') =
 	Unix.select in_set out_set pri_set 0.0 in
@@ -148,8 +150,216 @@ object(self)
     (* is automatic *)
     ()
 
-  method cancel_wait() =
-    wsa_set_event evobj_cancel
+  method cancel_wait cb =
+    if cb then
+      wsa_set_event evobj_cancel
+    else
+      wsa_reset_event evobj_cancel
 
 end
 
+
+type descriptor_type =
+    [ `Socket ]
+
+
+(* A pollset_helper starts a new thread and communicates with this thread *)
+
+let pollset_helper pset (oothr : Netsys_oothr.mtprovider) =
+object(self)
+  val cmd_cond = oothr#create_condition()    (* Signals a changed [cmd] *)
+  val cmd_mutex = oothr#create_mutex()
+  val mutable cmd = None
+
+  val result_cond = oothr#create_condition() (* Signals a changed [result] *)
+  val result_mutex = oothr#create_mutex()
+  val mutable result = None
+
+  val mutable sep_thread = None
+
+  initializer (
+    let t = oothr#create_thread self#loop () in
+    sep_thread <- Some t
+  )
+    
+
+  method private loop() =
+    cmd_mutex # lock();
+    while cmd = None do
+      cmd_cond # wait cmd_mutex
+    done;
+    let next_cmd =
+      match cmd with
+	| None -> 
+	    assert false
+	| Some c -> 
+	    cmd <- None;
+	    c in
+    cmd_mutex # unlock();
+    ( match next_cmd with
+	| `Start_waiting(tmo,done_fun) ->
+	    self # do_start_waiting tmo done_fun;
+	    self # loop()
+	| `Exit_thread ->
+	    ()
+    )
+
+  method private do_start_waiting tmo done_fun =
+    let r = pset # wait tmo in
+    done_fun();
+    result_mutex # lock();
+    result <- Some r;
+    result_cond # signal();
+    result_mutex # unlock()
+
+
+  (* The interface: 
+     - We can issue a [start_waiting] command. The pset is then waited for
+       in the separate thread. 
+     - The [start_waiting] command has a [done_fun] function argument.
+       It is called when a result exists. The call is done from the
+       separate thread.
+     - A [stop_waiting] cancels the wait (if any), and returns the
+       result (if any)
+     - A [join_thread] command causes the separate thread to terminate.
+       It is an alternate command to [start_waiting].
+   *)
+
+  method start_waiting tmo done_fun =
+    pset # cancel_wait false;
+    cmd_mutex # lock();
+    cmd <- Some(`Start_waiting(tmo,done_fun));
+    cmd_cond # signal();
+    cmd_mutex # unlock()
+
+  method stop_waiting () =
+    (* Now wait until the result is available: *)
+    result_mutex # lock();
+    while result = None do
+      pset # cancel_wait true;   (* Can be invoked from a different thread *)
+      result_cond # wait result_mutex
+    done;
+    let r =
+      match result with
+	| None -> assert false
+	| Some r -> r in
+    result <- None;
+    result_mutex # unlock();
+    r
+
+  method join_thread() =
+    cmd_mutex # lock();
+    cmd <- Some `Exit_thread;
+    cmd_cond # signal();
+    cmd_mutex # unlock();
+    match sep_thread with
+      | None -> assert false
+      | Some t -> t # join()
+
+end
+
+
+let threaded_pollset() =
+  let oothr = !Netsys_oothr.provider in
+object(self)
+  val mutable pollset_list = []
+    (* List of (descriptor_type, pollset, pollset_helper) *)
+
+  val mutable ht = Hashtbl.create 10
+    (* Maps descriptors to pollsets *)
+
+  method find fd =
+    let pset = Hashtbl.find ht fd in
+    pset # find fd
+
+  method add fd ev =
+    try
+      let pset = Hashtbl.find ht fd in
+      pset # add fd ev
+    with
+      | Not_found ->
+	  self # add_to pollset_list fd ev
+
+  method private add_to l fd ev =
+    match l with
+      | [] ->
+	  (* TODO: distinguish by descriptor type *)
+	  let pset = socket_pollset() in
+	  let pset_helper = pollset_helper pset oothr in
+	  pollset_list <- (`Socket, pset, pset_helper) :: pollset_list;
+	  pset # add fd ev; 
+	  Hashtbl.replace ht fd pset
+
+      | (dt, pset, pset_helper) :: l' ->  (* when dt is right... *)
+	  ( try 
+	      pset # add fd ev; 
+	      Hashtbl.replace ht fd pset
+	    with
+	      | Too_many_descriptors ->
+		  self # add_to l' fd ev
+	  )
+
+  method remove fd =
+    try
+      let pset = Hashtbl.find ht fd in
+      pset # remove fd
+	(* CHECK: terminate pollset_helpers for empty psets? *)
+    with
+      | Not_found -> ()
+
+  val mutable d = false
+  val d_mutex = oothr # create_mutex()
+  val d_cond = oothr # create_condition()
+
+  val mutable cancel_bit = false
+
+  method wait tmo =
+    d_mutex # lock();
+    d <- cancel_bit;
+    d_mutex # unlock();
+
+    let when_done() =
+      d_mutex # lock();
+      d <- true;
+      d_cond # signal();
+      d_mutex # unlock()
+    in
+
+    List.iter
+      (fun (_, _, pset_helper) ->
+	 pset_helper # start_waiting tmo when_done
+      )
+      pollset_list;
+
+    d_mutex # lock();
+    while not d do
+      d_cond # wait d_mutex
+    done;
+    d_mutex # unlock();
+
+    let r = ref [] in
+    List.iter
+      (fun (_, _, pset_helper) ->
+	 r := (pset_helper # stop_waiting()) @ !r
+      )
+      pollset_list;
+
+    !r
+
+  method cancel_wait cb =
+    d_mutex # lock();
+    d <- d || cb;
+    cancel_bit <- cb;
+    d_cond # signal();
+    d_mutex # unlock();
+
+
+  method dispose() =
+    List.iter
+      (fun (_, _, pset_helper) ->
+	 pset_helper # join_thread()
+      )
+      pollset_list;
+    pollset_list <- [];
+    Hashtbl.clear ht
+end
