@@ -62,6 +62,8 @@ static void init (void) __attribute__((constructor));
 
 static void init (void)
 {
+  /* The doc says that argv[0] and argv[1] are consulted to find the
+   * file containing the bytecode. */
   static char *argv[] = {
     APACHE_LIBDIR "/mod_netcgi_apache.so",
     APACHE_LIBDIR "/mod_netcgi_apache.so",
@@ -82,8 +84,8 @@ static void init (void)
     }
 
   /* Start the OCaml bytecode interpreter. */
-/*   caml_main(argv); */
-  caml_startup(argv); /* embed the bytecode in the C code */
+  caml_main(argv);
+/*   caml_startup(argv); /\* embed the bytecode in the C code *\/ */
 }
 
 #if APACHE2

@@ -28,9 +28,10 @@ netcgi_apache_mod.ml: netcgi_apache_mod.ml.in
 
 include $(TOP_DIR)/Makefile.rules
 
+
 CLEAN_LIST += $(wildcard *.so) $(wildcard *.lo) $(wildcard *.slo) \
-  $(wildcard *.la)
+  $(wildcard *.la) config.h netcgi_apache_mod.ml 500netcgi_apache.info
 
 clean::
-	test -d .libs && rm -rf .libs/
+	test -d .libs && $(RM) -rf .libs/
 

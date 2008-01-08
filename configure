@@ -671,7 +671,20 @@ if [ $enable_apache -gt 0 ]; then
 	# directory to be loaded with relative paths.
 	#apache_ocamllibdir=`ocamlfind printconf destdir`
 	apache_ocamllibdir=`ocamlc -where`
-	echo "enabled (Apache $apache_major)"
+	# The apache module requires the construction of a shared library
+	# embedding the ocaml runtime.  On platforms where PIC code differs
+	# from non-PIC, it requires a shared camlrun.  Check whether it is
+	# available.  See http://caml.inria.fr/mantis/view.php?id=3866
+	apache_camlrun=camlrun
+	if [ -f "$apache_ocamllibdir/libcamlrun_shared.so" ]; then
+	    apache_camlrun=camlrun_shared
+	    echo "enabled (Apache $apache_major)"
+	else
+	    echo "enabled (Apache $apache_major)"
+	    echo -e "    WARNING: libcamlrun_shared.so was not found.  That \
+may prevent the build\n    of the apache module on platforms \
+where PIC code differs from non-PIC\n    such as x86_64, hppa,..."
+	fi
     else
 	apache_major=
 	enable_apache=0
@@ -701,7 +714,7 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 cgi netplex netcgi2-plex"
+pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 netplex netcgi2-plex"
 
 if [ $enable_apache -gt 0 ]; then
     pkglist="$pkglist netcgi2-apache"
@@ -786,7 +799,7 @@ AUTHDHREQS = $adh_reqs
 # For -enable-apache
 APACHE_MAJOR = $apache_major
 APACHE_LIBDIR = $apache_libdir
-APACHE_OCAMLLIBS = -lcamlrun -ltermcap -lunix -lstr
+APACHE_OCAMLLIBS = -l$apache_camlrun -ltermcap -lunix -lstr
 APACHE_INCDIR = $apache_incdir
 APACHE_CONFDIR = $apache_confdir
 APACHE_LDFLAGS_SHLIB = $apache_ldflags_shlib
