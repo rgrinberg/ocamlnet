@@ -84,8 +84,8 @@ static void init (void)
     }
 
   /* Start the OCaml bytecode interpreter. */
-  caml_main(argv);
-/*   caml_startup(argv); /\* embed the bytecode in the C code *\/ */
+/*   caml_main(argv); */
+  caml_startup(argv); /* embed the bytecode in the C code */
 }
 
 #if APACHE2
