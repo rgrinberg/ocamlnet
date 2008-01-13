@@ -581,7 +581,7 @@ struct
 
     method set_header ?status ?content_type ?content_length
       ?(set_cookie=[]) ?(set_cookies=[])
-      ?cache ?filename ?language ?script_type ?style_type ?fields
+      ?cache ?filename ?language ?script_type ?style_type ?(fields=[])
       () =
       let now = Unix.time() in
       let old_cookie c =
@@ -594,9 +594,14 @@ struct
 	  cookie_path = Netcgi_common.Cookie.path c;
 	  cookie_secure = Netcgi_common.Cookie.secure c;
 	} in
-      let fields = match content_length with
-	| None -> []
-	| Some size -> [ "content-length", [string_of_int size] ] in
+      let fields = 
+	match content_length with
+	  | None -> fields
+	  | Some size -> 
+	      ("content-length", [string_of_int size]) ::
+		(List.filter
+		   (fun (n,_) -> String.lowercase n <> "content-length")
+		   fields) in
       (* The old [set_header] knows whether the output is
 	 transactional or not. *)
       cgi_act#set_header ?status ?content_type ?cache ?filename
