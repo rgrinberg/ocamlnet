@@ -24,11 +24,11 @@ val single_shutdown : Ssl.socket -> unit
    *)
 
 val single_read : Ssl.socket -> string -> int -> int -> int
-  (** Corresponds to SSL_read; also support non-blocking descriptors *)
+  (** Deprecated. Is now identical to Ssl.read, *)
 
 
 val single_write : Ssl.socket -> string -> int -> int -> int
-  (** Corresponds to SSL_write; also support non-blocking descriptors *)
+  (** Deprecated. Is now identical to Ssl.write *)
 
 
 type ssl_mode =

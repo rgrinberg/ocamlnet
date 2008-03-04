@@ -1,4 +1,4 @@
-(* $Id$ *)
+ssl(* $Id$ *)
 
 exception Shutdown_error of Ssl.ssl_error
 
@@ -22,9 +22,5 @@ external get_mode : Ssl.socket -> ssl_mode = "ocaml_ssl_get_mode"
 
 external set_mode : Ssl.socket -> ssl_mode -> unit = "ocaml_ssl_set_mode"
 
-external single_read : Ssl.socket -> string -> int -> int -> int
-  = "ocaml_ssl_read"
-
-external single_write : Ssl.socket -> string -> int -> int -> int 
-  = "ocaml_ssl_write"
-
+let single_read = Ssl.single_read
+let single_write = Ssl.single_shutdown
