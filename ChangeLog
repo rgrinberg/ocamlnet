@@ -1,3 +1,17 @@
+2008-03-04  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
+
+	* Recognize GNU/kFreeBSD (Stéphane Glondu <steph@glondu.net>)
+
+	* Fix: Upgraded equeue-ssl for use with ocaml-ssl >= 0.4
+	  (thanks to Debian ocaml maintainers)
+
+	* [ChriS]: Removal of old cgi stuff
+
+	* [ChriS]: Preparing netcgi-apache for OCaml 3.11
+
+	* Enhancements: Introducing pollsets and Unixqueue2.
+	  This work is experimental for now and not yet complete.
+
 2007-11-18  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Adding syscalls to Netsys: poll, fsync, fdatasync,

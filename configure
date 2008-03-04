@@ -598,6 +598,12 @@ with_rpc_ssl=0
 if [ $enable_ssl -gt 0 ]; then
     printf "%s" "Checking for ssl... "
     if ocamlfind query ssl >/dev/null 2>/dev/null; then
+	ssl_v=`ocamlfind query -format '%v' ssl`
+	case "$ssl_v" in
+	    0.1*|0.2*|0.3*)
+		echo "found, but too old. Please upgrade ocaml-ssl to at least version 0.4"
+		exit 1 ;;
+	esac
         echo "found"
 	with_equeue_ssl=1
 	with_rpc_ssl=1
