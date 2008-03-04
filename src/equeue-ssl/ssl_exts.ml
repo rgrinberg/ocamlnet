@@ -22,5 +22,5 @@ external get_mode : Ssl.socket -> ssl_mode = "ocaml_ssl_get_mode"
 
 external set_mode : Ssl.socket -> ssl_mode -> unit = "ocaml_ssl_set_mode"
 
-let single_read = Ssl.single_read
-let single_write = Ssl.single_shutdown
+let single_read = Ssl.read
+let single_write = Ssl.write
