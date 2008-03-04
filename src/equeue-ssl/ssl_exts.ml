@@ -1,4 +1,4 @@
-ssl(* $Id$ *)
+(* $Id$ *)
 
 exception Shutdown_error of Ssl.ssl_error
 
