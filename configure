@@ -384,7 +384,7 @@ case "$u" in
 		with_rpc_auth_local=1
 		[ -n "$adh_style" ] || adh_style=unixdomain
 		;;
-        FreeBSD)
+        *FreeBSD)             # also GNU/kFreeBSD
 	        echo "FreeBSD"
 		[ -n "$adh_style" ] || adh_style=unixdomain
 		;;
