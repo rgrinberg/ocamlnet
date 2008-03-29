@@ -36,6 +36,8 @@ let level_of_string s =
 
 class type logger =
 object
+  method log_subch : component:string -> subchannel:string -> 
+                     level:level -> message:string -> unit
   method log : component:string -> level:level -> message:string -> unit
   method reopen : unit -> unit
   method max_level : level
@@ -43,26 +45,60 @@ object
 end
 
 
-class channel_logger out : logger =
+let format_message fmt component subchannel level_weight message =
+  let t = Unix.time() in
+  let nd = Netdate.create ~zone:(Netdate.localzone) t in
+  let b = Buffer.create 100 in
+  Buffer.add_substitute
+    b
+    (fun var ->
+       match var with
+	 | "timestamp" ->
+	     Netdate.format "%c" nd
+	 | "timestamp:unix" ->
+	     sprintf "%.0f" t
+	 | "component" ->
+	     component
+	 | "subchannel" ->
+	     subchannel
+	 | "level" ->
+	     level_names.(level_weight)
+	 | "message" ->
+	     message
+	 | _ ->
+	     if (String.length var >= 10 && 
+		   String.sub var 0 10 = "timestamp:") then
+	       let nd_fmt =
+		 String.sub var 10 (String.length var - 10) in
+	       Netdate.format nd_fmt nd
+	     else
+	       ""
+    )
+    fmt;
+  Buffer.contents b
+
+
+let std_fmt =
+  "[${timestamp}] [${component}] [${level}] ${message}"
+
+
+class channel_logger ?(fmt=std_fmt) out : logger =
 object(self)
   val mutable max_level = `Info
 
-  method log ~component ~level ~message =
+  method log_subch ~component ~subchannel ~level ~message =
     let w = level_weight level in
     if w <= level_weight max_level then (
       try
-	fprintf out "[%s] [%s] [%s] %s\n%!"
-	  (Netdate.format "%c" (Netdate.create
-				  ~zone:(Netdate.localzone)
-				  (Unix.time())))
-	  component
-	  level_names.(w)
-	  message
+	fprintf out "%s\n%!"
+	  (format_message fmt component subchannel w message)
       with
 	| error ->
 	    prerr_endline ("Netplex Catastrophic Error: Unable to write to log channel: " ^ Printexc.to_string error)
     )
 
+  method log =
+    self # log_subch ~subchannel:""
 
   method reopen() = ()
 
@@ -72,41 +108,42 @@ object(self)
 
 end
 
-let channel_logger ch = new channel_logger ch
+let channel_logger = new channel_logger
 
 let stderr_logger_factory =
 object
   method name = "stderr"
   method create_logger cf addr _ = 
     cf # restrict_subsections addr [];
-    cf # restrict_parameters addr [ "type" ];
-    channel_logger stderr
+    cf # restrict_parameters addr [ "type"; "format" ];
+    let fmt = 
+      try cf # string_param (cf # resolve_parameter addr "format")
+      with Not_found -> std_fmt in
+    channel_logger ~fmt stderr
 end
 
 
-class file_logger file : logger =
+class file_logger ?(fmt = std_fmt) file : logger =
 object(self)
   val mutable out = 
     open_out_gen [ Open_wronly; Open_append; Open_creat ] 0o666 file
 
   val mutable max_level = `Info
 
-  method log ~component ~level ~message =
+  method log_subch ~component ~subchannel ~level ~message =
     let w = level_weight level in
     if w <= level_weight max_level then (
       try
-	fprintf out "[%s] [%s] [%s] %s\n%!"
-	  (Netdate.format "%c" (Netdate.create
-				  ~zone:(Netdate.localzone)
-				  (Unix.time())))
-	  component
-	  level_names.(w)
-	  message
+	fprintf out "%s\n%!"
+	  (format_message fmt component subchannel w message)
       with
 	| error ->
 	    prerr_endline ("Netplex Catastrophic Error: Unable to write to log file " ^ file ^ ": " ^ Printexc.to_string error)
     )
 
+
+  method log =
+    self # log_subch ~subchannel:""
 
   method reopen() =
     close_out out;
@@ -124,7 +161,7 @@ object(self)
 
 end
 
-let file_logger name = new file_logger name
+let file_logger = new file_logger
 
 
 let file_logger_factory =
@@ -132,7 +169,7 @@ object
   method name = "file"
   method create_logger cf addr _ =
     cf # restrict_subsections addr [];
-    cf # restrict_parameters addr [ "type"; "file" ];
+    cf # restrict_parameters addr [ "type"; "file"; "format" ];
     let fileaddr =
       try
 	cf # resolve_parameter addr "file"
@@ -140,7 +177,10 @@ object
 	| Not_found ->
 	    failwith ("File logger needs parameter 'file'") in
     let file = cf # string_param fileaddr in
-    file_logger file
+    let fmt = 
+      try cf # string_param (cf # resolve_parameter addr "format")
+      with Not_found -> std_fmt in
+    file_logger ~fmt file
 end
 
 
@@ -148,7 +188,7 @@ class type multi_file_config =
 object
   method log_directory : string
   method log_files :
-    (string * [ level | `All ] * string) list
+    (string * string * [ level | `All ] * string * string) list
 end
 
 
@@ -174,9 +214,10 @@ let regexp_of_pattern s =
 class multi_file_logger (mfc : multi_file_config) : logger =
   let log_files =
     List.map
-      (fun (pat, level, file) ->
-	 let re = regexp_of_pattern pat in
-	 (re, level, file)
+      (fun (comp_pat, subch_pat, level, file, fmt) ->
+	 let comp_re = regexp_of_pattern comp_pat in
+	 let subch_re = regexp_of_pattern subch_pat in
+	 (comp_re, subch_re, level, file, fmt)
       )
       mfc#log_files in
 object(self)
@@ -185,20 +226,26 @@ object(self)
 
   val mutable max_level = `Info
 
-  method log ~component ~level ~message =
+  method log_subch ~component ~subchannel ~level ~message =
     let w = level_weight level in
     if w <= level_weight max_level then (
       let files =
 	List.map
-	  (fun (_, _, file) -> file)
+	  (fun (_, _, _, file, fmt) -> (file, fmt))
 	  (List.filter
-	     (fun (re, level_pat, _) ->
-		match Netstring_pcre.string_match re component 0 with
+	     (fun (comp_re, subch_re, level_pat, _, _) ->
+		match Netstring_pcre.string_match comp_re component 0 with
 		  | Some _ ->
-		      ( match level_pat with
-			  | `All -> true
-			  | #level as l ->
-			      w <= level_weight l
+		      ( match 
+			  Netstring_pcre.string_match subch_re subchannel 0
+			with
+			  | Some _ ->
+			      ( match level_pat with
+				  | `All -> true
+				  | #level as l ->
+				      w <= level_weight l
+			      )
+			  | None -> false
 		      )
 		  | None -> false
 	     )
@@ -206,7 +253,7 @@ object(self)
 	  ) in
       let files = no_duplicates files in
       List.iter
-	(fun file ->
+	(fun (file, fmt) ->
 	   let full_path =
 	     if file <> "/" && file.[0] = '/' then
 	       file
@@ -225,13 +272,8 @@ object(self)
 		     Hashtbl.add channels full_path ch;
 		     ch
 	     in
-	     fprintf ch "[%s] [%s] [%s] %s\n%!"
-	       (Netdate.format "%c" (Netdate.create
-				       ~zone:(Netdate.localzone)
-				       (Unix.time())))
-	       component
-	       level_names.(w)
-	       message
+	     fprintf ch "%s\n%!"
+	       (format_message fmt component subchannel w message)
 	   with
 	     | error ->
 		 prerr_endline ("Netplex Catastrophic Error: Unable to write to log file " ^ full_path ^ ": " ^ Printexc.to_string error)
@@ -239,6 +281,9 @@ object(self)
 	)
 	files
     )
+
+  method log =
+    self # log_subch ~subchannel:""
 
   method reopen() =
     Hashtbl.iter
@@ -254,14 +299,14 @@ object(self)
 end
 
 
-let multi_file_logger mfc = new multi_file_logger mfc
+let multi_file_logger = new multi_file_logger
 
 let multi_file_logger_factory =
 object
   method name = "multi_file"
   method create_logger cf addr _ =
     cf # restrict_subsections addr [ "file" ];
-    cf # restrict_parameters addr [ "type"; "directory" ];
+    cf # restrict_parameters addr [ "type"; "format"; "directory" ];
     let diraddr =
       try
 	cf # resolve_parameter addr "directory"
@@ -269,15 +314,23 @@ object
 	| Not_found ->
 	    failwith ("Multi-file logger needs parameter 'directory'") in
     let dir = cf # string_param diraddr in
-
+    let def_fmt =
+      try cf # string_param (cf # resolve_parameter addr "format")
+      with Not_found -> std_fmt in
     let log_files =
       List.map
 	(fun addr ->
 	   cf # restrict_subsections addr [];
-	   cf # restrict_parameters addr [ "component"; "max_level"; "file" ];
+	   cf # restrict_parameters addr
+	     [ "component"; "subchannel"; "max_level"; "file"; "format" ];
 	   let component =
 	     try 
 	       cf # string_param (cf # resolve_parameter addr "component")
+	     with
+	       | Not_found -> "*" in
+	   let subchannel =
+	     try 
+	       cf # string_param (cf # resolve_parameter addr "subchannel")
 	     with
 	       | Not_found -> "*" in
 	   let max_level_str =
@@ -294,13 +347,16 @@ object
 	     with
 	       | _ ->
 		   failwith ("In section " ^ cf # print addr ^ ": Bad max_level parameter value: " ^ max_level_str) in
+	   let fmt =
+	     try cf # string_param (cf # resolve_parameter addr "format")
+	     with Not_found -> def_fmt in
 	   let file =
 	     try
 	       cf # string_param (cf # resolve_parameter addr "file")
 	     with
 	       | Not_found ->
 		   failwith ("In section " ^ cf # print addr ^ ": Parameter 'file' is missing") in
-	   (component, max_level, file)
+	   (component, subchannel, max_level, file, fmt)
 	)
 	(cf # resolve_section addr "file") in
 

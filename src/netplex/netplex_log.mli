@@ -8,19 +8,35 @@ val level_weight : level -> int
 
 val level_of_string : string -> level
 
-val channel_logger : out_channel -> logger
+val channel_logger : ?fmt:string -> out_channel -> logger
+  (** Outputs messages to the channel. [fmt] is the format string (see
+      below)
+   *)
 
 val stderr_logger_factory : logger_factory
   (** Reads a logging section like
     *
     * {[ logging {
     *       type = "stderr";
+    *       format = "format string";
     *    }
     * ]}
+    *
+    * The format string is optional. The format string may include variable
+    * parts in the syntax [$name] or [${name}]. The following variable
+    * specifications are defined:
+    * - [timestamp]: the time in standard format
+    * - [timestamp:<format>] the time in custom format where [<format>] is a
+    *   {!Netdate} format string
+    * - [timestamp:unix]: the time in seconds since the epoch
+    * - [component]: the name of the component emitting the log message
+    * - [subchannel]: the name of the subchannel
+    * - [level]: the log level
+    * - [message]: the log message
    *)
 
 
-val file_logger : string -> logger
+val file_logger : ?fmt:string -> string -> logger
   (** Writes messages to this file *)
 
 val file_logger_factory : logger_factory
@@ -29,6 +45,7 @@ val file_logger_factory : logger_factory
     * {[ logging {
     *       type = "file";
     *       file = "/path/to/logfile";
+    *       format = "format string";
     *    }
     * ]}
    *)
@@ -37,11 +54,11 @@ class type multi_file_config =
 object
   method log_directory : string
   method log_files :
-    (string * [ level | `All ] * string) list
-    (** Triples [ (component, max_level, file) ]. Use [*] as wildcard in
-      * component.
-      *
-      * Currently, [`All] is a synonym for [`Debug].
+    (string * string * [ level | `All ] * string * string) list
+    (** Triples [ (component, subchannel, max_level, file, format) ]. Use [*] as 
+        wildcard in [component] and [subchannel].
+
+        Currently, [`All] is a synonym for the [`Debug] level.
       *)
 end
 
@@ -53,16 +70,22 @@ val multi_file_logger_factory : logger_factory
     * {[ logging {
     *       type = "multi_file";
     *       directory = "/path/to/logdir";
+    *       format = "format string";
     *       file {
     *           component = "name_of_component";
+    *           subchannel = "name_of_subchannel";
     *           max_level = "max_level";
     *           file = "logfile";
+    *           format = "format string";
     *       };
     *       file { ... }; ...
     *    }
     * ]}
     *
-    * If [component] is missing it will default to "*". If [max_level]
+    * [format] is optional.
+    *
+    * If [component] is missing it will default to "*". If [subchannel]
+    * is missing it defaults to "*", too. If [max_level]
     * is omitted it is assumed to be "all".
    *)
 

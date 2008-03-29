@@ -250,7 +250,7 @@ object(self)
 	  Rpc_client.shut_down r;
 	  rpc <- None
 
-  method log level message =
+  method log_subch subchannel level message =
     match sys_rpc with
       | None -> ()
       | Some r ->
@@ -269,7 +269,7 @@ object(self)
 		~when_sent:(fun () -> false)
 		r
 		"log"
-		(_of_System'V1'log'arg(lev,message))
+		(_of_System'V1'log'arg(lev,subchannel,message))
 		(fun _ -> ());
 	      Unixqueue.run sys_esys
 	    with
@@ -277,6 +277,9 @@ object(self)
 		  prerr_endline("Netplex Catastrophic Error: Unable to send log message - exception " ^ Printexc.to_string error);
 		  prerr_endline("Log message is: " ^ message)
 	  )
+
+  method log level message =
+    self # log_subch "" level message
 
   method lookup service protocol =
     match sys_rpc with

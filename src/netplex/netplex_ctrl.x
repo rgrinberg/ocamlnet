@@ -109,6 +109,7 @@ program System {
          */
 
 	void log(level,                /* log level */
+		 longstring,           /* subchannel or "" */
 		 longstring            /* log message */
 		 ) = 3;
         /* This is a special procedure: The controller does not send a

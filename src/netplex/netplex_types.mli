@@ -20,11 +20,33 @@ type level =
 
 class type logger =
 object
+  method log_subch : component:string -> subchannel:string -> 
+                     level:level -> message:string -> unit
+    (** Receive a log [message] of [level] from [component]. The component
+        string is the name of the socket service emitting the message.
+        Optionally, one can specify a [subchannel] when a single component
+        needs to write to several log files. For example, a [subchannel]
+        of ["access"] could select the access log of a webserver.
+        The main log file is selected by passing the empty string as
+        [subchannel].
+     *)
+
   method log : component:string -> level:level -> message:string -> unit
+    (** Same as [log_subch] when [subchannel] is set to the empty string.
+        This means that the message is sent to the main log file of the
+        component.
+     *)
+
   method reopen : unit -> unit
+    (** Reopen the log files *)
+
   method max_level : level
+    (** Return the maximum global log level *)
+
   method set_max_level : level -> unit
+    (** Set the maximum global log level *)
 end
+  (** A logger receives log messages *)
 
 type parallelization_type =
     [ `Multi_processing
@@ -374,6 +396,11 @@ object
 
   method log : level -> string -> unit
     (** Sends a log message to the controller. *)
+
+  method log_subch : string -> level -> string -> unit
+    (** Sends a log message to the controller. The first string is the
+        subchannel
+     *)
 
   method var : string -> param_value_or_any
     (** Returns the value of a container variable or [Not_found]. Container

@@ -768,12 +768,13 @@ object(self)
       log_debug, `Debug
     ]
 
-  method private log c sess (lev, message) reply =
+  method private log c sess (lev, subchannel, message) reply =
     let level = 
       try List.assoc lev lev_trans 
       with Not_found -> `Emerg in
-    controller # logger # log 
+    controller # logger # log_subch
       ~component:sockserv#name
+      ~subchannel
       ~level
       ~message
 	  (* This call is not replied! *)
@@ -810,8 +811,10 @@ class deferring_logger =
 object(self)
   val queue = Queue.create()
 
-  method log ~component ~level ~message =
-    Queue.push (component,level,message) queue
+  method log_subch ~component ~subchannel ~level ~message =
+    Queue.push (component,subchannel,level,message) queue
+
+  method log = self # log_subch ~subchannel:""
 
   method reopen() = ()
 
@@ -821,8 +824,8 @@ object(self)
 
   method forward (l : logger) =
     Queue.iter
-      (fun (component,level,message) ->
-	 l # log ~component ~level ~message
+      (fun (component,subchannel,level,message) ->
+	 l # log_subch ~component ~subchannel ~level ~message
       )
       queue;
     Queue.clear queue
