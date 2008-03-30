@@ -3,18 +3,40 @@
 (** {1 Netplex support} *)
 
 type config_log_error =
-    Unix.sockaddr option -> Unix.sockaddr option -> Nethttp.http_method option -> Nethttp.http_header option -> string -> unit
+    Unix.sockaddr option -> Unix.sockaddr option -> Nethttp.http_method option
+     -> Nethttp.http_header option -> string -> unit
+
+type config_log_access =
+    Unix.sockaddr -> Unix.sockaddr -> Nethttp.http_method ->
+    Nethttp.http_header -> int64 -> (string * string) list -> bool -> 
+    int -> Nethttp.http_header -> int64 -> unit
+
+
+val std_log_error : Netplex_types.container -> config_log_error
+  (** Returns a function that logs errors using the [log_subch] method of
+      the passed container
+   *)
+
+val std_log_access : ?debug:bool -> 
+                     Netplex_types.container -> config_log_access
+  (** Returns a function that logs accesses using the [log_subch] method of
+      the passed container
+
+      If [debug] is set, additional debug log messages are printed that
+      dump the whole access (incl. header and all available information)
+   *)
+
+
 
 val nethttpd_processor : 
-      (config_log_error -> #Nethttpd_reactor.http_reactor_config) ->
+      (Netplex_types.container -> #Nethttpd_reactor.http_reactor_config) ->
       'a Nethttpd_types.http_service ->
       Netplex_types.processor
   (** [netplex_processor mk_config http_service]: Creates a Netplex processor
     * for Nethttpd.
     *
-    * [mk_config] gets a logging function as argument that will log to the
-    * Netplex logging service. This function has the same type as the
-    * [config_log_error] method of the [http_reactor_config].
+    * [mk_config] determines the nethttpd config for a container.
+    * This is especially useful for setting the logging functions.
     *
     * The resulting processor must be turned into a full Netplex service
     * by [Netplex_sockserv.create_socket_service] which can then be added
@@ -22,16 +44,20 @@ val nethttpd_processor :
    *)
 
 val nethttpd_factory :
+      ?name:string ->
       ?config_cgi:Netcgi1_compat.Netcgi_env.cgi_config -> 
       ?handlers:(string * 'a Nethttpd_services.dynamic_service) list ->
+      ?log_error:(Netplex_types.container -> config_log_error) ->
+      ?log_access:(?debug:bool -> Netplex_types.container -> config_log_access) ->
       unit ->
         Netplex_types.processor_factory
   (** Reads a configuration section like
     * {[
     *    processor {
-    *      type = "nethttpd";
+    *      type = "nethttpd";          (* or what is passed as "name" arg *)
     *      timeout = 300.0;
     *      timeout_next_request = 15.0;
+    *      access_log = "enabled";
     *      host {
     *        pref_name = "myhost";     (* optional *)
     *        pref_port = 80;           (* optional *)
@@ -56,6 +82,11 @@ val nethttpd_factory :
     *      }
     *    }
     * ]}
+    *
+    * The [access_log] parameter can be set to [off], [enabled], or [debug].
+    * The default is [off]. Access messages go to the "access" subchannel
+    * of the component logger. If [enabled], one line is printed with the
+    * most important data. If [debug] is set, all access data are printed.
     *
     * The sections [host], [uri] and [method] can be nested to any depth.
     * However, on every nesting level only one of these section types must be

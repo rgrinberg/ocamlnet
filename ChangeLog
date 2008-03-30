@@ -1,3 +1,9 @@
+2008-03-29  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
+
+	* Adding subchannel logging to Netplex
+
+	* Adding access logging to Nethttpd
+
 2008-03-04  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Recognize GNU/kFreeBSD (Stéphane Glondu <steph@glondu.net>)

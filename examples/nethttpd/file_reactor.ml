@@ -75,6 +75,7 @@ let start () =
       method config_error_response n = "<html>Error " ^ string_of_int n ^ "</html>"
       method config_log_error _ _ _ _ msg =
         printf "Error log: %s\n" msg
+      method config_log_access _ _ _ _ _ _ _ _ _ _ = ()
       method config_max_reqline_length = 256
       method config_max_header_length = 32768
       method config_max_trailer_length = 32768

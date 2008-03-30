@@ -123,6 +123,7 @@ object
   method transfer_encoding : transfer_coding
   method front_token : front_token
   method advance : int -> unit
+  method body_size : int64
 end
 
 
@@ -354,6 +355,8 @@ object(self)
   method close_connection = close_connection
 
   method transfer_encoding = transfer_encoding
+
+  method body_size = real_length
 
   method front_token : front_token =
     if state = `Inhibited then raise Send_queue_empty;
@@ -1345,7 +1348,7 @@ object(self)
       if block then (
 	let now = Unix.gettimeofday() in
 	let sel_time = timeout -. (now -. start_time) in
-	Netsys.wait_until_readable fd sel_time;
+	ignore(Netsys.wait_until_readable fd sel_time);
 	()
       );
 

@@ -64,6 +64,11 @@ object
       * of the current connection.
      *)
 
+  method log_props : (string * string) list -> unit
+    (** Remember this version of [cgi_properties] as the one sent to the
+        [config_log_access] function
+     *)
+
   method send_file : Unix.file_descr -> int64 -> unit
     (** Sends the output header with a file as body. The file must already be open,
      * and positioned where the transmission begins. The number is the length
@@ -112,6 +117,7 @@ end
     * - [send_output_header]
     * - [send_file]
     * - [log_error]
+    * - [log_props]
     *
     * The virtual methods, of course, must be defined!
    *)

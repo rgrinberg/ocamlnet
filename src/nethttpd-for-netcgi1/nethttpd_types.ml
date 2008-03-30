@@ -33,6 +33,7 @@ object
   method virtual server_socket_addr : Unix.sockaddr
   method virtual remote_socket_addr : Unix.sockaddr
 
+  method log_props : (string * string) list -> unit
   method cgi_request_uri : string
   method log_error : string -> unit
   method cgi_properties : (string * string) list
@@ -109,6 +110,8 @@ object(self)
   method send_file (fd:Unix.file_descr) (n:int64) = ()
 
   method log_error (s : string) = ()
+
+  method log_props (l : (string*string) list) = ()
 
   method output_state = out_state
 
@@ -209,7 +212,9 @@ object(self)
 		     | Some h -> h 
 		     | None -> new Netmime.basic_mime_header env#input_header_fields );
     properties <- ( match new_properties with
-		      | Some p -> p 
+		      | Some p -> 
+			  env#log_props p;
+			  p 
 		      | None -> env # cgi_properties );
     in_channel <- new_in_channel;
   )
@@ -234,6 +239,8 @@ object(self)
   method set_output_header_fields = env # set_output_header_fields
   method set_status = env # set_status
   method send_file = env # send_file
+
+  method log_props = env # log_props
 end
 
 

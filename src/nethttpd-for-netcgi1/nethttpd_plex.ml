@@ -4,33 +4,86 @@ open Nethttpd_services
 open Netplex_types
 
 type config_log_error =
-    Unix.sockaddr option -> Unix.sockaddr option -> Nethttp.http_method option -> Nethttp.http_header option -> string -> unit
+    Unix.sockaddr option -> Unix.sockaddr option -> 
+      Nethttp.http_method option -> Nethttp.http_header option -> string -> 
+	unit
+
+type config_log_access =
+    Unix.sockaddr -> Unix.sockaddr -> Nethttp.http_method ->
+    Nethttp.http_header -> int64 -> (string * string) list -> bool -> 
+    int -> Nethttp.http_header -> int64 -> unit
+
+
+let std_log_error container _ peeraddr_opt meth_opt _ msg =
+  let s =
+    Printf.sprintf "[%s] [%s] %s"
+      ( match peeraddr_opt with
+	  | Some(Unix.ADDR_INET(addr,port)) ->
+	      Unix.string_of_inet_addr addr
+	  | Some(Unix.ADDR_UNIX path) ->
+	      path
+	  | None ->
+	      "-"
+      )
+      ( match meth_opt with
+	  | (Some(name,uri)) ->
+	      name ^ " " ^ uri
+	  | None ->
+	      "-"
+      )
+      msg
+  in
+  container # log_subch "" `Err s
+
+
+let std_log_access ?(debug=false) container sockaddr peeraddr req reqhdr
+                    reqsize props rej code resphdr respsize =
+  let peerstr =
+    match peeraddr with
+      | Unix.ADDR_INET(addr,port) ->
+	  Unix.string_of_inet_addr addr
+      | Unix.ADDR_UNIX path ->
+	  path in
+
+  let (meth,uri) = req in
+
+  let s =
+    Printf.sprintf "%s %s %s \"%s\" %d %Ld \"%s\" \"%s\""
+      peerstr
+      ( try List.assoc "REMOTE_USER" props with Not_found -> "-" )
+      meth
+      (String.escaped uri)
+      code
+      respsize
+      ( String.escaped
+	  (try reqhdr # field "Referer" with Not_found -> "-" ) )
+      ( String.escaped
+	  (try reqhdr # field "User-agent" with Not_found -> "-") ) in
+
+  container # log_subch "access" `Info s;
+
+  if debug then (
+    let b = Buffer.create 500 in
+    let b_ch = new Netchannels.output_buffer b in
+    Printf.bprintf b "%s\n" s;
+    Printf.bprintf b "Request header:\n";
+    Mimestring.write_header ~soft_eol:"\n" ~eol:"\n" b_ch reqhdr#fields;
+    Printf.bprintf b "Request body size: %Ld\n" reqsize;
+    Printf.bprintf b "Request body rejected: %b\n\n" rej;
+    Printf.bprintf b "CGI properties:\n";
+    Mimestring.write_header ~soft_eol:"\n" ~eol:"\n" b_ch props;
+    Printf.bprintf b "Response header (code %d):\n" code;
+    Mimestring.write_header ~soft_eol:"\n" ~eol:"\n" b_ch resphdr#fields;
+    Printf.bprintf b "Response body size: %Ld\n" respsize;
+    container # log_subch "access" `Debug (Buffer.contents b)
+  )
+
+    
 
 class nethttpd_processor mk_config srv : Netplex_types.processor =
 object(self)
   method process ~when_done (container : Netplex_types.container) fd proto =
-    let error_logger _ peeraddr_opt meth_opt _ msg =
-      let s =
-	Printf.sprintf "[%s] [%s] %s"
-	  ( match peeraddr_opt with
-	      | Some(Unix.ADDR_INET(addr,port)) ->
-		  Unix.string_of_inet_addr addr
-		| Some(Unix.ADDR_UNIX path) ->
-		    path
-		| None ->
-		    "-"
-	  )
-	  ( match meth_opt with
-	      | (Some(name,uri)) ->
-		  name ^ " " ^ uri
-	      | None ->
-		  "-"
-	  )
-	  msg
-      in
-       container # log `Err s
-    in
-    let config = mk_config error_logger in
+    let config = mk_config container in
     ( try
 	Nethttpd_reactor.process_connection config fd srv
       with
@@ -79,7 +132,7 @@ let split_name_port s =
     | None ->
 	failwith "Bad name:port specifier"
 
-let create_processor config_cgi handlers ctrl_cfg cfg addr =
+let create_processor config_cgi handlers log_error log_access ctrl_cfg cfg addr =
 
   let req_str_param addr name =
     try
@@ -317,8 +370,10 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
     Nethttpd_services.dynamic_service srv
   in
 
-  cfg # restrict_subsections addr [ "host"; "uri"; "method"; "service" ];
-  cfg # restrict_parameters addr [ "type"; "timeout"; "timeout_next_request" ];
+  cfg # restrict_subsections addr
+    [ "host"; "uri"; "method"; "service" ];
+  cfg # restrict_parameters addr
+    [ "type"; "timeout"; "timeout_next_request"; "access_log" ];
 
   let srv =
     linear_distributor
@@ -328,8 +383,21 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
 
   let timeout = float_param 300.0 addr "timeout" in
   let timeout_next_request = float_param 15.0 addr "timeout_next_request" in
+  let access_enabled, access_debug = 
+    match opt_str_param addr "access_log" with
+      | None -> (false,false) 
+      | Some "off" -> (false,false)
+      | Some "enabled"  -> (true,false)
+      | Some "debug" -> (true,true)
+      | _ -> failwith "Bad parameter 'access_log'" in
 
-  let mk_config cle =
+  let mk_config container =
+    let cle = log_error container in
+    let cla = 
+      if access_enabled then
+	log_access ?debug:(Some access_debug) container
+      else
+	(fun _ _ _ _ _ _ _ _ _ _ -> ()) in
     (object
        method config_reactor_synch = `Write
        method config_timeout_next_request = timeout_next_request
@@ -339,6 +407,7 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
 	 (* TODO *)
 	 "<html><body>Error " ^ string_of_int n ^ "</body></html>"
        method config_log_error = cle
+       method config_log_access = cla
        method config_max_reqline_length = 32768
        method config_max_header_length = 65536
        method config_max_trailer_length = 65536
@@ -354,13 +423,17 @@ let create_processor config_cgi handlers ctrl_cfg cfg addr =
     srv
 ;;
 
-class nethttpd_factory ?(config_cgi = Netcgi1_compat.Netcgi_env.default_config) 
-                       ?(handlers=[]) () : processor_factory =
+class nethttpd_factory ?(name = "nethttpd") 
+                       ?(config_cgi = Netcgi1_compat.Netcgi_env.default_config) 
+                       ?(handlers=[]) 
+		       ?(log_error = std_log_error)
+		       ?(log_access = std_log_access)
+		       () : processor_factory =
 object
-  method name = "nethttpd"
+  method name = name
   method create_processor ctrl_cfg cfg addr =
-    create_processor config_cgi handlers ctrl_cfg cfg addr
+    create_processor config_cgi handlers log_error log_access ctrl_cfg cfg addr
 end
 
-let nethttpd_factory ?config_cgi ?handlers () =
-  new nethttpd_factory ?config_cgi ?handlers ()
+let nethttpd_factory =
+  new nethttpd_factory 

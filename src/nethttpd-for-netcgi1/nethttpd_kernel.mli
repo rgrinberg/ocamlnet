@@ -244,6 +244,9 @@ object
       * fail, it is called in situations that make it hard to recover from errors.
      *)
 
+  method body_size : int64
+    (** Accumulated size of the response body *)
+
   (** These methods must only be called by the HTTP protocol processor: *)
 
   method set_state : resp_state -> unit
@@ -257,6 +260,7 @@ object
       * front token is modified such that the position is advanced by
       * [n], and the length is reduced by [n].
      *)
+
 end
 
 class http_response_impl : ?close:bool -> ?suppress_body:bool -> protocol -> announcement -> http_response

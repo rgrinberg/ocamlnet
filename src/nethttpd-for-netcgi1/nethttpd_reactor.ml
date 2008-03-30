@@ -36,7 +36,12 @@ object
   method config_cgi : Netcgi1_compat.Netcgi_env.cgi_config
   method config_error_response : int -> string
   method config_log_error : 
-    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> http_header option -> string -> unit
+    Unix.sockaddr option -> Unix.sockaddr option -> http_method option ->
+    http_header option -> string -> unit
+  method config_log_access :
+    Unix.sockaddr -> Unix.sockaddr -> http_method ->
+    http_header -> int64 -> (string * string) list -> bool -> 
+    int -> http_header -> int64 -> unit
 end
 
 class type http_reactor_config =
@@ -53,6 +58,8 @@ object
   method unlock : unit -> unit
   method req_method : http_method
   method response : http_response
+  method log_access : unit -> unit
+
 end
 
 
@@ -78,7 +85,8 @@ let get_this_host addr =
 class http_environment (proc_config : #http_processor_config)
                        req_meth req_uri req_version req_hdr 
                        fd_addr peer_addr
-                       in_ch out_ch resp close_after_send_file
+                       in_ch in_cnt out_ch resp close_after_send_file
+		       reqrej
                       : internal_environment =
 
   (* Decode important input header fields: *)
@@ -117,6 +125,8 @@ object(self)
 
   val mutable locked = true
 
+  val mutable logged_props = []
+
   initializer (
     config <- proc_config # config_cgi;
     in_state <- `Received_header;
@@ -144,7 +154,8 @@ object(self)
 		  ] @
                   ( match in_port_opt with
 		      | Some p -> [ "SERVER_PORT", string_of_int p ]
-		      | None   -> [] )
+		      | None   -> [] );
+    logged_props <- properties
   )
 
   method unlock() =
@@ -156,6 +167,9 @@ object(self)
   method response = resp
   method req_method = (req_meth, req_uri)
 
+  val mutable sent_status = 0
+  val mutable sent_resp_hdr = new Netmime.basic_mime_header []
+
   method send_output_header() =
     if locked then failwith "Nethttpd_reactor: channel is locked";
     if out_state <> `Start then
@@ -166,6 +180,8 @@ object(self)
     (* Create a copy of the header without [Status]: *)
     let h = new Netmime.basic_mime_header out_header#fields in
     h # delete_field "Status";
+    sent_status <- code;   (* remember what has been sent for access logging *)
+    sent_resp_hdr <- h;
     resp # send (`Resp_header h);
     out_state <- `Sent_header
 
@@ -179,6 +195,8 @@ object(self)
      (* Create a copy of the header without [Status]: *)
     let h = new Netmime.basic_mime_header out_header#fields in
     h # delete_field "Status";
+    sent_status <- code;   (* remember what has been sent for access logging *)
+    sent_resp_hdr <- h;
     send_file_response resp status (Some h) fd length;
     out_state <- `Sending_body;  (* best approximation *)
     close_after_send_file()
@@ -187,10 +205,35 @@ object(self)
     proc_config # config_log_error 
       (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri)) (Some req_hdr) s
 
+
+  method log_props l =
+    logged_props <- l
+
+
+  val mutable access_logged = false
+
+  method log_access () =
+    (* Called when the whole response is written. Do now access logging *)
+    if not access_logged then (
+      proc_config # config_log_access
+	fd_addr
+	peer_addr
+	(req_meth, req_uri)
+	req_hdr
+	!in_cnt
+	logged_props
+	!reqrej
+	sent_status
+	sent_resp_hdr
+	resp#body_size;
+      access_logged <- true
+    )
+
 end
 
 
-class http_reactor_input next_token =   (* an extension of rec_in_channel *)
+class http_reactor_input next_token in_cnt =
+  (* an extension of rec_in_channel *)
 object(self)
   val mutable current_chunk = None
   val mutable eof = false
@@ -201,6 +244,7 @@ object(self)
     match next_token() with
       | `Req_body(s,pos,len) ->
 	  assert(len > 0);
+	  in_cnt := Int64.add !in_cnt (Int64.of_int len);
 	  current_chunk <- Some(s,pos,len)
       | `Req_trailer _ ->
 	  self # refill ()   (* ignore *)
@@ -254,7 +298,8 @@ object(self)
 end
 
 
-class http_reactor_output config resp synch =   (* an extension of rec_in_channel *)
+class http_reactor_output config resp synch (f_access : unit -> unit) =   
+  (* an extension of rec_in_channel *)
 object
   val mutable closed = false
   val mutable locked = true
@@ -287,23 +332,31 @@ object
     if locked then failwith "Nethttpd_reactor: channel is locked";
     closed <- true;
     resp # send `Resp_end;
-    match config#config_reactor_synch with
-      | `Write
-      | `Flush
-      | `Close ->
-	  synch()
-      | _ ->
-	  ()
+    ( match config#config_reactor_synch with
+	| `Write
+	| `Flush
+	| `Close ->
+	    synch()
+	| _ ->
+	    ()
+    );
+    (* This is the right time for writing the access log entry: *)
+    f_access()
+      
+
 
   method close_after_send_file() =
     closed <- true;
-    match config#config_reactor_synch with
-      | `Write
-      | `Flush
-      | `Close ->
-	  synch()
-      | _ ->
-	  ()
+    ( match config#config_reactor_synch with
+	| `Write
+	| `Flush
+	| `Close ->
+	    synch()
+	| _ ->
+	    ()
+    );
+    (* This is the right time for writing the access log entry: *)
+    f_access()
 
   method unlock() =
     locked <- false
@@ -312,7 +365,7 @@ end
 
 
 class http_reactive_request_impl config env inch outch resp expect_100_continue
-                                 finish_request
+                                 finish_request reqrej
                                  : http_reactive_request =
 object(self)
   method environment = 
@@ -334,7 +387,8 @@ object(self)
   method reject_body() =
     inch # drop();
     outch # unlock();
-    env # unlock()
+    env # unlock();
+    reqrej := true    (* for access logging only *)
 
   val mutable fin_req = false
 
@@ -463,8 +517,12 @@ object(self)
 
 	  let ((req_meth, req_uri), req_version) = req in
 
-	  let input_ch = new http_reactor_input self#next_token in
-	  let output_ch = new http_reactor_output config resp self#synch in
+	  let f_access = ref (fun () -> ()) in  (* set below *)
+	  let in_cnt = ref 0L in
+	  let input_ch = new http_reactor_input self#next_token in_cnt in
+	  let output_ch = 
+	    new http_reactor_output config resp self#synch 
+	      (fun () -> !f_access()) in
 	  let lifted_input_ch = 
 	    lift_in ~buffered:false (`Rec (input_ch :> rec_in_channel)) in
 	  let lifted_output_ch = 
@@ -479,16 +537,18 @@ object(self)
 	   *)
 	  
 	  ( try
+	      let reqrej = ref false in
 	      let env = new http_environment 
-			  config 
-                             req_meth req_uri req_version req_hdr 
-                             fd_addr peer_addr
-		           lifted_input_ch lifted_output_ch resp
-			  output_ch#close_after_send_file
+			      config 
+                              req_meth req_uri req_version req_hdr 
+                              fd_addr peer_addr
+		              lifted_input_ch in_cnt lifted_output_ch 
+			      resp output_ch#close_after_send_file reqrej
 	      in
+	      f_access := env#log_access;
 	      let req_obj = new http_reactive_request_impl 
 			      config env input_ch output_ch resp expect_100_continue 
-			      self#finish_request
+			      self#finish_request reqrej
 	      in
 	      Some req_obj
 	    with
@@ -505,7 +565,9 @@ object(self)
 		  let code = int_of_http_status status in
 		  let body = config # config_error_response code in
 		  Nethttpd_kernel.send_static_response resp status hdr_opt body;
+		  
 		  self # synch();
+		  !f_access();  (* do access logging if env could be created *)
 		  self # finish_request();
 		  self # next_request()
 	  )

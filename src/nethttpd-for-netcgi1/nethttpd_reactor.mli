@@ -60,13 +60,39 @@ object
      *)
 
   method config_log_error : 
-    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> http_header option -> string -> unit
+    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> 
+    http_header option -> string -> unit
     (** The function logs an error message. Arguments are:
       * - Our socket address
       * - Peer's socket address
       * - Request method
       * - Request header
       * - Message
+     *)
+
+  method config_log_access :
+    Unix.sockaddr -> Unix.sockaddr -> http_method ->
+    http_header -> int64 -> (string * string) list -> bool -> 
+    int -> http_header -> int64 -> unit
+    (** [config_log_access sockaddr peeraddr reqmeth reqhdr props reqrej
+        status resphdr size]: This method is called after a request has been
+        processed:
+        - [sockaddr]: our socket address
+        - [peeraddr]: peer's socket address
+        - [reqmeth]: the request method (incl. URI)
+        - [reqhdr]: the request header
+        - [reqsize]: the size of the request body in bytes
+        - [props]: the properties (see below)
+        - [reqrej]: whether the request body has been rejected
+        - [status]: the 3-digit numeric reply status
+        - [resphdr]: the response header
+        - [respsize]: the size of the response body in bytes
+
+        The [props] are the [cgi_properties] from the environment. As there
+        is no automatic way of recording the last, finally used version of
+        this list, it is required that users call [log_props] of the extended
+        environment whenever the properties are updated. This is done by
+        all [Nethttpd] modules.
      *)
 end
 
@@ -97,6 +123,7 @@ object
   method unlock : unit -> unit
   method req_method : http_method
   method response : Nethttpd_kernel.http_response
+  method log_access : unit -> unit
 end
   (** For private use only *)
 
@@ -104,8 +131,10 @@ end
 class http_environment : #http_processor_config ->
                          string -> string -> protocol -> http_header ->
                          Unix.sockaddr -> Unix.sockaddr ->
-                         Netchannels.in_obj_channel -> Netchannels.out_obj_channel -> 
+                         Netchannels.in_obj_channel -> int64 ref ->
+                         Netchannels.out_obj_channel -> 
                          Nethttpd_kernel.http_response -> (unit -> unit) ->
+                         bool ref ->
                            internal_environment
   (** For private use only *)
 

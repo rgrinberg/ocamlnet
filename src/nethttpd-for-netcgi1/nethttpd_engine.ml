@@ -119,7 +119,7 @@ exception Ev_input_empty of Unixqueue.group
    *)
 
 
-class http_engine_input config ues group =
+class http_engine_input config ues group in_cnt =
 object(self)
   (* The input channel is fed with data by the main event handler that invokes
    * [add_data] and [add_eof] to forward new input data to this channel.
@@ -197,6 +197,7 @@ object(self)
     if not eof then (
       let old_can_input = self # can_input in
       Queue.push data_chunk data_queue;
+      in_cnt := Int64.add !in_cnt (Int64.of_int len);
       if not old_can_input && not closed then self # notify()
     )
       (* else: we are probably dropping all data! *)
@@ -221,7 +222,7 @@ object(self)
 end
 
 
-class http_engine_output config ues group resp =
+class http_engine_output config ues group resp (f_access : unit->unit) =
 object(self)
   (* The output channel adds the incoming data to the [http_response] object
    * [resp]. The main [http_engine] is notified about new data by a
@@ -281,11 +282,13 @@ object(self)
     let old_can_output = self # can_output in
     resp # send `Resp_end;
     closed <- true;
+    f_access();
     Unixqueue.add_event ues (Unixqueue.Extra(Ev_output_filled group));
     if old_can_output <> self # can_output then self # notify();
 
   method close_after_send_file() =
     closed <- true;
+    f_access();
     
   method can_output =
     (not config#config_output_flow_control) ||
@@ -320,7 +323,7 @@ end
 class http_async_environment config ues group
                              ((req_meth, req_uri), req_version) req_hdr 
                              fd_addr peer_addr
-                             in_ch_async out_ch_async resp =
+                             in_ch_async in_cnt out_ch_async resp reqrej =
   let in_ch = 
     Netchannels.lift_in ~buffered:false 
                         (`Raw (in_ch_async :> Netchannels.raw_in_channel)) in
@@ -340,9 +343,10 @@ object (self)
   inherit Nethttpd_reactor.http_environment 
                              config
                              req_meth req_uri req_version req_hdr 
-			  fd_addr peer_addr
-                             in_ch out_ch resp 
-			  out_ch_async#close_after_send_file as super
+  			     fd_addr peer_addr
+                             in_ch in_cnt out_ch resp 
+			     out_ch_async#close_after_send_file reqrej
+			     as super
 
   method input_ch_async = (in_ch_async : Uq_engines.async_in_channel)
   method output_ch_async = (out_ch_async :> Uq_engines.async_out_channel)
@@ -362,14 +366,22 @@ end
 
 class http_request_manager config ues group req_line req_hdr expect_100_continue 
                            fd_addr peer_addr resp =
-  let in_ch = new http_engine_input config ues group in
-  let out_ch = new http_engine_output config ues group resp in
+  let f_access = ref (fun () -> ()) in  (* set below *)
+  let in_cnt = ref 0L in
+  let reqrej = ref false in
+
+  let in_ch = new http_engine_input config ues group in_cnt in
+  let out_ch = new http_engine_output config ues group resp 
+                 (fun () -> !f_access()) in
 
   let env = new http_async_environment 
 	      config ues group req_line req_hdr fd_addr peer_addr 
-	      (in_ch :> Uq_engines.async_in_channel) 
-	      out_ch resp in
+	      (in_ch :> Uq_engines.async_in_channel) in_cnt
+	      out_ch resp reqrej in
      (* may raise Standard_response! *)
+
+  let () =
+    f_access := env # log_access in
 
 
 object(self)
@@ -391,6 +403,8 @@ object(self)
   method set_req_state s = req_state <- s
   method req_handler = (req_handler : http_request_notification -> unit)
   method error_handler = error_handler
+
+  method log_access = env#log_access
 
   method abort() =
     in_ch # abort();
@@ -416,6 +430,7 @@ object(self)
     in_ch # drop();
     out_ch # unlock();
     env # unlock();
+    reqrej := true;
     (* Remember the callback functions: *)
     req_handler <- on_request;
     error_handler <- on_error
@@ -663,12 +678,15 @@ object(self)
 	    if expect_100_continue then
 	      ignore(proto # receive());
 
+	    let f_access = ref (fun () -> ()) in
+
 	    ( try
 		let rm = new http_request_manager    (* or Standard_response *)
 			   config ues group
 			   req_line req_hdr expect_100_continue 
 			   fd_addr peer_addr resp in
 	    
+		f_access := rm # log_access;
 		cur_request_manager <- Some rm;
 	    
 		(* Notify the user that we have received the header: *)
@@ -976,6 +994,7 @@ let process_connection config pconfig fd ues stage1 : http_engine_processing_con
     method config_cgi = config # config_cgi
     method config_error_response = config # config_error_response
     method config_log_error = config # config_log_error
+    method config_log_access = config # config_log_access
     method config_max_reqline_length = config # config_max_reqline_length
     method config_max_header_length = config # config_max_header_length
     method config_max_trailer_length = config # config_max_trailer_length
