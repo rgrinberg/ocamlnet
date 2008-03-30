@@ -833,6 +833,7 @@ class tempfile_trans_channel :
 
 class pipe :
   ?conv:(Netbuffer.t -> bool -> Netbuffer.t -> unit) ->
+  ?buffer_size:int -> 
   unit ->
     io_obj_channel
   (** A [pipe] has two internal buffers (realized by Netbuffer). The

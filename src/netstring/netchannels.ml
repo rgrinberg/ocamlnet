@@ -1561,9 +1561,9 @@ let call_input refill f arg =
 ;;
 
 
-class pipe ?(conv = id_conv) () : io_obj_channel =
-  let _incoming = Netbuffer.create 1 in
-  let _outgoing = Netbuffer.create 1 in
+class pipe ?(conv = id_conv) ?(buffer_size = 1024) () : io_obj_channel =
+  let _incoming = Netbuffer.create buffer_size in
+  let _outgoing = Netbuffer.create buffer_size in
 object(self)
   (* The properties as "incoming buffer" [output_super] are simply inherited
    * from [output_netbuffer]. The "outgoing buffer" [input_super] invocations

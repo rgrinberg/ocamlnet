@@ -45,6 +45,7 @@ set_defaults () {
     enable_gtk2=0
     enable_tcl=0
     enable_ssl=0
+    enable_zip=0
     enable_apache=0
     with_nethttpd=0
     with_rpc_auth_dh=0
@@ -71,12 +72,13 @@ ehelp_gtk="Enable/disable parts that depend on lablgtk"
 ehelp_gtk2="Enable/disable parts that depend on lablgtk2"
 ehelp_tcl="Enable/disable parts that depend on tcl/tk"
 ehelp_ssl="Enable/disable parts that depend on SSL"
+ehelp_zip="Enable/disable parts that depend on camlzip"
 ehelp_apache="Enable/disable Apache mod connector (EXPERIMENTAL)"
 whelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
 whelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
 
 # Which options exist? eoptions for enable/disable, woptions for with/without:
-eoptions="gtk gtk2 tcl ssl apache"
+eoptions="gtk gtk2 tcl ssl zip apache"
 woptions="nethttpd rpc_auth_dh"
 
 # Packages to include anyway:
@@ -615,6 +617,23 @@ if [ $enable_ssl -gt 0 ]; then
 fi
 
 ######################################################################
+# Check camlzip
+
+with_netzip=0
+
+if [ $enable_zip -gt 0 ]; then
+    printf "%s" "Checking for camlzip... "
+    if ocamlfind query camlzip >/dev/null 2>/dev/null; then
+        echo "found"
+	with_netzip=1
+    else
+        echo "not found"
+	echo "Required library camlzip not found!"
+	exit 1
+    fi
+fi
+
+######################################################################
 # Check SecureRPC
 
 adh_reqs=""
@@ -726,7 +745,7 @@ if [ $enable_apache -gt 0 ]; then
     pkglist="$pkglist netcgi2-apache"
 fi
 
-full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi1 nethttpd-for-netcgi2"
+full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi1 nethttpd-for-netcgi2 netzip"
 
 if [ $disable_core -gt 0 ]; then
     # Omit the core packages:
@@ -739,7 +758,7 @@ if [ $with_nethttpd -gt 0 ]; then
     pkglist="$pkglist nethttpd-for-netcgi1 nethttpd-for-netcgi2"
 fi
 
-for opt in $woptions rpc_auth_local rpc_xti equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl; do
+for opt in $woptions rpc_auth_local rpc_xti equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl netzip; do
 	e="o=\$with_$opt"
 	eval "$e"
 	if [ $o -gt 0 ]; then

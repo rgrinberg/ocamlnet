@@ -1,3 +1,7 @@
+2008-03-30  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
+
+	* Adding netzip library
+
 2008-03-29  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Adding subchannel logging to Netplex

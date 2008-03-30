@@ -28,6 +28,7 @@ netplex		CORE		Generic server framework
 netshm		CORE		Shared memory for IPC
 netstring	CORE		String routines (e.g. URLs, HTML, Mail)
 netsys		CORE		System interfaces missing in Unix
+netzip	        -enable-zip     read/write gzip data using object channels
 pop		CORE		POP3 client
 rpc		CORE		Sophisticated SunRPC/ONCRPC implementation
 rpc-auth-dh	-with-rpc-auth-dh SunRPC/ONCRPC - Add-on for Diffie-Hellman auth
@@ -77,6 +78,10 @@ CORE		pcre		>= 5
 -enable-tcl	labltk		probably any
 				part of the O'Caml distribution
 				Bindings for tcl/tk GUIs
+
+-enable-zip     camlzip         >= 1.01
+				http://pauillac.inria.fr/~xleroy/software.html
+	                        Bindings for zlib
 
 -with-nethttpd	none		none
 
@@ -201,6 +206,7 @@ in binary form:
 - ocamlnet-gtk2		Add-on libraries needing gtk2
 - ocamlnet-ssl		Add-on libraries needing ssl
 - ocamlnet-tcl		Add-on libraries needing tcl
+- ocamlnet-zip          Add-on libraries needing camlzip
 - ocamlnet-nethttpd	nethttpd (optional, if it makes the different
 			licensing conditions clearer)
 

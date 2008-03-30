@@ -1,5 +1,5 @@
 #! /bin/sh
 
-./configure -with-nethttpd -enable-ssl -enable-gtk2 \
+./configure -with-nethttpd -enable-ssl -enable-gtk2 -enable-zip \
 	-enable-tcl -equeue-tcl-defs -I/usr/include/tcl8.4 -equeue-tcl-libs -ltcl8.4 \
 	"$@"
