@@ -677,7 +677,8 @@ object(self)
     reply !path
 
   method private proc_send_message c sess (pat, msg) reply =
-    controller # send_message pat msg.msg_name msg.msg_arguments
+    controller # send_message pat msg.msg_name msg.msg_arguments;
+    reply ()
 
   method forward_message msg =
     List.iter
@@ -1168,13 +1169,14 @@ object(self)
       (self # matching_services re);
     List.iter
       (fun recv ->
-	 Unixqueue.once esys eps_group 0.0
-	   (fun () ->
-	      recv # receive_message
-		(self :> controller)
-		msg_name
-		msg_args
-	   )
+	 try
+	   recv # receive_message
+	     (self :> controller)
+	     msg_name
+	     msg_args
+	 with error ->
+	   Unixqueue.once esys eps_group 0.0
+	     (fun () -> raise error)
       )
       (self # matching_receivers re);
 
@@ -1187,13 +1189,14 @@ object(self)
       (self # matching_services re);
     List.iter
       (fun recv ->
-	 Unixqueue.once esys eps_group 0.0
-	   (fun () ->
-	      recv # receive_admin_message
-		(self :> controller)
-		msg_name
-		msg_args
-	   )
+	 try
+	   recv # receive_admin_message
+	     (self :> controller)
+	     msg_name
+	     msg_args
+	 with error ->
+	   Unixqueue.once esys eps_group 0.0
+	     (fun () -> raise error)
       )
       (self # matching_receivers re);
 

@@ -160,12 +160,19 @@ object
 
   method send_message : string -> string -> string array -> unit
     (** [send_message destination msgname msgargs]: Sends a message to
-        [destination]
+        [destination]. When this method returns, it is only ensured that
+        the receivers registered in the controller have been notified about
+        the message (so it can be made sure that any newly forked containers
+        know about the message). It is not guaranteed that the existing
+        containers are notified when this method returns. This can (and
+        usually will) happen at any time in the future.
      *)
 
   method send_admin_message : string -> string -> string array -> unit
     (** [send_message destination msgname msgargs]: Sends an admin message to
-        [destination]
+        [destination].
+ 
+        See [send_message] for the notification guarantees.
      *)
 
 end
@@ -427,8 +434,11 @@ object
 
   method send_message : string -> string -> string array -> unit
     (** [send_message service_pattern msg_name msg_arguments]: Sends
-      * a message to all services and message receivers matching
-      * [service_pattern]. The pattern may include the wildcard [*].
+        a message to all services and message receivers matching
+        [service_pattern]. The pattern may include the wildcard [*].
+
+        See the {!Netplex_types.controller.send_message} method for
+        the notification guarantees.
      *)
 
   method log : level -> string -> unit
