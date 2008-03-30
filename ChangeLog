@@ -2,6 +2,8 @@
 
 	* Adding netzip library
 
+	* Enhancement: Netplex controllers can send and receive messages
+
 2008-03-29  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Adding subchannel logging to Netplex

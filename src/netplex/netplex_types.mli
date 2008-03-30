@@ -122,6 +122,12 @@ object
       * (but it will be hard to distinguish them later).
      *)
 
+  method add_message_receiver : ctrl_message_receiver -> unit
+    (** Adds a message receiver. This receiver runs in the context of the
+        controller and receives all messages sent to it. The [name] method
+        must return the name.
+     *)
+
   method add_admin : (Rpc_server.t -> unit) -> unit
     (** [add_admin setup]: Allows to bind another RPC program to the admin
       * socket. The function [setup] will be called whenever a connection
@@ -151,6 +157,17 @@ object
       * to add new services. When the shutdown has been completed, 
       * the controller will terminate itself.
      *)
+
+  method send_message : string -> string -> string array -> unit
+    (** [send_message destination msgname msgargs]: Sends a message to
+        [destination]
+     *)
+
+  method send_admin_message : string -> string -> string array -> unit
+    (** [send_message destination msgname msgargs]: Sends an admin message to
+        [destination]
+     *)
+
 end
 
 and controller_config =
@@ -261,6 +278,26 @@ object
 
   method stop_containers : container_id list -> unit
 
+end
+
+and ctrl_message_receiver =
+object
+  method name : string
+    (** The name of this receiver *)
+
+  method receive_message :
+            controller -> string -> string array -> unit
+    (** This function is called when a broadcast message is received.
+      * The first string is the name of the message, and the array are
+      * the arguments.
+     *)
+
+  method receive_admin_message :
+            controller -> string -> string array -> unit
+    (** This function is called when a broadcast admin message is received.
+      * The first string is the name of the message, and the array are
+      * the arguments.
+     *)
 end
 
 and processor_hooks =
@@ -390,8 +427,8 @@ object
 
   method send_message : string -> string -> string array -> unit
     (** [send_message service_pattern msg_name msg_arguments]: Sends
-      * a message to all services matching [service_pattern]. The pattern
-      * may include the wildcard [*].
+      * a message to all services and message receivers matching
+      * [service_pattern]. The pattern may include the wildcard [*].
      *)
 
   method log : level -> string -> unit

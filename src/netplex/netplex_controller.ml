@@ -107,6 +107,9 @@ object(self)
   val mutable group = Unixqueue.new_group esys
     (* The group for timers etc. *)
 
+  val eps_group = Unixqueue.new_group esys
+    (* The group for Unixqueue.once 0.0 *)
+
 
   initializer (
     Unixqueue.once esys group 1.0 (fun () -> self#alive_check esys group)
@@ -529,7 +532,7 @@ object(self)
     Netplex_ctrl_srv.System.V1.bind_async
       ~proc_ping:(fun _ _ reply -> reply())
       ~proc_lookup:(self # lookup c)
-      ~proc_send_message:(self # send_message c)
+      ~proc_send_message:(self # proc_send_message c)
       ~proc_log:(self # log c)
       sys_rpc
 
@@ -673,17 +676,8 @@ object(self)
       controller#services;
     reply !path
 
-  method private send_message c sess (pat, msg) reply =
-    let re = regexp_of_pattern pat in
-    List.iter
-      (fun (sockserv, ctrl, _) ->
-	 match Netstring_pcre.string_match re sockserv#name 0 with
-	   | Some _ ->
-	       ctrl # forward_message msg
-	   | None -> ()
-      )
-      controller#ext_services;
-
+  method private proc_send_message c sess (pat, msg) reply =
+    controller # send_message pat msg.msg_name msg.msg_arguments
 
   method forward_message msg =
     List.iter
@@ -976,18 +970,8 @@ object(self)
       ~proc_reopen_logfiles:(protect (fun () ->
 					controller # logger # reopen()))
       ~proc_send_admin_message:(fun (pat, msg) ->
-				  let re = regexp_of_pattern pat in
-				  List.iter
-				    (fun (sockserv, ctrl, _) ->
-				       match
-					 Netstring_pcre.string_match 
-					   re sockserv#name 0
-				       with
-					 | Some _ ->
-					     ctrl # forward_admin_message msg
-					 | None -> ()
-				    )
-				    controller#ext_services
+				  controller # send_admin_message
+				    pat msg.msg_name msg.msg_arguments
 			       )
       rpc;
     Rpc_server.set_onclose_action rpc (fun _ -> 
@@ -1045,12 +1029,14 @@ end
 class std_controller (par : parallelizer) (config : controller_config) 
        : extended_controller =
   let dl = new deferring_logger in
+  let esys = Unixqueue.create_unix_event_system() in
+  let eps_group = Unixqueue.new_group esys in
 object(self)
   val mutable logger = (dl :> logger)
-  val esys = Unixqueue.create_unix_event_system()
   val mutable services = []
   val mutable shutting_down = false
   val mutable admin_setups = []
+  val mutable message_receivers = []
 
   initializer (
     par # init();
@@ -1112,6 +1098,9 @@ object(self)
   method add_admin setup =
     admin_setups <- setup :: admin_setups
 
+  method add_message_receiver recv =
+    message_receivers <- recv :: message_receivers
+
   method private rm_service sockctrl =
     let sockserv = ref None in
     services <- 
@@ -1151,6 +1140,64 @@ object(self)
 	 wrkmng # shutdown();
       )
       services
+
+  method private matching_services re =
+    List.filter
+      (fun (sockserv, ctrl, _) ->
+	 match Netstring_pcre.string_match re sockserv#name 0 with
+	   | Some _ -> true
+	   | None -> false
+      )
+      services
+
+  method private matching_receivers re =
+    List.filter
+      (fun recv ->
+	 match Netstring_pcre.string_match re recv#name 0 with
+	   | Some _ -> true
+	   | None -> false
+      )
+      message_receivers
+
+
+  method send_message pat msg_name msg_args =
+    let msg = { msg_name = msg_name; msg_arguments = msg_args } in
+    let re = regexp_of_pattern pat in
+    List.iter
+      (fun (sockserv, ctrl, _) -> ctrl # forward_message msg)
+      (self # matching_services re);
+    List.iter
+      (fun recv ->
+	 Unixqueue.once esys eps_group 0.0
+	   (fun () ->
+	      recv # receive_message
+		(self :> controller)
+		msg_name
+		msg_args
+	   )
+      )
+      (self # matching_receivers re);
+
+
+  method send_admin_message pat msg_name msg_args =
+    let msg = { msg_name = msg_name; msg_arguments = msg_args } in
+    let re = regexp_of_pattern pat in
+    List.iter
+      (fun (sockserv, ctrl, _) -> ctrl # forward_admin_message msg)
+      (self # matching_services re);
+    List.iter
+      (fun recv ->
+	 Unixqueue.once esys eps_group 0.0
+	   (fun () ->
+	      recv # receive_admin_message
+		(self :> controller)
+		msg_name
+		msg_args
+	   )
+      )
+      (self # matching_receivers re);
+
+
 end
 
 
