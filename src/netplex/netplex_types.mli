@@ -128,6 +128,16 @@ object
         must return the name.
      *)
 
+  method add_plugin : plugin -> unit
+    (** Adds a plugin. If the plugin object has already been added, this
+        is a no-op.
+
+        Plugins must have been added before the first container is started.
+        This is not checked, however. You are on the safe side when the
+        plugin is added in the [create_processor] factory method, or in
+        the [post_add_hook] of the processor.
+     *)
+
   method add_admin : (Rpc_server.t -> unit) -> unit
     (** [add_admin setup]: Allows to bind another RPC program to the admin
       * socket. The function [setup] will be called whenever a connection
@@ -458,6 +468,13 @@ object
   method set_var : string -> param_value_or_any -> unit
     (** Sets the value of a container variable *)
 
+  method call_plugin : plugin -> string -> Xdr.xdr_value-> Xdr.xdr_value
+    (** [call_plugin p procname procarg]: This method can be called
+        from the container context to invoke the plugin [p] procedure
+        [procname]. This means that the [ctrl_receive_call] of the
+        same plugin is invoked in the controller context.
+     *)
+
 end
 
 and workload_manager =
@@ -491,6 +508,34 @@ object
      *)
 
 end
+
+and plugin =
+object
+  method program : Rpc_program.t
+    (** The RPC program structure on which the messaging bases. The program,
+        version and procedure numbers are ignored
+     *)
+
+  method ctrl_added : controller -> unit
+    (** This method is invoked when the plugin has been added to this
+        controller. Note that plugins can be added to several controllers.
+     *)
+
+  method ctrl_receive_call : 
+            controller -> container_id -> string -> Xdr.xdr_value -> Xdr.xdr_value
+    (** [ctrl_receive_call ctrl cid procname procarg]:
+        This method is called in the controller context [ctrl] when a procedure
+        named [procname] is called. In [procarg] the argument of the
+        procedure is passed. [cid] is the container ID from where the
+        call originates. The method must return the procedure result.
+     *)
+
+  method ctrl_container_finished : controller -> container_id -> unit
+    (** This method is called when a container finishes *)
+end
+  (** Plugins are extensions of the Netplex system that run in the controller
+      and can be invoked from containers
+   *)
 ;;
 
 

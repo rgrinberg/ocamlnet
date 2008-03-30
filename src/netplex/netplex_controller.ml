@@ -27,6 +27,8 @@ and extended_controller =
 object
   inherit controller
   method ext_services : (socket_service * extended_socket_controller * workload_manager) list
+  method plugin_receive_call : int -> container_id -> string -> string -> string option
+  method plugin_container_finished : container_id -> unit
 end
 
 
@@ -367,6 +369,7 @@ object(self)
 	      ~message:("post_finish_hook: Exception " ^ 
 			  Printexc.to_string error)
     );
+    controller # plugin_container_finished (container :> container_id);
     (* Maybe we have to start new containers: *)
     self # adjust();
     (* Maybe the dead container was selected for accepting connections.
@@ -534,6 +537,7 @@ object(self)
       ~proc_lookup:(self # lookup c)
       ~proc_send_message:(self # proc_send_message c)
       ~proc_log:(self # log c)
+      ~proc_call_plugin:(self # call_plugin c)
       sys_rpc
 
   method private poll c sess n reply =
@@ -799,6 +803,19 @@ object(self)
       )
       clist
 
+  method private call_plugin c sess (plugin_id,proc_name,proc_arg) reply =
+    match
+      controller # plugin_receive_call
+	(Int64.to_int plugin_id)
+	c.container
+	proc_name
+	proc_arg
+    with
+      | Some res ->
+	  reply res
+      | None ->
+	  Rpc_server.reply_error sess Rpc.System_err
+
 end
 
 
@@ -1038,6 +1055,7 @@ object(self)
   val mutable shutting_down = false
   val mutable admin_setups = []
   val mutable message_receivers = []
+  val mutable plugins = []
 
   initializer (
     par # init();
@@ -1101,6 +1119,12 @@ object(self)
 
   method add_message_receiver recv =
     message_receivers <- recv :: message_receivers
+
+  method add_plugin plugin =
+    if not (List.mem plugin plugins) then (
+      plugins <- plugin :: plugins;
+      plugin # ctrl_added (self :> controller)
+    )
 
   method private rm_service sockctrl =
     let sockserv = ref None in
@@ -1200,6 +1224,50 @@ object(self)
       )
       (self # matching_receivers re);
 
+
+  method plugin_receive_call plugin_id cid name arg_str =
+    let plugin =
+      try Some(List.find (fun p -> Oo.id p = plugin_id) plugins) 
+      with Not_found -> None in
+    match plugin with
+      | Some p ->
+	  ( try
+	      let (_, arg_ty,res_ty) = 
+		Rpc_program.signature p#program name in
+	      let arg =
+		Xdr.unpack_xdr_value ~fast:true arg_str arg_ty [] in
+	      let res = 
+		p # ctrl_receive_call (self :> controller) cid name arg in
+	      let res_str =
+		Xdr.pack_xdr_value_as_string res res_ty [] in
+	      Some res_str
+	    with
+	      | error ->
+		  logger # log ~component:"netplex.controller"
+		    ~level:`Err
+		    ~message:("Exception in plugin call: " ^ 
+				Printexc.to_string error);
+		  None
+	  )
+      | None ->
+	  logger # log ~component:"netplex.controller"
+	    ~level:`Err
+	    ~message:"Received call for unknown plugin";
+	  None
+
+  method plugin_container_finished cid =
+    List.iter
+      (fun p ->
+	 try
+	   p # ctrl_container_finished (self :> controller) cid
+	 with
+	   | error ->
+	       logger # log ~component:"netplex.controller"
+		 ~level:`Err
+		 ~message:("Exception in ctrl_container_finished: " ^ 
+			     Printexc.to_string error);
+      )
+      plugins
 
 end
 

@@ -5,12 +5,13 @@ OBJECTS  = netplex_cenv.cmo netplex_mp.cmo netplex_log.cmo \
 	   netplex_ctrl_aux.cmo netplex_ctrl_clnt.cmo netplex_ctrl_srv.cmo \
 	   netplex_container.cmo netplex_sockserv.cmo netplex_workload.cmo \
 	   netplex_kit.cmo netplex_controller.cmo \
-           netplex_config.cmo netplex_main.cmo rpc_netplex.cmo
+           netplex_config.cmo netplex_main.cmo rpc_netplex.cmo \
+           netplex_semaphore.cmo
 DOBJECTS = netplex_types.mli netplex_mp.mli netplex_mt.mli netplex_log.mli \
 	   netplex_controller.mli netplex_container.mli \
 	   netplex_sockserv.mli netplex_workload.mli netplex_main.mli \
 	   netplex_config.mli netplex_kit.mli rpc_netplex.mli \
-	   netplex_cenv.mli \
+	   netplex_cenv.mli netplex_semaphore.mli \
 	   netplex_intro.txt
 
 INCLUDES += $(INC_EQUEUE) $(INC_RPC) $(INC_NETSTRING) $(INC_NETSYS)

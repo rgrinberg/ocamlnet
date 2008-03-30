@@ -116,6 +116,14 @@ program System {
          * response for performance reasons.
          */
 
+	longstring call_plugin(_int64 hyper,         /* plugin ID */
+			       longstring,    /* proc name */
+			       longstring     /* proc argument */
+			       ) = 4;
+	/* Proc argument and return value are XDR-encoded according to the
+           plugin program spec.
+	*/
+
     } = 1;
 
 } = 2;
@@ -228,3 +236,33 @@ program Admin {
     } = 1;
 
 } = 3;
+
+
+/* Plugins: */
+
+program Semaphore {
+    version V1 {
+	void ping (void) = 0;
+	
+	_int64 hyper increment(longstring) = 1;     /* semaphore name */
+	/* Increments the semaphore by 1, and returns the new semaphore
+           value. If the semaphore does not exist, it is created with an
+           initial value of 0, and 1 is returned.
+	*/
+
+	_int64 hyper protected_increment(longstring) = 2;
+	/* Same as increment, but if the container finishes (or even crashes),
+           the samaphore is decremented by the number pi-d, where pi is
+           the number of protected increments the container has requested,
+           and d the number of decrements the container has requested.
+	*/
+
+	_int64 hyper decrement(longstring) = 3;
+	/* Decrements the semaphore by 1, and returns the new value.
+	   A semaphore value cannot become negative. If the value is already
+           0, the semaphore is not decremented. If the semaphore does not exist,
+           it is created with an initial value of 0, and 0 is returned
+	*/
+
+    } = 1;
+} = 4;

@@ -303,6 +303,23 @@ object(self)
   method set_var name value =
     Hashtbl.replace vars name value
 
+  method call_plugin p proc_name arg =
+    match sys_rpc with
+      | None -> failwith "#call_plugin: No RPC client available"
+      | Some r ->
+	  let (_, arg_ty,res_ty) = 
+	    try
+	      Rpc_program.signature p#program proc_name
+	    with
+	      | Not_found -> failwith "call_plugin: procedure not found" in
+	  let arg_str = Xdr.pack_xdr_value_as_string arg arg_ty [] in
+	  let res_str =
+	    Netplex_ctrl_clnt.System.V1.call_plugin
+	      r
+	      ((Int64.of_int (Oo.id p)), proc_name, arg_str) in
+	  let res = Xdr.unpack_xdr_value ~fast:true res_str res_ty [] in
+	  res
+	    
 end
 
 

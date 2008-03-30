@@ -4,6 +4,10 @@
 
 	* Enhancement: Netplex controllers can send and receive messages
 
+	* Enhancement: Plugins for Netplex controllers
+
+	* Adding Netplex_semaphore using the new plugin feature
+
 2008-03-29  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Adding subchannel logging to Netplex
