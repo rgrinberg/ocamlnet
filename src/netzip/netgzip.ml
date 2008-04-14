@@ -79,99 +79,100 @@ let inflating_conv st incoming at_eof outgoing =
             (Int32.shift_left (Int32.of_int b4) 24)))
   in
 
-  match st.in_stream with
-    | Some stream ->
-	( try
-	    if not st.in_hdr_parsed then (
-	      let id1 = input_byte() in
-	      let id2 = input_byte() in
-	      if id1 <> 0x1F || id2 <> 0x8B then
-		raise(Gzip.Error("bad magic number, not a gzip file"));
-	      let cm = input_byte() in
-	      if cm <> 8 then
-		raise(Gzip.Error("unknown compression method"));
-	      let flags = input_byte() in
-	      if flags land 0xE0 <> 0 then
-		raise(Gzip.Error("bad flags, not a gzip file"));
-	      for i = 1 to 6 do ignore(input_byte()) done;
-	      if flags land 0x04 <> 0 then (
-		let len1 = input_byte() in
-		let len2 = input_byte() in
-		for i = 1 to len1 + len2 lsl 8 do ignore(input_byte()) done
-	      );
-	      if flags land 0x08 <> 0 then (
-		while input_byte() <> 0 do () done
-	      );
-	      if flags land 0x10 <> 0 then (
-		while input_byte() <> 0 do () done
-	      );
-	      if flags land 0x02 <> 0 then (
-		ignore(input_byte()); ignore(input_byte () )
+  if Netbuffer.length incoming > 0 then (
+    match st.in_stream with
+      | Some stream ->
+	  ( try
+	      if not st.in_hdr_parsed then (
+		let id1 = input_byte() in
+		let id2 = input_byte() in
+		if id1 <> 0x1F || id2 <> 0x8B then
+		  raise(Gzip.Error("bad magic number, not a gzip file"));
+		let cm = input_byte() in
+		if cm <> 8 then
+		  raise(Gzip.Error("unknown compression method"));
+		let flags = input_byte() in
+		if flags land 0xE0 <> 0 then
+		  raise(Gzip.Error("bad flags, not a gzip file"));
+		for i = 1 to 6 do ignore(input_byte()) done;
+		if flags land 0x04 <> 0 then (
+		  let len1 = input_byte() in
+		  let len2 = input_byte() in
+		  for i = 1 to len1 + len2 lsl 8 do ignore(input_byte()) done
+		);
+		if flags land 0x08 <> 0 then (
+		  while input_byte() <> 0 do () done
+		);
+		if flags land 0x10 <> 0 then (
+		  while input_byte() <> 0 do () done
+		);
+		if flags land 0x02 <> 0 then (
+		  ignore(input_byte()); ignore(input_byte () )
+		);
+		
 	      );
 	      
-	    );
-	    
-	    let loop = ref true in
-
-	    while !loop do
-	      let in_buf = Netbuffer.unsafe_buffer incoming in
-	      let in_pos = !k in
-	      let in_len = Netbuffer.length incoming - in_pos in
-
-	      if at_eof && in_len = 0 then (* Hope this is right *)
-		raise(Gzip.Error("premature end of file"));
-
-	      let used_out =
-		Netbuffer.add_inplace
-		  outgoing
-		  (fun out_buf out_pos out_len ->
-		     let (finished, used_in, used_out) =
-		       try
-			 Zlib.inflate 
-			   stream in_buf in_pos in_len out_buf out_pos out_len 
-			   Zlib.Z_SYNC_FLUSH
-		       with Zlib.Error(_, _) ->
-			 raise (Gzip.Error("error during decompression")) in
-		     
-		     st.in_size <- 
-		       Int32.add st.in_size (Int32.of_int used_out);
-		     st.in_crc <- 
-		       Zlib.update_crc st.in_crc out_buf out_pos used_out;
-	   
-		     k := !k + used_in;
-		     
-		     if finished then (
-		       let crc = input_int32() in
-		       let size = input_int32() in
-		       if st.in_crc <> crc then
-			 raise(Gzip.Error("CRC mismatch, data corrupted"));
-		       if st.in_size <> size then
-			 raise(Gzip.Error("size mismatch, data corrupted"));
-		       dispose_in st;
-		       loop := false
-		     );
-		     used_out
-		  ) in
-
-	      if used_out > 0 then loop := false;
-	    done;
-
-	    st.in_hdr_parsed <- true;
-	    Netbuffer.delete incoming 0 !k
-	  with
-	    | Buffer_underrun ->
-		if at_eof then (
-		  dispose_in_ignore st;
-		  raise(Gzip.Error("premature end of file, not a gzip file"))
-		)
+	      let loop = ref true in
+	      
+	      while !loop do
+		let in_buf = Netbuffer.unsafe_buffer incoming in
+		let in_pos = !k in
+		let in_len = Netbuffer.length incoming - in_pos in
+		
+		if at_eof && in_len = 0 then (* Hope this is right *)
+		  raise(Gzip.Error("premature end of file"));
+		
+		let used_out =
+		  Netbuffer.add_inplace
+		    outgoing
+		    (fun out_buf out_pos out_len ->
+		       let (finished, used_in, used_out) =
+			 try
+			   Zlib.inflate 
+			     stream in_buf in_pos in_len out_buf out_pos out_len 
+			     Zlib.Z_SYNC_FLUSH
+			 with Zlib.Error(_, _) ->
+			   raise (Gzip.Error("error during decompression")) in
+		       
+		       st.in_size <- 
+			 Int32.add st.in_size (Int32.of_int used_out);
+		       st.in_crc <- 
+			 Zlib.update_crc st.in_crc out_buf out_pos used_out;
+		       
+		       k := !k + used_in;
+		       
+		       if finished then (
+			 let crc = input_int32() in
+			 let size = input_int32() in
+			 if st.in_crc <> crc then
+			   raise(Gzip.Error("CRC mismatch, data corrupted"));
+			 if st.in_size <> size then
+			   raise(Gzip.Error("size mismatch, data corrupted"));
+			 dispose_in st;
+			 loop := false
+		       );
+		       used_out
+		    ) in
+		
+		if used_out > 0 then loop := false;
+	      done;
+	      
+	      st.in_hdr_parsed <- true;
+	      Netbuffer.delete incoming 0 !k
+	    with
+	      | Buffer_underrun ->
+		  if at_eof then (
+		    dispose_in_ignore st;
+		    raise(Gzip.Error("premature end of file, not a gzip file"))
+		  )
 		    (* else: do nothing in this case *)
-	    | error ->
-		dispose_in_ignore st; raise error
-	)
-
-    | None ->
-	if Netbuffer.length incoming > 0 then
+	      | error ->
+		  dispose_in_ignore st; raise error
+	  )
+	    
+      | None ->
 	  raise(Gzip.Error "zlib stream is already disposed")
+  )
 
 
 class inflating_pipe () =
