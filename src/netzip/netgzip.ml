@@ -170,7 +170,8 @@ let inflating_conv st incoming at_eof outgoing =
 	)
 
     | None ->
-	raise(Gzip.Error "zlib stream is already disposed")
+	if Netbuffer.length incoming > 0 then
+	  raise(Gzip.Error "zlib stream is already disposed")
 
 
 class inflating_pipe () =
@@ -283,7 +284,8 @@ let deflating_conv st incoming at_eof outgoing =
 	)
 
     | None ->
-	failwith "zlib stream is already disposed"
+	if Netbuffer.length incoming > 0 then
+	  failwith "zlib stream is already disposed"
 
 
 class deflating_pipe ?(level=6) () =
