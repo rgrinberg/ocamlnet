@@ -667,7 +667,20 @@ object(self)
     let t = Unix.gettimeofday() in
     try
       let n = Netsys.poll pa 1 d in
-      if n = 0 then raise Timeout
+      if n = 0 then raise Timeout;
+      (* Check for error: *)
+      let c = Netsys.get_poll_cell pa 0 in
+      let have_error = Netsys.poll_error_result (c.Netsys.poll_revents) in
+      if have_error then (
+	let s = String.make 1 'X' in
+	try
+	  let _n = Unix.read fd s 0 1 in
+	  assert false
+	with
+	  | Unix.Unix_error(c,_,_) when c <> Unix.EINTR ->
+	      raise(Fatal_error(`Unix_error c))
+      )
+	
     with
 	Unix.Unix_error(Unix.EINTR,_,_) ->
 	  if d < 0.0 then
