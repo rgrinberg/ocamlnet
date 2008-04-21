@@ -659,9 +659,12 @@ object(self)
     (* If d < 0 wait for undefinite time. If d >= 0 wait for a maximum of d seconds.
      * On expiration, raise [Timeout].
      *)
+    let f_input = self#do_input in
+    let f_output = self#do_output in
+    if not f_input && not f_output then raise Timeout;
     Netsys.set_poll_cell pa 0
       { Netsys.poll_fd = fd;
-	poll_events = Netsys.poll_in_events self#do_input self#do_output false;
+	poll_events = Netsys.poll_in_events f_input f_output false;
 	poll_revents = Netsys.poll_out_events()
       };
     let t = Unix.gettimeofday() in
