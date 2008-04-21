@@ -332,11 +332,14 @@ let decode_query req_uri =
     | None ->
 	(req_uri, "")
 
-let host_re =
-  Netstring_pcre.regexp "([^: \t]+)(:([0-9]+))?$"
+let host4_re =
+  Netstring_pcre.regexp "([^: \t\\[\\]]+)(:([0-9]+))?$"
+
+let host6_re =
+  Netstring_pcre.regexp "\\[([^ \t]+)\\](:([0-9]+))?$"
 
 let split_host_port s =
-  match Netstring_pcre.string_match host_re s 0 with
+  match Netstring_pcre.string_match host4_re s 0 with
     | Some m ->
 	let host_name = Netstring_pcre.matched_group m 1 s in
 	let host_port =
@@ -346,7 +349,18 @@ let split_host_port s =
 	in
 	(host_name, host_port)
     | None ->
-	failwith "Invalid hostname"
+	( match Netstring_pcre.string_match host6_re s 0 with
+	    | Some m ->
+		let host_name = Netstring_pcre.matched_group m 1 s in
+		let host_port =
+		  try Some(int_of_string(Netstring_pcre.matched_group m 3 s))
+		  with
+		    | Not_found -> None
+		in
+		(host_name, host_port)
+	    | None ->
+		failwith "Invalid hostname"
+	)
 
 let uripath_encode s =
   let l = Neturl.split_path s in
