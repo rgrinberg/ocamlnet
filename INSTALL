@@ -215,7 +215,7 @@ the add-on stuff:
 
 It is possible to build the add-on stuff later, i.e. after the
 ocamlnet CORE is already installed. To do so, use the special
-configuration option -without-core, and run "make" with these
+configuration option -disable-core, and run "make" with these
 extra variables:
 
    INC_NETSYS="-package netsys"
