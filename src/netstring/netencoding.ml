@@ -1467,9 +1467,7 @@ module Html = struct
   type entity_set = [ `Html | `Xml | `Empty ];;
 
   let eref_re = 
-    Pcre.regexp "\\&(\\#([0-9]+);|([a-zA-Z]+)\\;)" ;;
-
-  (* TODO: Decode hex numerals, too *)
+    Pcre.regexp "\\&(\\#([0-9]+);|\\#[xX]([0-9a-fA-F]+)\\;|([a-zA-Z]+)\\;)" ;;
 
   let total_enc =
     (* every byte must have a corresponding Unicode code point, i.e. the
@@ -1489,6 +1487,22 @@ module Html = struct
       | `Enc_iso885916  -> true
       | _ -> false
   ;;
+
+  let hex_digit_of_char c =
+    match c with
+       '0'..'9' -> Char.code c - 48
+      | 'A'..'F' -> Char.code c - 55
+      | 'a'..'f' -> Char.code c - 87
+      | _ -> assert false
+
+  let hex_of_string s =
+    let n = ref 0 in
+    for i = 0 to String.length s - 1 do
+      let d = hex_digit_of_char s.[i] in
+      n := (!n lsl 4) lor d
+    done;
+    !n
+      
 
   let decode 
         ~in_enc
@@ -1534,7 +1548,7 @@ module Html = struct
 	Netconversion.recode_string ~in_enc ~out_enc ~subst
     in
     (fun s ->
-       (* Find all occurrences of &name; or &#num; *)
+       (* Find all occurrences of &name; or &#num; or &#xnum; *)
        let occurences = 
 	 try Pcre.exec_all ~rex:eref_re s with Not_found -> [| |] in
        (* Collect the resulting string in a buffer *)
@@ -1557,13 +1571,24 @@ module Html = struct
 	     makechar n
 	   end
 	   else begin
-	     let name = 
+	     let xnum = 
 	       try Pcre.get_substring occurence 3 with Not_found -> "" in
 	     (* Note: Older versions of Pcre return "" when the substring
 	      * did not match, newer versions raise Not_found  
 	      *)
-	     assert(name <> "");
-	     lookup_entity name
+	     if xnum <> "" then begin
+	       let n = hex_of_string xnum in
+	       makechar n
+	     end
+	     else begin
+	       let name = 
+		 try Pcre.get_substring occurence 4 with Not_found -> "" in
+	       (* Note: Older versions of Pcre return "" when the substring
+	        * did not match, newer versions raise Not_found  
+	        *)
+	       assert(name <> "");
+	       lookup_entity name
+	     end
 	   end
 	 in
 	 Buffer.add_string buf replacement;
