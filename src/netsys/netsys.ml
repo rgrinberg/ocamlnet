@@ -80,6 +80,8 @@ let really_read fd s pos len =
 let domain_of_inet_addr addr =
   Unix.domain_of_sockaddr(Unix.ADDR_INET(addr,0))
 
+external unix_error_of_code : int -> Unix.error = "netsys_unix_error_of_code"
+
 
 (* Misc *)
 
@@ -204,7 +206,7 @@ let set_poll_cell a k c =
     invalid_arg "Netsys.set_poll_cell";
   match a with
     | Poll_mem(s,_) ->
-	set_poll_mem s k c.poll_fd c.poll_events (* c.revents *) 0
+	set_poll_mem s k c.poll_fd c.poll_events (* c.poll_revents *) 0 
     | Poll_emu e ->
 	e.(k) <- { c with poll_fd = c.poll_fd } (* copy *)
 

@@ -94,6 +94,8 @@ val domain_of_inet_addr : Unix.inet_addr -> Unix.socket_domain
     * address is IPv4 or IPv6
    *)
 
+val unix_error_of_code : int -> Unix.error
+  (** Converts an integer error into the corresponding variant *)
 
 (** {1 File descriptor polling} *)
 

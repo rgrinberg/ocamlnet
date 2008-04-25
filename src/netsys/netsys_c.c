@@ -27,6 +27,11 @@
 /* Standard POSIX stuff                                               */
 /**********************************************************************/
 
+value netsys_unix_error_of_code(value n) {
+    return(unix_error_of_code(Int_val(n)));
+}
+
+
 value netsys__exit (value n) {
 #ifdef HAVE__EXIT
     _exit(Int_val(n));

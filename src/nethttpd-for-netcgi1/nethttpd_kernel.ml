@@ -673,15 +673,18 @@ object(self)
       if n = 0 then raise Timeout;
       (* Check for error: *)
       let c = Netsys.get_poll_cell pa 0 in
-      let have_error = Netsys.poll_error_result (c.Netsys.poll_revents) in
+      let have_error = Netsys.poll_error_result c.Netsys.poll_revents in
       if have_error then (
-	let s = String.make 1 'X' in
-	try
-	  let _n = Unix.read fd s 0 1 in
-	  assert false
-	with
-	  | Unix.Unix_error(c,_,_) when c <> Unix.EINTR ->
-	      raise(Fatal_error(`Unix_error c))
+	(* Now find out which error. Unfortunately, a simple Unix.read on
+           the socket seems not to work.
+	 *)
+	if Netsys.poll_hangup_result c.Netsys.poll_revents then
+	  raise(Fatal_error `Broken_pipe);
+	let code =
+	  Unix.getsockopt_int fd Unix.SO_ERROR in
+	let error =
+	  Netsys.unix_error_of_code code in
+	raise(Fatal_error(`Unix_error error));
       )
 	
     with
