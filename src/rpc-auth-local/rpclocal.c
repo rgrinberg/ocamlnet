@@ -3,6 +3,9 @@
  *
  */
 
+#define __USE_GNU
+/* Required on some systems to enable struct ucred in sys/socket.h */
+
 #include "caml/mlvalues.h"
 #include "caml/alloc.h"
 #include "caml/memory.h"
