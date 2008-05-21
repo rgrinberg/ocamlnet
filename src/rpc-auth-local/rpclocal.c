@@ -3,7 +3,7 @@
  *
  */
 
-#define __USE_GNU
+#define _GNU_SOURCE
 /* Required on some systems to enable struct ucred in sys/socket.h */
 
 #include "caml/mlvalues.h"
