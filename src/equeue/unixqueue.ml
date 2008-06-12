@@ -647,8 +647,8 @@ object(self)
       		  if not (self#exists_descriptor_nolock d) then begin
 		    debug_print (lazy (sprintf "remove_resource <running close action for fd %s>"
 					 (string_of_fd d)));
+		    Hashtbl.remove close_tab d;
       		    a d;
-		    Hashtbl.remove close_tab d
       		  end
     	      | None ->
       		  ()

@@ -2591,7 +2591,7 @@ class connection the_esys
       ignore(self # add_msg false m f_done)
 
 
-    method private add_msg urgent m f_done =
+    method private add_msg ?(critical=critical_section) urgent m f_done =
       (* In contrast to 'add', the new message transporter is returned. *)
 
       (* Create the transport container for the message and add it to the
@@ -2627,7 +2627,7 @@ class connection the_esys
        *)
       trans # init();
 
-      if critical_section then begin
+      if critical then begin
 	(* This 'add_msg' invocation was done in a callback. This may interfer
 	 * with other queue modifications.
 	 *)
@@ -2687,7 +2687,7 @@ class connection the_esys
        *)
       let m = m_trans # message in
       let f_done = m_trans # f_done in
-      self # add_msg true m f_done
+      self # add_msg ~critical:true true m f_done
 
 
     method set_options p =
