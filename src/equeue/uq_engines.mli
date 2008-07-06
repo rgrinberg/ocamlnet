@@ -601,6 +601,78 @@ class copier : copy_task ->
    *)
 
 
+(* IDEA: *)
+
+(* 
+   class type ['a] pipebuffer =
+   object
+     method queue : 'a Queue.t
+       (* A queue of elements. Note that it is a programming error to modify
+          the queue directly.
+        *)
+
+     method max_length : int
+       (* The maximum number of elements of [queue]. If there are less elements
+          in [queue], it is said that there is space in the queue.
+        *)
+
+     method end_of_queue : bool
+       (* This flag is set by [close_out], and means that no further elements
+          will be added anymore. There may still be elements in the queue,
+          however, that need to be processed before the end of the data stream
+          is reached
+        *)
+
+     method add : 'a -> [unit] engine
+       (* Waits until there is space in the queue, then adds the passed
+          element to the [queue], and the engine transitions to [`Done]
+        *)
+
+     method wait_for_space : unit -> [unit] engine
+       (* Waits until there is space in the queue, and then transitions
+          the returned engine to [`Done].
+        *)
+
+     method take : unit -> ['a option] engine
+       (* Waits until there is at least one element [Some x] in [queue], 
+          takes it from the end of the queue, and transitions the engine to 
+          [`Done(Some x)]. If the queue is empty and the [end_of_queue] flag
+          is set, the engine transitions to [`Done None].
+        *)
+
+     method wait_for_element : unit -> [unit] engine
+       (* Waits until there is at least one element [x] in [queue], 
+          and transitions the engine to [`Done ()]. The engine is also
+          transitioned to [`Done()] when the queue is empty, and the
+          [end_of_queue] flag is set.
+        *)
+
+     method close_in : unit -> unit
+       (* Indicates that there is no longer interest in taking elements from
+          the queue. The engines returned by [add], [wait_for_space], [take],
+          and [wait_for_element] will transition to [`Aborted].
+          - It is no error to close the pipeline several times. The second
+          close is simply ignored.
+       *)
+  
+     method close_out : unit -> unit
+       (* Indicates that there won't be any further additions to the queue.
+          The engines returned by [add] and [wait_for_space] will transition
+          to [`Aborted]. The engines returned by [take] and
+          [wait_for_element] will transition to [`Done].
+          - It is no error to close the pipeline several times. The second
+          close is simply ignored.
+        *)
+
+   end
+
+
+   class pipebuffer_eng : int -> pipebuffer
+     (* Arg: queue length *)
+
+
+ *)
+
 
 (** {1 Socket engines} *)
 
