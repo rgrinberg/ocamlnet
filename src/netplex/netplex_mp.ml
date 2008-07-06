@@ -40,10 +40,15 @@ object(self)
 
     ()
 
-  method start_thread : (par_thread -> unit) -> 'x -> string -> logger -> par_thread =
+  method start_thread : 
+           (par_thread -> unit) -> 'x -> string -> logger -> par_thread =
     fun f l srv_name logger ->
       let (fd_rd, fd_wr) = Unix.pipe() in
-      match Unix.fork() with
+      let r_fork = 
+	try Unix.fork()
+	with err ->
+	  Unix.close fd_rd; Unix.close fd_wr; raise err in
+      match r_fork with
 	| 0 ->
 (*
 	    Sys.set_signal Sys.sigchld Sys.Signal_default;
@@ -114,7 +119,7 @@ object(self)
 
 		let watch() =
 		  incr cnt;
-		  if !cnt = 5 then (
+		  if !cnt = 60 then (
 		    logger # log 
 		      ~component:"netplex.controller"
 		      ~level:`Alert

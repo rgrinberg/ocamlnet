@@ -291,7 +291,8 @@ object
      * next connection
      *)
 
-  method start_containers : int -> unit
+  method start_containers : int -> int
+    (* Arg: #containers to start. Return val: actual started #containers *)
 
   method stop_containers : container_id list -> unit
 

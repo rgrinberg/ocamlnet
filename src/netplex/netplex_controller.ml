@@ -228,11 +228,43 @@ object(self)
     if !debug_scheduling then
       debug_logf controller "Service %s: Starting %d new containers" name n;
     let threads = ref [] in
+    let j = ref 0 in
     for k = 1 to n do
+      match self # start_single_container() with
+	| Some thr ->
+	    threads := thr :: !threads;
+	    incr j
+	| None ->
+	    ()   (* error - already handled *)
+    done;
+    if !debug_scheduling then
+      debug_logf controller "Service %s: Started %s" 
+	name 
+	(String.concat "," (List.map (fun p -> p#info_string) !threads));
+    !j
+
+
+  method private start_single_container() =
+    let onerror = ref [] in
+    try
+      let fd_clnt_closed = ref false in
       let (fd_clnt, fd_srv) = 
 	Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+      onerror := (fun () -> 
+		    if not !fd_clnt_closed then (
+		      fd_clnt_closed := true;
+		      Unix.close fd_clnt
+		    )
+		 ) :: !onerror;
+      let sys_fd_clnt_closed = ref false in
       let (sys_fd_clnt, sys_fd_srv) = 
 	Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+      onerror := (fun () -> 
+		    if not !sys_fd_clnt_closed then (
+		      sys_fd_clnt_closed := true;
+		      Unix.close sys_fd_clnt
+		    )
+		 ) :: !onerror;
       let fd_list =
 	fd_clnt :: sys_fd_clnt ::
 	  (List.flatten
@@ -269,10 +301,9 @@ object(self)
 	  sockserv#name
 	  controller#logger in
       if par # ptype = `Multi_processing then (
-	Unix.close fd_clnt;
-	Unix.close sys_fd_clnt;
+	Unix.close fd_clnt;       fd_clnt_closed := true;
+	Unix.close sys_fd_clnt;   sys_fd_clnt_closed := true;
       );
-      threads := par_thread :: !threads;
       let rpc =
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, fd_srv))
@@ -337,11 +368,17 @@ object(self)
               *)
 	   )
 	);
-      if !debug_scheduling then
-	debug_logf controller "Service %s: Started %s" 
-	  name 
-	  (String.concat "," (List.map (fun p -> p#info_string) !threads));
-    done
+      Some par_thread
+    with
+      | error ->
+	  controller # logger # log
+	    ~component:"netplex.controller"
+	    ~level:`Crit
+	    ~message:("Exception while starting new containers: " ^ 
+			Printexc.to_string error);
+	  List.iter (fun f -> f()) !onerror;
+	  None
+	  
 
 
   method private onclose_action c container =

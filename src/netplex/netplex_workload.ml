@@ -29,7 +29,13 @@ object(self)
 	  let l = sockctrl # container_state in
 	  let n = List.length l in
 	  if n < num_threads then (
-	    sockctrl # start_containers (num_threads - n)
+	    let _n_started =
+	      sockctrl # start_containers (num_threads - n) in
+	    (* If less containers could be started, we ignore the problem.
+               [adjust] will be called again, and the problem will be fixed.
+               Hopefully... We cannot do much more here.
+             *)
+	    ()
 	  )
       | _ ->
 	  ()
@@ -295,9 +301,10 @@ object(self)
 	(!n-1) / config#recommended_jobs_per_thread + 1 in
       let needed_threads' =
 	min (max 0 (config#max_threads - all_threads)) needed_threads in
-      sockctrl # start_containers needed_threads';
-      let cap = needed_threads' * config#recommended_jobs_per_thread in
-      let ocap = needed_threads' * config#max_jobs_per_thread in
+      let started_threads = sockctrl # start_containers needed_threads' in
+      (* If started_threads < needed_threads', we ignore the problem. *)
+      let cap = started_threads * config#recommended_jobs_per_thread in
+      let ocap = started_threads * config#max_jobs_per_thread in
       n := !n - cap;
       n_overload := !n_overload - ocap;
       started_ocap := !started_ocap + ocap;
