@@ -2930,8 +2930,9 @@ class connection the_esys
 	if options.verbose_connection then
 	  prerr_endline "HTTP connection: Connected!";
       with
-	  Unix.Unix_error(Unix.EINPROGRESS,_,_) ->
+	  Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) ->
 	    (* The 'connect' has not yet been finished. *)
+	    (* Note: Win32 returns EWOULDBLOCK instead of EINPROGRESS *)
 	    connecting <- true;
 	    (* The 'connect' operation continues in the background.
 	     * It is guaranteed that the socket becomes writeable if

@@ -2291,8 +2291,9 @@ object (self)
 	Unix.connect s dest_addr;
 	(s, stype, true)
       with
-	  Unix.Unix_error(Unix.EINPROGRESS,_,_) -> 
+	  Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) -> 
 	    (s,stype,false)
+	      (* Note: Win32 returns EWOULDBLOCK instead of EINPROGRESS *)
 	| error ->
 	    (* Remarks:
              * We can get here EAGAIN. Unfortunately, this is a kind of

@@ -17,7 +17,8 @@ let remote_time ?(timeout = 5) peer =
     ( try
 	Unix.connect s (Unix.ADDR_INET(peer, 37))
       with
-	  Unix.Unix_error(Unix.EINPROGRESS,_,_) -> ()
+	Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) -> ()
+	  (* Note: Win32 returns EWOULDBLOCK instead of EINPROGRESS *)
     );
     Unix.clear_nonblock s;
     let buf = String.create 4 in
