@@ -40,6 +40,8 @@ d src
 
 d tools
 f tools/collect_files
+f tools/mkstublib
+f tools/stubcc
 
 d src/netstring
 f src/netstring/META.in
