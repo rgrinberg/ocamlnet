@@ -98,6 +98,20 @@ fi
 
 ######################################################################
 
+printf "Checking for win32... "
+system=`ocamlc -config | grep system | sed -e 's/system: //'`
+case "$system" in
+    mingw|msvc)
+	  echo "yes"
+          netsys_link_options="$netsys_link_options -lws2_32" ;;
+	*)
+	  echo "no"  ;;
+esac
+
+
+######################################################################
+
+
 cat <<EOF >Makefile.conf
 NETSYS_LINK_OPTIONS = $netsys_link_options
 EOF

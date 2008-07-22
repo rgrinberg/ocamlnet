@@ -319,7 +319,7 @@ printf "%s" "Checking for findlib... "
 if ocamlfind query stdlib >/dev/null 2>/dev/null; then
     echo "found"
     if [ "$net_db_dir_set" -eq 0 ]; then
-	net_db_dir=`ocamlfind printconf destdir`/netstring
+	net_db_dir=`ocamlfind printconf destdir | tr -d '\\r'`/netstring
 	net_db_dir_set=1
     fi
 else
@@ -342,6 +342,7 @@ printf "%s" "Checking multi-threading support... "
 mt_type=vm
 mt_switch="-vmthread"
 mt_comment="(unsupported)"
+rm -rf tmp
 mkdir -p tmp
 cat <<_EOF_ >tmp/t.ml
 let _ = Mutex.create();;

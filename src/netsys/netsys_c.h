@@ -32,6 +32,7 @@
 #include "caml/fail.h"
 #include "caml/signals.h"
 #include "caml/custom.h"
+#include "caml/callback.h"
 
 
 #ifdef HAVE_POLL
@@ -56,12 +57,7 @@
 
 #define Nothing ((value) 0)
 
-extern value unix_error_of_code (int errcode);
-extern void unix_error (int errcode, char * cmdname, value arg) Noreturn;
-extern void uerror (char * cmdname, value arg) Noreturn;
-
 #ifdef _WIN32
-extern void win32_maperr(DWORD errcode);
 
 struct filedescr {
   union {
@@ -77,8 +73,37 @@ struct filedescr {
 #define Descr_kind_val(v) (((struct filedescr *) Data_custom_val(v))->kind)
 #define CRT_fd_val(v) (((struct filedescr *) Data_custom_val(v))->crt_fd)
 
-extern value win_alloc_handle_or_socket(HANDLE);
-extern value win_alloc_handle(HANDLE);
-extern value win_alloc_socket(SOCKET);
+#define NO_CRT_FD (-1)
+#define Nothing ((value) 0)
+
+/* These functions are actually defined in unixsupport_w32.c */
+
+value netsysw32_unix_error_of_code (int errcode);
+void netsysw32_unix_error (int errcode, char * cmdname, value arg) Noreturn;
+void netsysw32_uerror (char * cmdname, value arg) Noreturn;
+
+void netsysw32_win32_maperr(DWORD errcode);
+
+value netsysw32_win_alloc_handle_or_socket(HANDLE);
+value netsysw32_win_alloc_handle(HANDLE);
+value netsysw32_win_alloc_socket(SOCKET);
+
+/* Keep the API: */
+
+#define unix_error_of_code         netsysw32_unix_error_of_code
+#define unix_error                 netsysw32_unix_error
+#define uerror                     netsysw32_uerror
+#define win32_maperr               netsysw32_win32_maperr
+#define win_alloc_handle_or_socket netsysw32_win_alloc_handle_or_socket
+#define win_alloc_handle           netsysw32_win_alloc_handle
+#define win_alloc_socket           netsysw32_win_alloc_socket
+
+#else
+
+/* POSIX */
+
+extern value unix_error_of_code (int errcode);
+extern void unix_error (int errcode, char * cmdname, value arg) Noreturn;
+extern void uerror (char * cmdname, value arg) Noreturn;
 
 #endif

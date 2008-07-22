@@ -5,8 +5,13 @@
 
 #include "netsys_c.h"
 #include <stdio.h>
+#include <assert.h>
 
 #ifdef _WIN32
+
+#include "unixsupport_w32.c"
+
+/* Additions to the socket/handle API for Win32: */
 
 static struct custom_operations wsaevent_ops = {
     "",
@@ -30,7 +35,7 @@ struct event {
 #endif
 
 
-value netsys_wsa_create_event(value dummy) {
+CAMLprim value netsys_wsa_create_event(value dummy) {
 #ifdef _WIN32
     WSAEVENT e;
     value r;
@@ -53,7 +58,7 @@ value netsys_wsa_create_event(value dummy) {
 #endif
 }
 
-value netsys_wsa_close_event(value ev) {
+CAMLprim value netsys_wsa_close_event(value ev) {
 #ifdef _WIN32
     struct event e;
 
@@ -71,7 +76,7 @@ value netsys_wsa_close_event(value ev) {
 }
 
 
-value netsys_wsa_set_event(value ev) {
+CAMLprim value netsys_wsa_set_event(value ev) {
 #ifdef _WIN32
     struct event e;
 
@@ -87,7 +92,7 @@ value netsys_wsa_set_event(value ev) {
 #endif
 }
 
-value netsys_wsa_reset_event(value ev) {
+CAMLprim value netsys_wsa_reset_event(value ev) {
 #ifdef _WIN32
     struct event e;
 
@@ -104,7 +109,7 @@ value netsys_wsa_reset_event(value ev) {
 }
 
 
-value netsys_wsa_event_select(value ev, value fdv, value evmaskv) {
+CAMLprim value netsys_wsa_event_select(value ev, value fdv, value evmaskv) {
 #ifdef _WIN32
     struct event e;
     SOCKET s;
@@ -134,7 +139,7 @@ value netsys_wsa_event_select(value ev, value fdv, value evmaskv) {
 #endif
 }
 
-value netsys_wsa_maximum_wait_events(value dummy) {
+CAMLprim value netsys_wsa_maximum_wait_events(value dummy) {
 #ifdef _WIN32
     return Val_int(WSA_MAXIMUM_WAIT_EVENTS);
 #else
@@ -142,7 +147,7 @@ value netsys_wsa_maximum_wait_events(value dummy) {
 #endif
 }
 
-value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
+CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 #ifdef _WIN32
     WSAEVENT earray[WSA_MAXIMUM_WAIT_EVENTS];
     struct event e;
@@ -204,7 +209,7 @@ value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 #endif
 }
 
-value netsys_wsa_enum_network_events(value fdv, value ev) {
+CAMLprim value netsys_wsa_enum_network_events(value fdv, value ev) {
 #ifdef _WIN32
     struct event e;
     SOCKET s;

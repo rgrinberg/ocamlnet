@@ -27,12 +27,12 @@
 /* Standard POSIX stuff                                               */
 /**********************************************************************/
 
-value netsys_unix_error_of_code(value n) {
+CAMLprim value netsys_unix_error_of_code(value n) {
     return(unix_error_of_code(Int_val(n)));
 }
 
 
-value netsys__exit (value n) {
+CAMLprim value netsys__exit (value n) {
 #ifdef HAVE__EXIT
     _exit(Int_val(n));
     return Val_int(0);
@@ -42,7 +42,7 @@ value netsys__exit (value n) {
 }
 
 
-value netsys_sysconf_open_max (value unit) {
+CAMLprim value netsys_sysconf_open_max (value unit) {
 #ifdef HAVE_SYSCONF
     return Val_long(sysconf(_SC_OPEN_MAX));
 #else
@@ -51,7 +51,7 @@ value netsys_sysconf_open_max (value unit) {
 }
 
 
-value netsys_getpgid (value pid) {
+CAMLprim value netsys_getpgid (value pid) {
 #ifdef HAVE_GETPGID
     int pgid;
 
@@ -64,7 +64,7 @@ value netsys_getpgid (value pid) {
 }
 
 
-value netsys_setpgid (value pid, value pgid) {
+CAMLprim value netsys_setpgid (value pid, value pgid) {
 #ifdef HAVE_SETPGID
     int r;
 
@@ -77,7 +77,7 @@ value netsys_setpgid (value pid, value pgid) {
 }
 
 
-value netsys_tcgetpgrp (value fd) {
+CAMLprim value netsys_tcgetpgrp (value fd) {
 #ifdef HAVE_TCGETPGRP
     int pgid;
 
@@ -90,7 +90,7 @@ value netsys_tcgetpgrp (value fd) {
 }
 
 
-value netsys_tcsetpgrp (value fd, value pgid) {
+CAMLprim value netsys_tcsetpgrp (value fd, value pgid) {
 #ifdef HAVE_TCSETPGRP
     int r;
     
@@ -103,7 +103,7 @@ value netsys_tcsetpgrp (value fd, value pgid) {
 }
 
 
-value netsys_ctermid (value unit) {
+CAMLprim value netsys_ctermid (value unit) {
 #ifdef HAVE_CTERMID
     char *s;
     s = NULL;
@@ -115,7 +115,7 @@ value netsys_ctermid (value unit) {
 }
 
 
-value netsys_ttyname (value fd) {
+CAMLprim value netsys_ttyname (value fd) {
 #ifdef HAVE_TTYNAME
     char *s;
 
@@ -128,7 +128,7 @@ value netsys_ttyname (value fd) {
 }
 
 
-value netsys_getsid (value pid) {
+CAMLprim value netsys_getsid (value pid) {
 #ifdef HAVE_GETSID
     int sid;
 
@@ -141,7 +141,7 @@ value netsys_getsid (value pid) {
 }
 
 
-value netsys_setreuid(value ruid, value euid) {
+CAMLprim value netsys_setreuid(value ruid, value euid) {
 #ifdef HAVE_SETREUID
     int r;
 
@@ -154,7 +154,7 @@ value netsys_setreuid(value ruid, value euid) {
 }
 
 
-value netsys_setregid(value rgid, value egid) {
+CAMLprim value netsys_setregid(value rgid, value egid) {
 #ifdef HAVE_SETREGID
     int r;
 
@@ -167,7 +167,7 @@ value netsys_setregid(value rgid, value egid) {
 }
 
 
-value netsys_fsync(value fd) {
+CAMLprim value netsys_fsync(value fd) {
 #ifdef HAVE_FSYNC
     int r;
     r = fsync(Int_val(fd));
@@ -180,7 +180,7 @@ value netsys_fsync(value fd) {
 }
 
 
-value netsys_fdatasync(value fd) {
+CAMLprim value netsys_fdatasync(value fd) {
 #ifdef HAVE_FDATASYNC
     int r;
     r = fdatasync(Int_val(fd));
@@ -196,7 +196,7 @@ value netsys_fdatasync(value fd) {
 /* poll interface                                                     */
 /**********************************************************************/
 
-value netsys_pollfd_size (value dummy) {
+CAMLprim value netsys_pollfd_size (value dummy) {
 #ifdef HAVE_POLL
     return Val_int(sizeof(struct pollfd));
 #else
@@ -228,7 +228,7 @@ static value alloc_poll_mem(int n) {
 #endif
 
 
-value netsys_mk_poll_mem(value n) {
+CAMLprim value netsys_mk_poll_mem(value n) {
 #ifdef HAVE_POLL
     value s;
     struct pollfd p;
@@ -247,7 +247,7 @@ value netsys_mk_poll_mem(value n) {
 }
 
 
-value netsys_set_poll_mem(value s, value k, value fd, value ev, value rev) {
+CAMLprim value netsys_set_poll_mem(value s, value k, value fd, value ev, value rev) {
 #ifdef HAVE_POLL
     struct pollfd p;
     p.fd = Int_val(fd);
@@ -262,7 +262,7 @@ value netsys_set_poll_mem(value s, value k, value fd, value ev, value rev) {
 }
 
 
-value netsys_get_poll_mem(value s, value k) {
+CAMLprim value netsys_get_poll_mem(value s, value k) {
 #ifdef HAVE_POLL
     struct pollfd p;
     value triple;
@@ -278,7 +278,7 @@ value netsys_get_poll_mem(value s, value k) {
 }
 
 
-value netsys_blit_poll_mem(value s1, value k1, value s2, value k2, value l) {
+CAMLprim value netsys_blit_poll_mem(value s1, value k1, value s2, value k2, value l) {
 #ifdef HAVE_POLL
     struct pollfd *p1;
     struct pollfd *p2;
@@ -292,7 +292,7 @@ value netsys_blit_poll_mem(value s1, value k1, value s2, value k2, value l) {
 };
 
 
-value netsys_poll_constants(value dummy) {
+CAMLprim value netsys_poll_constants(value dummy) {
     value r;
     r = caml_alloc_tuple(6);
     Store_field(r, 0, Val_int(CONST_POLLIN));
@@ -305,7 +305,7 @@ value netsys_poll_constants(value dummy) {
 }
 
 
-value netsys_poll(value s, value nv, value tv) {
+CAMLprim value netsys_poll(value s, value nv, value tv) {
 #ifdef HAVE_POLL
     struct pollfd *p;
     int n;
@@ -339,7 +339,7 @@ value netsys_poll(value s, value nv, value tv) {
 
 /* A lately added POSIX function */
 
-value netsys_have_posix_fadvise(value dummy) {
+CAMLprim value netsys_have_posix_fadvise(value dummy) {
 #ifdef HAVE_POSIX_FADVISE
     return Val_bool(1);
 #else
@@ -347,7 +347,7 @@ value netsys_have_posix_fadvise(value dummy) {
 #endif
 }
 
-value netsys_fadvise(value fd, value start, value len, value adv) {
+CAMLprim value netsys_fadvise(value fd, value start, value len, value adv) {
 #ifdef HAVE_POSIX_FADVISE
     int adv_int, r;
     long long start_int, len_int;
@@ -380,7 +380,7 @@ value netsys_fadvise(value fd, value start, value len, value adv) {
 
 /* A lately added POSIX function */
 
-value netsys_have_posix_fallocate(value dummy) {
+CAMLprim value netsys_have_posix_fallocate(value dummy) {
 #ifdef HAVE_POSIX_FALLOCATE
     return Val_bool(1);
 #else
@@ -389,7 +389,7 @@ value netsys_have_posix_fallocate(value dummy) {
 }
 
 
-value netsys_fallocate(value fd, value start, value len) {
+CAMLprim value netsys_fallocate(value fd, value start, value len) {
 #ifdef HAVE_POSIX_FALLOCATE
     int r;
     long long start_int, len_int;
@@ -413,7 +413,7 @@ value netsys_fallocate(value fd, value start, value len) {
  * supports it.
  */
 
-value netsys_have_posix_shm(value dummy) {
+CAMLprim value netsys_have_posix_shm(value dummy) {
 #ifdef HAVE_POSIX_SHM
     return Val_bool(1);
 #else
@@ -428,7 +428,7 @@ static int shm_open_flag_table[] = {
 #endif
 
 
-value netsys_shm_open(value path, value flags, value perm)
+CAMLprim value netsys_shm_open(value path, value flags, value perm)
 {
 #ifdef HAVE_POSIX_SHM
     CAMLparam3(path, flags, perm);
@@ -448,7 +448,7 @@ value netsys_shm_open(value path, value flags, value perm)
 }
 
 
-value netsys_shm_unlink(value path)
+CAMLprim value netsys_shm_unlink(value path)
 {
 #ifdef HAVE_POSIX_SHM
     int ret;
@@ -529,7 +529,7 @@ enum {
 /* ioprio_supported */
 
 
-value netsys_ioprio_get(value target) {
+CAMLprim value netsys_ioprio_get(value target) {
 #ifdef ioprio_supported
     int ioprio;
     int ioprio_class;
@@ -585,7 +585,7 @@ value netsys_ioprio_get(value target) {
 }
 
 
-value netsys_ioprio_set(value target, value ioprio_arg) {
+CAMLprim value netsys_ioprio_set(value target, value ioprio_arg) {
 #ifdef ioprio_supported
     int ioprio;
     int ioprio_class;

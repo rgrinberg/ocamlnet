@@ -14,8 +14,9 @@ OCAMLFIND = ocamlfind
 OCAMLYACC = ocamlyacc
 OCAMLLEX  = ocamllex
 CAMLP4    = camlp4
-OCAMLMKLIB = ocamlmklib
+OCAMLMKLIB = $(TOP_DIR)/tools/mkstublib
 OCAMLDOC  = $(OCAMLFIND) ocamldoc
+STUBCC    = $(TOP_DIR)/tools/stubcc -ocamlc ocamlc
 
 TOOLS_DIR = $(TOP_DIR)/tools
 COLLECT_FILES = $(TOOLS_DIR)/collect_files
@@ -94,7 +95,7 @@ CLEAN_LIST = *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa dll* packlist-* \
 	$(OCAMLYACC) $<
 
 .c.o:
-	$(OCAMLC) -c -ccopt -O $(CC_OPTIONS) $(CC_OPTIONS_FOR_$<) $<
+	$(STUBCC) -ccopt -O $(CC_OPTIONS) $(CC_OPTIONS_FOR_$<) $<
 
 # We add $(OBJECTS) to the antecedents of ocamldoc.dump to ensure that
 # the files are compiled. ocamldoc needs the .cmi files, and this is
