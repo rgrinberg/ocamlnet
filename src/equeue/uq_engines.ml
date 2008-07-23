@@ -2254,6 +2254,7 @@ let getpeerspec stype s =
 ;;
 
 
+(*
 let getconnerror s = (* Call this after getpeerspec raised ENOTCONN *)
   try 
     let b = String.make 1 ' ' in
@@ -2261,7 +2262,7 @@ let getconnerror s = (* Call this after getpeerspec raised ENOTCONN *)
     assert false
   with
     | error -> error
-;;
+ *)
 
 
 class direct_socket_connector() : client_socket_connector =
@@ -2327,32 +2328,27 @@ object (self)
 	    if is_connected then (
 	      let status =
 		try 
-		  ignore(Unix.getpeername s); 
+		  Netsys.connect_check s;
 		  `Done(`Socket(s, getsockspec stype s))
 		with
-		  | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
-		      (* We did not succeed connecting. ENOTCONN is just a
-                       * substitute error code, not the real error, however.
-                       *)
-		      `Error (getconnerror s)
 		  | error -> 
 		      `Error error in
 	      new epsilon_engine status ues
 	    )
 	    else (
-	      (* Now wait until the socket is writeable *)
-	      let e = new poll_engine [ Unixqueue.Wait_out s, (-1.0) ] ues in
-	      (* CHECK: timeout value? *)
-	      
+	      (* Now wait until the socket is writeable. Win32 reports connect
+                 errors by signaling that out-of-band data can be received
+                 (funny, right?), so we wait for that condition, too.
+	       *)
+	      let e = new poll_engine [ Unixqueue.Wait_out s, (-1.0);
+					Unixqueue.Wait_oob s, (-1.0)
+				      ] ues in
 	      new map_engine
 		~map_done:(fun _ ->
 			     try
-			       ignore(Unix.getpeername s); 
+			       Netsys.connect_check s;
 			       `Done(`Socket(s, getsockspec stype s))
 			     with
-			       | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
-				   (* See comment above *)
-				   `Error (getconnerror s)
 			       | error -> 
 				   `Error error
 			  )

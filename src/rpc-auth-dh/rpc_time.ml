@@ -25,7 +25,7 @@ let remote_time ?(timeout = 5) peer =
     let pos = ref 0 in
     while !pos < 4 do
       let ok = 
-	Netsys.restart_tmo (Netsys.wait_until_readable s) (float timeout) in
+	Netsys.restart_tmo (Netsys.wait_until_connected s) (float timeout) in
       if not ok then raise Time_not_available;
       let n = Netsys.blocking_read s buf !pos (String.length buf - !pos) in
       pos := !pos + n;

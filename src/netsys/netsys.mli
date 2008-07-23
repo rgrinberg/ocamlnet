@@ -79,9 +79,36 @@ val wait_until_prireadable : Unix.file_descr -> float -> bool
       Like the [is_*] functions, these tests are based on [poll] if
       available, and on [select] otherwise.
 
-      Additional Unix conditions like [EINTR] are not handled.
+      Additional Unix conditions like [EINTR] are not handled (use 
+      [restart_tmo] for that).
    *)
 
+val wait_until_connected : Unix.file_descr -> float -> bool
+  (** After a non-blocking connect has been initiated, this function can be
+      used to wait until (1) the connect is successful, or (2) the connect
+      fails, or (3) the operation times out. The [float] argument is the
+      timeout value (negative value means no timeout).
+      The function returns [true] for the cases (1) and (2), and [false]
+      for case (3). The cases (1) and (2) can be further analyzed by
+      calling [connect_check] (see below).
+
+      On POSIX, this function is identical to [wait_until_writable]. On
+      Win32 it is different.
+
+      Additional Unix conditions like [EINTR] are not handled (use 
+      [restart_tmo] for that).
+   *)
+
+val connect_check : Unix.file_descr -> unit
+  (** Tests whether the socket is connected with the peer after calling
+      Unix.connect. If the socket is connected, the function returns normally.
+      Otherwise, the current socket error is raised as a [Unix.Unix_error]
+      exception. This function is intended to be called after a 
+      non-blocking connect has been initiated, and the success or error
+      is indicated (e.g. after [wait_until_connected] returns).
+
+      Side effect: The per-socket error code may be reset.
+   *)
 
 val sleep : float -> unit
 val restarting_sleep : float -> unit

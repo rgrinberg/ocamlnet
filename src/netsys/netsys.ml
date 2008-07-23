@@ -355,6 +355,24 @@ let is_readable fd = wait_until_readable fd 0.0
 let is_writable fd = wait_until_writable fd 0.0
 let is_prireadable fd = wait_until_prireadable fd 0.0
 
+let wait_until_connected fd tmo =
+  match Sys.os_type with
+    | "Win32" ->
+	let l1,_,l2 = Unix.select [] [fd] [fd] tmo in
+	l1 <> [] || l2 <> []
+    | _ ->
+	wait_until_writable fd tmo
+
+let connect_check fd =
+  let e_code = Unix.getsockopt_int fd Unix.SO_ERROR in
+  try
+    ignore(Unix.getpeername fd); 
+    ()
+  with
+    | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
+	raise(Unix.Unix_error(unix_error_of_code e_code,
+			      "connect_check", ""))
+
 
 (* Optional POSIX functions *)
 

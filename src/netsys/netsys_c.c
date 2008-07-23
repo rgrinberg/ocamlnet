@@ -28,7 +28,13 @@
 /**********************************************************************/
 
 CAMLprim value netsys_unix_error_of_code(value n) {
-    return(unix_error_of_code(Int_val(n)));
+    int e;
+    e = Int_val(n);
+#ifdef _WIN32
+    win32_maperr(e);
+    e = errno;
+#endif
+    return(unix_error_of_code(e));
 }
 
 

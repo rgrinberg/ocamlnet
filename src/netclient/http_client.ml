@@ -1754,7 +1754,7 @@ class io_buffer options conn_cache fd fd_state =
 	  B.add_inplace 
 	    in_buf
 	    (fun io_buf pos len ->
-	       syscall (fun() -> Unix.read fd io_buf pos len))
+	       syscall (fun() -> Unix.recv fd io_buf pos len []))
 	in
 	if n = 0 then
 	  in_eof <- true;
@@ -2073,7 +2073,8 @@ class io_buffer options conn_cache fd fd_state =
     method unix_write() =
       let n_to_send = send_length - send_position in
       let n = 
-	syscall (fun () -> Unix.single_write fd string_to_send send_position n_to_send)
+	syscall (fun () -> 
+		   Unix.send fd string_to_send send_position n_to_send [])
       in
       send_position <- send_position + n;
 
@@ -2488,10 +2489,9 @@ class connection the_esys
 
     (* 'connecting' is 'true' if the 'connect' system call cannot connect
      * immediately, and continues to connect in the background.
-     * While 'connecting' the socket is in non-blocking mode.
      *)
 
-    val mutable connecting = false
+    val mutable connecting = None
 
     (* 'connect_pause': seconds to wait until the next connection is tried.
      * There seems to be a problem with some operating systems (namely
@@ -2696,25 +2696,18 @@ class connection the_esys
 
     method private attach_to_esys =
       assert (group = None);
-      let g = Unixqueue.new_group esys in
-      group <- Some g;
-      self # reinitialize;
-
-
-    method private reinitialize =
       assert (io#socket_state = Down);
 
-      let g = match group with
-	  Some x -> x
-	| None -> assert false
-      in
+      let g = Unixqueue.new_group esys in
+      group <- Some g;
 
-      connecting <- false;
+      connecting <- None;
       sending_first_message <- true;
       done_first_message <- false;
       close_connection <- false;
       polling_wr <- false;
       critical_section <- false;
+
       (*
       inhibit_pipelining_byserver <- false;
        -- never reset once it is [true]! Reason: Failed connections are often
@@ -2722,6 +2715,8 @@ class connection the_esys
        *)
 
       (* Now check how to get a socket connection: *)
+      
+      let timeout_value = options.connection_timeout in
       
       options.resolver
 	esys
@@ -2737,10 +2732,9 @@ class connection the_esys
 	       );
 	       let err = Name_resolution_error peer_host in
 	       self # cleanup_on_eof ~force_total_failure:true err;
-	       self # leave_critical_section;
-	       self # maintain_polling;
 	       counters.crashed_connections <-
 		 counters.crashed_connections + 1;
+	       self # leave_critical_section
 
 	   | Some addr ->
 	       ( let peer = Unix.ADDR_INET(addr, peer_port) in
@@ -2749,35 +2743,99 @@ class connection the_esys
 		   connect_time <- 0.0;
 		   conn_cache # set_connection_state fd (`Active conn_owner);
 		   io <- new io_buffer options conn_cache fd Up_rw;
-		   let timeout_value = options.connection_timeout in
 		   Unixqueue.add_resource esys g (Unixqueue.Wait_in fd, 
 						  timeout_value);
-		   Unixqueue.add_close_action esys g (fd, (fun _ -> self # shutdown));
 		   Unixqueue.add_handler esys g (self # handler);
 		 with
 		     Not_found ->
 		       (* No inactive connection found. Connect: *)
-		       let g1 = Unixqueue.new_group esys in
 		       Unixqueue.once 
 			 esys
-			 g1
+			 g
 			 connect_pause
 			 (fun () -> 
-			    try
-			      connect_pause <- 0.0;
-			      self # connect_server addr;        (* may raise Exit on fatal errors *)
-			      let timeout_value = options.connection_timeout in
-			      Unixqueue.add_resource esys g (Unixqueue.Wait_in io#socket, 
-							     timeout_value);
-			      Unixqueue.add_close_action esys g (io#socket, (fun _ -> self # shutdown));
-			      Unixqueue.add_handler esys g (self # handler);
-			      self # maintain_polling;
-			    with
-				Exit -> ()
+			    let g1 = Unixqueue.new_group esys in
+			    connect_pause <- 0.0;
+
+			    if options.verbose_connection then
+			      prerr_endline ("HTTP connection: Connecting to " ^ 
+					       peer_host);
+			    let eng =
+			      Uq_engines.connector 
+				(`Socket(`Sock_inet(Unix.SOCK_STREAM,
+						    addr,
+						    peer_port),
+					 Uq_engines.default_connect_options))
+				esys in
+
+			    connect_started <- Unix.gettimeofday();
+			    connecting <- Some eng;
+
+			    Uq_engines.when_state
+			      ~is_done:(function
+					  | `Socket(s,_) ->
+					      Unixqueue.clear esys g1;
+					      self # connected g s
+					  | _ -> assert false
+				       )
+			      ~is_error:(function
+					   | err ->
+					       Unixqueue.clear esys g1;
+					       self # connect_error g err
+					)
+			      ~is_aborted:(fun () -> 
+					     Unixqueue.clear esys g1;
+					     connecting <- None
+					  )
+			      eng;
+			    Unixqueue.once esys g1 timeout_value eng#abort
 			 )
 	       )
 	)
 
+
+    method private connected g s =
+      let t1 = Unix.gettimeofday() in
+      connect_time <- t1 -. connect_started;
+      connecting <- None;
+
+      if options.verbose_connection then
+	prerr_endline "HTTP connection: Connected!";
+
+      options.configure_socket s;
+
+      conn_cache # set_connection_state s (`Active conn_owner);
+      io <- new io_buffer options conn_cache s Up_rw;
+
+      let timeout_value = options.connection_timeout in
+      Unixqueue.add_resource esys g (Unixqueue.Wait_in s, timeout_value);
+      Unixqueue.add_handler esys g (self # handler);
+      self # maintain_polling;
+
+
+    method private connect_error g err =
+      connecting <- None;
+      (* We cannot call abort_connection, because the
+       * state is not fully initialized. So clean up everything
+       * manually.
+       *)
+      if options.verbose_connection then (
+	match err with
+	  | Unix.Unix_error(e,_,_) ->
+	      prerr_endline("HTTP connection: Cannot connect: Unix error " ^
+			      Unix.error_message e)
+	  | _ ->
+	      prerr_endline("HTTP connection: Cannot connect: Exception " ^ 
+			      Printexc.to_string err)
+      );
+      Unixqueue.clear esys g;         (* clean up esys *)
+      group <- None;
+      (* Continue with the regular error path: *)
+      counters.crashed_connections <- 
+	counters.crashed_connections + 1;
+      self # cleanup_on_eof ~force_total_failure:true err;
+      self # leave_critical_section
+	
 
     method private maintain_polling =
 
@@ -2859,27 +2917,6 @@ class connection the_esys
 
 
 
-    method private shutdown =
-
-      if options.verbose_connection then 
-	prerr_endline "HTTP connection: Shutdown!";
-      begin match io#socket_state with
-	  Down -> ()
-	| Up_r -> 
-	    io # close()
-	| Up_rw ->
-	    io # release()    (* hope this is right *)
-      end;
-      ( match group with
-	    Some g -> 
-	      Unixqueue.clear esys g;
-	      group <- None;
-	  | None ->  ()
-      );
-      List.iter (Unixqueue.clear esys) timeout_groups;
-      timeout_groups <- []
-
-
     method private clear_timeout g =
       Unixqueue.clear esys g;
       timeout_groups <- List.filter (fun x -> x <> g) timeout_groups;
@@ -2889,114 +2926,33 @@ class connection the_esys
       (* This method is called when the connection is in an errorneous
        * state, and the protocol handler decides to give it up.
        *)
+      ( match connecting with
+	  | None -> ()
+	  | Some eng -> eng # abort()
+      );
       if io # socket_state <> Down then (
-	let fd = io # socket in
-	io # close();
-	(* By removing the input and output resources, the event queue is told
-         * that nothing more will be done with the group g, and because of this
-         * the queue invokes the 'close action' (here self # shutdown) and
-         * cleans up the queue.
-	 *)
 	match group with
-	    Some g -> 
-	      Unixqueue.remove_resource esys g (Unixqueue.Wait_in fd);
-	      if polling_wr then begin
-		Unixqueue.remove_resource esys g (Unixqueue.Wait_out fd);
-		polling_wr <- false;
+	  | Some g -> 
+	       if options.verbose_connection then 
+		 prerr_endline "HTTP connection: Shutdown!";
+	      begin match io#socket_state with
+		  Down -> ()
+		| Up_r -> 
+		    io # close()
+		| Up_rw ->
+		    io # release()    (* hope this is right *)
 	      end;
-	      assert (group = None);
+	      Unixqueue.clear esys g;
+	      polling_wr <- false;
+	      group <- None;
+	      List.iter (Unixqueue.clear esys) timeout_groups;
+	      timeout_groups <- []
           | None -> 
 	      ()
       )
 
 
-    method private connect_server addr =
-      (* raises Exit if connection not possible *)
-
-      if options.verbose_connection then
-	prerr_endline ("HTTP connection: Connecting to server " ^ peer_host);
-
-      let dom = Netsys.domain_of_inet_addr addr in
-      let s = syscall (fun () -> Unix.socket dom Unix.SOCK_STREAM 0) in
-      connect_started <- Unix.gettimeofday();
-      (* Connect in non-blocking mode: *)
-      Unix.set_nonblock s;
-      options.configure_socket s;
-      begin try
-	syscall (fun () -> Unix.connect s (Unix.ADDR_INET (addr, peer_port)));
-	let t1 = Unix.gettimeofday() in
-	connect_time <- t1 -. connect_started;
-	connecting <- false;
-	if options.verbose_connection then
-	  prerr_endline "HTTP connection: Connected!";
-      with
-	  Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) ->
-	    (* The 'connect' has not yet been finished. *)
-	    (* Note: Win32 returns EWOULDBLOCK instead of EINPROGRESS *)
-	    connecting <- true;
-	    (* The 'connect' operation continues in the background.
-	     * It is guaranteed that the socket becomes writeable if
-	     * the connection is established.
-	     * (Of course, it becomes readable if there is already data
-	     * to read, but if the other side does not send us anything
-	     * only writeability is indicated.)
-	     * If the connection fails: This situation is not very well
-	     * described in the manual pages. The "Single Unix Spec"
-	     * says nothing about this case. In the Linux manpages I 
-	     * found that it is possible to read the O_ERROR socket option
-	     * (see connect(2)). By experimenting I found out that the socket
-	     * indicates readability, and that the following "read" syscall
-	     * then reports the error correctly.
-	     * The O_ERROR socket option is not supported by O'Caml, so
-	     * the latter is assumed.
-	     *)
-	| Unix.Unix_error(e,_,_) as err ->
-	    (* Something went wrong. E.g. network is unreachable. *)
-	    (* We cannot call abort_connection or shutdown, because the
-	     * state is not fully initialized. So clean up everything
-	     * manually.
-	     *)
-	    if options.verbose_connection then
-	      prerr_endline("HTTP connection: Unix error " ^
-			      Unix.error_message e);
-	    ( match group with
-		  Some g ->
-		    Unixqueue.clear esys g;         (* clean up esys *)
-		    group <- None
-		| None -> ()
-	    );
-	    Unix.close s;                 (* close socket explicitly *)
-	    (* Continue with the regular error path: *)
-	    counters.crashed_connections <- 
-	      counters.crashed_connections + 1;
-	    self # cleanup_on_eof ~force_total_failure:true err;
-	    self # leave_critical_section;
-	    self # maintain_polling;
-	    raise Exit
-      end;
-
-      conn_cache # set_connection_state s (`Active conn_owner);
-      io <- new io_buffer options conn_cache s Up_rw;
-
-
-    method private check_connection =
-      (* You need to call this method only if 'connecting' is true, and of
-       * course if the socket is either readable or writeable.
-       * The connect time is measured and recorded.
-       * TODO: find out if a socket error happened in the meantime.
-       *)
-      if connecting then begin
-	let t1 = Unix.gettimeofday() in
-	connect_time <- t1 -. connect_started;
-	connecting <- false;
-	if options.verbose_connection then
-	  prerr_endline "HTTP connection: Got connection status";
-	(* Note: the socket remains in non-blocking mode *)
-      end
-
-
     method private handler _ _ ev =
-
       let g = match group with
 	  Some x -> x
 	| None -> 
@@ -3013,14 +2969,13 @@ class connection the_esys
 	| _ ->
 	    raise Equeue.Reject
 
-
     (**********************************************************************)
     (***                    THE TIMEOUT HANDLER                         ***)
     (**********************************************************************)
 
     method private handle_timeout =
       (* No network packet arrived for a period of time.
-       * May happen while connecting to a server, or during operation.
+       * May only happen when a connection is already established
        *)
       io # set_timeout;
       self # handle_input;   (* timeout is similar to EOF *)
@@ -3060,8 +3015,6 @@ class connection the_esys
 
       if not io # timeout then
 	begin try
-	  if connecting then
-	    self # check_connection;
 	  io # unix_read();
 	with
 	    Unix.Unix_error(Unix.EAGAIN,_,_) ->
@@ -3549,9 +3502,6 @@ class connection the_esys
 	| None -> assert false
       in
 
-      if connecting then
-	self # check_connection;
-
       (* Leave the write_loop by exceptions:
        * - Q.Empty: No more request to write
        *)
@@ -3677,14 +3627,7 @@ class connection the_esys
       (* Release the connection if the queues have become empty *)
 
       if (Q.length write_queue = 0 && Q.length read_queue = 0) then (
-	let g = match group with
-	    Some x -> x
-	  | None -> assert false
-	in
-	if polling_wr then 
-	  Unixqueue.remove_resource esys g (Unixqueue.Wait_out io#socket);
-	polling_wr <- false;
-	Unixqueue.remove_resource esys g (Unixqueue.Wait_in io#socket);
+	self # abort_connection;
 	counters.successful_connections <- counters.successful_connections + 1
       );
 

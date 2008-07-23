@@ -203,7 +203,7 @@ class telnet_session =
     val mutable group = None
     val mutable socket = Unix.stdin
     val mutable socket_state = Down
-    val mutable connecting = false
+    val mutable connecting = None
     val mutable polling_wr = false
     val mutable input_timed_out = false
     val mutable output_timed_out = false
@@ -470,23 +470,28 @@ class telnet_session =
 	g1
 	0.0
 	(fun () -> 
-	   try
-	     self # connect_server;
-	     (* 'group' must not be set earlier, because it is used as
-	      * indicator whether a connection is established or not.
-	      *)
-	     group <- Some g;
-	     let timeout_value = options.connection_timeout in
-	     Unixqueue.add_resource esys g (Unixqueue.Wait_in socket, 
-					    timeout_value);
-	     Unixqueue.add_close_action esys g (socket, 
-						(fun _ -> self # shutdown));
-	     Unixqueue.add_handler esys g (self # handler);
-	     polling_wr <- false;
-	     self # maintain_polling;
-	   with
-	       Unix.Unix_error(_,_,_) as x -> exn_handler x
-	     | Sys_error _ as x -> exn_handler x
+	   self # connect_server
+	     (fun () ->
+		if options.verbose_connection then
+		  prerr_endline "Telnet connection: Connected!";
+		(* 'group' must not be set earlier, because it is used as
+	         * indicator whether a connection is established or not.
+		 *)
+		group <- Some g;
+		let timeout_value = options.connection_timeout in
+		Unixqueue.add_resource esys g (Unixqueue.Wait_in socket, 
+					       timeout_value);
+		Unixqueue.add_close_action esys g (socket, 
+						   (fun _ -> self # shutdown));
+		Unixqueue.add_handler esys g (self # handler);
+		polling_wr <- false;
+		self # maintain_polling
+	     )
+	     (fun err ->
+		if options.verbose_connection then
+		  prerr_endline "Telnet connection: Connection error!";
+		exn_handler err
+	     )
 	)
 
 
@@ -523,7 +528,7 @@ class telnet_session =
 		   ("Telnet_client: host name lookup failed for " ^ hostname));
 
 
-    method private connect_server =
+    method private connect_server f_ok f_err =
 
       begin match connector with
 	  Telnet_connect(hostname, port) ->
@@ -533,52 +538,52 @@ class telnet_session =
 
 	    let addr = self # inet_addr hostname in
 
-	    let dom = Netsys.domain_of_inet_addr addr in
-	    let s = syscall 
-		      (fun () -> Unix.socket dom Unix.SOCK_STREAM 0) in
-	    (* Connect in non-blocking mode: *)
-	    syscall (fun () -> Unix.set_nonblock s);
-	    (* Urgent data is received inline: *)
-	    syscall (fun () -> Unix.setsockopt s Unix.SO_OOBINLINE true);
-	    begin try
-	      syscall (fun () -> Unix.connect s (Unix.ADDR_INET (addr, port)));
-	      connecting <- false;
-	      if options.verbose_connection then
-		prerr_endline "Telnet connection: Connected!";
-	    with
-		Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) ->
-		  (* The 'connect' has not yet been finished. *)
-		  (* Note: Win32 returns EWOULDBLOCK instead of EINPROGRESS *)
-		  connecting <- true;
-		  (* The 'connect' operation continues in the background.
-		   * It is guaranteed that the socket becomes writeable if
-		   * the connection is established.
-		   * (Of course, it becomes readable if there is already data
-		   * to read, but if the other side does not send us anything
-		   * only writeability is indicated.)
-		   * If the connection fails: This situation is not very well
-		   * described in the manual pages. The "Single Unix Spec"
-		   * says nothing about this case. In the Linux manpages I 
-		   * found that it is possible to read the O_ERROR socket option
-		   * (see connect(2)). By experience I found out that the socket
-		   * indicates readability, and that the following "read" 
-		   * syscall then reports the error correctly.
-		   * The O_ERROR socket option is not supported by O'Caml, so
-		   * the latter is assumed.
-		   *)
-	      | any ->
-		  syscall (fun () -> Unix.close s);
-		  raise any;
-	    end;
+	    let g1 = Unixqueue.new_group esys in
 
-	    socket <- s;
+	    let eng =
+	      Uq_engines.connector 
+		(`Socket(`Sock_inet(Unix.SOCK_STREAM,
+				    addr,
+				    port),
+			 Uq_engines.default_connect_options))
+		esys in
+	    
+	    connecting <- Some eng;
+
+	    Uq_engines.when_state
+	      ~is_done:(function
+			  | `Socket(s,_) ->
+			      Unixqueue.clear esys g1;
+			      socket <- s;
+			      connecting <- None;
+			      syscall
+				(fun () -> 
+				   Unix.setsockopt s Unix.SO_OOBINLINE true);
+			      f_ok()
+			  | _ -> assert false
+		       )
+	      ~is_error:(function
+			   | err ->
+			       Unixqueue.clear esys g1;
+			       connecting <- None;
+			       f_err err
+			)
+	      ~is_aborted:(fun () -> 
+			     Unixqueue.clear esys g1;
+			     connecting <- None
+			  )
+	      eng;
+	    let timeout_value = options.connection_timeout in
+	    Unixqueue.once esys g1 timeout_value eng#abort
 
 	| Telnet_socket s ->
-	    connecting <- false;
+	    connecting <- None;
 	    syscall(fun () -> Unix.setsockopt s Unix.SO_OOBINLINE true);
 	    socket <- s;
 	    if options.verbose_connection then
 	      prerr_endline "Telnet connection: Got connected socket";
+	    let g1 = Unixqueue.new_group esys in
+	    Unixqueue.once esys g1 0.0 f_ok
       end;
       
       socket_state <- Up_rw;
@@ -619,6 +624,10 @@ class telnet_session =
        * the queue invokes the 'close action' (here self # shutdown) and
        * cleans up the queue.
        *)
+      ( match connecting with
+	  | None -> ()
+	  | Some eng -> eng#abort()
+      );
       match group with
 	  Some g -> 
 	    Unixqueue.remove_resource esys g (Unixqueue.Wait_in socket);
@@ -674,21 +683,6 @@ class telnet_session =
       end;
 
 
-    method private check_connection =
-      (* You need to call this method only if 'connecting' is true, and of
-       * course if the socket is either readable or writeable.
-       * The socket is set to blocking mode, again. The connect time
-       * is measured and recorded.
-       * TODO: find out if a socket error happened in the meantime.
-       *)
-      if connecting then begin
-	syscall(fun () -> Unix.clear_nonblock socket);
-	connecting <- false;
-	if options.verbose_connection then
-	  prerr_endline "Telnet connection: Got connection status";
-      end
-
-
     method private handler  _ _ ev =
       let g = match group with
 	  Some x -> x
@@ -697,7 +691,7 @@ class telnet_session =
 	    raise Equeue.Reject
       in
       match ev with
-	  Unixqueue.Input_arrived (g0,fd0) ->
+	| Unixqueue.Input_arrived (g0,fd0) ->
 	    if g0 = g then 
 	      try self # handle_input with 
 		  Unix.Unix_error(_,_,_) as x -> exn_handler x
@@ -772,16 +766,20 @@ class telnet_session =
 	| None -> assert false
       in
       
-      if connecting then
-	self # check_connection;
-
       (* Read data into the primary_buffer *)
 
-      let n =
+      let n, eof =
 	syscall
 	  (fun () ->
-	     Unix.read socket primary_buffer 0 (String.length primary_buffer)) in
-      let eof = (n=0) in
+	     try
+	       let n =
+		 Unix.read 
+		   socket primary_buffer 0 (String.length primary_buffer) in
+	       (n, n=0)
+	     with
+	       | Unix.Unix_error(Unix.EAGAIN,_,_) -> 
+		   (0, false)
+	  ) in
 
       Netbuffer.add_sub_string input_buffer primary_buffer 0 n;
 
@@ -954,9 +952,6 @@ class telnet_session =
 	| None -> assert false
       in
 
-      if connecting then
-	self # check_connection;
-
       (* If the write buffer is empty, copy new commands from the write
        * queue to the write buffer.
        *)
@@ -1075,11 +1070,16 @@ class telnet_session =
 	let k = 
 	  syscall
 	    (fun () ->
-	       Unix.send socket (Netbuffer.unsafe_buffer output_buffer) 0 l flags) in
+	       try
+		 Unix.send
+		   socket (Netbuffer.unsafe_buffer output_buffer) 0 l flags
+	       with
+		 | Unix.Unix_error(Unix.EAGAIN,_,_) -> 0
+	    ) in
 	Netbuffer.delete output_buffer 0 k;
       end;
 
-      if Netbuffer.length output_buffer = 0 & send_eof then begin
+      if Netbuffer.length output_buffer = 0 && send_eof then begin
 	if options.verbose_connection then
 	  prerr_endline "Telnet connection: Sending EOF";
 	syscall(fun () -> Unix.shutdown socket Unix.SHUTDOWN_SEND);
