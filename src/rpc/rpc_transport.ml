@@ -222,25 +222,18 @@ end
 
 
 let datagram_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
-  let sockname = 
-    try
-      `Sockaddr(Unix.getsockname fd) 
-    with
-	(* The OCaml runtime sometimes returns EAFNOSUPPORT when asked
-           for inaccessible socket names. EOPNOTSUPP is documented
-           by SUS.
-         *)
-      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP),_,_) -> `Implied in
-  let peername_opt =
-    try Some(`Sockaddr(Unix.getpeername fd))
-    with
-      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP),_,_) -> 
-	  Some `Implied
-      | Unix.Unix_error(Unix.ENOTCONN,_,_) -> 
-	  (* ENOTCONN is special because we allow to set the peer address
-             per datagram in this case!
-           *)
-	  None in
+  let sockname, peername_opt = 
+    match Netsys.get_fd_style fd with
+      | `Recv_send(sockaddr,peeraddr) ->
+	  (`Sockaddr sockaddr, Some(`Sockaddr peeraddr))
+      | `Recvfrom_sendto ->
+	  (* Usually there is a sockname: *)
+	  let sockname =
+	    try `Sockaddr(Unix.getsockname fd)
+	    with _ -> `Implied in
+	  (sockname, None)
+      | _ ->
+	  (`Implied, Some `Implied) in
   let mplex = 
     Uq_engines.create_multiplex_controller_for_datagram_socket
       ~close_inactive_descr

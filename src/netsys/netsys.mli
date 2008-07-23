@@ -124,6 +124,30 @@ val domain_of_inet_addr : Unix.inet_addr -> Unix.socket_domain
 val unix_error_of_code : int -> Unix.error
   (** Converts an integer error into the corresponding variant *)
 
+type fd_style =
+    [ `Read_write
+    | `Recv_send of Unix.sockaddr * Unix.sockaddr
+    | `Recv_send_implied
+    | `Recvfrom_sendto
+    ]
+  (** Some information what kind of operations are reasonable for descriptors:
+      - [`Read_write]: The descriptor is not a socket, so only read/write is
+        possible
+      - [`Recv_send(sockaddr,peeraddr)]: The descriptor is a connected socket.
+        recv/send are the preferred operations.
+      - [`Recvfrom_sendto]: The descriptor is an unconnected socket, and
+        it is possible to ask for addresses when exchanging data, so 
+        recvfrom/sendto are the preferred operations.
+      - [`Recv_send_implied]: The descriptor is a socket with implied 
+        connection. There are no socket addresses.
+        recv/send are the preferred operations. It is not possible to call
+        [getsockname] or [getpeername].
+   *)
+
+val get_fd_style : Unix.file_descr -> fd_style
+  (** Get the file descriptor style *)
+
+
 (** {1 File descriptor polling} *)
 
 type poll_array

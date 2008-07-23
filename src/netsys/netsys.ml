@@ -102,6 +102,49 @@ let file_descr_of_int =
 
 external _exit : int -> unit = "netsys__exit";;
 
+type fd_style =
+    [ `Read_write
+    | `Recv_send of Unix.sockaddr * Unix.sockaddr
+    | `Recv_send_implied
+    | `Recvfrom_sendto
+    ]
+
+let get_fd_style fd =
+  (* First check whether we have a socket or not: *)
+  try
+    let _socktype = Unix.getsockopt_int fd Unix.SO_TYPE in
+    (* Now check whether the socket is connected or not: *)
+    try
+      let sockaddr = Unix.getsockname fd in
+      let peeraddr = Unix.getpeername fd in
+      (* fd is a connected socket *)
+      `Recv_send(sockaddr,peeraddr)
+    with
+      | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
+	  (* fd is an unconnected socket *)
+	  `Recvfrom_sendto
+      | Unix.Unix_error(Unix.ENOTSOCK,_,_) -> 
+	  failwith "Got unexpected ENOTSOCK" (* hopefully we never see this *)
+      | _ ->
+	  (* There are various error codes in use for socket types that
+             do not use addresses, e.g. socketpairs are considered
+             as not having addresses by some OS. Common are
+             EAFNOSUPPORT, EOPNOTSUPP, EINVAL. For simplicity we catch
+             here all, which is allowed as we already know that fd is a
+             socket.
+	   *)
+	  `Recv_send_implied
+  with
+    | Unix.Unix_error((Unix.ENOTSOCK|Unix.EINVAL),_,_) -> 
+	(* Note: EINVAL is used by some oldish OS in this case *)
+	(* fd is not a socket *)
+	`Read_write
+    | e ->
+	prerr_endline ("get_fd_style: saw strange error " ^ 
+			 Printexc.to_string e);
+	assert false
+
+
 (* Limits  & resources *)
 
 external sysconf_open_max : unit -> int = "netsys_sysconf_open_max";;

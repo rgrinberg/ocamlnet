@@ -1438,37 +1438,12 @@ let anyway ~finally f arg =
 ;;
 
 
-type fd_style =
-    [ `Read_write
-    | `Recv_send of Unix.sockaddr
-    | `Recv_send_implied
-    | `Recvfrom_sendto
-    ]
-
 class socket_multiplex_controller
          ?(close_inactive_descr = true)
          ?(supports_half_open_connection = false)
          fd esys : datagram_multiplex_controller =
 
-  let fd_style =
-    try 
-      let addr = Unix.getpeername fd in
-      (* fd is a connected socket *)
-      `Recv_send addr
-    with
-      | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
-	  (* fd is an unconnected socket *)
-	  `Recvfrom_sendto
-      | Unix.Unix_error(Unix.ENOTSOCK,_,_) -> 
-	  (* fd is not a socket *)
-	  `Read_write
-      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP),_,_) ->
-	  (* EAFNOSUPPORT is returned by the OCaml runtime for unexpected
-             socket names. EOPNOTSUPP is the official SUS code for 
-             sockets lacking an address.
-           *)
-	  `Recv_send_implied
-  in
+  let fd_style = Netsys.get_fd_style fd in
 
 object(self)
   val mutable alive = true
@@ -1683,7 +1658,7 @@ object(self)
 		    try
 		      let n = 
 			match fd_style with
-			  | `Recv_send a ->
+			  | `Recv_send(_,a) ->
 			      let n = Unix.recv fd s pos len [] in
 			      rcvd_from <- Some a;
 			      n
@@ -1755,7 +1730,7 @@ object(self)
 		    try
 		      let n = 
 			match fd_style with
-			  | `Recv_send _ | `Recv_send_implied ->
+			  | `Recv_send(_,_) | `Recv_send_implied ->
 			      Unix.send fd s pos len []
 			  | `Recvfrom_sendto ->
 			      ( match send_to with
