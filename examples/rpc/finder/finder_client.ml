@@ -8,7 +8,7 @@ let esys_style style =
     | "poll" ->
 	Unixqueue.set_event_system_factory
 	  (fun () ->
-	     let pset = Netsys_pollset.poll_based_pollset 10 in
+	     let pset = Netsys_pollset_posix.poll_based_pollset 10 in
 	     Unixqueue2.pollset_event_system pset
 	  )
     | _ ->
@@ -19,6 +19,7 @@ let start() =
   let host = ref "localhost" in
   let query = ref None in
   let tmo = ref (-1.0) in
+  let shutdown = ref false in
   let debug = ref false in
   Arg.parse
     [ "-host", Arg.Set_string host,
@@ -30,6 +31,9 @@ let start() =
       "-esys-style", Arg.String esys_style,
       " (select|poll)  Set the style of the event system (EXPERIMENTAL)";
 
+      "-shutdown", Arg.Set shutdown,
+      "  Shut the server down";
+
       "-debug", Arg.Set debug,
       "  Enable (some) debug messages";
     ]
@@ -38,8 +42,12 @@ let start() =
 
   let query_string =
     match !query with
-      | None -> failwith "Query is missing on the command-line"
-      | Some q -> q in
+      | None -> 
+	  if not !shutdown then 
+	    failwith "Query is missing on the command-line";
+	  None
+      | Some q -> 
+	  Some q in
 
   Unixqueue_util.set_debug_mode !debug;
 
@@ -48,11 +56,19 @@ let start() =
   Rpc_client.configure rpc_client 0 !tmo;
 
   try
-    match Finder_service_clnt.Finder.V1.find rpc_client query_string with
-      | `not_found ->
-	  print_endline ("Not found: " ^ query_string)
-      | `found fullpath ->
-	  print_endline fullpath
+    ( match query_string with
+	| Some q ->
+	    ( match Finder_service_clnt.Finder.V1.find rpc_client q with
+		| `not_found ->
+		    print_endline ("Not found: " ^ q)
+		| `found fullpath ->
+		    print_endline fullpath
+	    )
+	| None -> ()
+    );
+    if !shutdown then (
+      Finder_service_clnt.Finder.V1.shutdown rpc_client ()
+    )
   with
     | Rpc_client.Communication_error exn ->
 	prerr_endline ("RPC: I/O error: " ^ Printexc.to_string exn)

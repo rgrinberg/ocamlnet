@@ -1,9 +1,9 @@
 TOP_DIR=../..
 
 PKGNAME  = netplex
-OBJECTS  = netplex_cenv.cmo netplex_mp.cmo netplex_log.cmo \
-	   netplex_ctrl_aux.cmo netplex_ctrl_clnt.cmo netplex_ctrl_srv.cmo \
-	   netplex_container.cmo netplex_sockserv.cmo netplex_workload.cmo \
+OBJECTS  = netplex_ctrl_aux.cmo netplex_ctrl_clnt.cmo netplex_ctrl_srv.cmo \
+	   netplex_cenv.cmo netplex_mp.cmo netplex_log.cmo \
+           netplex_container.cmo netplex_sockserv.cmo netplex_workload.cmo \
 	   netplex_kit.cmo netplex_controller.cmo \
            netplex_config.cmo netplex_main.cmo rpc_netplex.cmo \
            netplex_semaphore.cmo

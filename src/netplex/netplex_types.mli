@@ -165,7 +165,10 @@ object
   method shutdown : unit -> unit
     (** Initiates a shutdown of all containers. It is no longer possible
       * to add new services. When the shutdown has been completed, 
-      * the controller will terminate itself.
+      * the controller will terminate itself. Note that the shutdown is
+      * performed asynchronously, i.e. this method returns immediately,
+      * and the messaging required to do the shutdown is done in the 
+      * background.
      *)
 
   method send_message : string -> string -> string array -> unit
@@ -286,8 +289,10 @@ object
     (** Closes the socket service forever, and initiates a shutdown of all
       * containers serving this type of service.
      *)
-  method container_state : (container_id * container_state * bool) list
-    (* The bool says whether the container is selected to accept the
+  method container_state : (container_id * string * container_state * bool) list
+    (* (cid, par_info, cstate, selected)
+     * par_info: the info_string of the par_thread
+     * selected: says whether the container is selected to accept the
      * next connection
      *)
 
@@ -369,9 +374,21 @@ object
       * the arguments.
      *)
 
+  method system_shutdown : unit -> unit
+    (** A user-supplied function that is called when a system shutdown
+      * notification arrives. This notification is just for information
+      * that every container of the system will soon be shut down. The
+      * system is still completely up at the time this notification 
+      * arrives, so if the services of other components are required to
+      * go down this is the right point in time to do that (e.g. send
+      * important data to a storage component).
+     *)
+
   method shutdown : unit -> unit
     (** A user-supplied function that is called when a shutdown notification
-      * arrives.
+      * arrives. That means that the container should terminate ASAP.
+      * There is, however, no time limitation. The termination is started
+      * by calling the [when_done] function passed to the [process] method.
      *)
 
   method global_exception_handler : exn -> bool

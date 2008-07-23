@@ -145,6 +145,12 @@ object(self)
 			     Rpc_client.shut_down r;
 			     rpc <- None;
 			     false
+			 | `event_system_shutdown ->
+			     self # protect
+			       "system_shutdown"
+			       (sockserv # processor # system_shutdown)
+			       ();
+			     true
 		     )
 		   with
 		     | Rpc_client.Message_lost ->

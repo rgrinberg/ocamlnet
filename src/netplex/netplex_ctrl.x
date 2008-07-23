@@ -2,6 +2,8 @@
 
 typedef string longstring<>;
 
+typedef longstring *longstring_opt;
+
 typedef longstring *internal_port;
 /* The path of a Unix domain socket if the service is found and enabled */
 
@@ -26,7 +28,8 @@ enum event_type {
     EVENT_NOACCEPT = 2,
     EVENT_RECEIVED_MESSAGE = 3,
     EVENT_RECEIVED_ADMIN_MESSAGE = 4,
-    EVENT_SHUTDOWN = 5
+    EVENT_SHUTDOWN = 5,
+    EVENT_SYSTEM_SHUTDOWN = 6
 };
 
 
@@ -43,6 +46,8 @@ union event switch(event_type discr) {
  case EVENT_RECEIVED_ADMIN_MESSAGE:
      message msg;
  case EVENT_SHUTDOWN:
+     void;
+ case EVENT_SYSTEM_SHUTDOWN:
      void;
 };
 
@@ -123,7 +128,6 @@ program System {
 	/* Proc argument and return value are XDR-encoded according to the
            plugin program spec.
 	*/
-
     } = 1;
 
 } = 2;
@@ -189,25 +193,47 @@ enum srv_state {
 };
 
 
-struct service {
+enum cnt_state_enum {
+    CSTATE_ACCEPTING = 0,
+    CSTATE_SELECTED = 1,
+    CSTATE_BUSY = 2,
+    CSTATE_STARTING = 3,
+    CSTATE_SHUTDOWN = 4
+};
+
+union cnt_state switch(cnt_state_enum d) {
+ case CSTATE_ACCEPTING: void;
+ default: void;
+};
+
+
+struct container_info {
+    _int64 hyper cnt_id;     /* Object ID of the container in the controller */
+    longstring   cnt_sys_id; /* System ID (thread/process ID) */
+    cnt_state    cnt_state;
+};
+
+
+struct service_info {
     longstring srv_name;
     prot_list  srv_protocols;
     int        srv_nr_containers;
+    container_info srv_containers<>;
     srv_state  srv_state;
 };
 
 
-typedef service service_list<>;
+typedef service_info service_info_list<>;
 
 
 program Admin {
     /* User API, accessible from the outside */
 
-    version V1 {
+    version V2 {
 
 	void ping(void) = 0;
 
-	service_list list(void) = 1;
+	service_info_list list(void) = 1;
 	/* list of services: name, protocols, ports, state */
 
 	unit_result enable(longstring          /* service name */
@@ -220,7 +246,7 @@ program Admin {
 			    ) = 4;
 	unit_result restart_all(void) = 5;
 
-	unit_result shutdown(void) = 6;
+	unit_result system_shutdown(void) = 6;
 
 	unit_result reopen_logfiles(void) = 7;
 	/* reopen logfiles */
@@ -233,7 +259,7 @@ program Admin {
          */
 
 
-    } = 1;
+    } = 2;
 
 } = 3;
 
@@ -266,3 +292,36 @@ program Semaphore {
 
     } = 1;
 } = 4;
+
+
+program Sharedvar {
+    version V1 {
+	void ping(void) = 0;
+
+	bool create_var(longstring) = 1;
+	/* create_var(var_name): Creates the variable with an empty string
+           as value. It is an error if the variable has already been created.
+           Returns whether the function is successful (i.e. the variable
+           did not exist before).
+	*/
+
+	bool set_value(longstring, longstring) = 2;
+	/* set_value(var_name, var_value): Sets the variable var_name to
+           var_value. This is only possible when the variable exists.
+           Returns whether the function is successful (i.e. the variable
+           exists).
+	*/
+
+	longstring_opt get_value(longstring) = 3;
+	/* get_value(var_name): Returns the value of the existing variable,
+           or NULL if the variable does not exist.
+	*/
+
+	bool delete_var(longstring) = 4;
+	/* delete_var(var_name): Deletes the variable. This is only possible
+           when the variable exists. Returns whether the function is 
+           successful (i.e. the variable existed).
+	*/
+    } = 1;
+} = 5;
+

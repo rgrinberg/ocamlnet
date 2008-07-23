@@ -21,6 +21,7 @@ object
   inherit socket_controller
   method forward_message : message -> unit
   method forward_admin_message : message -> unit
+  method forward_system_shutdown : (unit -> unit) -> unit
 end
 
 and extended_controller =
@@ -31,6 +32,7 @@ object
   method plugin_container_finished : container_id -> unit
 end
 
+type sds_state = [ `None | `Notify of unit->unit | `Notified of unit->unit ]
 
 type ext_cont_state =
     { container : container_id;
@@ -43,7 +45,9 @@ type ext_cont_state =
 			  ) option;
       mutable messages : message Queue.t;
       mutable admin_messages : message Queue.t;
-      mutable shutting_down : bool;
+      mutable shutting_down_system : sds_state; 
+                                            (* during system_shutdown phase *)
+      mutable shutting_down : bool;         (* real shutdown *)
       mutable t_accept : float;
     }
 
@@ -124,6 +128,7 @@ object(self)
     List.map 
       (fun c -> 
 	 ( (c.container :> container_id), 
+	   c.par_thread # info_string,
 	   c.cont_state,
 	   match action with
 	     | `Selected c' when c' == c -> true
@@ -335,6 +340,7 @@ object(self)
 	  poll_call = None;
 	  messages = Queue.create();
 	  admin_messages = Queue.create();
+	  shutting_down_system = `None;
 	  shutting_down = false;
 	  t_accept = 0.0;
 	} in
@@ -615,7 +621,26 @@ object(self)
     match c.poll_call with
       | None -> ()
       | Some (sess, reply) ->
-	  if not (Queue.is_empty c.messages) then (
+	  let sd_done =
+	    match c.shutting_down_system with
+	      | `None -> false
+	      | `Notify f ->
+		  if !debug_scheduling then
+		    debug_logf controller
+		      "Service %s: %s <- Event_system_shutdown"
+		      name c.par_thread#info_string;
+		  c.shutting_down_system <- `Notified f;
+		  reply `event_system_shutdown;
+		  c.poll_call <- None;
+		  true
+	      | `Notified f ->
+		  c.shutting_down_system <- `None;
+		  f();
+		  false
+	  in
+	  if sd_done then 
+	    ()
+	  else if not (Queue.is_empty c.messages) then (
 	    let msg = Queue.take c.messages in
 	    if !debug_scheduling then
 	      debug_logf controller "Service %s: %s <- Event_received_message"
@@ -793,6 +818,19 @@ object(self)
 	    )
 	    clist
 
+  method forward_system_shutdown f_done =
+    let n = ref 0 in
+    List.iter
+      (fun c ->
+	 incr n;
+	 c.shutting_down_system <- `Notify (fun () ->
+					      decr n;
+					      if !n = 0 then f_done()
+					   );
+	 self # check_for_poll_reply c
+      )
+      clist
+
   val lev_trans =
     [ log_emerg, `Emerg;
       log_alert, `Alert;
@@ -941,7 +979,7 @@ object(self)
 	   ~level:`Crit
 	   ~message:("Admin server caught exception: " ^ 
 		       Printexc.to_string err));
-    Netplex_ctrl_srv.Admin.V1.bind
+    Netplex_ctrl_srv.Admin.V2.bind
       ~proc_ping:(fun () -> ())
       ~proc_list:(fun () ->
 		    Array.map
@@ -989,6 +1027,30 @@ object(self)
 			       (Array.of_list sockserv#sockets);
 			   srv_nr_containers =
 			     List.length (sockctrl # container_state);
+			   srv_containers =
+			     Array.of_list
+			       (List.map
+				  (fun (cid, par_info, cs, selected) ->
+				     { cnt_id = Int64.of_int (Oo.id cid);
+				       cnt_sys_id = par_info;
+				       cnt_state =
+					 if selected then
+					   `cstate_selected
+					 else
+					   match cs with
+					     | `Accepting _ ->
+						 `cstate_accepting
+					     | `Busy ->
+						 `cstate_busy
+					     | `Starting _ ->
+						 `cstate_starting
+					     | `Shutting_down ->
+						 `cstate_shutdown
+				     }
+				     
+				  )
+				  sockctrl # container_state
+			       );
 			   srv_state = 
 			     ( match sockctrl # state with
 				 | `Enabled -> state_enabled
@@ -1020,7 +1082,7 @@ object(self)
 		    )
       ~proc_restart_all:(protect (fun () ->
 				    controller # restart()))
-      ~proc_shutdown:(protect (fun () ->
+      ~proc_system_shutdown:(protect (fun () ->
 				 controller # shutdown()))
       ~proc_reopen_logfiles:(protect (fun () ->
 					controller # logger # reopen()))
@@ -1196,12 +1258,30 @@ object(self)
 
   method shutdown() =
     shutting_down <- true;
+    let real_shutdown() =
+      Unixqueue.once esys eps_group 0.0
+	(fun () ->
+	   List.iter
+	     (fun (_, ctrl, wrkmng) ->
+		ctrl # shutdown();
+		wrkmng # shutdown();
+	     )
+	     services
+	)
+    in
+    let n = ref 0 in
     List.iter
-      (fun (_, ctrl, wrkmng) ->
-	 ctrl # shutdown();
-	 wrkmng # shutdown();
+      (fun (_, ctrl, _) ->
+	 ctrl # forward_system_shutdown
+	   (fun () ->
+	      decr n;
+	      if !n = 0 then   (* all notifications arrived *)
+		real_shutdown()
+	   );
+	 incr n
       )
       services
+    
 
   method private matching_services re =
     List.filter

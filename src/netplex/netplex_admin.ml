@@ -17,6 +17,10 @@ let main() =
       Arg.Unit (fun () -> cmds := `List :: !cmds),
       "  List available Netplex services";
 
+      "-containers",
+      Arg.Unit (fun () -> cmds := `Containers :: !cmds),
+      "  List available Netplex services with container details";
+
       "-enable",
       Arg.String (fun s -> cmds := `Enable s :: !cmds),
       "<name>  Enable service <name>";
@@ -53,7 +57,7 @@ let main() =
     Filename.concat !sockdir "netplex.controller/admin" in
 
   let client =
-    Netplex_ctrl_clnt.Admin.V1.create_client 
+    Netplex_ctrl_clnt.Admin.V2.create_client 
       (Rpc_client.Unix socket)
       Rpc.Tcp in
 
@@ -85,87 +89,112 @@ let main() =
       state_down, "Down";
     ] in
 
-  let line s proto port =
-    printf "%-20s %-10s %-35s %-10s %2d\n"
+  let srv_line s =
+    printf "%s: %s %d containers\n" 
       s.srv_name
-      proto
-      port
       ( try List.assoc s.srv_state state_list
 	with Not_found -> "?"
       )
       s.srv_nr_containers
   in
 
+  let proto_line proto port =
+    printf "    %s @ %s\n"
+      proto
+      port
+  in
+
+  let cont_line cinfo =
+    printf "    %s: %s\n"
+      cinfo.cnt_sys_id
+      ( match cinfo.cnt_state with
+	  | `cstate_accepting -> "accepting"
+	  | `cstate_selected -> "selected"
+	  | `cstate_busy -> "busy"
+	  | `cstate_starting -> "starting"
+	  | `cstate_shutdown -> "shutdown"
+      )
+  in
+
+  let list with_containers () =
+    let l = Netplex_ctrl_clnt.Admin.V2.list client () in
+    Array.iter
+      (fun s ->
+	 srv_line s;
+	 if s.srv_protocols = [| |] then
+	   printf "    no protocols defined\n"
+	 else
+	   Array.iter
+	     (fun p ->
+		if p.prot_ports = [| |] then
+		  proto_line p.prot_name "-"
+		else
+		  Array.iter
+		    (fun port ->
+		       let port_s =
+			 match port with
+			   | `pf_unknown -> "unknown"
+			   | `pf_unix path ->
+			       "unix:" ^ path
+			   | `pf_inet inet ->
+			       "inet:" ^ 
+				 inet.inet_addr ^ ":" ^ 
+				 (string_of_int inet.inet_port)
+			   | `pf_inet6 inet ->
+			       "inet6:" ^ 
+				 inet.inet6_addr ^ ":" ^ 
+				 (string_of_int inet.inet6_port)
+		       in
+		       proto_line p.prot_name port_s
+		    )
+		    p.prot_ports
+	     )
+	     s.srv_protocols;
+	 if with_containers then
+	   if s.srv_containers = [| |] then
+	     printf "    no containers\n"
+	   else
+	     Array.iter cont_line s.srv_containers
+      )
+      l
+  in
+
   List.iter
     (function
        | `List ->
-	   check_exn
-	     (fun () ->
-		let l = Netplex_ctrl_clnt.Admin.V1.list client () in
-		Array.iter
-		  (fun s ->
-		     if s.srv_protocols = [| |] then
-		       line s "-" "-"
-		     else
-		       Array.iter
-			 (fun p ->
-			    if p.prot_ports = [| |] then
-			      line s p.prot_name "-"
-			    else
-			      Array.iter
-				(fun port ->
-				   let port_s =
-				     match port with
-				       | `pf_unknown -> "unknown"
-				       | `pf_unix path ->
-					   "unix:" ^ path
-				       | `pf_inet inet ->
-					   "inet:" ^ 
-					     inet.inet_addr ^ ":" ^ 
-					     (string_of_int inet.inet_port)
-				       | `pf_inet6 inet ->
-					   "inet6:" ^ 
-					     inet.inet6_addr ^ ":" ^ 
-					     (string_of_int inet.inet6_port)
-				   in
-				   line s p.prot_name port_s
-				)
-				p.prot_ports
-			 )
-			 s.srv_protocols
-		  )
-		  l
-	     )
+	   check_exn (list false)
+       | `Containers ->
+	   check_exn (list true)
        | `Enable pat ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V1.enable client pat in
+		let code = Netplex_ctrl_clnt.Admin.V2.enable client pat in
 		check_code code)
        | `Disable pat ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V1.disable client pat in
+		let code = Netplex_ctrl_clnt.Admin.V2.disable client pat in
 		check_code code)
        | `Restart pat ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V1.restart client pat in
+		let code = Netplex_ctrl_clnt.Admin.V2.restart client pat in
 		check_code code)
        | `Restart_all ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V1.restart_all client () in
+		let code = Netplex_ctrl_clnt.Admin.V2.restart_all client () in
 		check_code code)
        | `Shutdown ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V1.shutdown client () in
+		let code = Netplex_ctrl_clnt.Admin.V2.system_shutdown client () in
 		check_code code)
        | `Reopen_logfiles ->
 	   check_exn
 	     (fun () ->
 		let code =
-		  Netplex_ctrl_clnt.Admin.V1.reopen_logfiles client () in
+		  Netplex_ctrl_clnt.Admin.V2.reopen_logfiles client () in
 		check_code code)
     )
     (List.rev !cmds);
@@ -179,7 +208,7 @@ let main() =
 	    } in
 	  check_exn
 	    (fun () ->
-	       Netplex_ctrl_clnt.Admin.V1.send_admin_message 
+	       Netplex_ctrl_clnt.Admin.V2.send_admin_message 
 		 client
 		 (!admin_target, msg))
   );

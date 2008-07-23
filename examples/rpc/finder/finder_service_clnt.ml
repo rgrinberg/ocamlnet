@@ -44,6 +44,14 @@ module Finder = struct
         (fun g -> pass_reply (fun () -> _to_Finder'V1'find'res (g())))
       
     
+    let shutdown client arg =
+      _to_Finder'V1'shutdown'res (Rpc_client.sync_call client "shutdown" (_of_Finder'V1'shutdown'arg arg))
+    
+    let shutdown'async client arg pass_reply =
+      Rpc_client.add_call client "shutdown" (_of_Finder'V1'shutdown'arg arg)
+        (fun g -> pass_reply (fun () -> _to_Finder'V1'shutdown'res (g())))
+      
+    
     
   end
   

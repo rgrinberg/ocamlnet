@@ -219,11 +219,15 @@ systems. For example,
 
 {[ netplex-admin -list ]}
 
-outputs the list of services. With 
+outputs the list of services. A more detailed list can be obtained with
+
+{[ netplex-admin -containers ]}
+
+The command
 
 {[ netplex-admin -shutdown ]}
 
-the system is (gracefully) shut down. It is also possible to broadcast
+shuts the system (gracefully) down. It is also possible to broadcast
 messages to all components:
 
 {[ netplex-admin name arg1 arg2 ... ]}
@@ -441,7 +445,20 @@ accepted. The other methods are called at other points of interest:
   The shutdown will lead to the termination of the process
   when all network connections managed by Unixqueue are finished.
   This method must terminate such connections if they have been
-  created in addition to those Netplex manages.
+  created in addition to those Netplex manages. The [shutdown]
+  notification is generated whenever a container needs to be
+  stopped, for example when it has been idle for too long and is
+  probably not needed right now (workload-induced shutdown), or
+  when the whole system is stopped (administrative shutdown).
+- [system_shutdown] is another shutdown-related notification.
+  It is only emitted if the whole Netplex system is going to be
+  stopped. In this case, all containers first receive the 
+  [system_shutdown] notifications, so they can prepare the real
+  shutdown that will happen soon. At the time the [system_shutdown]
+  is emitted, the whole system is still up and running, and so every
+  action is still possible. Only after all containers have finished
+  their [system_shutdown] callbacks, the real shutdown begins, i.e.
+  [shutdown] notifications are sent out.
 - [global_exception_handler] is called for exceptions falling through
   to the container, and is the last chance to catch them.
 
@@ -475,6 +492,7 @@ object(self)
   inherit Netplex_kit.processor_base empty_hooks
 
   method process ~when_done container fd proto_name =
+    Unix.clear_nonblock fd;
     let ch = Unix.out_channel_of_descr fd in
     output_string ch "Hello world\n";
     close_out ch;
@@ -491,6 +509,10 @@ In [fd] the file descriptor is passed that is the (already accepted)
 connection. In [proto_name] the protocol name is passed - here it is
 unused, but it is possible to process the connection in a way that
 depends on the name of the protocol.
+
+Note that the file descriptors created by Netplex are in non-blocking
+mode. It is, however, possible to switch to blocking mode when this is
+more appropriate ([Unix.clear_nonblock]).
 
 The argument [when_done] is very important. It {b must} be called by
 [process]! For a synchronous processor like this one it is simply called

@@ -25,6 +25,7 @@ object
   method receive_message _ _ _ = ()
   method receive_admin_message _ _ _ = ()
   method shutdown () = ()
+  method system_shutdown () = ()
   method global_exception_handler _ = false
 end
 
@@ -49,6 +50,8 @@ object(self)
     hooks # receive_admin_message cont cmd cmdargs
   method shutdown () = 
     hooks # shutdown()
+  method system_shutdown () = 
+    hooks # system_shutdown()
   method global_exception_handler e = 
     hooks # global_exception_handler e
 

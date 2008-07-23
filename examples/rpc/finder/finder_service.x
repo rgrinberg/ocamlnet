@@ -28,5 +28,10 @@ program Finder {
          * - FOUND if found, and the attached pathname shows where. Only
          *   the first match is returned.
          */
+
+	void shutdown(void) = 2;
+	/* Shut the Netplex system down. Note that you can do this also by
+           calling the netplex-admin utility
+	*/
     } = 1;
 } = 200000;

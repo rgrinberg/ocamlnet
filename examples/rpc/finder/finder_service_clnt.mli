@@ -40,6 +40,15 @@ module Finder : sig
             t_Finder'V1'find'arg ->
             ((unit -> t_Finder'V1'find'res) -> unit) ->
             unit
+    val shutdown :
+            Rpc_client.t ->
+            t_Finder'V1'shutdown'arg ->
+            t_Finder'V1'shutdown'res
+    val shutdown'async :
+            Rpc_client.t ->
+            t_Finder'V1'shutdown'arg ->
+            ((unit -> t_Finder'V1'shutdown'res) -> unit) ->
+            unit
     
   end
   

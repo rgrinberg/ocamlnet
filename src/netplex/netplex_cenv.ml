@@ -73,3 +73,31 @@ let log level msg =
 
 let logf level fmt =
   Printf.ksprintf (log level) fmt
+
+let admin_connector() =
+  let cont = self_cont() in
+  match cont#lookup "netplex.controller" "admin" with
+    | None ->
+	failwith "Netplex_cenv.admin_connector: Socket not found"
+    | Some path ->
+	`Socket(Rpc.Tcp,
+		Rpc_client.Unix path,
+		Rpc_client.default_socket_config)
+
+let admin_call f =
+  let conn = admin_connector() in
+  let client = Netplex_ctrl_clnt.Admin.V2.create_client2 conn in
+  try
+    f client ();
+    Rpc_client.shut_down client
+  with
+    | err ->
+	Rpc_client.shut_down client;
+	raise err
+
+let system_shutdown() =
+  admin_call Netplex_ctrl_clnt.Admin.V2.system_shutdown
+
+let system_restart() =
+  admin_call Netplex_ctrl_clnt.Admin.V2.restart_all
+

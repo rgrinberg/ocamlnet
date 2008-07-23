@@ -110,7 +110,7 @@ let containers_by_attractivity container_state =
       | `Busy -> max_int
       | `Shutting_down -> max_int in 
   List.sort
-    (fun (cid1,s1,_) (cid2,s2,_) ->
+    (fun (cid1,_,s1,_) (cid2,_,s2,_) ->
        let n1 = weight s1 in
        let n2 = weight s2 in
        n1 - n2)
@@ -164,7 +164,7 @@ object(self)
 	  let active_threads =
 	    List.length
 	      (List.filter 
-		 (fun (cid,s,_) -> 
+		 (fun (cid,_,s,_) -> 
 		    not (ContMap.mem cid inactivated_conts) 
 		    && s <> `Shutting_down) 
 		 container_state) in
@@ -174,7 +174,7 @@ object(self)
 	  (* Determine used capacity: *)
 	  let used_cap =
 	    List.fold_left
-	      (fun acc (cid,s,_) ->
+	      (fun acc (cid,_,s,_) ->
 		 if ContMap.mem cid inactivated_conts then
 		   acc
 		 else
@@ -215,7 +215,7 @@ object(self)
 		  containers_by_attractivity container_state in
 		let n = ref 0 in
 		List.iter
-		  (fun (cid,s,selected) ->
+		  (fun (cid,_,s,selected) ->
 		     let already_inactivated =
 		       ContMap.mem cid inactivated_conts in
 		     if !n < exceeding_threads && not already_inactivated 
@@ -255,7 +255,7 @@ object(self)
       containers_by_attractivity container_state in
     let l = ref [] in
     List.iter
-      (fun (cid, s, selected) ->
+      (fun (cid, _, s, selected) ->
 	 try
 	   if !n <= 0 then raise Not_found;
 	   let g_opt = ContMap.find cid inactivated_conts in
@@ -316,7 +316,7 @@ object(self)
        *)
       let l = ref [] in
       List.iter
-	(fun (cid, s, selected) ->
+	(fun (cid, _, s, selected) ->
 	   try
 	     if !n_overload <= 0 then raise Not_found;
 	     let g_opt = ContMap.find cid inactivated_conts in
@@ -360,7 +360,7 @@ object(self)
          *)
 	let avail_cap = ref !started_ocap in
 	List.iter
-	  (fun (_, s, _) ->
+	  (fun (_, _, s, _) ->
 	     match s with
 	       | `Accepting(m,_) ->
 		   let od = max 0 (config#max_jobs_per_thread - m) in
@@ -411,7 +411,7 @@ object(self)
      *)
     let container_state = sockctrl # container_state in
     List.iter
-      (fun (cid, s, selected) ->
+      (fun (cid, _, s, selected) ->
 	 try
 	   let g_opt = ContMap.find cid inactivated_conts in
 	   assert(not selected);

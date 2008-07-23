@@ -85,6 +85,7 @@ let setup srv root_dir =
   Finder_service_srv.Finder.V1.bind 
     ~proc_ping:(fun () -> ())
     ~proc_find:(proc_find root_dir)
+    ~proc_shutdown:Netplex_cenv.system_shutdown
     srv
 ;;
 
@@ -97,7 +98,7 @@ let esys_style style =
     | "poll" ->
 	Unixqueue.set_event_system_factory
 	  (fun () ->
-	     let pset = Netsys_pollset.poll_based_pollset 10 in
+	     let pset = Netsys_pollset_posix.poll_based_pollset 10 in
 	     Unixqueue2.pollset_event_system pset
 	  )
     | _ ->
