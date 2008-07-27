@@ -29,7 +29,10 @@ program Finder {
          *   the first match is returned.
          */
 
-	void shutdown(void) = 2;
+	longstring lastquery(void) = 2;
+	/* Simply returns the last query (example for Netplex_sharedvar) */
+
+	void shutdown(void) = 3;
 	/* Shut the Netplex system down. Note that you can do this also by
            calling the netplex-admin utility
 	*/

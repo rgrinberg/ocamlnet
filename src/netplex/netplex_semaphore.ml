@@ -20,22 +20,24 @@ let plugin : plugin =
       method ctrl_added _ =
 	()
 
-      method ctrl_receive_call ctrl cid procname procarg_val =
-	match procname with
-	  | "ping" ->
-	      Netplex_ctrl_aux._of_Semaphore'V1'ping'res ()
-
-	  | "increment" ->
-	      self # increment ctrl cid procarg_val
-
-	  | "protected_increment" ->
-	      self # protected_increment ctrl cid procarg_val
-
-	  | "decrement" ->
-	      self # decrement ctrl cid procarg_val
-
-	  | _ ->
-	      failwith "Unknown procedure"
+      method ctrl_receive_call ctrl cid procname procarg_val reply =
+	let r =
+	  match procname with
+	    | "ping" ->
+		Netplex_ctrl_aux._of_Semaphore'V1'ping'res ()
+		
+	    | "increment" ->
+		self # increment ctrl cid procarg_val
+		    
+	    | "protected_increment" ->
+		self # protected_increment ctrl cid procarg_val
+		    
+	    | "decrement" ->
+		self # decrement ctrl cid procarg_val
+		    
+	    | _ ->
+		failwith "Unknown procedure" in
+	reply(Some r)
 
       method private increment ctrl cid sem_name_val =
 	let sem_name = Netplex_ctrl_aux._to_Semaphore'V1'increment'arg in
@@ -83,7 +85,7 @@ let plugin : plugin =
 	  Hashtbl.add ht sem_name new_sem;
 	  new_sem
 
-      method ctrl_container_finished ctrl cid =
+      method ctrl_container_finished ctrl cid _ =
 	try
 	  let ht = Hashtbl.find containers cid in  (* or Not_found *)
 	  Hashtbl.iter

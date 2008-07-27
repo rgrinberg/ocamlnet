@@ -15,6 +15,7 @@ let debug_logf log msgf =
 
 class std_container ?(esys = Unixqueue.create_unix_event_system()) 
                     ptype sockserv =
+  let ssn = sockserv # name in
 object(self)
   val sys_esys = Unixqueue.create_unix_event_system()
   val mutable rpc = None
@@ -23,6 +24,7 @@ object(self)
   val mutable engines = []
   val mutable vars = Hashtbl.create 10 
 
+  method socket_service_name = ssn
   method socket_service = sockserv
 
   method event_system = esys

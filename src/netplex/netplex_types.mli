@@ -73,8 +73,11 @@ type socket_state =
     * - [`Down]: The socket is down/closed
    *)
 
-type container_id = < >
-  (** Identifies a container *)
+type container_id = < socket_service_name : string >
+  (** Such objects identify containers. As additional info, the method
+      [socket_service_name] returns the name of the socket service the
+      container implements
+   *)
 
 type container_state =
     [ `Accepting of int * float
@@ -325,12 +328,12 @@ end
 
 and processor_hooks =
 object
-  method post_add_hook : socket_service -> unit
+  method post_add_hook : socket_service -> controller -> unit
     (** A user-supplied function that is called after the service has been
       * added to the controller 
      *)
 
-  method post_rm_hook : socket_service  -> unit
+  method post_rm_hook : socket_service  -> controller -> unit
     (** A user-supplied function that is called after the service has been
       * removed from the controller 
      *)
@@ -426,6 +429,7 @@ end
 
 and container =
 object
+  method socket_service_name : string
   method socket_service : socket_service
 
   method ptype : parallelization_type
@@ -540,16 +544,24 @@ object
      *)
 
   method ctrl_receive_call : 
-            controller -> container_id -> string -> Xdr.xdr_value -> Xdr.xdr_value
-    (** [ctrl_receive_call ctrl cid procname procarg]:
+            controller -> container_id -> string -> Xdr.xdr_value -> 
+            (Xdr.xdr_value option -> unit) ->
+              unit
+    (** [ctrl_receive_call ctrl cid procname procarg emit]:
         This method is called in the controller context [ctrl] when a procedure
         named [procname] is called. In [procarg] the argument of the
         procedure is passed. [cid] is the container ID from where the
-        call originates. The method must return the procedure result.
+        call originates. To pass the result [r] of the call back to the caller,
+        is is required to call [emit (Some r)] (either immediately, or at
+        some time in the future). By calling [emit None], an error condition
+        is propagated back to the caller.
      *)
 
-  method ctrl_container_finished : controller -> container_id -> unit
-    (** This method is called when a container finishes *)
+  method ctrl_container_finished : controller -> container_id -> bool -> unit
+    (** This method is called when a container finishes.
+        The boolean is true if the container is the last of the terminated
+        socket service.
+ *)
 end
   (** Plugins are extensions of the Netplex system that run in the controller
       and can be invoked from containers

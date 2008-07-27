@@ -60,11 +60,24 @@ let proc_find root_dir searched_name =
 
   in
 
+  Netplex_sharedvar.set_value "finder.lastquery" searched_name;
+  (* Make the last query globally accessible. This is an example how to use
+     a plugin only - set_value is not very efficient.
+   *)
+
   match iterate_dir root_dir with
     | None -> `not_found
     | Some fullname -> `found fullname
 ;;
 
+
+let proc_lastquery () =
+  match Netplex_sharedvar.get_value "finder.lastquery" with
+    | None ->
+	""
+    | Some v ->
+	v
+;;
 
 (**********************************************************************)
 (* Create the RPC server                                              *)
@@ -85,6 +98,7 @@ let setup srv root_dir =
   Finder_service_srv.Finder.V1.bind 
     ~proc_ping:(fun () -> ())
     ~proc_find:(proc_find root_dir)
+    ~proc_lastquery:(proc_lastquery)
     ~proc_shutdown:Netplex_cenv.system_shutdown
     srv
 ;;
@@ -139,6 +153,17 @@ let start() =
       ~configure
       ~name:"finder"
       ~setup
+      ~hooks:(fun _ ->
+	      object(self)
+		inherit Netplex_kit.empty_processor_hooks() 
+		method post_add_hook _ ctrl = 
+		  ctrl # add_plugin Netplex_sharedvar.plugin
+		method post_start_hook _ =
+		  let _cr_flag = 
+		    Netplex_sharedvar.create_var "finder.lastquery" in
+		  ()
+	      end
+	     )
       () in
   Netplex_main.startup
     parallelizer

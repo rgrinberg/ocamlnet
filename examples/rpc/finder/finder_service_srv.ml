@@ -15,6 +15,7 @@ module Finder = struct
       ?version_number
       ~proc_ping
       ~proc_find
+      ~proc_lastquery
       ~proc_shutdown
       srv
       =
@@ -25,6 +26,8 @@ module Finder = struct
                                  Rpc_server.sync_proc = (fun x -> _of_Finder'V1'ping'res (proc_ping (_to_Finder'V1'ping'arg x)))});
               (Rpc_server.Sync { Rpc_server.sync_name = "find";
                                  Rpc_server.sync_proc = (fun x -> _of_Finder'V1'find'res (proc_find (_to_Finder'V1'find'arg x)))});
+              (Rpc_server.Sync { Rpc_server.sync_name = "lastquery";
+                                 Rpc_server.sync_proc = (fun x -> _of_Finder'V1'lastquery'res (proc_lastquery (_to_Finder'V1'lastquery'arg x)))});
               (Rpc_server.Sync { Rpc_server.sync_name = "shutdown";
                                  Rpc_server.sync_proc = (fun x -> _of_Finder'V1'shutdown'res (proc_shutdown (_to_Finder'V1'shutdown'arg x)))});
             ]
@@ -35,6 +38,7 @@ module Finder = struct
       ?version_number
       ~proc_ping
       ~proc_find
+      ~proc_lastquery
       ~proc_shutdown
       srv
       =
@@ -45,6 +49,8 @@ module Finder = struct
                                   Rpc_server.async_invoke = (fun s x -> proc_ping s (_to_Finder'V1'ping'arg x) (fun y -> Rpc_server.reply s (_of_Finder'V1'ping'res y)))});
               (Rpc_server.Async { Rpc_server.async_name = "find";
                                   Rpc_server.async_invoke = (fun s x -> proc_find s (_to_Finder'V1'find'arg x) (fun y -> Rpc_server.reply s (_of_Finder'V1'find'res y)))});
+              (Rpc_server.Async { Rpc_server.async_name = "lastquery";
+                                  Rpc_server.async_invoke = (fun s x -> proc_lastquery s (_to_Finder'V1'lastquery'arg x) (fun y -> Rpc_server.reply s (_of_Finder'V1'lastquery'res y)))});
               (Rpc_server.Async { Rpc_server.async_name = "shutdown";
                                   Rpc_server.async_invoke = (fun s x -> proc_shutdown s (_to_Finder'V1'shutdown'arg x) (fun y -> Rpc_server.reply s (_of_Finder'V1'shutdown'res y)))});
             ]

@@ -20,6 +20,7 @@ let start() =
   let query = ref None in
   let tmo = ref (-1.0) in
   let shutdown = ref false in
+  let lastquery = ref false in
   let debug = ref false in
   Arg.parse
     [ "-host", Arg.Set_string host,
@@ -34,6 +35,9 @@ let start() =
       "-shutdown", Arg.Set shutdown,
       "  Shut the server down";
 
+      "-lastquery", Arg.Set lastquery,
+      "  Show the last query";
+
       "-debug", Arg.Set debug,
       "  Enable (some) debug messages";
     ]
@@ -43,7 +47,7 @@ let start() =
   let query_string =
     match !query with
       | None -> 
-	  if not !shutdown then 
+	  if not !shutdown && not !lastquery then 
 	    failwith "Query is missing on the command-line";
 	  None
       | Some q -> 
@@ -56,6 +60,11 @@ let start() =
   Rpc_client.configure rpc_client 0 !tmo;
 
   try
+    if !lastquery then (
+      print_endline
+	("Last query: " ^ 
+	    Finder_service_clnt.Finder.V1.lastquery rpc_client ())
+    );
     ( match query_string with
 	| Some q ->
 	    ( match Finder_service_clnt.Finder.V1.find rpc_client q with

@@ -28,8 +28,8 @@ and extended_controller =
 object
   inherit controller
   method ext_services : (socket_service * extended_socket_controller * workload_manager) list
-  method plugin_receive_call : int -> container_id -> string -> string -> string option
-  method plugin_container_finished : container_id -> unit
+  method plugin_receive_call : int -> container_id -> string -> string -> (string -> unit) -> (unit->unit) -> unit
+  method plugin_container_finished : container_id -> bool -> unit
 end
 
 type sds_state = [ `None | `Notify of unit->unit | `Notified of unit->unit ]
@@ -412,7 +412,8 @@ object(self)
 	      ~message:("post_finish_hook: Exception " ^ 
 			  Printexc.to_string error)
     );
-    controller # plugin_container_finished (container :> container_id);
+    controller # plugin_container_finished 
+      (container :> container_id) (clist = []);
     (* Maybe we have to start new containers: *)
     self # adjust();
     (* Maybe the dead container was selected for accepting connections.
@@ -879,17 +880,17 @@ object(self)
       clist
 
   method private call_plugin c sess (plugin_id,proc_name,proc_arg) reply =
-    match
-      controller # plugin_receive_call
-	(Int64.to_int plugin_id)
-	c.container
-	proc_name
-	proc_arg
-    with
-      | Some res ->
-	  reply res
-      | None ->
-	  Rpc_server.reply_error sess Rpc.System_err
+    controller # plugin_receive_call
+      (Int64.to_int plugin_id)
+      c.container
+      proc_name
+      proc_arg
+      (fun r -> 
+	 try reply r
+	 with Rpc_server.Connection_lost -> ())
+      (fun () -> 
+	 try Rpc_server.reply_error sess Rpc.System_err
+	 with Rpc_server.Connection_lost -> ())
 
 end
 
@@ -1209,8 +1210,10 @@ object(self)
 	sockserv 
 	wrkmng in
     services <- (sockserv, sockctrl, wrkmng) :: services;
-    wrkmng # hello (self : #controller :> controller);
-    sockserv # processor # post_add_hook sockserv;
+    wrkmng # hello
+      (self : #controller :> controller);
+    sockserv # processor # post_add_hook
+      sockserv (self : #controller :> controller);
     sockctrl # enable();
 
   method add_admin setup =
@@ -1240,7 +1243,8 @@ object(self)
          services);
     match !sockserv with
       | None -> ()   (* strange *)
-      | Some s -> s # processor # post_rm_hook s
+      | Some s -> 
+	  s # processor # post_rm_hook s (self : #controller :> controller)
 
   method logger = logger
 
@@ -1342,7 +1346,7 @@ object(self)
       (self # matching_receivers re);
 
 
-  method plugin_receive_call plugin_id cid name arg_str =
+  method plugin_receive_call plugin_id cid name arg_str reply reply_err =
     let plugin =
       try Some(List.find (fun p -> Oo.id p = plugin_id) plugins) 
       with Not_found -> None in
@@ -1353,30 +1357,43 @@ object(self)
 		Rpc_program.signature p#program name in
 	      let arg =
 		Xdr.unpack_xdr_value ~fast:true arg_str arg_ty [] in
-	      let res = 
-		p # ctrl_receive_call (self :> controller) cid name arg in
-	      let res_str =
-		Xdr.pack_xdr_value_as_string res res_ty [] in
-	      Some res_str
+	      p # ctrl_receive_call (self :> controller) cid name arg 
+		(function
+		   | None ->
+		       reply_err()
+		   | Some res ->
+		       ( try
+			   let res_str =
+			     Xdr.pack_xdr_value_as_string res res_ty [] in
+			   reply res_str
+			 with 
+			   | error ->
+			       logger # log ~component:"netplex.controller"
+				 ~level:`Err
+				 ~message:("Exception packing plugin response: " ^ 
+					     Printexc.to_string error);
+			       reply_err()
+		       )
+		)
 	    with
 	      | error ->
 		  logger # log ~component:"netplex.controller"
 		    ~level:`Err
 		    ~message:("Exception in plugin call: " ^ 
 				Printexc.to_string error);
-		  None
+		  reply_err()
 	  )
       | None ->
 	  logger # log ~component:"netplex.controller"
 	    ~level:`Err
 	    ~message:"Received call for unknown plugin";
-	  None
+	  reply_err()
 
-  method plugin_container_finished cid =
+  method plugin_container_finished cid is_last =
     List.iter
       (fun p ->
 	 try
-	   p # ctrl_container_finished (self :> controller) cid
+	   p # ctrl_container_finished (self :> controller) cid is_last
 	 with
 	   | error ->
 	       logger # log ~component:"netplex.controller"

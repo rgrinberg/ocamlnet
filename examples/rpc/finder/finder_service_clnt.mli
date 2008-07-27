@@ -40,6 +40,15 @@ module Finder : sig
             t_Finder'V1'find'arg ->
             ((unit -> t_Finder'V1'find'res) -> unit) ->
             unit
+    val lastquery :
+            Rpc_client.t ->
+            t_Finder'V1'lastquery'arg ->
+            t_Finder'V1'lastquery'res
+    val lastquery'async :
+            Rpc_client.t ->
+            t_Finder'V1'lastquery'arg ->
+            ((unit -> t_Finder'V1'lastquery'res) -> unit) ->
+            unit
     val shutdown :
             Rpc_client.t ->
             t_Finder'V1'shutdown'arg ->

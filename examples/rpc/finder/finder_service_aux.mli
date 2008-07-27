@@ -22,6 +22,10 @@ and t_Finder'V1'find'arg =
       longstring
 and t_Finder'V1'find'res = 
       location
+and t_Finder'V1'lastquery'arg = 
+      unit
+and t_Finder'V1'lastquery'res = 
+      longstring
 and t_Finder'V1'shutdown'arg = 
       unit
 and t_Finder'V1'shutdown'res = 
@@ -49,6 +53,10 @@ val _to_Finder'V1'find'arg : Xdr.xdr_value -> t_Finder'V1'find'arg;;
 val _of_Finder'V1'find'arg : t_Finder'V1'find'arg -> Xdr.xdr_value;;
 val _to_Finder'V1'find'res : Xdr.xdr_value -> t_Finder'V1'find'res;;
 val _of_Finder'V1'find'res : t_Finder'V1'find'res -> Xdr.xdr_value;;
+val _to_Finder'V1'lastquery'arg : Xdr.xdr_value -> t_Finder'V1'lastquery'arg;;
+val _of_Finder'V1'lastquery'arg : t_Finder'V1'lastquery'arg -> Xdr.xdr_value;;
+val _to_Finder'V1'lastquery'res : Xdr.xdr_value -> t_Finder'V1'lastquery'res;;
+val _of_Finder'V1'lastquery'res : t_Finder'V1'lastquery'res -> Xdr.xdr_value;;
 val _to_Finder'V1'shutdown'arg : Xdr.xdr_value -> t_Finder'V1'shutdown'arg;;
 val _of_Finder'V1'shutdown'arg : t_Finder'V1'shutdown'arg -> Xdr.xdr_value;;
 val _to_Finder'V1'shutdown'res : Xdr.xdr_value -> t_Finder'V1'shutdown'res;;
@@ -63,6 +71,8 @@ val xdrt_Finder'V1'ping'arg : Xdr.xdr_type_term;;
 val xdrt_Finder'V1'ping'res : Xdr.xdr_type_term;;
 val xdrt_Finder'V1'find'arg : Xdr.xdr_type_term;;
 val xdrt_Finder'V1'find'res : Xdr.xdr_type_term;;
+val xdrt_Finder'V1'lastquery'arg : Xdr.xdr_type_term;;
+val xdrt_Finder'V1'lastquery'res : Xdr.xdr_type_term;;
 val xdrt_Finder'V1'shutdown'arg : Xdr.xdr_type_term;;
 val xdrt_Finder'V1'shutdown'res : Xdr.xdr_type_term;;
 

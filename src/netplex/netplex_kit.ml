@@ -16,8 +16,8 @@ end
 
 class empty_processor_hooks() : processor_hooks =
 object
-  method post_add_hook _ = ()
-  method post_rm_hook _ = ()
+  method post_add_hook _ _ = ()
+  method post_rm_hook _ _ = ()
   method pre_start_hook _ _ _ = ()
   method post_start_hook _ = ()
   method pre_finish_hook _ = ()
@@ -32,10 +32,10 @@ end
 
 class virtual processor_base (hooks : processor_hooks) : v_processor =
 object(self)
-  method post_add_hook socksrv = 
-    hooks # post_add_hook socksrv
-  method post_rm_hook socksrv = 
-    hooks # post_rm_hook socksrv
+  method post_add_hook socksrv ctrl = 
+    hooks # post_add_hook socksrv ctrl
+  method post_rm_hook socksrv ctrl = 
+    hooks # post_rm_hook socksrv ctrl
   method pre_start_hook socksrv ctrl cont = 
     hooks # pre_start_hook socksrv ctrl cont
   method post_start_hook cont =

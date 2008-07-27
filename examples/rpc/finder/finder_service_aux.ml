@@ -19,6 +19,10 @@ and t_Finder'V1'find'arg =
       longstring
 and t_Finder'V1'find'res = 
       location
+and t_Finder'V1'lastquery'arg = 
+      unit
+and t_Finder'V1'lastquery'res = 
+      longstring
 and t_Finder'V1'shutdown'arg = 
       unit
 and t_Finder'V1'shutdown'res = 
@@ -66,6 +70,14 @@ and _to_Finder'V1'find'res (x:Xdr.xdr_value) : t_Finder'V1'find'res =
   (_to_location x)
 and _of_Finder'V1'find'res (x:t_Finder'V1'find'res) : Xdr.xdr_value =
   (_of_location x)
+and _to_Finder'V1'lastquery'arg (x:Xdr.xdr_value) : t_Finder'V1'lastquery'arg =
+  ()
+and _of_Finder'V1'lastquery'arg (x:t_Finder'V1'lastquery'arg) : Xdr.xdr_value =
+  Xdr.XV_void
+and _to_Finder'V1'lastquery'res (x:Xdr.xdr_value) : t_Finder'V1'lastquery'res =
+  (_to_longstring x)
+and _of_Finder'V1'lastquery'res (x:t_Finder'V1'lastquery'res) : Xdr.xdr_value =
+  (_of_longstring x)
 and _to_Finder'V1'shutdown'arg (x:Xdr.xdr_value) : t_Finder'V1'shutdown'arg =
   ()
 and _of_Finder'V1'shutdown'arg (x:t_Finder'V1'shutdown'arg) : Xdr.xdr_value =
@@ -107,6 +119,10 @@ let xdrt_Finder'V1'find'arg = xdrt_longstring
 ;;
 let xdrt_Finder'V1'find'res = xdrt_location
 ;;
+let xdrt_Finder'V1'lastquery'arg = Xdr.X_void
+;;
+let xdrt_Finder'V1'lastquery'res = xdrt_longstring
+;;
 let xdrt_Finder'V1'shutdown'arg = Xdr.X_void
 ;;
 let xdrt_Finder'V1'shutdown'res = Xdr.X_void
@@ -125,8 +141,12 @@ let program_Finder'V1 =
         ((Rtypes.mk_uint4('\000','\000','\000','\001')),
         xdrt_Finder'V1'find'arg,
         xdrt_Finder'V1'find'res);
-      "shutdown",
+      "lastquery",
         ((Rtypes.mk_uint4('\000','\000','\000','\002')),
+        xdrt_Finder'V1'lastquery'arg,
+        xdrt_Finder'V1'lastquery'res);
+      "shutdown",
+        ((Rtypes.mk_uint4('\000','\000','\000','\003')),
         xdrt_Finder'V1'shutdown'arg,
         xdrt_Finder'V1'shutdown'res);
     ]

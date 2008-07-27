@@ -44,6 +44,14 @@ module Finder = struct
         (fun g -> pass_reply (fun () -> _to_Finder'V1'find'res (g())))
       
     
+    let lastquery client arg =
+      _to_Finder'V1'lastquery'res (Rpc_client.sync_call client "lastquery" (_of_Finder'V1'lastquery'arg arg))
+    
+    let lastquery'async client arg pass_reply =
+      Rpc_client.add_call client "lastquery" (_of_Finder'V1'lastquery'arg arg)
+        (fun g -> pass_reply (fun () -> _to_Finder'V1'lastquery'res (g())))
+      
+    
     let shutdown client arg =
       _to_Finder'V1'shutdown'res (Rpc_client.sync_call client "shutdown" (_of_Finder'V1'shutdown'arg arg))
     

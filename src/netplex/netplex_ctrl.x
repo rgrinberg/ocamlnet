@@ -298,11 +298,20 @@ program Sharedvar {
     version V1 {
 	void ping(void) = 0;
 
-	bool create_var(longstring) = 1;
-	/* create_var(var_name): Creates the variable with an empty string
+	bool create_var(longstring, bool, bool) = 1;
+	/* create_var(var_name, own_flag, ro_flag): Creates the variable with
+           an empty string
            as value. It is an error if the variable has already been created.
            Returns whether the function is successful (i.e. the variable
            did not exist before).
+
+           own_flag: if true, the created variable is owned by the calling
+           socket service.
+           Only the caller can delete it, and when the last component of
+           the socket service terminates, the variable is automatically 
+           deleted.
+
+           ro_flag: if true, only the owner can set the value
 	*/
 
 	bool set_value(longstring, longstring) = 2;
@@ -322,6 +331,16 @@ program Sharedvar {
            when the variable exists. Returns whether the function is 
            successful (i.e. the variable existed).
 	*/
+
+	longstring_opt wait_for_value(longstring) = 5;
+	/* wait_for_value(var_name): If the variable exists and
+           set_value has already been called, the current value is
+           simply returned. If the variable exists, but set_value has
+           not yet been called, the function waits until set_value is
+           called, and returns the value set then. If the variable
+           does not exist, the function immediately returns NULL.
+	*/
+
     } = 1;
 } = 5;
 
