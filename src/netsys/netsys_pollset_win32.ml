@@ -57,7 +57,7 @@ let list_of_sets ht in_set out_set pri_set =
 
 let socket_pollset () : pollset =
   let m = wsa_maximum_wait_events() in
-  let evobj_cancel = wsa_create_event() in
+  let evobj_cancel = create_event() in
 object(self)
   val mutable ht = Hashtbl.create m
 
@@ -72,7 +72,7 @@ object(self)
       Hashtbl.replace ht fd (ev, evobj)
     with
       | Not_found ->
-	  let evobj = wsa_create_event() in
+	  let evobj = create_event() in
 	  Hashtbl.replace ht fd (ev, evobj)
 
 
@@ -107,7 +107,7 @@ object(self)
     Hashtbl.iter
       (fun fd (ev, evobj) ->
 	 (* ignore(wsa_enum_network_events fd evobj); *)
-	 wsa_reset_event evobj;
+	 reset_event evobj;
 	 wsa_event_select evobj fd ev
       )
       ht;
@@ -137,7 +137,7 @@ object(self)
  *)
 	with
 	  | error ->
-	      wsa_reset_event evobj_cancel; (* always reset this guy *)
+	      reset_event evobj_cancel; (* always reset this guy *)
 	      raise error
       );
       (* Check again for pending events *)
@@ -152,9 +152,9 @@ object(self)
 
   method cancel_wait cb =
     if cb then
-      wsa_set_event evobj_cancel
+      set_event evobj_cancel
     else
-      wsa_reset_event evobj_cancel
+      reset_event evobj_cancel
 
 end
 

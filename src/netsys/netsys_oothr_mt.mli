@@ -26,3 +26,8 @@ val mtcondition : Condition.t -> condition
 
 val mtprovider : unit -> mtprovider
   (** Create a provider object *)
+
+(** / **)
+
+val init : unit -> unit
+  (* Internal function. Called by netsys_oothr_mt_init *)

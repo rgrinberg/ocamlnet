@@ -50,3 +50,9 @@ let mtprovider() : mtprovider =
       method create_condition() = mtcondition(Condition.create())
     end
   )
+
+let () =
+  Netsys_oothr.provider := mtprovider()
+
+let init() =
+  ()

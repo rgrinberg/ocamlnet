@@ -1,5 +1,10 @@
 description = "Ocamlnet - OS-specific functions"
 requires = "unix"
 version = "@VERSION@"
-archive(byte) = "netsys.cma"
-archive(native) = "netsys.cmxa"
+archive(byte) = "netsys_oothr.cma netsys.cma"
+archive(native) = "netsys_oothr.cmxa netsys.cmxa"
+archive(byte,mt) = "netsys_oothr.cma netsys_oothr_mt_init.cmo netsys.cma"
+archive(native,mt) = "netsys_oothr.cmxa netsys_oothr_mt_init.cmx netsys.cmxa"
+archive(byte,toploop) = "netsys_oothr.cmo netsys.cma"
+archive(byte,mt,toploop) = "netsys_oothr.cma netsys_oothr_mt_init.cmo netsys.cma"
+
