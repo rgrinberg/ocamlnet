@@ -1106,7 +1106,7 @@ let pack_xdr_value
     with
       any ->
 	(* DEBUG *)
-	(* prerr_endline (Printexc.to_string any); *)
+	(* prerr_endline (Netexn.to_string any); *)
       	failwith "Xdr.pack_xdr_value"
   else
     failwith "Xdr.pack_xdr_value"
@@ -1127,7 +1127,7 @@ let pack_xdr_value_as_string
     with
       any ->
 	(* DEBUG *)
-	(* prerr_endline (Printexc.to_string any); *)
+	(* prerr_endline (Netexn.to_string any); *)
       	failwith "Xdr.pack_xdr_value_as_string"
   else
     failwith "Xdr.pack_xdr_value_as_string"

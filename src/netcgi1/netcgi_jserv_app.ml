@@ -118,7 +118,7 @@ let catch f arg =
   try f arg
   with
       error -> 
-	!logger "?" ("Uncaught exception: " ^ Printexc.to_string error)
+	!logger "?" ("Uncaught exception: " ^ Netexn.to_string error)
 ;;
 
 
@@ -184,7 +184,7 @@ let do_request config rhtab jk_servletSubString https auth inch outch =
 	     with
 		 error ->
 		   error_message env 500 "Server Error" servlet_s
-		     ("Uncaught exception: " ^ Printexc.to_string error)
+		     ("Uncaught exception: " ^ Netexn.to_string error)
 	     end
 	 | None ->
 	     (* Generate an error message *)
@@ -324,7 +324,7 @@ let run_forking_server
 	   end
 	 with 
 	     error ->
-	       !logger "?" ("Uncaught exception: " ^ Printexc.to_string error)
+	       !logger "?" ("Uncaught exception: " ^ Netexn.to_string error)
     )
     auth 
     addr

@@ -11,9 +11,18 @@ let open_sockets prots =
 	 let fda =
 	   Array.map
 	     (fun addr ->
+		let real_addr =
+		  (* Win32: Emulate Unix domain *)
+		  match Sys.os_type, Unix.domain_of_sockaddr addr with
+		    | "Win32", Unix.PF_UNIX ->
+			Unix.ADDR_INET(Unix.inet_addr_loopback, 0)
+		    | _ -> 
+			addr
+		in
+
 		let s =
 		  Unix.socket
-		    (Unix.domain_of_sockaddr addr) Unix.SOCK_STREAM 0 in
+		    (Unix.domain_of_sockaddr real_addr) Unix.SOCK_STREAM 0 in
 		fdlist := s :: !fdlist;
 		Unix.setsockopt s Unix.SO_REUSEADDR proto#lstn_reuseaddr;
 		Unix.setsockopt s Unix.SO_KEEPALIVE proto#so_keepalive;
@@ -22,10 +31,23 @@ let open_sockets prots =
 			( try Unix.unlink path with _ -> () )
 		    | _ -> ()
 		);
-		Unix.bind s addr;
+		Unix.bind s real_addr;
 		Unix.set_nonblock s;
 		Unix.set_close_on_exec s;
 		Unix.listen s proto#lstn_backlog;
+		( match Sys.os_type, addr with
+		    | "Win32", Unix.ADDR_UNIX path ->
+			(* Write the port number: *)
+			( match Unix.getsockname s with
+			    | Unix.ADDR_INET(_, port) ->
+				let f = open_out path in
+				output_string f (string_of_int port ^ "\n");
+				close_out f
+			    | _ -> ()
+			)
+		    | _, _ ->
+			()
+		);
 		s
 	     )
 	     proto#addresses in

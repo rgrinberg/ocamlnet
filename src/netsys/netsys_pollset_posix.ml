@@ -3,110 +3,199 @@
 open Netsys_pollset
 
 
-let poll_based_pollset minsize : pollset =
-  let () =
-    if minsize < 1 then invalid_arg "Netsys_pollset.poll_based_pollset";
-    () in
-object(self)
-  val mutable pa = Netsys.create_poll_array minsize
-  val mutable free = []
-  val mutable ht = Hashtbl.create minsize
+let oothr = !Netsys_oothr.provider
 
-  initializer (
-    for k = 0 to minsize - 1 do
-      free <- k :: free
-    done
+let pipe_limit = 4
+  (* We keep up to [pipe_limit] pairs of pipes for interrupting [poll].
+     If more than this number of pairs become unused, they are closed.
+   *)
+
+let pipes = ref []
+let pipes_m = oothr # create_mutex()
+let pipe_pid = ref None
+  (* When the process is forked, we give up our saved pipes, to avoid the
+     confusion when several processes use the same descriptors
+   *)
+
+let reset_locked() =
+  List.iter
+    (fun (p1,p2) -> Unix.close p1; Unix.close p2)
+    !pipes;
+  pipes := [];
+  pipe_pid := None
+
+
+let reset() =
+  pipes_m # lock();
+  reset_locked();
+  pipes_m # unlock()
+
+
+let get_pipe_pair() =
+  pipes_m # lock();
+  let pid = Unix.getpid() in
+  if !pipe_pid <> None && !pipe_pid <> Some pid then (
+    reset_locked();
+  );
+  pipe_pid := Some pid;
+  let pp =
+    match !pipes with
+      | [] ->
+	  let (p1,p2) = Unix.pipe() in
+	  Unix.set_close_on_exec p1;
+	  Unix.set_close_on_exec p2;
+	  (p1,p2)
+      | (p1,p2) :: r ->
+	  pipes := r;
+	  (p1,p2) in
+  pipes_m # unlock();
+  pp
+
+
+let return_pipe_pair ((p1,p2) as pp) =
+  pipes_m # lock();
+  if List.length !pipes >= pipe_limit then (
+    Unix.close p1;
+    Unix.close p2
   )
+  else
+    pipes := pp :: !pipes;
+  pipes_m # unlock()
+
+
+let rounded_pa_size l =
+  let n = ref 32 in
+  while !n < l do
+    n := 2 * !n
+  done;
+  !n
+
+
+
+let poll_based_pollset () : pollset =
+object(self)
+  val mutable ht = Hashtbl.create 10
+    (* maps fd to req events *)
+
+  val mutable spa = Netsys_posix.create_poll_array 32
+    (* saved poll array - for the next time, so we don't have to allocate
+       it again for every [wait]
+     *)
+
+  val mutable intr_fd = None
+    (* The pipe that can be written to for interrupting waiting *)
+
+  val mutable intr_flag = false
+    (* Whether interruption happened *)
+
+  val mutable cancel_flag = false
+    (* The cancel flag and its mutex *)
+
+  val mutable intr_m = oothr # create_mutex()
+    (* Mutex protecting intr_fd, intr_flag, and cancel_flag *)
+
+  val s1 = String.make 1 'X'
+
 
   method find fd =
-    let k = Hashtbl.find ht fd in
-    let c = Netsys.get_poll_cell pa k in
-    assert(c.Netsys.poll_fd = fd);
-    c.Netsys.poll_events
+    Hashtbl.find ht fd
 
   method add fd ev =
-    try
-      let k = Hashtbl.find ht fd in    (* or Not_found *)
-      let c = Netsys.get_poll_cell pa k in
-      assert(c.Netsys.poll_fd = fd);
-      c.Netsys.poll_events <- ev;
-      Netsys.set_poll_cell pa k c
-    with
-	Not_found ->
-	  let k =
-	    match free with
-	      | k :: free' ->
-		  free <- free';
-		  k
-	      | [] ->
-		  let l = Netsys.poll_array_length pa in
-		  let pa' = Netsys.create_poll_array (2*l) in
-		  Netsys.blit_poll_array pa 0 pa' 0 l;
-		  pa <- pa';
-		  for j = l+1 to 2*l-1 do
-		    free <- j :: free
-		  done;
-		  l
-	  in
-	  Netsys.set_poll_cell pa k
-	    { Netsys.poll_fd = fd;
-	      poll_events = ev;
-	      poll_revents = Netsys.poll_out_events()
-	    };
-	  Hashtbl.replace ht fd k
+    Hashtbl.replace ht fd ev
 
   method remove fd =
-    try
-      let k = Hashtbl.find ht fd in
-      Netsys.set_poll_cell pa k
-	{ Netsys.poll_fd = Unix.stdin;
-	  poll_events = Netsys.poll_in_events false false false;
-	  poll_revents = Netsys.poll_out_events()
-	};
-      free <- k :: free;
-      Hashtbl.remove ht fd;
-      let l = Netsys.poll_array_length pa in
-      if l > minsize && 2 * (Hashtbl.length ht) < l then
-	self # rebuild_array()
-    with
-	Not_found -> ()
+    Hashtbl.remove ht fd
 
+  method wait tmo =
+    if oothr # single_threaded then (
+      if cancel_flag then
+	[]
+      else
+	self # wait_1 tmo None
+    )
+    else (
+      let (p_rd, p_wr) = get_pipe_pair() in
+      let r =
+	try
+	  let no_wait = (
+	    intr_m # lock();
+	    if cancel_flag then (
+	      intr_fd <- None;
+	      intr_m # unlock();
+	      true
+	    )
+	    else (
+	      intr_flag <- false;
+	      intr_fd <- Some p_wr;
+	      intr_m # unlock();
+	      false
+	    )
+	  ) in
+	  if no_wait then
+	    []
+	  else (
+	    let r = self # wait_1 tmo (Some p_rd) in
+	    intr_m # lock();
+	    if intr_flag then (
+	      try let _ = Netsys.restart(Unix.read p_rd s1 0) 1 in ()
+	      with _ -> assert false
+	    );
+	    intr_fd <- None;
+	    intr_m # unlock();
+	    r
+	  )
+	with
+	  | err ->
+	      return_pipe_pair (p_rd, p_wr);
+	      raise err in
+      return_pipe_pair (p_rd, p_wr);
+      r
+    )
 
-  method private rebuild_array() =
-    let n = Hashtbl.length ht in
-    let l = max n minsize in
-    let pa' = Netsys.create_poll_array l in
-    let ht' = Hashtbl.create l in
+  method private wait_1 tmo extra_fd_opt =
+    let have_extra_fd = extra_fd_opt <> None in
+    let ht_l = Hashtbl.length ht in
+    let l = ht_l + if have_extra_fd then 1 else 0 in
+    let pa = 
+      if l < Netsys_posix.poll_array_length spa then
+	spa
+      else (
+	let pa = Netsys_posix.create_poll_array(rounded_pa_size l) in
+	spa <- pa;
+	pa
+      ) in
     let j = ref 0 in
     Hashtbl.iter
-      (fun fd k ->
-	 let c = Netsys.get_poll_cell pa k in
-	 Netsys.set_poll_cell pa' !j c;
-	 Hashtbl.replace ht' fd !j;
+      (fun fd ev ->
+	 let c = 
+	   { Netsys_posix.poll_fd = fd;
+	     poll_req_events = ev;
+	     poll_act_events = Netsys_posix.poll_null_events()
+	   } in
+	 Netsys_posix.set_poll_cell pa !j c;
 	 incr j
       )
       ht;
-    pa <- pa';
-    ht <- ht';
-    free <- [];
-    for k = n to l-1 do
-      free <- k :: free
-    done
-
-
-  method wait tmo =
-    let l = Netsys.poll_array_length pa in
-    let n = ref(Netsys.poll pa l tmo) in
+    ( match extra_fd_opt with
+	| None -> ()
+	| Some fd ->
+	    let c = 
+	      { Netsys_posix.poll_fd = fd;
+		poll_req_events = 
+		  Netsys_posix.poll_req_events true false false;
+		poll_act_events = Netsys_posix.poll_null_events()
+	      } in
+	    Netsys_posix.set_poll_cell pa !j c;
+    );
+    let n = ref(Netsys_posix.poll pa l tmo) in
     let r = ref [] in
     let k = ref 0 in
-    while !n > 0 && !k < l do
-      let c = Netsys.get_poll_cell pa !k in
-      if Netsys.poll_result c.Netsys.poll_revents then (
-	let fd = c.Netsys.poll_fd in
-	let c_used =
-	  try Hashtbl.find ht fd = !k with Not_found -> false in
-	if c_used then
-	  r := (fd, c.Netsys.poll_events, c.Netsys.poll_revents) :: !r;
+    while !n > 0 && !k < ht_l do
+      let c = Netsys_posix.get_poll_cell pa !k in
+      if Netsys_posix.poll_result c.Netsys_posix.poll_act_events then (
+	r := (c.Netsys_posix.poll_fd,
+	      c.Netsys_posix.poll_req_events, 
+	      c.Netsys_posix.poll_act_events) :: !r;
 	decr n
       );
       incr k
@@ -117,7 +206,21 @@ object(self)
   method dispose() = ()
 
 
-  method cancel_wait _ = assert false (* TODO *)
+  method cancel_wait b =
+    intr_m # lock();
+    cancel_flag <- b;
+    if b && not intr_flag then (
+      match intr_fd with
+	| None -> ()
+	| Some fd ->
+	    let _n = 
+	      try Netsys.restart(Unix.single_write fd s1 0) 1
+	      with _ -> assert false
+	    in
+	    intr_flag <- true
+    );
+    intr_m # unlock()
+
     
 
 end

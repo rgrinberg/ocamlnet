@@ -8,6 +8,7 @@ OBJECTS = uq_gtk.cmo
 DOBJECTS = uq_gtk.mli
 
 INCLUDES += $(INC_EQUEUE)
+INCLUDES += $(INC_NETSYS)
 
 PP_OPTIONS = -syntax camlp4o -package camlp4.macro $(GTK_DEFINES)
 

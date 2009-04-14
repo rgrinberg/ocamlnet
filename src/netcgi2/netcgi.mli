@@ -544,7 +544,10 @@ type cache_control = [ `No_cache | `Max_age of int | `Unspecified ]
 
       - [`No_cache]: Caches are disabled.  The following headers are
       sent: [Cache-control: no-cache], [Pragma: no-cache], [Expires:]
-      (now - 1 second)
+      (now - 1 second). Note that many versions of Internet Explorer
+      have problems to process non-cached contents when TLS/SSL is
+      used to transfer the file. Use [`Max_age] in such cases (see
+      http://support.microsoft.com/kb/316431).
 
       - [`Max_age n]: Caches are allowed to store a copy of the
       response for [n] seconds.  After that, the response must be

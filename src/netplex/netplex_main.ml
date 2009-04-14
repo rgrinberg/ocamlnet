@@ -76,7 +76,7 @@ let rec run ctrl =
 	ctrl # logger # log
 	  ~component:"netplex.controller"
 	  ~level:`Crit
-	  ~message:("Uncaught exception: " ^ Printexc.to_string error);
+	  ~message:("Uncaught exception: " ^ Netexn.to_string error);
 	run ctrl
 ;;
 
@@ -155,7 +155,7 @@ let startup ?(late_initializer = fun _ _ -> ())
 			~level:`Crit
 			~message:("Uncaught exception preparing service " ^ 
 				    sockserv_cfg#name ^ ": " ^ 
-				    Printexc.to_string error);
+				    Netexn.to_string error);
 		      None
 	     )
 	     netplex_config#services
@@ -174,7 +174,7 @@ let startup ?(late_initializer = fun _ _ -> ())
 			    ~level:`Crit
 			    ~message:("Uncaught exception adding service " ^ 
 					sockserv#name ^ ": " ^ 
-					Printexc.to_string error);
+					Netexn.to_string error);
 		  )
 	      | None ->
 		  ()
@@ -190,7 +190,7 @@ let startup ?(late_initializer = fun _ _ -> ())
 		   ~component:"netplex.controller"
 		   ~level:`Crit
 		   ~message:("Uncaught exception in late initialization: " ^ 
-			       Printexc.to_string error);
+			       Netexn.to_string error);
 	 );
 
 	 run controller

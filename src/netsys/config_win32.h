@@ -1,6 +1,6 @@
 /* Config for win32 */
 
-#undef HAVE__EXIT
+#define HAVE__EXIT
 #undef HAVE_SYSCONF
 #undef HAVE_GETPGID
 #undef HAVE_SETPGID

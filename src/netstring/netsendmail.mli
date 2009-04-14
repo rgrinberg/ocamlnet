@@ -24,7 +24,7 @@
  * The call to [compose] can be as easy as
  *
  * {[ compose ~from_addr:("me", "me\@domain.net") 
- *            ~to_addr:("you", "you\@domain.com")
+ *            ~to_addrs:["you", "you\@domain.com"]
  *            ~subject:"I have a message for you"
  *            "Hello, this is my message!\n"
  * ]}

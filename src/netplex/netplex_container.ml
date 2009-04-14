@@ -67,13 +67,18 @@ object(self)
       (sockserv # processor # post_start_hook) (self : #container :> container);
     self # setup_polling();
     self # protect_run();
+    (* protect_run returns when all events are handled. This must include
+       [rpc], so the client must now be down.
+     *)
+    assert(rpc = None);
+
     if !debug_containers then
       debug_logf self#log "Container %d: Finishing (pre_finish)" (Oo.id self);
     self # protect "pre_finish_hook"
       (sockserv # processor # pre_finish_hook) (self : #container :> container);
     rpc <- None;
     if !debug_containers then
-      debug_logf self#log "Container %d: Finishing (finish)" (Oo.id self);
+      debug_logf self#log "Container %d: Finishing (finish)" (Oo.id self)
 
 
   method private protect : 's. string -> ('s -> unit) -> 's -> unit =
@@ -86,7 +91,7 @@ object(self)
 		| None -> ()  (* no way to report this error *)
 		| Some r ->
 		    self # log `Crit (label ^ ": Exception " ^ 
-				       Printexc.to_string error)
+				       Netexn.to_string error)
 	    )
 
   method private protect_run () =
@@ -94,12 +99,7 @@ object(self)
       Unixqueue.run esys
     with
       | error ->
-	  ( match rpc with
-	      | None -> ()  (* no way to report this error *)
-	      | Some r ->
-		  self # log `Crit ("run: Exception " ^ 
-				      Printexc.to_string error)
-	  );
+	  self # log `Crit ("run: Exception " ^ Netexn.to_string error);
 	  let b = sockserv # processor # global_exception_handler error in
 	  if b then self # protect_run()
 
@@ -108,13 +108,22 @@ object(self)
     match rpc with
       | None -> ()  (* Already shut down ! *)
       | Some r ->
+(* prerr_endline ("poll " ^ string_of_int(Oo.id self)); *)
 	  Netplex_ctrl_clnt.Control.V1.poll'async r nr_conns
 	    (fun getreply ->
+(* prerr_endline ("poll reply " ^ string_of_int(Oo.id self)); *)
 	       let continue =
 		 ( try
 		     let reply = getreply() in
 		     ( match reply with
 			 | `event_none ->
+			     (* When [setup_calling] is called twice, the
+                                second poll loop throws out the first poll
+                                loop. The first loop gets then [`event_none],
+                                and has to terminate. This is used after
+                                a connection is done to gain attention from
+                                the server.
+			      *)
 			     false
 			 | `event_accept -> 
 			     self # enable_accepting();
@@ -144,8 +153,17 @@ object(self)
 			       "shutdown"
 			       (sockserv # processor # shutdown)
 			       ();
-			     Rpc_client.shut_down r;
-			     rpc <- None;
+			     ( match rpc with
+				 | None -> ()
+				 | Some r -> 
+				     rpc <- None;
+				     Rpc_client.trigger_shutdown 
+				       r
+				       self # shutdown_extra;
+				     (* We ensure that shutdown_extra is called
+                                        when the client is already taken down
+				      *)
+			     );
 			     false
 			 | `event_system_shutdown ->
 			     self # protect
@@ -162,8 +180,9 @@ object(self)
                           *)
 			 false
 		     | error ->
+(* prerr_endline ("Exn " ^ Netexn.to_string error); *)
 			 self # log `Crit ("poll: Exception " ^ 
-					    Printexc.to_string error);
+					    Netexn.to_string error);
 			 true
 		 ) in
 	       if continue then
@@ -195,7 +214,7 @@ object(self)
 		  ~is_error:(fun err ->
 			       self # log `Crit
 				 ("accept: Exception " ^ 
-				    Printexc.to_string err)
+				    Netexn.to_string err)
 			    )
 		  e;
 		engines <- e :: engines
@@ -252,11 +271,20 @@ object(self)
 
   method shutdown() =
     self # disable_accepting();
-    match rpc with
-      | None -> ()
-      | Some r -> 
-	  Rpc_client.shut_down r;
-	  rpc <- None
+    ( match rpc with
+	| None -> ()
+	| Some r -> 
+	    rpc <- None;
+	    Rpc_client.trigger_shutdown 
+	      r
+	      self # shutdown_extra;
+	    (* We ensure that shutdown_extra is called
+               when the client is already taken down
+	     *)
+    )
+
+  method private shutdown_extra() =   (* for subclasses *)
+    ()
 
   method log_subch subchannel level message =
     match sys_rpc with
@@ -282,7 +310,7 @@ object(self)
 	      Unixqueue.run sys_esys
 	    with
 	      | error ->
-		  prerr_endline("Netplex Catastrophic Error: Unable to send log message - exception " ^ Printexc.to_string error);
+		  prerr_endline("Netplex Catastrophic Error: Unable to send log message - exception " ^ Netexn.to_string error);
 		  prerr_endline("Log message is: " ^ message)
 	  )
 
@@ -331,25 +359,71 @@ object(self)
 end
 
 
+let close_pipe fd =
+  (* TODO: Dup in netplex_controller.ml *)
+  match Sys.os_type with
+    | "Win32" ->
+	( try
+	    match Netsys_win32.lookup fd with
+	      | Netsys_win32.W32_pipe_helper ph ->
+		  Netsys_win32.pipe_shutdown ph
+	      | _ ->
+		  assert false
+	  with Not_found -> 
+	    assert false
+	)
+    | _ ->
+	Unix.close fd
+
+
+
+(* The admin container is special because the esys is shared with the
+   system-wide controller
+ *)
+
 class admin_container esys ptype sockserv =
 object(self)
   inherit std_container ~esys ptype sockserv
 
+  val mutable c_fd_clnt = None
+  val mutable c_sys_fd_clnt = None
+
   method start fd_clnt sys_fd_clnt =
-    let fd_clnt' = Unix.dup fd_clnt in
     if rpc <> None then
       failwith "#start: already started";
     rpc <-
       Some(Netplex_ctrl_clnt.Control.V1.create_client
 	     ~esys
-	     (Rpc_client.Descriptor fd_clnt')
+	     (Rpc_client.Descriptor fd_clnt)
 	     Rpc.Tcp);
     sys_rpc <-
       Some(Netplex_ctrl_clnt.System.V1.create_client
 	     ~esys:sys_esys
 	     (Rpc_client.Descriptor sys_fd_clnt)
 	     Rpc.Tcp);
+    c_fd_clnt <- Some fd_clnt;
+    c_sys_fd_clnt <- Some sys_fd_clnt;
     self # setup_polling();
+
+  method private shutdown_extra() =
+    (* In the admin case, fd_clnt and sys_fd_clnt are never closed.
+       Do this now. (In the non-admin case the caller does this after
+       [start] returns.)
+     *)
+    ( match sys_rpc with
+	| None -> ()
+	| Some r -> 
+	    Rpc_client.shut_down r;
+	    sys_rpc <- None
+    );
+    ( match c_fd_clnt with
+	| None -> ()
+	| Some fd -> close_pipe fd; c_fd_clnt <- None
+    );
+    ( match c_sys_fd_clnt with
+	| None -> ()
+	| Some fd -> close_pipe fd; c_sys_fd_clnt <- None
+    )
 end
 
 

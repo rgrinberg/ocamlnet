@@ -35,6 +35,18 @@ let unsafe_set s k c = s.[k] <- c
 
 exception HTTP of Nethttp.http_status * string
 
+let () =
+  Netexn.register_printer
+    (HTTP(`Continue, ""))
+    (fun e ->
+       match e with
+	 | HTTP(status, text) ->
+	     "Netcgi_common.HTTP(" ^ 
+	       Nethttp.string_of_http_status status ^ ", " ^ 
+	       "\"" ^ String.escaped text ^ "\")"
+	 | _ -> assert false
+    )
+
 
 (* If the socket connection is closed on the client end, the SIGPIPE
    signal will be triggered, aborting the program.  We want to see the
@@ -1526,7 +1538,7 @@ let arg_body_of_stream  env (arg_store:arg_store) name hdr ~has_filename
         env#log_error(sprintf "While reading the body of the CGI argument %S,\
         the exception %S was raised.  The argument has been treated as \
         oversized."
-                        name (Printexc.to_string e));
+                        name (Netexn.to_string e));
         body#finalize();
         Some(new oversized_arg name :> cgi_argument)
   end
@@ -1956,7 +1968,7 @@ let handle_uncaught_exn (env:cgi_environment) = function
       env#out_channel#close_out()
   | exn ->
       error_page env `Internal_server_error []
-	(Printexc.to_string exn)
+	(Netexn.to_string exn)
 	"This indicates an error in the application (not in the supporting
 	library).  Please report it to the author or company that runs this
 	software."

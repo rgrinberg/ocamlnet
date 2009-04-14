@@ -584,7 +584,7 @@ type cont =
 module StrSet = Set.Make(String)
 
 class http_protocol (config : #http_protocol_config) (fd : Unix.file_descr) =
-  let pa = Netsys.create_poll_array 1 in
+  let pa = Netsys_posix.create_poll_array 1 in
 object(self)
   val mutable resp_queue = Queue.create()
     (* The queue of [http_response] objects. The first is currently being transmitted *)
@@ -662,23 +662,24 @@ object(self)
     let f_input = self#do_input in
     let f_output = self#do_output in
     if not f_input && not f_output then raise Timeout;
-    Netsys.set_poll_cell pa 0
-      { Netsys.poll_fd = fd;
-	poll_events = Netsys.poll_in_events f_input f_output false;
-	poll_revents = Netsys.poll_out_events()
+    Netsys_posix.set_poll_cell pa 0
+      { Netsys_posix.poll_fd = fd;
+	poll_req_events = Netsys_posix.poll_req_events f_input f_output false;
+	poll_act_events = Netsys_posix.poll_null_events()
       };
     let t = Unix.gettimeofday() in
     try
-      let n = Netsys.poll pa 1 d in
+      let n = Netsys_posix.poll pa 1 d in
       if n = 0 then raise Timeout;
       (* Check for error: *)
-      let c = Netsys.get_poll_cell pa 0 in
-      let have_error = Netsys.poll_error_result c.Netsys.poll_revents in
+      let c = Netsys_posix.get_poll_cell pa 0 in
+      let have_error = 
+	Netsys_posix.poll_err_result c.Netsys_posix.poll_act_events in
       if have_error then (
 	(* Now find out which error. Unfortunately, a simple Unix.read on
            the socket seems not to work.
 	 *)
-	if Netsys.poll_hangup_result c.Netsys.poll_revents then
+	if Netsys_posix.poll_hup_result c.Netsys_posix.poll_act_events then
 	  raise(Fatal_error `Broken_pipe);
 	let code =
 	  Unix.getsockopt_int fd Unix.SO_ERROR in
@@ -1356,6 +1357,7 @@ end
 
 
 class lingering_close fd =
+  let fd_style = Netsys.get_fd_style fd in
 object(self)
   val start_time = Unix.gettimeofday()
   val timeout = 60.0
@@ -1367,7 +1369,7 @@ object(self)
       if block then (
 	let now = Unix.gettimeofday() in
 	let sel_time = timeout -. (now -. start_time) in
-	ignore(Netsys.wait_until_readable fd sel_time);
+	ignore(Netsys.wait_until_readable fd_style fd sel_time);
 	()
       );
 

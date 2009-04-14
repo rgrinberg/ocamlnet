@@ -210,6 +210,7 @@ and connector =
     | Portmapped
     | Internet of (Unix.inet_addr * int)   (* addr, port *)
     | Unix of string                       (* path to unix dom sock *)
+    | Pipe of string
     | Descriptor of Unix.file_descr
     | Dynamic_descriptor of (unit -> Unix.file_descr)
 
@@ -294,7 +295,7 @@ let sockaddrname sa =
     | Unix.ADDR_INET(addr, port) ->
 	Unix.string_of_inet_addr addr ^ ":" ^ string_of_int port
     | Unix.ADDR_UNIX path ->
-	path
+	String.escaped path
 
 let portname fd =
   try 
@@ -871,12 +872,13 @@ type mode2 =
     [ `Socket_endpoint of protocol * Unix.file_descr
     | `Multiplexer_endpoint of Rpc_transport.rpc_multiplex_controller
     | `Socket of protocol * connector * socket_config
+    | `Dummy of protocol
     ]
 
 
 let create2_srv prot esys =
   let default_exception_handler ex =
-    prerr_endline ("RPC server exception handler: Exception " ^ Printexc.to_string ex ^ " caught")
+    prerr_endline ("RPC server exception handler: Exception " ^ Netexn.to_string ex ^ " caught")
   in
 
   let none = Hashtbl.create 3 in
@@ -1062,51 +1064,72 @@ let create2_socket_server ?(config = default_socket_config)
     bind_to_internet (Unix.inet_addr_of_string "127.0.0.1") port
   in
 
-  let (fd, close_inactive_descr) =
-    match conn with
-      | Localhost port ->
-	  let s = bind_to_localhost port in
-	  (s, true)
-      | Internet (addr,port) ->
-	  let s = bind_to_internet addr port in
-	  (s, true)
-      |	Portmapped ->
-	  let s = bind_to_internet Unix.inet_addr_any 0 in
-	  ( try
-	      let port =
-		match Unix.getsockname s with
-		  | Unix.ADDR_INET(_,port) -> port
-		  | _ -> assert false in
-	      if !debug_internals_log <> None then 
-		debug_internalsf "Rpc_server: Using anonymous port %d" port;
-	      srv.portmapped <- Some port;
-	      (s, true)
-	    with
-		any -> Unix.close s; raise any
-	  )
-      |	Unix path ->
-	  let s =
-      	    Unix.socket
-	      Unix.PF_UNIX
-	      (if prot = Tcp then Unix.SOCK_STREAM else Unix.SOCK_DGRAM)
-	      0
-	  in
-	  begin try
-	    Unix.bind s (Unix.ADDR_UNIX path);
+  let get_descriptor() =
+    let (fd, close_inactive_descr) =
+      match conn with
+	| Localhost port ->
+	    let s = bind_to_localhost port in
 	    (s, true)
-	  with
-	    any -> Unix.close s; raise any
-	  end
-      |	Descriptor s -> 
-	  (s, false)
-      |	Dynamic_descriptor f -> 
-	  let s = f() in
-	  (s, true)
+	| Internet (addr,port) ->
+	    let s = bind_to_internet addr port in
+	    (s, true)
+	| Portmapped ->
+	    let s = bind_to_internet Unix.inet_addr_any 0 in
+	    ( try
+		let port =
+		  match Unix.getsockname s with
+		    | Unix.ADDR_INET(_,port) -> port
+		    | _ -> assert false in
+		if !debug_internals_log <> None then 
+		  debug_internalsf "Rpc_server: Using anonymous port %d" port;
+		srv.portmapped <- Some port;
+		(s, true)
+	      with
+		  any -> Unix.close s; raise any
+	    )
+	| Unix path ->
+	    ( match Sys.os_type with
+		| "Win32" ->
+		    let s =
+		      Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+		    Unix.bind s (Unix.ADDR_INET(Unix.inet_addr_loopback, 0));
+		    ( match Unix.getsockname s with
+			| Unix.ADDR_INET(_, port) ->
+			    let f = open_out path in
+			    output_string f (string_of_int port ^ "\n");
+			    close_out f
+			| _ -> ()
+		    );
+		    (s, true)
+		| _ ->
+		    let s =
+      		      Unix.socket
+			Unix.PF_UNIX
+			(if prot = Tcp then Unix.SOCK_STREAM else Unix.SOCK_DGRAM)
+			0
+		    in
+		    begin try
+		      Unix.bind s (Unix.ADDR_UNIX path);
+		      (s, true)
+		    with
+			any -> Unix.close s; raise any
+		    end
+	    )
+	| Pipe path ->
+	    failwith "Pipe not supported in this case"
+	| Descriptor s -> 
+	    (s, false)
+	| Dynamic_descriptor f -> 
+	    let s = f() in
+	    (s, true)
+    in
+    srv.main_socket_name <- `Sockaddr (Unix.getsockname fd);
+    (fd, close_inactive_descr)
   in
-  srv.main_socket_name <- `Sockaddr (Unix.getsockname fd);
 
   match prot with
     | Udp ->
+	let (fd, close_inactive_descr) = get_descriptor() in
 	let mplex_eng = create_multiplexer_eng fd prot in
 	when_state
 	  ~is_done:(fun mplex ->
@@ -1132,18 +1155,36 @@ let create2_socket_server ?(config = default_socket_config)
 	srv
 
     | Tcp ->
-	if !debug_service_log <> None then
-	  debug_servicef "Rpc_server (port %s): Listening"
-	    (portname fd);
-	let backlog =
-	  match override_listen_backlog with
-	    | Some n -> n
-	    | None -> config#listen_options.lstn_backlog in
-	Unix.listen fd backlog;
-	let acc = new direct_socket_acceptor fd esys in
-	srv.master_acceptor <- Some acc;
-	accept_connections acc;
-	srv
+	( match conn with
+	    | Pipe path ->
+		let backlog =
+		  match override_listen_backlog with
+		    | Some n -> n
+		    | None -> config#listen_options.lstn_backlog in
+		let acc = 
+		  new pipe_acceptor 
+		    Netsys_win32.Pipe_duplex path backlog esys in
+		srv.master_acceptor <- Some acc;
+		srv.main_socket_name <- `Implied;
+		accept_connections acc;
+		srv
+
+	    | _ ->
+		let (fd, close_inactive_descr) = get_descriptor() in
+
+		if !debug_service_log <> None then
+		  debug_servicef "Rpc_server (port %s): Listening"
+		    (portname fd);
+		let backlog =
+		  match override_listen_backlog with
+		    | Some n -> n
+		    | None -> config#listen_options.lstn_backlog in
+		Unix.listen fd backlog;
+		let acc = new direct_socket_acceptor fd esys in
+		srv.master_acceptor <- Some acc;
+		accept_connections acc;
+		srv
+	)
 ;;
 
 
@@ -1157,6 +1198,8 @@ let create2 mode esys =
 	create2_multiplexer_endpoint mplex 
     | `Socket(prot,conn,config) ->
 	create2_socket_server ~config prot conn esys
+    | `Dummy prot ->
+	create2_srv prot esys
 ;;
 
 

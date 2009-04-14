@@ -89,19 +89,20 @@ object(self)
       with
 	| err ->
 	    container # log `Err ("Uncaught exception: " ^ 
-				    Printexc.to_string err)
+				    Netexn.to_string err)
     );
     when_done()
 
   method receive_message _ _ _ = ()
   method receive_admin_message _ _ _ = ()
   method shutdown() = ()
-  method post_add_hook _ = ()
-  method post_rm_hook _ = ()
+  method post_add_hook _ _ = ()
+  method post_rm_hook _ _ = ()
   method pre_start_hook _ _ _ = ()
   method post_start_hook _ = ()
   method pre_finish_hook _ = ()
   method post_finish_hook _ _ _ = ()
+  method system_shutdown () = ()
   method supported_ptypes = [ `Multi_processing ; `Multi_threading ]
   method global_exception_handler _ = false
 end

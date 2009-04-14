@@ -49,7 +49,52 @@ type server_error =
 ;;
 
 
+let string_of_server_error =
+  function
+    | Unavailable_program -> 
+	"Unevailable_program"
+    | Unavailable_version(v1,v2) ->
+	"Unavailable_version(" ^ 
+	  Int64.to_string(Rtypes.int64_of_uint4 v1) ^ ", " ^ 
+	  Int64.to_string(Rtypes.int64_of_uint4 v2) ^ ")"
+    | Unavailable_procedure ->
+	"Unavailable_procedure"
+    | Garbage ->
+	"Garbage"
+    | System_err ->
+	"System_err"
+    | Rpc_mismatch(v1,v2) ->
+	"Rpc_mismatch(" ^ 
+	  Int64.to_string(Rtypes.int64_of_uint4 v1) ^ ", " ^ 
+	  Int64.to_string(Rtypes.int64_of_uint4 v2) ^ ")"
+    | Auth_bad_cred ->
+	"Auth_bad_cred"
+    | Auth_rejected_cred ->
+	"Auth_rejected_cred"
+    | Auth_bad_verf ->
+	"Auth_bad_verf"
+    | Auth_rejected_verf ->
+	"Auth_rejected_verf"
+    | Auth_too_weak ->
+	"Auth_too_weak"
+    | Auth_invalid_resp ->
+	"Auth_invalid_resp"
+    | Auth_failed ->
+	"Auth_failed"
+
+
 exception Rpc_server of server_error;;
 
 exception Rpc_cannot_unpack of string;;
 
+
+let () =
+  Netexn.register_printer
+    (Rpc_server Unavailable_program)
+    (fun e ->
+       match e with
+	 | Rpc_server code ->
+	     "Rpc.Rpc_server(" ^ string_of_server_error code ^ ")"
+	 | _ ->
+	     assert false
+    )

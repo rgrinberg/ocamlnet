@@ -94,30 +94,41 @@ type connector =
   | Internet of (Unix.inet_addr * int)
       (** The address plus port *)
   | Unix of string
-      (** Path to unix dom sock *)
+      (** Path to unix dom sock. On Win32, this is a normal file containing
+          the local inet4 port number (as emulation).
+       *)
+  | Pipe of string
+      (** Path to named pipe (only Win32) *)
   | Descriptor of Unix.file_descr
       (** Pass an already open socket descriptor. The descriptor will not
-        * be closed when the client is done!
+        * be closed when the client is done! On Win32, the proxy descriptors
+        * as returned by {!Netsys_win32.pipe_descr} are also accepted.
         *)
   | Dynamic_descriptor of (unit -> Unix.file_descr)
       (** The function is called to get the socket descriptor. 
         * Unlike [Descriptor], the descriptor will be closed when the
-        * client is done
+        * client is done (unless it is a proxy descriptor)
         *)
   | Portmapped of string
       (** The portmapper on this host is queried to get address information *)
 
-val shutdown_connector : t -> Rpc_transport.rpc_multiplex_controller -> unit
-  (** The default implementation to shut down the connector.
-   * For [Descriptor] this is a no-op, 
-   * for the other connector types the socket is closed.
+val shutdown_connector : 
+  t -> Rpc_transport.rpc_multiplex_controller -> (unit -> unit) -> unit
+  (** The default implementation to shut down the connector. Actions are
+    * triggered that will take the connector down at some time in the future.
+    * At this time, the callback function is invoked.
+    *
+    * For [Descriptor] connector the socket is shut down but not closed.
+    * For the other connector types the socket is also closed. 
+    * Win32 named pipes are shut down.
    *)
 
 val create :
       ?program_number:uint4 ->
       ?version_number:uint4 ->
       ?initial_xid:int ->
-      ?shutdown:(t -> Rpc_transport.rpc_multiplex_controller -> unit) ->
+      ?shutdown:(t -> Rpc_transport.rpc_multiplex_controller -> 
+		   (unit->unit) -> unit) ->
       Unixqueue.event_system ->
       connector ->
       protocol ->
@@ -210,7 +221,8 @@ val create2 :
       ?program_number:uint4 ->
       ?version_number:uint4 ->
       ?initial_xid:int ->
-      ?shutdown:(t -> Rpc_transport.rpc_multiplex_controller -> unit) ->
+      ?shutdown:(t -> Rpc_transport.rpc_multiplex_controller -> 
+		   (unit -> unit) -> unit) ->
       mode2 ->
       Rpc_program.t ->
       Unixqueue.event_system ->
@@ -357,8 +369,47 @@ val sync_call :
 
 val shut_down : t -> unit
   (** Shuts down the connection. Any unprocessed calls get the exception
-   * [Message_lost].
+   * [Message_lost]. It is no error to shut down a client that is already
+   * down - nothing happens in this case.
+   *
+   * Shutdowns can be complex operations. For this reason, this function
+   * implements some magic that is usually the right thing, but may also
+   * be wrong:
+   *  - If called outside the event loop, it is assumed that a synchronous
+   *    shutdown is desired, and the event loop is started to complete the
+   *    shutdown immediately. This is right
+   *    when the only task connected with the event loop is the shutdown,
+   *    which is then done, and this function returns finally to the caller. If
+   *    there are other tasks on the event loop, these tasks are also run,
+   *    however, which may lead to side effects and infinite delay. This can
+  *     be wrong.
+   *  - If called from within the event loop, the shutdown is only triggered
+   *    but not immediately done. When the caller returns to the event loop
+   *    the shutdown will be performed. This case is problematic when you
+   *    pass the file descriptor explicitly with [Descriptor] to the client.
+   *    You don't know when the client is finally down, and the descriptor
+   *    can be closed.
+   *
+   * The following functions allow more fine grained control of the shutdown.
    *)
+
+val sync_shutdown : t -> unit
+  (** Enforces a synchronous shutdown of the connection. This is only
+    * possible if called from outside the event loop. This function fails
+    * if called from within the event loop.
+    *
+    * You can be sure that the shutdown is completely done when this
+    * function returns normally.
+   *)
+
+val trigger_shutdown : t -> (unit -> unit) -> unit
+  (** Triggers the shutdown, and calls the passed function back when it is
+    * done.
+    *
+    * The function is not only called when the client has to be taken
+    * down, but also if the client is already down.
+   *)
+
 
 class type auth_session =
 object

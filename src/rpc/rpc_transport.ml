@@ -532,23 +532,12 @@ let stream_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
     try
       `Sockaddr(Unix.getsockname fd) 
     with
-	(* The OCaml runtime sometimes returns EAFNOSUPPORT when asked
-           for inaccessible socket names. EOPNOTSUPP is documented
-           by SUS. We also catch ENOTSOCK to allow using RPC with
-           bidirectional pipes that are not socket-based (i.e. SysV
-           bidirectional pipes).
-         *)
-      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP|Unix.ENOTSOCK),
-			_,_) -> `Implied in
+      | Unix.Unix_error(_,_,_) -> `Implied in
   let peername = 
     try
       `Sockaddr(Unix.getpeername fd)
     with
-	(* also catching ENOTCONN - which might happen for strange socket
-           implementations
-         *)
-      | Unix.Unix_error((Unix.EAFNOSUPPORT|Unix.EOPNOTSUPP|Unix.ENOTSOCK|Unix.ENOTCONN),
-			_,_) -> `Implied in
+      | Unix.Unix_error(_,_,_) -> `Implied in
   let mplex = 
     Uq_engines.create_multiplex_controller_for_connected_socket
       ~close_inactive_descr

@@ -94,7 +94,7 @@ object(self)
 	  (format_message fmt component subchannel w message)
       with
 	| error ->
-	    prerr_endline ("Netplex Catastrophic Error: Unable to write to log channel: " ^ Printexc.to_string error)
+	    prerr_endline ("Netplex Catastrophic Error: Unable to write to log channel: " ^ Netexn.to_string error)
     )
 
   method log =
@@ -138,7 +138,7 @@ object(self)
 	  (format_message fmt component subchannel w message)
       with
 	| error ->
-	    prerr_endline ("Netplex Catastrophic Error: Unable to write to log file " ^ file ^ ": " ^ Printexc.to_string error)
+	    prerr_endline ("Netplex Catastrophic Error: Unable to write to log file " ^ file ^ ": " ^ Netexn.to_string error)
     )
 
 
@@ -152,7 +152,7 @@ object(self)
 	open_out_gen [ Open_wronly; Open_append; Open_creat ] 0o666 file
     with
       | error ->
-	  prerr_endline ("Netplex Catastrophic Error: Unable to reopen log file " ^ file ^ ": " ^ Printexc.to_string error)
+	  prerr_endline ("Netplex Catastrophic Error: Unable to reopen log file " ^ file ^ ": " ^ Netexn.to_string error)
 
 
   method max_level = max_level
@@ -276,7 +276,7 @@ object(self)
 	       (format_message fmt component subchannel w message)
 	   with
 	     | error ->
-		 prerr_endline ("Netplex Catastrophic Error: Unable to write to log file " ^ full_path ^ ": " ^ Printexc.to_string error)
+		 prerr_endline ("Netplex Catastrophic Error: Unable to write to log file " ^ full_path ^ ": " ^ Netexn.to_string error)
 
 	)
 	files

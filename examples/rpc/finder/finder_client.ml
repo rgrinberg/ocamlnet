@@ -17,6 +17,7 @@ let esys_style style =
 
 let start() =
   let host = ref "localhost" in
+  let port = ref None in
   let query = ref None in
   let tmo = ref (-1.0) in
   let shutdown = ref false in
@@ -26,6 +27,9 @@ let start() =
     [ "-host", Arg.Set_string host,
       "<hostname>  Contact the finder daemon on this host";
       
+      "-port", Arg.Int (fun n -> port := Some n),
+      "<port>  Bypass portmapper, and use this port directly";
+
       "-timeout", Arg.Set_float tmo,
       "<tmo>  Set a timeout value in seconds";
 
@@ -56,7 +60,14 @@ let start() =
   Unixqueue_util.set_debug_mode !debug;
 
   let rpc_client =
-    Finder_service_clnt.Finder.V1.create_portmapped_client !host Rpc.Tcp in
+    match !port with
+      | None ->
+	  Finder_service_clnt.Finder.V1.create_portmapped_client
+	    !host Rpc.Tcp 
+      | Some p ->
+	  Finder_service_clnt.Finder.V1.create_client
+	    (Rpc_client.Inet(!host,p)) Rpc.Tcp
+  in
   Rpc_client.configure rpc_client 0 !tmo;
 
   try
@@ -111,5 +122,6 @@ let start() =
 	prerr_endline "RPC: Authentication failed";
 ;;
 
-Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
+if Sys.os_type <> "Win32" then
+  Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
 start();;

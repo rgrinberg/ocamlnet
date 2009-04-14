@@ -747,7 +747,7 @@ let rec write_mime_message_int ?(wr_header = true) ?(wr_body = true) ?(nr = 0)
 	      with
 		  Not_found as ex -> raise ex  (* falls through to next [try] *)
 		| ex ->
-		    failwith ("Netmime.write_mime_message: Cannot parse content-type field: " ^ Printexc.to_string ex)
+		    failwith ("Netmime.write_mime_message: Cannot parse content-type field: " ^ Netexn.to_string ex)
 	    in  
 	    if String.length ctype < 10 || String.sub ctype 0 10 <> "multipart/"
 	    then 

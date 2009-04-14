@@ -55,6 +55,30 @@ let cmd
 
 exception Subprocess_error of (string * Unix.process_status) list;;
 
+let () =
+  Netexn.register_printer
+    (Subprocess_error [])
+    (fun e ->
+       match e with
+	 | Subprocess_error l ->
+	     "Shell.Subprocess_error( [" ^ 
+	       (String.concat "; " 
+		  (List.map
+		     (fun (cmd, ps) ->
+			"\"" ^ String.escaped cmd ^ "\": " ^ 
+			  match ps with
+			    | Unix.WEXITED n -> 
+				"WEXITED " ^ string_of_int n
+			    | Unix.WSIGNALED n -> 
+				"WSIGNALED " ^ string_of_int n
+			    | Unix.WSTOPPED n ->
+				"WSTOPPED " ^ string_of_int n
+		     )
+		     l)) ^ "] )"
+	 | _ ->
+	     assert false
+    )
+
 type consumer = 
     C_fun of (Unix.file_descr -> bool)
   | C_file of (bool * string)

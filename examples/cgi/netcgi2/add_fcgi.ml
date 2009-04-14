@@ -1,6 +1,15 @@
-(** FCGI execution.  You could of course copy the code of add.ml here
-    but it is not done in order to reuse counter.ml with other
-    connectors. *)
+(** FCGI execution.  The driver independent code is in add.ml (in
+    order to reuse it with other connectors).
+
+    Assuming netcgi2 is installed (through findlib), you can compile
+    this code with the compile command given at the bottom of this
+    file (if you are in Emacs, just press C-c C-c).
+
+    As you can see below, this script expects that the webserver
+    contacts it on the port 1201.  See the Netcgi2_fcgi documentation
+    for informations on how FCGI scripts can be contacted through a
+    pipe and may or may not be launched by the webserver.
+*)
 
 open Netcgi
 
@@ -18,3 +27,8 @@ let () =
    Netcgi_fcgi.run ~output_type:(`Transactional buffered)
     ~sockaddr:(Unix.ADDR_INET(Unix.inet_addr_any, port))
      (fun cgi -> Add.main(cgi :> cgi))
+
+
+(* Local Variables: *)
+(* compile-command: "ocamlfind ocamlc -o add.fcgi -package netcgi2 -linkpkg add.ml add_fcgi.ml" *)
+(* End: *)

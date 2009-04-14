@@ -23,6 +23,21 @@
 #endif
 
 
+CAMLprim value netsys_int64_of_file_descr(value fd) {
+#ifdef _WIN32
+    switch (Descr_kind_val(fd)) {
+    case KIND_HANDLE:
+	return copy_int64((long) (Handle_val(fd)));
+    case KIND_SOCKET:
+	return copy_int64((long) (Socket_val(fd)));
+    }
+    return copy_int64(0);
+#else
+    return copy_int64(Long_val(fd));
+#endif
+}
+
+
 /**********************************************************************/
 /* Standard POSIX stuff                                               */
 /**********************************************************************/
@@ -315,16 +330,11 @@ CAMLprim value netsys_poll(value s, value nv, value tv) {
 #ifdef HAVE_POLL
     struct pollfd *p;
     int n;
-    double t;
-    int tmo, r;
+    long tmo, r;
 
     p = (*(Poll_mem_val(s)));
     n = Int_val(nv);
-    t = Double_val(tv);
-    if (t < 0)
-	tmo = (-1);
-    else
-	tmo = t * 1000;
+    tmo = Long_val(tv);
     
     enter_blocking_section();
     r = poll(p, n, tmo);

@@ -76,11 +76,14 @@ let rpc_factory
 	(* Find out the bindings by creating a fake server: *)
 	let progs_and_versions =
 	  let esys = Unixqueue.create_unix_event_system () in
+(*
 	  let (fd0, fd1) = Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
 	  Unix.close fd1;
 	  let srv = Rpc_server.create2 (`Socket_endpoint(Rpc.Tcp,fd0)) esys in
+ *)
+	  let srv = Rpc_server.create2 (`Dummy Rpc.Tcp) esys in
 	  setup srv custom_cfg;
-	  Unix.close fd0;
+	  (* Unix.close fd0; *)
 	  let progs = Rpc_server.bound_programs srv in
 	  List.map
 	    (fun prog ->
@@ -141,7 +144,7 @@ let rpc_factory
 				 container # log
 				   `Crit
 				   ("RPC server caught exception: " ^ 
-				      Printexc.to_string err));
+				      Netexn.to_string err));
 			    Rpc_server.set_onclose_action 
 			      srv (fun _ ->
 				     srv_list :=
@@ -154,7 +157,7 @@ let rpc_factory
 		~is_error:(fun err ->
 			     container # log `Crit 
 			       ("Cannot create RPC multiplexer: " ^ 
-				  Printexc.to_string err)
+				  Netexn.to_string err)
 			  )
 		mplex_eng
 

@@ -5,32 +5,13 @@ open Netsys_win32
 
 exception Too_many_descriptors
 
-let max_tmo =
-  2147483    (* = max_int / 1000 -- on 32 bit systems, at least *)
-
-let max_tmo_f =
-  float max_tmo
-
-
 let wait_for_multiple_events evobj tmo =
-  if tmo >= 0.0 then (
-    let twaited = ref 0.0 in
-    let r = ref None in
-    while !r = None && !twaited +. max_tmo_f < tmo do
-      twaited := !twaited +. max_tmo_f;
-      r := wsa_wait_for_multiple_events evobj (max_tmo * 1000)
-    done;
-    if !r = None then
-      r := 
-	wsa_wait_for_multiple_events 
-	  evobj (truncate (max 0.0 (tmo -. !twaited)) * 1000);
-    !r
-  )
-  else
-     wsa_wait_for_multiple_events evobj (-1)
+  Netsys_impl_util.slice_time_ms
+    (wsa_wait_for_multiple_events evobj)
+    tmo
 
 
-let list_of_sets ht in_set out_set pri_set =
+let list_of_socket_sets ht in_set out_set pri_set =
   let in_arr  = Array.of_list in_set in
   let out_arr = Array.of_list out_set in
   let pri_arr = Array.of_list pri_set in
@@ -39,15 +20,15 @@ let list_of_sets ht in_set out_set pri_set =
   Array.sort Pervasives.compare pri_arr;
   Hashtbl.fold
     (fun fd (ev,_) l ->
-       let m_in = Netsys_util.mem_sorted_array fd in_arr in
-       let m_out = Netsys_util.mem_sorted_array fd out_arr in
-       let m_pri = Netsys_util.mem_sorted_array fd pri_arr in
+       let m_in = Netsys_impl_util.mem_sorted_array fd in_arr in
+       let m_out = Netsys_impl_util.mem_sorted_array fd out_arr in
+       let m_pri = Netsys_impl_util.mem_sorted_array fd pri_arr in
        let x =
-	 (if m_in then Netsys.pollin_const else 0) lor
-	   (if m_out then Netsys.pollout_const else 0) lor
-	   (if m_pri then Netsys.pollpri_const else 0) in
+	 (if m_in then Netsys_posix.const_rd_event else 0) lor
+	   (if m_out then Netsys_posix.const_wr_event else 0) lor
+	   (if m_pri then Netsys_posix.const_pri_event else 0) in
        if x <> 0 then
-	 (fd, ev, x) :: l
+	 (fd, ev, Netsys_posix.act_events_of_int x) :: l
        else
 	 l
     )
@@ -55,31 +36,119 @@ let list_of_sets ht in_set out_set pri_set =
     []
 
 
-let socket_pollset () : pollset =
+let list_of_w32_objects ht =
+  Hashtbl.fold
+    (fun fd (ev, detail) l ->
+       let (w_rd, w_wr, _) = Netsys_posix.poll_req_triple ev in
+       let x =
+	 match detail with
+	   | Netsys_win32.W32_pipe_helper ph ->
+	       let evobj_rd = Netsys_win32.pipe_rd_event ph in
+	       let evobj_wr = Netsys_win32.pipe_wr_event ph in
+	       let m_in = w_rd && test_event evobj_rd in
+	       let m_out = w_wr && test_event evobj_wr in
+	       (if m_in then Netsys_posix.const_rd_event else 0) lor
+		 (if m_out then Netsys_posix.const_wr_event else 0)
+	   | Netsys_win32.W32_event evobj ->
+	       let m_in = w_rd && test_event evobj in
+	       if m_in then Netsys_posix.const_rd_event else 0
+       in
+       if x <> 0 then
+	 (fd, ev, Netsys_posix.act_events_of_int x) :: l
+       else
+	 l
+    )
+    ht
+    []
+
+
+let string_of_list l =
+  String.concat ","
+    (List.map
+       (fun (fd, _, x) ->
+	  let i = Netsys_posix.poll_rd_result x in
+	  let o = Netsys_posix.poll_wr_result x in
+	  let p = Netsys_posix.poll_pri_result x in
+	  Int64.to_string
+	    (Netsys.int64_of_file_descr fd) ^ ":" ^ 
+	    (if i then "i" else "") ^
+	    (if o then "o" else "") ^
+	    (if p then "p" else "")
+       )
+       l)
+       
+
+
+let w32_count =
+  function
+    | Netsys_win32.W32_event _ -> 1
+    | Netsys_win32.W32_pipe_helper _ -> 2
+
+
+let pollset () : pollset =
   let m = wsa_maximum_wait_events() in
   let evobj_cancel = create_event() in
 object(self)
-  val mutable ht = Hashtbl.create m
+  val mutable sockets = Hashtbl.create m
+  val mutable w32_objects = Hashtbl.create m
+  val mutable w32_size = 0
 
   method find fd =
-    fst(Hashtbl.find ht fd)
-
-  method add fd ev =
-    if Hashtbl.length ht = m-1 then
-      raise Too_many_descriptors;
     try
-      let (_, evobj) = Hashtbl.find ht fd in
-      Hashtbl.replace ht fd (ev, evobj)
+      fst(Hashtbl.find sockets fd)
     with
       | Not_found ->
-	  let evobj = create_event() in
-	  Hashtbl.replace ht fd (ev, evobj)
+	  fst(Hashtbl.find w32_objects fd)
+
+  method add fd ev =
+    let fd_detail =
+      try Some(Netsys_win32.lookup fd) with Not_found -> None in
+    (* Check whether the maximum number of event objects m is exceeded.
+       A socket needs one event object, and a pipe needs 2 objects.
+       We need one extra object for cancellation.
+     *)
+    let fd_count =
+      match fd_detail with
+	| None -> 1
+	| Some w32_obj -> w32_count w32_obj in
+    let count =
+      Hashtbl.length sockets + w32_size + 1 in
+    if count + fd_count > m then
+      raise Too_many_descriptors;
+    match fd_detail with
+      | None -> (* socket *)
+	  ( try
+	      let (_, evobj) = Hashtbl.find sockets fd in
+	      Hashtbl.replace sockets fd (ev, evobj)
+	    with
+	      | Not_found ->
+		  let evobj = create_event() in
+		  Hashtbl.replace sockets fd (ev, evobj)
+	  )
+      | Some w32_obj ->
+	  ( try
+	      let (_, old_detail) = Hashtbl.find w32_objects fd in
+	      w32_size <- w32_size - w32_count old_detail
+	    with Not_found ->
+	      ()
+	  );
+	  Hashtbl.replace w32_objects fd (ev, w32_obj);
+	  w32_size <- w32_size + w32_count w32_obj
+
+    (* Check: this code assumes that an fd is never added as socket,
+       and then as w32_object
+     *)
 
 
   method remove fd =
-    Hashtbl.remove ht fd
+    Hashtbl.remove sockets fd;
+    if Hashtbl.mem w32_objects fd then (
+      let (_, old_detail) = Hashtbl.find w32_objects fd in
+      w32_size <- w32_size - w32_count old_detail;
+      Hashtbl.remove w32_objects fd
+    )
 
-  (* The only reason we use all the Win32 event stuff is that we can 
+  (* The main reason we use all the Win32 event stuff is that we can 
      support cancel_wait. We are very conservative, and use [select]
      to check the descriptors before waiting, and after waiting.
      We use the Win32 events, but we ignore what is exactly recorded
@@ -93,13 +162,13 @@ object(self)
     let (in_set, out_set, pri_set) =
       Hashtbl.fold
 	(fun fd (ev,_) (in_set', out_set', pri_set') ->
-	   let (e_in,e_out,e_pri) = Netsys.poll_in_triple ev in
+	   let (e_in,e_out,e_pri) = Netsys_posix.poll_req_triple ev in
 	   let in_set'' = if e_in then fd :: in_set' else in_set' in
 	   let out_set'' = if e_out then fd :: out_set' else out_set' in
 	   let pri_set'' = if e_pri then fd :: pri_set' else pri_set' in
 	   (in_set'', out_set'', pri_set'')
 	)
-	ht
+	sockets
 	([], [], []) in
     (* First stop any pending event recording, and restart it with the
        events we are looking for.
@@ -110,25 +179,67 @@ object(self)
 	 reset_event evobj;
 	 wsa_event_select evobj fd ev
       )
-      ht;
+      sockets;
+    (* CHECK: it is unclear whether this test is needed *)
     let (in_set', out_set', pri_set') =
       Unix.select in_set out_set pri_set 0.0 in
     if in_set' <> [] || out_set' <> [] || pri_set'<> [] then (
       (* Ok, we are immediately ready. *)
-      list_of_sets ht in_set' out_set' pri_set'
+      let l = 
+	list_of_socket_sets sockets in_set' out_set' pri_set' 
+	@ list_of_w32_objects w32_objects in
+      prerr_endline ("WAIT CASE1 " ^ string_of_list l);
+      l
     )
     else (
       (* No pending events, so wait for the recorded events *)
-      let evobjs = Array.make (Hashtbl.length ht + 1) evobj_cancel in
+      let count =
+	Hashtbl.length sockets + w32_size + 1 in
+      let evobjs = Array.make count evobj_cancel in
+      let fdobjs = Array.make count Unix.stdin in
       let k = ref 1 in
       Hashtbl.iter
 	(fun fd (_, evobj) ->
 	   evobjs.( !k ) <- evobj;
+	   fdobjs.( !k ) <- fd;
 	   incr k
 	)
-	ht;
+	sockets;
+      Hashtbl.iter
+	(fun fd (ev, detail) ->
+	   let (w_rd, w_wr, _) = Netsys_posix.poll_req_triple ev in
+	   match detail with
+	     | Netsys_win32.W32_pipe_helper ph ->
+		 let evobj_rd = Netsys_win32.pipe_rd_event ph in
+		 let evobj_wr = Netsys_win32.pipe_wr_event ph in
+		 if w_rd then (
+		   evobjs.( !k ) <- evobj_rd;
+		   fdobjs.( !k ) <- fd;
+		 );
+		 if w_wr then (
+		   evobjs.( !k + 1 ) <- evobj_wr;
+		   fdobjs.( !k + 1 ) <- fd;
+		 );
+		 k := !k + 2
+	     | Netsys_win32.W32_event evobj ->
+		 if w_rd then (
+		   evobjs.( !k ) <- evobj;
+		   fdobjs.( !k ) <- fd;
+		 );
+		 incr k
+	)
+	w32_objects;
       ( try 
-	  let w_opt = wait_for_multiple_events evobjs tmo in
+	  let _w_opt = wait_for_multiple_events evobjs tmo in
+	  ( match _w_opt with
+	      | None ->
+		  prerr_endline "WAIT TMO"
+	      | Some n ->
+		  prerr_endline ("WAIT SIGNAL " ^ 
+				   Int64.to_string
+				   (Netsys.int64_of_file_descr
+				      (fdobjs.(n))));
+	  );
 	  ()
 (*
 	  match w_opt with
@@ -143,7 +254,11 @@ object(self)
       (* Check again for pending events *)
       let (in_set'', out_set'', pri_set'') =
 	Unix.select in_set out_set pri_set 0.0 in
-      list_of_sets ht in_set'' out_set'' pri_set''
+      let l =
+	list_of_socket_sets sockets in_set'' out_set'' pri_set'' 
+        @ list_of_w32_objects w32_objects in
+      prerr_endline ("WAIT CASE2 " ^ string_of_list l);
+      l
     )
 
   method dispose () = 
@@ -157,10 +272,6 @@ object(self)
       reset_event evobj_cancel
 
 end
-
-
-type descriptor_type =
-    [ `Socket ]
 
 
 (* A pollset_helper starts a new thread and communicates with this thread *)
@@ -263,7 +374,7 @@ let threaded_pollset() =
   let oothr = !Netsys_oothr.provider in
 object(self)
   val mutable pollset_list = []
-    (* List of (descriptor_type, pollset, pollset_helper) *)
+    (* List of (pollset, pollset_helper) *)
 
   val mutable ht = Hashtbl.create 10
     (* Maps descriptors to pollsets *)
@@ -283,14 +394,13 @@ object(self)
   method private add_to l fd ev =
     match l with
       | [] ->
-	  (* TODO: distinguish by descriptor type *)
-	  let pset = socket_pollset() in
+	  let pset = pollset() in
 	  let pset_helper = pollset_helper pset oothr in
-	  pollset_list <- (`Socket, pset, pset_helper) :: pollset_list;
+	  pollset_list <- (pset, pset_helper) :: pollset_list;
 	  pset # add fd ev; 
 	  Hashtbl.replace ht fd pset
 
-      | (dt, pset, pset_helper) :: l' ->  (* when dt is right... *)
+      | (pset, pset_helper) :: l' ->
 	  ( try 
 	      pset # add fd ev; 
 	      Hashtbl.replace ht fd pset
@@ -326,7 +436,7 @@ object(self)
     in
 
     List.iter
-      (fun (_, _, pset_helper) ->
+      (fun (_, pset_helper) ->
 	 pset_helper # start_waiting tmo when_done
       )
       pollset_list;
@@ -339,7 +449,7 @@ object(self)
 
     let r = ref [] in
     List.iter
-      (fun (_, _, pset_helper) ->
+      (fun (_, pset_helper) ->
 	 r := (pset_helper # stop_waiting()) @ !r
       )
       pollset_list;
@@ -356,7 +466,7 @@ object(self)
 
   method dispose() =
     List.iter
-      (fun (_, _, pset_helper) ->
+      (fun (_, pset_helper) ->
 	 pset_helper # join_thread()
       )
       pollset_list;

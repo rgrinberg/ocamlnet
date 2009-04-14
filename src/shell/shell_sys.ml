@@ -7,13 +7,10 @@
  * is_file_descr of the shell-0.2 branch.
  *)
 
-module U = Unix;;    (* such that I can type U.xxx instead of Unix.xxx *)
-module UX = Netsys;;
-
 let safe_close fd =
   (* Try to close, but don't fail if the descriptor is bad *)
   try
-    U.close fd
+    Unix.close fd
   with
       Unix.Unix_error(Unix.EBADF,_,_) -> ()
 ;;
@@ -109,7 +106,7 @@ let get_env_var e v =
 ;;
 
 let current_env () =
-  ref (U.environment())
+  ref (Unix.environment())
 ;;
 
 
@@ -120,13 +117,24 @@ let current_env () =
 
 exception Fatal_error of exn;;
 
+let () =
+  Netexn.register_printer
+    (Fatal_error Not_found)
+    (fun e ->
+       match e with
+	 | Fatal_error e' ->
+	     "Shell_sys.Fatal_error(" ^ Netexn.to_string e' ^ ")"
+	 | _ ->
+	     assert false
+    )
+
 type command =
     { mutable c_cmdname     : string;
       mutable c_arguments   : string array;
       mutable c_directory   : string option;
       mutable c_environment : environment;
-      mutable c_descriptors : U.file_descr list;
-      mutable c_assignments : (U.file_descr * U.file_descr) list;
+      mutable c_descriptors : Unix.file_descr list;
+      mutable c_assignments : (Unix.file_descr * Unix.file_descr) list;
       mutable c_filename    : string;
     }
 ;;
@@ -136,7 +144,7 @@ let command
       ?(arguments = [||])
       ?chdir
       ?(environment = current_env())
-      ?(descriptors = [ U.stdin; U.stdout; U.stderr ])
+      ?(descriptors = [ Unix.stdin; Unix.stdout; Unix.stderr ])
       ?(assignments = [])
       ~filename
       () =
@@ -187,10 +195,10 @@ let copy_command c =
 
 let is_executable_file name =
   try
-    U.access name [ U.X_OK ];
+    Unix.access name [ Unix.X_OK ];
     true
   with
-      U.Unix_error(_,_,_) -> false
+      Unix.Unix_error(_,_,_) -> false
 ;;
 
 let is_executable c = is_executable_file c.c_filename;;
@@ -215,7 +223,7 @@ let split_path s =
 exception Executable_not_found of string;;
 
 let lookup_executable
-      ?(path = split_path (try U.getenv "PATH" with Not_found -> ""))
+      ?(path = split_path (try Unix.getenv "PATH" with Not_found -> ""))
       name =
   if String.contains name '/' then begin
     if is_executable_file name then
@@ -252,7 +260,7 @@ type group_action =
 type process =
     { p_command : command;
       p_id : int;
-      mutable p_status : U.process_status option;
+      mutable p_status : Unix.process_status option;
         (* None means: process is still running *)
       mutable p_abandoned : bool;
         (* true means: the SIGCHLD handler will watch the process, "wait"
@@ -264,7 +272,7 @@ type process =
 let dummy_process =
   { p_command = command "XXX" ();
     p_id = 0;
-    p_status = Some (U.WEXITED 0);
+    p_status = Some (Unix.WEXITED 0);
     p_abandoned = false;
   }
 ;;
@@ -347,17 +355,17 @@ let run
 
   try
 
-    let old_mask = U.sigprocmask U.SIG_BLOCK all_signals in
+    let old_mask = Unix.sigprocmask Unix.SIG_BLOCK all_signals in
     cleanup_procmask :=
-      Some (fun () -> ignore(U.sigprocmask U.SIG_SETMASK old_mask));
+      Some (fun () -> ignore(Unix.sigprocmask Unix.SIG_SETMASK old_mask));
 
     (* Create a pipeline for control messages: *)
-    let control_in, control_out = U.pipe() in
+    let control_in, control_out = Unix.pipe() in
     let control_out = ref control_out in     (* make control_out assignable *)
     cleanup_control_in :=
-      Some (fun () -> U.close control_in);
+      Some (fun () -> Unix.close control_in);
     cleanup_control_out :=
-      Some (fun () -> U.close !control_out);
+      Some (fun () -> Unix.close !control_out);
 
     let pipe_assignments =
       List.map
@@ -392,7 +400,7 @@ let run
        flush stdout;
     *)
 
-    let pid = U.fork() in
+    let pid = Unix.fork() in
     if pid = 0 then begin
       (* Beginning of the new subprocess -
        *
@@ -412,23 +420,23 @@ let run
 
         (* Close control_in such that the parent process can detect EOF: *)
 
-        U.close control_in;
+        Unix.close control_in;
 
         (* Process group: *)
 
 	begin match group with
 	    Current_group -> ()
-	  | New_bg_group  -> UX.setpgid 0 0
-	  | Join_group g  -> UX.setpgid 0 g
+	  | New_bg_group  -> Netsys_posix.setpgid 0 0
+	  | Join_group g  -> Netsys_posix.setpgid 0 g
 	  | New_fg_group  ->
-	      UX.setpgid 0 0;
+	      Netsys_posix.setpgid 0 0;
 	      (* Get a file descriptor of the tty: *)
-	      let tty_name = UX.ctermid() in
+	      let tty_name = Netsys_posix.ctermid() in
 	      let tty =
 		try
-		  U.openfile tty_name [ U.O_RDWR ] 0
+		  Unix.openfile tty_name [ Unix.O_RDWR ] 0
 		with
-		    U.Unix_error(_,_,_) ->
+		    Unix.Unix_error(_,_,_) ->
 		      (* There is no tty, or a serious system failure *)
 		      failwith "Cannot open controlling tty"
 	      in
@@ -438,9 +446,9 @@ let run
 	       *)
 	      ignore(Sys.signal Sys.sigttou Sys.Signal_ignore);
 	      (* Set the foreground process group: *)
-	      UX.tcsetpgrp tty (U.getpid());
+	      Netsys_posix.tcsetpgrp tty (Unix.getpid());
 	      (* Close tty *)
-	      U.close tty;
+	      Unix.close tty;
 	      ()
 	end;
 
@@ -460,8 +468,8 @@ let run
 		 * careful.
 		 *)
 		if List.exists (fun (fd1,fd2) -> !fd1=to_fd) fdlist' then begin
-		  let new_fd = U.dup to_fd in
-		  U.set_close_on_exec new_fd;
+		  let new_fd = Unix.dup to_fd in
+		  Unix.set_close_on_exec new_fd;
 		  List.iter
 		    (fun (fd1, fd2) -> if !fd1 = to_fd then fd1 := new_fd)
 		    fdlist'
@@ -469,8 +477,8 @@ let run
 		  (* Be careful if to_fd = control_out, too *)
 		else
 		  if to_fd = !control_out then
-		    control_out := U.dup !control_out;
-		U.dup2 !from_fd to_fd;
+		    control_out := Unix.dup !control_out;
+		Unix.dup2 !from_fd to_fd;
 		assign_parallel fdlist'
 	    | [] ->
 		()
@@ -484,15 +492,15 @@ let run
 	List.iter
 	  (fun (from_fd, to_fd) ->
 	     if to_fd = !control_out then
-	       control_out := U.dup !control_out;
-	     U.dup2 from_fd to_fd
+	       control_out := Unix.dup !control_out;
+	     Unix.dup2 from_fd to_fd
 	  )
 	  c.c_assignments;
 
         (* Close all descriptors that must be closed: *)
 
-	for fd = 0 to UX.sysconf_open_max() - 1 do
-	  let fd' = UX.file_descr_of_int fd in
+	for fd = 0 to Netsys_posix.sysconf_open_max() - 1 do
+	  let fd' = Netsys_posix.file_descr_of_int fd in
 	  if not(Hashtbl.mem open_descr_ht fd') && fd' <> !control_out then
 	    safe_close fd'
 	done;
@@ -501,13 +509,13 @@ let run
 
 	Hashtbl.iter
 	  (fun fd _ ->
-	     try U.clear_close_on_exec fd
+	     try Unix.clear_close_on_exec fd
 	     with Unix.Unix_error(Unix.EBADF,_,_) -> ())
 	  open_descr_ht;
 
         (* Set the close-on-exec flag for control_out: *)
 
-	U.set_close_on_exec !control_out;
+	Unix.set_close_on_exec !control_out;
 
         (* Set signals to SIG_DFL (except keyboard signals) *)
 
@@ -528,7 +536,7 @@ let run
 
         (* Set the signal blocking mask to [], thus allowing all signals again: *)
 
-	ignore(U.sigprocmask U.SIG_SETMASK []);
+	ignore(Unix.sigprocmask Unix.SIG_SETMASK []);
 
         (* TEST: check that no major heap allocations happen:
 	   Gc.print_stat stdout;
@@ -537,7 +545,7 @@ let run
 
         (* Exec the new program: *)
 
-	U.execve c.c_filename args !(c.c_environment); (* Produces warning X *)
+	Unix.execve c.c_filename args !(c.c_environment); (* Produces warning X *)
 
         (* On success, control_out will be closed. On failure, an exception
 	 * is raised and we can use control_out to pass the exception to the
@@ -552,16 +560,16 @@ let run
 	  any_exception ->
 	    (* An exception happened in the subprocess. *)
 
-	    let out = U.out_channel_of_descr !control_out in
+	    let out = Unix.out_channel_of_descr !control_out in
 	    Marshal.to_channel out any_exception [];
 	    close_out out;
-	    UX._exit 127
+	    Netsys._exit 127
     end;
 
     cleanup_subprocess :=
       Some (fun () ->
-	      try ignore(U.waitpid [] pid)
-	      with U.Unix_error(U.ECHILD,_,_) -> ()
+	      try ignore(Unix.waitpid [] pid)
+	      with Unix.Unix_error(Unix.ECHILD,_,_) -> ()
 		      (* may happen if SIGCHILD handler is modified *)
 	   );
 
@@ -571,7 +579,7 @@ let run
 
     (* Check whether the command could be executed or not: *)
 
-    let inch = U.in_channel_of_descr control_in in
+    let inch = Unix.in_channel_of_descr control_in in
     cleanup_control_in :=
       Some (fun () -> close_in inch);
     let subprocess_exception =
@@ -589,8 +597,8 @@ let run
 	Some x ->
 	  (* Wait for the process to avoid zombies: *)
 	  begin
-	    try ignore(U.waitpid [] pid)
-	    with U.Unix_error(U.ECHILD,_,_) -> ()
+	    try ignore(Unix.waitpid [] pid)
+	    with Unix.Unix_error(Unix.ECHILD,_,_) -> ()
 	  end;
 	  raise x
       | None ->
@@ -662,15 +670,15 @@ let wait
   let rec wait_until_process_event() =
     (* Note: Do not use this function if wnohang *)
     let flags =
-      if wuntraced then [ U.WUNTRACED ] else [] in
+      if wuntraced then [ Unix.WUNTRACED ] else [] in
     match pl with
 	[ p ] ->
 	  begin try
-	    let _, status = U.waitpid flags p.p_id in
+	    let _, status = Unix.waitpid flags p.p_id in
 	    p.p_status <- Some status;
 	    [ Process_event p ]
 	  with
-	      U.Unix_error(U.EINTR,_,_) as ex ->
+	      Unix.Unix_error(Unix.EINTR,_,_) as ex ->
 		if restart
 		then wait_until_process_event()
 		else raise ex
@@ -681,11 +689,11 @@ let wait
 
   let check_process_events() =
     let flags =
-      if wuntraced then [ U.WUNTRACED; U.WNOHANG ] else [ U.WNOHANG ] in
+      if wuntraced then [ Unix.WUNTRACED; Unix.WNOHANG ] else [ Unix.WNOHANG ] in
     List.flatten
       (List.map
 	 (fun p ->
-	    let pid, status = U.waitpid flags p.p_id in
+	    let pid, status = Unix.waitpid flags p.p_id in
 	    if pid = p.p_id then begin
 	      p.p_status <- Some status;
 	      [ Process_event p ]
@@ -708,7 +716,7 @@ let wait
 	  let timeout =
 	    if wnohang then 0.0 else check_interval in
 	  let indicate_read, indicate_write, indicate_except =
-	    U.select read write except timeout in
+	    Unix.select read write except timeout in
 	  if indicate_read = [] && indicate_write = [] && indicate_except = []
 	     && not wnohang
 	  then
@@ -720,7 +728,7 @@ let wait
       with
 	  Loop ->
 	    wait_until_event()
-	| U.Unix_error(U.EINTR,_,_) as ex ->
+	| Unix.Unix_error(Unix.EINTR,_,_) as ex ->
 	    if restart then
 	      wait_until_event()
 	    else
@@ -747,7 +755,7 @@ let call c =
 
 
 let kill ?(signal = Sys.sigterm) p =
-  U.kill p.p_id signal
+  Unix.kill p.p_id signal
 ;;
 
 
@@ -814,15 +822,15 @@ let standard_system_handler() =
 type pipeline =
     { pl_src_command : command;
       pl_dest_command : command;
-      pl_src_descr : U.file_descr;
-      pl_dest_descr : U.file_descr;
+      pl_src_descr : Unix.file_descr;
+      pl_dest_descr : Unix.file_descr;
       pl_bidirectional : bool;
     }
 ;;
 
 type pipehandler =
     { ph_command : command;
-      ph_descr : U.file_descr;
+      ph_descr : Unix.file_descr;
       ph_handler : (Unix.file_descr -> bool);
     }
 ;;
@@ -855,8 +863,8 @@ let add_command c cg =
 
 let add_pipeline
       ?(bidirectional = false)
-      ?(src_descr = U.stdout)
-      ?(dest_descr = U.stdin)
+      ?(src_descr = Unix.stdout)
+      ?(dest_descr = Unix.stdin)
       ~src
       ~dest
       cg =
@@ -879,7 +887,7 @@ let add_pipeline
 
 
 let add_producer
-      ?(descr = U.stdin)
+      ?(descr = Unix.stdin)
       ~producer
       c
       cg =
@@ -899,7 +907,7 @@ let add_producer
 
 
 let add_consumer
-      ?(descr = U.stdout)
+      ?(descr = Unix.stdout)
       ~consumer
       c
       cg =
@@ -942,12 +950,12 @@ let from_string
     let n =
       if m > 0 then begin
 	try
-	  U.write fd s (!current_pos) m
+	  Unix.write fd s (!current_pos) m
 	with
-	    U.Unix_error(U.EPIPE,_,_) ->
+	    Unix.Unix_error(Unix.EPIPE,_,_) ->
 	      epipe();
 	      m            (* forces that the descriptor will be closed *)
-	  | U.Unix_error((U.EAGAIN | U.EWOULDBLOCK),_,_) ->
+	  | Unix.Unix_error((Unix.EAGAIN | Unix.EWOULDBLOCK),_,_) ->
 	      (* maybe somebody has set non-blocking mode for fd *)
 	      0
 	  (* We do not catch EINTR - the calling "wait_group" routine
@@ -958,7 +966,7 @@ let from_string
 	0 in
     current_pos := !current_pos + n;
     if !current_pos = max_pos then begin
-      U.close fd;
+      Unix.close fd;
       false
     end
     else
@@ -990,18 +998,18 @@ let from_stream
     (* (Continue to) write the current stream element: *)
     match !current_el with
 	None ->
-	  U.close fd;
+	  Unix.close fd;
 	  false
       | Some x ->
 	  let m = String.length x - !current_pos in
 	  let n =
 	    try
-	      U.write fd x (!current_pos) m
+	      Unix.write fd x (!current_pos) m
 	    with
-		U.Unix_error(U.EPIPE,_,_) ->
+		Unix.Unix_error(Unix.EPIPE,_,_) ->
 		  epipe();
 		  m            (* forces that the descriptor will be closed *)
-	      | U.Unix_error((U.EAGAIN | U.EWOULDBLOCK),_,_) ->
+	      | Unix.Unix_error((Unix.EAGAIN | Unix.EWOULDBLOCK),_,_) ->
 		  (* maybe somebody has set non-blocking mode for fd *)
 		  0
               (* We do not catch EINTR - the calling "wait_group" routine
@@ -1021,16 +1029,16 @@ let to_buffer b =
   let next fd =
     let n =
       try
-	let n = U.read fd s 0 m in
+	let n = Unix.read fd s 0 m in
 	if n = 0 then -1 else n
       with
-	| U.Unix_error((U.EAGAIN | U.EWOULDBLOCK),_,_) ->
+	| Unix.Unix_error((Unix.EAGAIN | Unix.EWOULDBLOCK),_,_) ->
 	    (* maybe somebody has set non-blocking mode for fd *)
 	    0
     in
     if n < 0 then begin
       (* EOF *)
-      U.close fd;
+      Unix.close fd;
       false
     end
     else begin
@@ -1061,8 +1069,8 @@ type job_instance =
       pg_processes : process list;
       pg_mode : group_mode;
       pg_forward_signals : bool;
-      mutable pg_fd_producer_alist : (U.file_descr * pipehandler) list;
-      mutable pg_fd_consumer_alist : (U.file_descr * pipehandler) list;
+      mutable pg_fd_producer_alist : (Unix.file_descr * pipehandler) list;
+      mutable pg_fd_consumer_alist : (Unix.file_descr * pipehandler) list;
       mutable pg_pending : process_event list;
       mutable pg_status : job_status;
       mutable pg_exception : exn;
@@ -1110,7 +1118,7 @@ let abandoned_job_processes = ref [| dummy_process |];;
 
 
 type safe_fd =
-    FD of U.file_descr
+    FD of Unix.file_descr
   | FD_closed
 
 let mk_fd fd = ref(FD fd);;
@@ -1126,7 +1134,7 @@ let dest_fd safe_fd =
 let close_fd safe_fd =
   match !safe_fd with
       FD fd ->
-	U.close fd;
+	Unix.close fd;
 	safe_fd := FD_closed;
     | FD_closed ->
 	()
@@ -1210,9 +1218,9 @@ let run_job
 	       (* Create a new pipeline: *)
 	       let out_end, in_end =
 		 if pipe.pl_bidirectional then
-		   U.socketpair U.PF_UNIX U.SOCK_STREAM 0
+		   Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0
 		 else
-		   U.pipe()
+		   Unix.pipe()
 	       in
 	       pipe_descriptors :=
 	         (pipe, (mk_fd out_end, mk_fd in_end)) :: !pipe_descriptors
@@ -1283,8 +1291,8 @@ let run_job
     List.iter
       (fun ph ->
 	 check_ph true ph;
-	 let out_end, in_end = U.pipe() in
-	 U.set_nonblock in_end;
+	 let out_end, in_end = Unix.pipe() in
+	 Unix.set_nonblock in_end;
 	 producer_descriptors :=
 	   (ph, (mk_fd out_end, mk_fd in_end)) :: !producer_descriptors;
       )
@@ -1296,8 +1304,8 @@ let run_job
     List.iter
       (fun ph ->
 	 check_ph false ph;
-	 let out_end, in_end = U.pipe() in
-	 U.set_nonblock out_end;
+	 let out_end, in_end = Unix.pipe() in
+	 Unix.set_nonblock out_end;
 	 consumer_descriptors :=
 	   (ph, (mk_fd out_end, mk_fd in_end)) :: !consumer_descriptors;
       )
@@ -1581,7 +1589,7 @@ let register_job sys pg =
       try
 	f x
       with
-	  U.Unix_error(U.EINTR,_,_) ->
+	  Unix.Unix_error(Unix.EINTR,_,_) ->
 	    restartable f x
     else
       f x
@@ -1630,7 +1638,7 @@ let register_job sys pg =
       let successful =
 	List.for_all
 	  (fun p ->
-	     try status p = U.WEXITED 0 with Not_found -> assert false)
+	     try status p = Unix.WEXITED 0 with Not_found -> assert false)
 	  pg.pg_processes
       in
       let new_status = if successful then Job_ok else Job_error in
@@ -1698,7 +1706,7 @@ let kill_process_group
       pg =
   if pg.pg_mode = Same_as_caller then
     raise No_Unix_process_group;
-  U.kill (- pg.pg_id) signal
+  Unix.kill (- pg.pg_id) signal
 ;;
 
 let kill_processes
@@ -1717,7 +1725,7 @@ let kill_processes
 	       try
 		 kill ~signal:signal p
 	       with
-		   U.Unix_error(U.ESRCH,_,_) ->
+		   Unix.Unix_error(Unix.ESRCH,_,_) ->
 		     (* The process does not exist *)
 		     ()
       )
@@ -1779,7 +1787,7 @@ let abandon_job ?(signal = Sys.sigterm) pg =
      * abandoned_job_processes.
      *)
 
-    U.kill (U.getpid()) (Sys.sigchld);
+    Unix.kill (Unix.getpid()) (Sys.sigchld);
     (* Force a SIGCHLD such that the abandoned processes will be checked
      * in near future.
      *)
@@ -1810,7 +1818,7 @@ let watch_for_zombies () =
   Array.iter
     (fun p ->
        if p.p_status = None then begin
-	 let pid,status = U.waitpid [ U.WNOHANG ] p.p_id in
+	 let pid,status = Unix.waitpid [ Unix.WNOHANG ] p.p_id in
 	 if pid = p.p_id then
 	   p.p_status <- Some status
        end
@@ -1883,14 +1891,14 @@ let install_job_handlers () =
     if signo <> Sys.sigchld then begin
       (* This works only if the default action is to terminate the process. *)
       ignore(Sys.signal signo Sys.Signal_default);
-      U.kill (U.getpid()) signo;
+      Unix.kill (Unix.getpid()) signo;
       (* The signal signo is pending but usually blocked because this function
        * is called from within the signal handler for signo. To force that
        * the signal is delivered we must unblock the signal.
        *)
-      ignore(U.sigprocmask U.SIG_UNBLOCK [ signo ]);
+      ignore(Unix.sigprocmask Unix.SIG_UNBLOCK [ signo ]);
       (* Wait for any signal - at least signo will happen! *)
-      while true do U.pause() done;
+      while true do Unix.pause() done;
       (* Never return to this point of execution! *)
       assert false
     end

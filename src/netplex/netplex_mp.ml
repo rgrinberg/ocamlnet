@@ -63,12 +63,17 @@ object(self)
              * Make sure we close [fd_wr] last! This tells the main process
              * that the critical section is over.
              *)
-	    let l' = List.map Netsys.int_of_file_descr (fd_wr :: l) in
-	    let fd_max = Netsys.sysconf_open_max() in
+	    (* FIXME: Closing descriptors may be wrong, because there may
+               be references to descriptors which still exist in the child.
+               Especially check Netsys_pollset_posix.reset.
+               Maybe we should allow to register "atfork" functions?
+	     *)
+	    let l' = List.map Netsys_posix.int_of_file_descr (fd_wr :: l) in
+	    let fd_max = Netsys_posix.sysconf_open_max() in
 	    for k = 3 to fd_max - 1 do  (* Note: Keep 0, 1, 2 open *)
 	      if not(List.mem k l') then
 		( try
-		    Unix.close (Netsys.file_descr_of_int k)
+		    Unix.close (Netsys_posix.file_descr_of_int k)
 		  with
 		    | _ -> ()
 		)
@@ -89,7 +94,7 @@ object(self)
 	      with
 		| error ->
 		    prerr_endline
-		      ("Netplex Catastrophic Error: Uncaught exception in child process " ^ string_of_int pid ^ ": " ^ Printexc.to_string error);
+		      ("Netplex Catastrophic Error: Uncaught exception in child process " ^ string_of_int pid ^ ": " ^ Netexn.to_string error);
 		    exit 2
 	    );
 	    exit 0
@@ -99,7 +104,8 @@ object(self)
 	  pid_list <- pid :: pid_list;
 	  (* Wait until the child completes the critical section: *)
 	  Unix.close fd_wr;
-	  ignore (Netsys.restart (Netsys.wait_until_readable fd_rd) (-1.0));
+	  ignore (Netsys.restart
+		    (Netsys.wait_until_readable `Read_write fd_rd) (-1.0));
 	  Unix.close fd_rd;
 
 	  ( object

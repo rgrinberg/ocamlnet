@@ -448,6 +448,7 @@ d examples/netclient
 d examples/netclient/simple
 p examples/netclient/simple/.*\.ml
 d examples/netclient/spider
+f examples/netclient/spider/scan.mll
 x examples/netclient/spider/scan.ml
 p examples/netclient/spider/.*\.ml
 p examples/netclient/spider/.*\.mli

@@ -1445,6 +1445,14 @@ class socket_multiplex_controller
 
   let fd_style = Netsys.get_fd_style fd in
 
+  let get_ph() = Netsys_win32.lookup_pipe_helper fd in
+    (* To be used only when fd_style = `Pipe *)
+
+  let supports_half_open_connection =
+    match fd_style with
+      | `W32_pipe -> false
+      | _ -> supports_half_open_connection in
+
 object(self)
   val mutable alive = true
   val mutable read_eof = false
@@ -1480,7 +1488,12 @@ object(self)
     send_to <- Some a
 
   initializer
-    Unix.set_nonblock fd
+    match fd_style with
+      | `W32_pipe -> ()
+      | `W32_event ->
+	  invalid_arg "Uq_engines.socket_multiplex_controller: invalid type of file descriptor"
+      | _ -> 
+	  Unix.set_nonblock fd
 
   method start_reading ?(peek = fun ()->()) ~when_done s pos len =
     if pos < 0 || len < 0 || pos + len > String.length s then
@@ -1531,6 +1544,7 @@ object(self)
   method start_writing_eof ~when_done () =
     if not supports_half_open_connection then
       failwith "#start_writing_eof: operation not supported";
+    (* From here on we know fd is not a named pipe *)
     if writing <> None || writing_eof <> None then
       failwith "#start_writing_eof: already writing";
     if shutting_down <> None then
@@ -1670,6 +1684,11 @@ object(self)
 			      n
 			  | `Read_write ->
 			      Unix.read fd s pos len
+			  | `W32_pipe ->
+			      let ph = get_ph() in
+			      Netsys_win32.pipe_read ph s pos len
+			  | `W32_event ->
+			      assert false
 		      in
 		      if n = 0 (* && not use_rcv *) then (
 			read_eof <- true;
@@ -1697,10 +1716,16 @@ object(self)
 	      | Some (f_when_done, op) when op = Unixqueue.Wait_in fd ->
 		  let exn_opt, notify =
 		    try
-		      Unix.shutdown fd 
-			(if wrote_eof then Unix.SHUTDOWN_RECEIVE else
-			   Unix.SHUTDOWN_ALL);
-		      (None, true)
+		      match fd_style with
+			| `W32_pipe ->
+			    let ph = get_ph() in
+			    Netsys_win32.pipe_shutdown ph;
+			    (None, true)
+			| _ ->
+			    Unix.shutdown fd 
+			      (if wrote_eof then Unix.SHUTDOWN_RECEIVE else
+				 Unix.SHUTDOWN_ALL);
+			    (None, true)
 		    with
 		      | Unix.Unix_error(Unix.EAGAIN,_,_)
 		      | Unix.Unix_error(Unix.EWOULDBLOCK,_,_)
@@ -1741,6 +1766,10 @@ object(self)
 			      )
 			  | `Read_write ->
 			      Unix.single_write fd s pos len
+			  | `W32_pipe ->
+			      let ph = get_ph() in
+			      Netsys_win32.pipe_write ph s pos len
+			  | `W32_event -> assert false
 		      in
 		      (None, n, true)
 		    with
@@ -1775,10 +1804,16 @@ object(self)
 	      | Some (f_when_done, op') when op = op' ->
 		  let exn_opt, notify =
 		    try
-		      Unix.shutdown fd 
-			(if wrote_eof then Unix.SHUTDOWN_RECEIVE else
-			   Unix.SHUTDOWN_ALL);
-		      (None, true)
+		      match fd_style with
+			| `W32_pipe ->
+			    let ph = get_ph() in
+			    Netsys_win32.pipe_shutdown ph;
+			    (None, true)
+			| _ ->
+			    Unix.shutdown fd 
+			      (if wrote_eof then Unix.SHUTDOWN_RECEIVE else
+				 Unix.SHUTDOWN_ALL);
+			    (None, true)
 		    with
 		      | Unix.Unix_error(Unix.EAGAIN,_,_)
 		      | Unix.Unix_error(Unix.EWOULDBLOCK,_,_)
@@ -1820,8 +1855,11 @@ object(self)
       disconnecting <- None;
       have_handler <- false;
       Unixqueue.clear esys group;
-      if close_inactive_descr then
-	Unix.close fd
+      if close_inactive_descr then (
+	match fd_style with
+	  | `W32_pipe -> Netsys_win32.pipe_shutdown (get_ph())
+	  | _ -> Unix.close fd
+      )
     )
 
   method event_system = esys
@@ -2162,6 +2200,7 @@ type sockspec =
   [ `Sock_unix of (Unix.socket_type * string)
   | `Sock_inet of (Unix.socket_type * Unix.inet_addr * int)
   | `Sock_inet_byname of (Unix.socket_type * string * int)
+  | `Pipe of (Netsys_win32.pipe_mode * string)
   ]
 ;;
 
@@ -2240,9 +2279,22 @@ let getconnerror s = (* Call this after getpeerspec raised ENOTCONN *)
  *)
 
 
+let rec pipe_connect_loop name mode =
+  try
+    Netsys_win32.pipe_connect name mode
+  with
+    | Unix.Unix_error(Unix.EAGAIN, _, _) ->
+	(* TODO: do this in an asynchronous loop *)
+	Unix.sleep 1;
+	pipe_connect_loop name mode
+    
+
+
 class direct_socket_connector() : client_socket_connector =
 object (self)
   method connect connaddr ues =
+
+    let close_descr s () = Unix.close s in
 
     let setup_socket s stype dest_addr opts =
       try
@@ -2261,14 +2313,16 @@ object (self)
 			if stype <> stype' then invalid_arg "Socket type mismatch";
 			let addr = addr_of_name name in
 			Unix.bind s (Unix.ADDR_INET(addr,port))
+		    | `Pipe _ ->
+			assert false
 		)
 	    | None -> ()
 	);
 	Unix.connect s dest_addr;
-	(s, stype, true)
+	(s, stype, true, close_descr s)
       with
 	  Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) -> 
-	    (s,stype,false)
+	    (s,stype,false, close_descr s)
 	      (* Note: Win32 returns EWOULDBLOCK instead of EINPROGRESS *)
 	| error ->
 	    (* Remarks:
@@ -2284,7 +2338,7 @@ object (self)
 
     match connaddr with
 	`Socket(sockspec,opts) ->
-	  let (s, stype, is_connected) = 
+	  let (s, stype, is_connected, close) = 
 	    match sockspec with
 		`Sock_unix(stype, path) ->
 		  let s = Unix.socket Unix.PF_UNIX stype 0 in
@@ -2298,17 +2352,29 @@ object (self)
 		  let dom = Netsys.domain_of_inet_addr addr in
 		  let s = Unix.socket dom stype 0 in
 		  setup_socket s stype (Unix.ADDR_INET(addr,port)) opts;
+	      | `Pipe (mode,name) ->
+		  let ph = Netsys_win32.pipe_connect name mode in
+		  let s = Netsys_win32.pipe_descr ph in
+		  (s, Unix.SOCK_STREAM, true, 
+		   (fun () -> Netsys_win32.pipe_shutdown ph)
+		  )
 	  in
 	  let conn_eng =
 	    if is_connected then (
-	      let status =
-		try 
-		  Netsys.connect_check s;
-		  `Done(`Socket(s, getsockspec stype s))
-		with
-		  | error -> 
-		      `Error error in
-	      new epsilon_engine status ues
+	      match sockspec with
+		| `Pipe (mode,_) ->
+		    let status = 
+		      `Done(`Socket(s, `Pipe(mode, ""))) in
+		    new epsilon_engine status ues
+		| _ ->
+		    let status =
+		      try 
+			Netsys.connect_check s;
+			`Done(`Socket(s, getsockspec stype s))
+		      with
+			| error -> 
+			    `Error error in
+		    new epsilon_engine status ues
 	    )
 	    else (
 	      (* Now wait until the socket is writeable. Win32 reports connect
@@ -2333,8 +2399,8 @@ object (self)
            * the socket must be closed. Same when we enter an error state.
            *)
 	  when_state
-	    ~is_aborted:(fun () -> Unix.close s)
-	    ~is_error:(fun _ -> Unix.close s)
+	    ~is_aborted:(fun () -> close())
+	    ~is_error:(fun _ -> close())
 	    conn_eng;
 	  (* conn_eng is what the user sees: *)
 	  conn_eng
@@ -2512,54 +2578,200 @@ end
 ;;
 
 
+class pipe_acceptor mode name backlog ues : server_socket_acceptor =
+  let notify_event =
+    Netsys_win32.create_event() in
+  let notify_fd = Netsys_win32.event_descr notify_event in
+  let new_ph() =
+    let ph = 
+      Netsys_win32.create_local_named_pipe name mode backlog in
+    Netsys_win32.pipe_listen ph;
+    Netsys_win32.pipe_signal ph notify_event;
+        (* We arrange that [notify_event] is signaled when the
+           pipe is done with a connection
+	 *)
+    ph in
+  let ph_array =
+    Array.init
+      backlog
+      (fun _ -> new_ph()) in
+object(self)
+  val mutable acc_engine = None
+			     (* The engine currently accepting connections *)
+
+  method server_address = `Pipe(mode,name)
+
+  method multiple_connections = true
+
+  method accept () =
+    if acc_engine <> None then
+      failwith "Uq_engines.pipe_acceptor: Already waiting for connection";
+
+    let test_for_free_pipes() =
+      (* Examine all pipes, and set as many pipes as possible to 
+         listening state. Find all free pipes
+       *)
+      let free = ref [] in
+      for k = 0 to backlog-1 do
+	let ph = ph_array.(k) in
+	match Netsys_win32.pipe_conn_state ph with
+	  | Netsys_win32.Pipe_deaf ->
+	      Netsys_win32.pipe_listen ph;
+	      free := ph :: !free
+	  | Netsys_win32.Pipe_listening ->
+	      free := ph :: !free
+	  | Netsys_win32.Pipe_connected ->
+	      ()
+	  | Netsys_win32.Pipe_down ->
+	      let ph' = new_ph() in
+	      ph_array.(k) <- ph';
+	      free := ph :: !free
+      done;
+      !free
+    in
+
+    let rec find_pipe_eng() =
+      Netsys_win32.reset_event notify_event;
+      match test_for_free_pipes() with
+	| [] ->
+	    (* Wait until a pipe becomes free: *)
+	    (* Note that it is possible that we get "false alarms", i.e.
+               the event is signaled although no pipe is free
+	     *)
+	    let eng = 
+	      new poll_engine [ Unixqueue.Wait_in notify_fd, (-1.0) ] ues in
+	    new seq_engine
+	      eng
+	      (fun _ -> find_pipe_eng())
+	| l ->
+	    new epsilon_engine (`Done l) ues
+    in
+
+    let rec accept_eng() =
+      let find_eng = find_pipe_eng() in
+      new seq_engine
+	find_eng
+	(fun ph_list ->
+	   let wait_list =
+	     List.map
+	       (fun ph ->
+		  let fd = Netsys_win32.pipe_descr ph in
+		  Unixqueue.Wait_out fd, (-1.0)
+	       )
+	       ph_list @ [ Unixqueue.Wait_in notify_fd, (-1.0) ] in
+	   let eng = new poll_engine wait_list ues in
+	   new seq_engine
+	     eng
+	     (fun ev ->
+		match ev with
+		  | Unixqueue.Output_readiness(_,fd) ->
+		      acc_engine <- None;
+		      (* Call pipe_write once to check the error status,
+                         and to do any state transitions
+		       *)
+		      ( try
+			  match Netsys_win32.lookup fd with
+			    | Netsys_win32.W32_pipe_helper ph ->
+				ignore(Netsys_win32.pipe_write ph "" 0 0)
+			    | _ ->
+				()
+			with _ -> ()  (* unable to handle errors here *)
+		      );
+		      new epsilon_engine (`Done(fd, `Pipe(mode, ""))) ues
+		  | Unixqueue.Input_arrived(_,_) ->
+		      (* it must have been the notification event *)
+		      accept_eng()
+		  | _ ->
+		      assert false
+	     )
+	)
+    in
+
+    let acc_eng = accept_eng() in
+    when_state
+      ~is_error:(fun x -> acc_engine <- None)
+      ~is_aborted:(fun () -> acc_engine <- None)
+      acc_eng;
+
+    acc_engine <- Some acc_eng;
+    acc_eng
+
+  method shut_down() =
+    ( match acc_engine with
+	  None -> 
+	    ()
+	| Some acc -> 
+	    acc # abort()
+    );
+    (* CHECK: Unclear whether this is correct: *)
+    for k = 0 to backlog-1 do
+      let ph = ph_array.(k) in
+      match Netsys_win32.pipe_conn_state ph with
+	| Netsys_win32.Pipe_deaf ->
+	    ()
+	| Netsys_win32.Pipe_listening ->
+	    Netsys_win32.pipe_deafen ph
+	| Netsys_win32.Pipe_connected ->
+	    ()
+	| Netsys_win32.Pipe_down ->
+	    ()
+      done
+end
+;;
+
+
 class direct_socket_listener () : server_socket_listener =
 object(self)
-  method listen lstnaddr ues = 
-    (* Create listening server socket: *)
-    let sock = 
-      match lstnaddr with
-	  `Socket (sockspec, opts) ->
-	    ( match sockspec with
-		  `Sock_unix(stype, path) ->
-		    let s = Unix.socket Unix.PF_UNIX stype 0 in
-		    Unix.set_nonblock s;
-		    if opts.lstn_reuseaddr then 
-		      Unix.setsockopt s Unix.SO_REUSEADDR true;
-		    Unix.bind s (Unix.ADDR_UNIX path);
-		    Unix.listen s opts.lstn_backlog;
-		    s
-		| `Sock_inet(stype, addr, port) ->
-		    let dom = Netsys.domain_of_inet_addr addr in
-		    let s = Unix.socket dom stype 0 in
-		    Unix.set_nonblock s;
-		    if opts.lstn_reuseaddr then 
-		      Unix.setsockopt s Unix.SO_REUSEADDR true;
-		    Unix.bind s (Unix.ADDR_INET(addr,port));
-		    Unix.listen s opts.lstn_backlog;
-		    s
-		| `Sock_inet_byname(stype, name, port) ->
-		    let addr = addr_of_name name in
-		    let dom = Netsys.domain_of_inet_addr addr in
-		    let s = Unix.socket dom stype 0 in
-		    Unix.set_nonblock s;
-		    if opts.lstn_reuseaddr then 
-		      Unix.setsockopt s Unix.SO_REUSEADDR true;
-		    Unix.bind s (Unix.ADDR_INET(addr,port));
-		    Unix.listen s opts.lstn_backlog;
-		    s
-	  )
-	| _ ->
-	  raise Addressing_method_not_supported
+  method listen lstnaddr ues =
+    let accept_socket sock =
+      (* Only for real sockets (no named pipes) *)
+      let acc = new direct_socket_acceptor sock ues in
+      let eng = new epsilon_engine (`Done acc) ues in
+      when_state
+	~is_aborted:(fun () -> Unix.close sock)
+	~is_error:(fun _ -> Unix.close sock)
+	eng;
+      eng
     in
-    let acc = new direct_socket_acceptor sock ues in
-    let eng = new epsilon_engine (`Done acc) ues in
 
-    when_state
-      ~is_aborted:(fun () -> Unix.close sock)
-      ~is_error:(fun _ -> Unix.close sock)
-      eng;
-
-    eng
+    match lstnaddr with
+	`Socket (sockspec, opts) ->
+	  ( match sockspec with
+		`Sock_unix(stype, path) ->
+		  let s = Unix.socket Unix.PF_UNIX stype 0 in
+		  Unix.set_nonblock s;
+		  if opts.lstn_reuseaddr then 
+		    Unix.setsockopt s Unix.SO_REUSEADDR true;
+		  Unix.bind s (Unix.ADDR_UNIX path);
+		  Unix.listen s opts.lstn_backlog;
+		  accept_socket s
+	      | `Sock_inet(stype, addr, port) ->
+		  let dom = Netsys.domain_of_inet_addr addr in
+		  let s = Unix.socket dom stype 0 in
+		  Unix.set_nonblock s;
+		  if opts.lstn_reuseaddr then 
+		    Unix.setsockopt s Unix.SO_REUSEADDR true;
+		  Unix.bind s (Unix.ADDR_INET(addr,port));
+		  Unix.listen s opts.lstn_backlog;
+		  accept_socket s
+	      | `Sock_inet_byname(stype, name, port) ->
+		  let addr = addr_of_name name in
+		  let dom = Netsys.domain_of_inet_addr addr in
+		  let s = Unix.socket dom stype 0 in
+		  Unix.set_nonblock s;
+		  if opts.lstn_reuseaddr then 
+		    Unix.setsockopt s Unix.SO_REUSEADDR true;
+		  Unix.bind s (Unix.ADDR_INET(addr,port));
+		  Unix.listen s opts.lstn_backlog;
+		  accept_socket s
+	      | `Pipe(mode, name) ->
+		  let backlog = opts.lstn_backlog in
+		  let acc = new pipe_acceptor mode name backlog ues in
+		  new epsilon_engine (`Done acc) ues
+		    
+	  )
+      | _ ->
+	  raise Addressing_method_not_supported
 end
 ;;
 
@@ -2630,6 +2842,8 @@ object(self)
 	    if stype <> stype' then invalid_arg "Socket type mismatch";
 	    let addr = addr_of_name name in
 	    Unix.ADDR_INET(addr,port)
+	| `Pipe _ ->
+	    raise Addressing_method_not_supported
     in
     Unix.sendto sock s p n flags sockaddr
 

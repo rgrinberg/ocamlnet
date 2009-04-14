@@ -7,6 +7,18 @@ exception Netname_unknown
 exception No_secret_key
 exception Key_service_problem of exn
 
+let () =
+  Netexn.register_printer
+    (Key_service_problem Not_found)
+    (fun e ->
+       match e with
+	 | Key_service_problem e' ->
+	     "Rpc_key_service.Key_service_problem(" ^ Netexn.to_string e' ^ ")"
+	 | _ ->
+	     assert false
+    )
+
+
 module A = Rpc_key_aux
 module C1 = Rpc_key_clnt.KEY_PROG.KEY_VERS
 module C2 = Rpc_key_clnt.KEY_PROG.KEY_VERS2

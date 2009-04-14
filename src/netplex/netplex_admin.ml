@@ -70,7 +70,7 @@ let main() =
 	  prerr_endline "Netplex exception";
 	  exit_code := 10
       | error ->
-	  prerr_endline ("RPC exception: " ^ Printexc.to_string error);
+	  prerr_endline ("RPC exception: " ^ Netexn.to_string error);
 	  exit_code := 11
   in
 

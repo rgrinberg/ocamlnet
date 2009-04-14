@@ -130,7 +130,7 @@ let run esys =
 		  esys.error_queue <- esys.error_queue @ [e];
 		  debug_print (lazy (sprintf "run <event %s: exception %s>"
 				       (esys.string_of_event e)
-				       (Printexc.to_string any)));
+				       (Netexn.to_string any)));
 		  raise any
 	    end;
 	    if esys.queue = [] then begin
@@ -159,7 +159,7 @@ let run esys =
   with
       any ->
 	debug_print (lazy (sprintf "run <returning with exception %s>"
-			     (Printexc.to_string any)));
+			     (Netexn.to_string any)));
 	esys.running <- false;
 	raise any
 ;;

@@ -141,7 +141,16 @@ let start() =
     (fun s -> raise (Arg.Bad ("Don't know what to do with: " ^ s)))
     "usage: netplex [options]";
 
-  Unixqueue_util.set_debug_mode !debug;
+  if !debug then (
+    (*Unixqueue_util.set_debug_mode !debug; *)
+    Netplex_log.debug_containers := !debug;
+    Netplex_log.debug_scheduling := !debug;
+    (*Rpc_client.verbose !debug; *)
+    (*Rpc_server.verbose !debug; *)
+  );
+  
+  if Sys.os_type = "Win32" && not !use_mt then
+    failwith "For Win32 multi-processing is unsupported. Use -mt switch";
 
   let parallelizer =
     if !use_mt then
@@ -173,5 +182,6 @@ let start() =
     cmdline_cfg
 ;;
 
-Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
+if Sys.os_type <> "Win32" then
+  Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
 start();;

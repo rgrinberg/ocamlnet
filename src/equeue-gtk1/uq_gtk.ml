@@ -274,7 +274,7 @@ object (self)
     with
 	any ->
 	  prerr_endline("Uq_gtk: Internal uncaught exception: " ^
-			Printexc.to_string any);
+			Netexn.to_string any);
 	  raise any;
 	  keep
 
@@ -315,7 +315,7 @@ object (self)
     with
 	any ->
 	  prerr_endline ("Uq_gtk: Uncaught exception: " ^
-			 Printexc.to_string any
+			 Netexn.to_string any
 			);
     end;
     gtk_is_running <- false;

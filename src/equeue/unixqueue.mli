@@ -5,42 +5,80 @@
 open Unix;;
 open Sys;;
 
-(**********************************************************************)
-(*                          System events                             *)
-(**********************************************************************)
+(** Unixqueues are one of the two forms of system event loops provided
+    by Ocamlnet. Besides Unixqueue, there is also pollset (see
+    {!Netsys_pollset}). The pollsets are much simpler (there is no
+    queuing of events), and nowadays Unixqueue bases upon pollset,
+    and extends its functionality. Historically, however, Unixqueue
+    precede pollset, and there are still implementations of the former
+    in Ocamlnet not using pollset as its base data structure.
 
-(* written by Gerd Stolpmann *)
+    The common idea of both data structures is the generalization of 
+    watching for events, as it is also provided by the [Unix.select]
+    function. Note, however, that recent implementations no longer
+    use [Unix.select], but better system interfaces for the same.
 
-(** This module generalizes the [Unix.select] function. The idea is to have
- * an event queue (implemented by {!Equeue}) that manages all file events that
- * can be watched by a [Unix.select] call. As {b event} is considered when there
- * is something to do for a file descriptor (reading, writing, accepting 
- * out-of-band data), but also the condition that for a certain period 
- * of time ("timeout") nothing
- * has happened. Furthermore, a signal is also considered as an event,
- * and it is also possible to have user-generated extra events.
- *
- * These events are queued up, and they are presented to event handlers
- * that may process them.
- *
- * You can describe what types of event conditions are watched by adding
- * "resources". You can think a resource being a condition (bound to
- * a real resource of the operating system) for which 
- * events are generated if the condition becomes true.
+    When there is something to do for a file descriptor (reading, 
+    writing, accepting out-of-band data), this is called an {b event},
+    and the task of Unixqueue is to check when events happen, and to
+    tell some consumer about the events.
+
+    There are three further types of events: Timeout events, signal
+    events, and user-defined events.
+
+    The events are queued up, and they are presented to event handlers
+    that may process them.
+
+    You can describe what types of event conditions are watched by adding
+    {b resources}. You can think a resource being a condition (bound to
+    a real resource of the operating system) for which 
+    events are generated if the condition becomes true. Currently, only
+    file descriptors and timers are supported as resources.
  *)
 
-(** {b THREAD-SAFETY}
- * 
- * Since release 1.2 of Equeue, this module serializes automatically.
- * You can call functions for the same event system from different
- * threads. This requires some special initialization, see {!Unixqueue_mt}.
- *
- * Note that the underlying {!Equeue} module is reentrant, but not
- * serializing. (It is not recommended (and not necessary) to call
- * functions of the Equeue module directly in multi-threaded programs.)
- *
- * The TCL extension is not thread-safe.
+(** {b Relation to other modules.} This module is thought as the primary
+    interface to Unixqueues. If there isn't any specialty one has to deal
+    with, just use this module:
+
+    - It defines all required types like [group], [wait_id], etc. Note that
+      these types are reexported from [Unixqueue_util]. Please consider
+      this as implementation detail, and don't use it in your code.
+    - It defines a standard implementation [standard_event_system], which
+      is a good default implementation, although it might not be the best
+      available for all purposes.
+    - It defines a set of access functions like [add_event] which 
+      simply call the methods of the event system object of the same name.
+      Note that these functions work for all event system implementation,
+      not only for [standard_event_system].
+
+    There are further modules that have to do with Unixqueue:
+
+    - {!Unixqueue_pollset} is the implementation behind 
+      [standard_event_system]. If you want to use other pollsets than
+      the standard one, it is possible to create Unixqueues on top of these
+      by using this module directly.
+    - {!Unixqueue_select} is the historic default implementation. It
+      calls directly [Unix.select]. It is still available because it 
+      serves as a reference implementation for now.
+    - [Unixqueue_util] is an internal module with implementation details.
+      Please don't call it directly.
+    - {!Uq_gtk} is an implementation of Unixqueue mapping to the 
+      GTK event loop. Useful for multiplexing event-based I/O and
+      GTK graphics operations.
+    - {!Uq_tcl} is an implementation of Unixqueue mapping to the 
+      TCL event loop. Useful for multiplexing event-based I/O and
+      event-based code written in TCL (especially TK).
  *)
+
+(** {b Thread safety.} The default implementation of Unixqueue is
+    thread-safe, and operations can be called from different threads.
+    For other implementations, please look at the modules implementing
+    them.
+ **)
+
+
+(** {1 Types and exceptions} *)
+
 
 type group = Unixqueue_util.group
   (** A group is an abstract tag for a set of events, resources, and
@@ -58,6 +96,10 @@ exception Abort of (group * exn);;
    * First argument is the group. The second argument
    * is an arbitrary exception (must not be [Abort] again) which is
    * passed to the abort action.
+   *
+   * Abort handlers are a questionable feature of Unixqueues. You
+   * can also call the [clear] operation, and raise the exception
+   * directly. {b Do not use in new code!}
    *)
 
 
@@ -123,10 +165,6 @@ object
   method once : group -> float -> (unit -> unit) -> unit
   method exn_log : ?suppressed:bool -> ?to_string:(exn -> string) -> ?label:string -> exn -> unit
   method debug_log : ?label:string -> string -> unit
-  (* Protected interface *)
-  method private setup : unit -> (file_descr list * file_descr list * file_descr list * float)
-  method private queue_events : (file_descr list * file_descr list * file_descr list) -> bool
-  method private source : event Equeue.t -> unit
 end
   (** The [event_system] manages events, handlers, resources, groups,
    * etc. It is now a class type, and you may invoke the operations directly
@@ -180,23 +218,34 @@ end
    * 
    *)
 
-class select_event_system : unit -> event_system
-  (** The standalone, select-based implementation of an event system *)
+(** {1 Creating event systems} *)
 
-class unix_event_system : unit -> event_system
-  (** {b Deprecated.} Compatibility name for [select_event_system] *)
-
-val select_event_system : unit -> event_system
-  (** Create a new, empty, select-based event system *)
-
-val create_unix_event_system : unit -> event_system
-  (** Create a new, empty event system using the configurable
-      factory. {b Use this function to create the [event_system]
-      if you don't have special wishes about its kind.}
+class standard_event_system : unit -> event_system
+  (** The standard implementation of an event system. It uses 
+      {!Unixqueue_pollset.pollset_event_system} on top of
+      {!Netsys_pollset_generic.standard_pollset}.
    *)
 
-val set_event_system_factory : (unit -> event_system) -> unit
-  (** Sets the factory function for [create_unix_event_system] *)
+val standard_event_system : unit -> event_system
+  (** Create a new, empty, standard event system *)
+
+class unix_event_system : unit -> event_system
+  (** An alternate name for [standard_event_system], provided for
+      backward compatibility.
+   *)
+
+val create_unix_event_system : unit -> event_system
+  (** An alternate name for [standard_event_system], provided for
+      backward compatibility.
+   *)
+
+
+(** {1 Using event systems} *)
+
+(** The following functions work for all kinds of event systems, not
+    only for the ones returned by [standard_event_system].
+ *)
+
 
 val new_group : event_system -> group
   (** Create a new, empty group for the event system *)
@@ -240,6 +289,16 @@ val add_close_action :
    * is called.
    *
    * You can only add (set) one close action for every descriptor.
+   *
+   * Of course, the idea is to do [add_close_action ... Unix.close]. Note
+   * that there is a problem with multi-threaded programs, and this construct
+   * must not be used there. In particular, the close action is called from
+   * [remove_resource] or [clear], but it is possible that the event system
+   * is running, so a watched descriptor might be closed. This has undesired
+   * effects. What you should better do is to delay the closure of the
+   * descriptor to a sane moment, e.g. by calling
+   *   {[ Unixqueue.once esys g 0.0 (fun () -> Unix.close fd) ]}
+   * from the close action.
    *)
 
 
@@ -324,6 +383,16 @@ val once : event_system -> group -> float -> (unit -> unit)
    * group, the timer is deleted, too.
    *)
 
+
+
+(** {1 Debugging} *)
+
+(** The status of the following functions is currently a bit unclear.
+    When a Ocamlnet-wide logging concept is introduced, these functions
+    probably disappear. They are used by other Ocamlnet modules to
+    implement debug logging.
+ *)
+
 val exn_log : event_system ->
               ?suppressed:bool -> ?to_string:(exn -> string) -> 
               ?label:string -> exn -> unit
@@ -378,15 +447,4 @@ val set_debug_mode : bool -> unit
    * Unfortunately, some understanding of the internal processing
    * is required to interpret debug protocols.
    *)
-
-(* val attach_to_tcl_queue : event_system -> (event_system -> unit) -> unit
- *
- * This is no longer supported here. Look into Uq_tcl for the modern
- * way to integrate with the tcl/tk event system
- *)
-
-(**/**)
-
-val init_mt : (unit -> ((unit -> unit) * (unit -> unit))) -> unit
-(* A private function to initialize multi-threading. *)
 

@@ -232,7 +232,7 @@ let run
     | e when config.default_exn_handler ->
 	(* Log the error and wait for the next conection. *)
 	(try
-	   scgi_log_error(Printexc.to_string e);
+	   scgi_log_error(Netexn.to_string e);
 	   Unix.close fd
 	 with _ -> ())
   done

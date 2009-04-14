@@ -51,7 +51,7 @@ type resource_prop =
     (* group, timeout value, time of last event *)
 
 
-type event_system = 
+type event_system_t = 
     < new_group : unit -> group;
       new_wait_id : unit -> wait_id;
       exists_resource : operation -> bool;
@@ -59,7 +59,7 @@ type event_system =
       add_close_action : group -> (Unix.file_descr * (Unix.file_descr -> unit)) -> unit;
       add_abort_action : group -> (group -> exn -> unit) -> unit;
       remove_resource : group -> operation -> unit;
-      add_handler : group -> (event_system -> event Equeue.t -> event -> unit) -> unit;
+      add_handler : group -> (event_system_t -> event Equeue.t -> event -> unit) -> unit;
       add_event : event -> unit;
       clear : group -> unit;
       run : unit -> unit;
@@ -69,23 +69,48 @@ type event_system =
       debug_log : ?label:string -> string -> unit
     >
 
+class type event_system =
+object
+  method new_group : unit -> group
+  method new_wait_id : unit -> wait_id
+  method exists_resource : operation -> bool
+  method add_resource : group -> (operation * float) -> unit
+  method add_close_action : group -> (Unix.file_descr * (Unix.file_descr -> unit)) -> unit
+  method add_abort_action : group -> (group -> exn -> unit) -> unit
+  method remove_resource : group -> operation -> unit
+  method add_handler : group -> (event_system_t -> event Equeue.t -> event -> unit) -> unit
+  method add_event : event -> unit
+  method clear : group -> unit
+  method run : unit -> unit
+  method is_running : bool
+  method once : group -> float -> (unit -> unit) -> unit
+  method exn_log : ?suppressed:bool -> ?to_string:(exn -> string) -> ?label:string -> exn -> unit
+  method debug_log : ?label:string -> string -> unit
+end
+
+
 
 type handler =
-    event_system -> event Equeue.t -> event -> unit
+    event_system_t -> event Equeue.t -> event -> unit
 
 
 exception Abort of (group * exn)
 
 
+let () =
+  Netexn.register_printer
+    (Abort(new group_object, Not_found))
+    (fun e ->
+       match e with
+	 | Abort(g,e') ->
+	     "Unixqueue.Abort(" ^ string_of_int(Oo.id g) ^ 
+	       ", " ^ Netexn.to_string e' ^ ")"
+	 | _ -> assert false
+    )
+
 
 let string_of_fd fd =
-  (* For Unix, the fd is an integer that can be simply casted and printed.
-   * For other systems: don't know
-   *)
-  if Obj.is_int(Obj.repr fd) then
-    string_of_int(Obj.magic fd : int)
-  else
-    "<abstr>"
+  Int64.to_string (Netsys.int64_of_file_descr fd)
 ;;
 
 
@@ -111,7 +136,7 @@ let string_of_event ev =
   | Signal ->
       "Signal"
   | Extra x ->
-      sprintf "Extra(%s)" (Printexc.to_string x)
+      sprintf "Extra(%s)" (Netexn.to_string x)
 ;;
 
 

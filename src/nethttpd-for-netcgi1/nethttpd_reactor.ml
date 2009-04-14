@@ -649,7 +649,7 @@ let process_connection config fd (stage1 : 'a http_service) =
  
       | err when env#output_state = `Start ->
 	  output_std_response config env `Internal_server_error None 
-	    (Some("Nethttpd: Uncaught exception: " ^ Printexc.to_string err));
+	    (Some("Nethttpd: Uncaught exception: " ^ Netexn.to_string err));
   in
 
   let do_stage3 env stage3 =
@@ -780,13 +780,13 @@ let process_connection config fd (stage1 : 'a http_service) =
     with
 	err ->
 	  config # config_log_error None None None None
-	              ("Nethttpd: Uncaught exception: " ^ Printexc.to_string err);
+	              ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
   );
   ( try
       reactor # close()
     with
 	err ->
 	  config # config_log_error None None None None
-	              ("Nethttpd: Uncaught exception: " ^ Printexc.to_string err);
+	              ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
   )
 ;;

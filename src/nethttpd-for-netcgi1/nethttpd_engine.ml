@@ -1108,11 +1108,11 @@ object(self)
 		   None
 	     | err when env#output_state = `Start ->
 		 output_std_response config env' `Internal_server_error None 
-		   (Some("Nethttpd: Uncaught exception: " ^ Printexc.to_string err));
+		   (Some("Nethttpd: Uncaught exception: " ^ Netexn.to_string err));
 		 None
 	     | err ->
 		 log_error req
-		   ("Nethttpd: Uncaught exception: " ^ Printexc.to_string err);
+		   ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
 		 None
 	 in
 	 (* Send the event that we are done here: *)
@@ -1191,11 +1191,11 @@ object(self)
 		   None
 	     | err when env#output_state = `Start ->
 		 output_std_response config env' `Internal_server_error None 
-		   (Some("Nethttpd: Uncaught exception: " ^ Printexc.to_string err));
+		   (Some("Nethttpd: Uncaught exception: " ^ Netexn.to_string err));
 		 None
 	     | err ->
 		 log_error req
-		   ("Nethttpd: Uncaught exception: " ^ Printexc.to_string err);
+		   ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
 		 None
 	 in
 	 (* Send the event that we are done here: *)
@@ -1272,7 +1272,7 @@ object(self)
     with
       | err ->
 	  log_error req
-	    ("Nethttpd: Uncaught exception: " ^ Printexc.to_string err)
+	    ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err)
 	  
   method engine = engine
 

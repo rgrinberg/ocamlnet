@@ -69,7 +69,11 @@ type connector =
 	(** The service is installed on a Unix domain socket.
 	 * Note: the socket path must not exist when the server is started,
 	 * and the socket must be unlinked when the server terminates.
+         * Note Win32: Unix domain sockets are emulated by writing the
+         * inet4 port number into a one-line file.
 	 *)
+  | Pipe of string
+      (** The service is installed for a named pipe. (Only for Win32.) *)
   | Descriptor of Unix.file_descr
 	(** The service listens on the given file descriptor. *)
   | Dynamic_descriptor of (unit -> Unix.file_descr)
@@ -165,6 +169,7 @@ type mode2 =
     [ `Socket_endpoint of protocol * Unix.file_descr
     | `Multiplexer_endpoint of Rpc_transport.rpc_multiplex_controller
     | `Socket of protocol * connector * socket_config
+    | `Dummy of protocol
     ]
   (** Determines the type of the server for [create2]:
     *

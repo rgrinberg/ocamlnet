@@ -95,6 +95,33 @@ let debug_logf controller msgf =
   Printf.kprintf (debug_log controller) msgf
 
 
+let create_pipe_pair() =
+  match Sys.os_type with
+    | "Win32" ->
+	let (ph2, ph1) = Netsys_win32.pipe_pair Netsys_win32.Pipe_duplex in
+	(Netsys_win32.pipe_descr ph1,
+	 Netsys_win32.pipe_descr ph2)
+    | _ ->
+	Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0
+
+
+let close_pipe fd =
+  (* TODO: Dup in netplex_container.ml *)
+  match Sys.os_type with
+    | "Win32" ->
+	( try
+	    match Netsys_win32.lookup fd with
+	      | Netsys_win32.W32_pipe_helper ph ->
+		  Netsys_win32.pipe_shutdown ph
+	      | _ ->
+		  assert false
+	  with Not_found -> 
+	    assert false
+	)
+    | _ ->
+	Unix.close fd
+
+
 class std_socket_controller ?(no_disable = false)
                             rm_service (par: parallelizer) 
                             controller sockserv wrkmng
@@ -153,7 +180,7 @@ object(self)
 	    controller # logger # log 
 	      ~component:"netplex.controller"
 	      ~level:`Crit
-	      ~message:("Exception in alive_check: " ^ Printexc.to_string error)
+	      ~message:("Exception in alive_check: " ^ Netexn.to_string error)
     );
     Unixqueue.once esys g 1.0 (fun () -> self#alive_check esys g)
 
@@ -253,21 +280,19 @@ object(self)
     let onerror = ref [] in
     try
       let fd_clnt_closed = ref false in
-      let (fd_clnt, fd_srv) = 
-	Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+      let (fd_clnt, fd_srv) = create_pipe_pair() in
       onerror := (fun () -> 
 		    if not !fd_clnt_closed then (
 		      fd_clnt_closed := true;
-		      Unix.close fd_clnt
+		      close_pipe fd_clnt
 		    )
 		 ) :: !onerror;
       let sys_fd_clnt_closed = ref false in
-      let (sys_fd_clnt, sys_fd_srv) = 
-	Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+      let (sys_fd_clnt, sys_fd_srv) = create_pipe_pair() in
       onerror := (fun () -> 
 		    if not !sys_fd_clnt_closed then (
 		      sys_fd_clnt_closed := true;
-		      Unix.close sys_fd_clnt
+		      close_pipe sys_fd_clnt
 		    )
 		 ) :: !onerror;
       let fd_list =
@@ -295,19 +320,24 @@ object(self)
 	       with 
 		 | error ->
 		     (* It is difficult to get this error written to a log file *)
-		     prerr_endline ("Netplex Catastrophic Error: " ^ Printexc.to_string error);
+		     prerr_endline ("Netplex Catastrophic Error in " ^ name ^ ": " ^ Netexn.to_string error);
 		     ()
 	     );
-	     Netplex_cenv.unregister_cont container par_thread;
-	     Unix.close fd_clnt;  (* indicates successful termination *)
-	     Unix.close sys_fd_clnt 
+	     (* We return when the container is done. For the admin container
+                we always return, because no extra thread is started!
+	      *)
+	     if par # ptype <> `Controller_attached then (
+	       Netplex_cenv.unregister_cont container par_thread;
+	       close_pipe fd_clnt;  (* indicates successful termination *)
+	       close_pipe sys_fd_clnt 
+	     )
 	  )
 	  fd_list
 	  sockserv#name
 	  controller#logger in
       if par # ptype = `Multi_processing then (
-	Unix.close fd_clnt;       fd_clnt_closed := true;
-	Unix.close sys_fd_clnt;   sys_fd_clnt_closed := true;
+	close_pipe fd_clnt;       fd_clnt_closed := true;
+	close_pipe sys_fd_clnt;   sys_fd_clnt_closed := true;
       );
       let rpc =
 	Rpc_server.create2 
@@ -319,7 +349,7 @@ object(self)
 	     ~component:sockserv#name
 	     ~level:`Crit
 	     ~message:("Control server caught exception: " ^ 
-			 Printexc.to_string err));
+			 Netexn.to_string err));
       let sys_rpc =
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, sys_fd_srv))
@@ -330,7 +360,7 @@ object(self)
 	     ~component:sockserv#name
 	     ~level:`Crit
 	     ~message:("System server caught exception: " ^ 
-			 Printexc.to_string err));
+			 Netexn.to_string err));
       let c =
 	{ container = (container :> container_id);
 	  cont_state = `Starting (Unix.gettimeofday());
@@ -381,7 +411,7 @@ object(self)
 	    ~component:"netplex.controller"
 	    ~level:`Crit
 	    ~message:("Exception while starting new containers: " ^ 
-			Printexc.to_string error);
+			Netexn.to_string error);
 	  List.iter (fun f -> f()) !onerror;
 	  None
 	  
@@ -410,7 +440,7 @@ object(self)
 	      ~component:sockserv#name
 	      ~level:`Crit
 	      ~message:("post_finish_hook: Exception " ^ 
-			  Printexc.to_string error)
+			  Netexn.to_string error)
     );
     controller # plugin_container_finished 
       (container :> container_id) (clist = []);
@@ -506,7 +536,7 @@ object(self)
 	      ~component:sockserv#name
 	      ~level:`Crit
 	      ~message:("Exception in workload manager, function adjust: " ^ 
-			  Printexc.to_string error)
+			  Netexn.to_string error)
     )
 
   method private schedule() =
@@ -963,7 +993,7 @@ class controller_processor setup controller : processor =
       `code_ok
     with
       | error ->
-	  `code_error (Printexc.to_string error)
+	  `code_error (Netexn.to_string error)
   in
 object(self)
   inherit Netplex_kit.empty_processor_hooks()
@@ -979,7 +1009,7 @@ object(self)
 	   ~component:"netplex.controller"
 	   ~level:`Crit
 	   ~message:("Admin server caught exception: " ^ 
-		       Printexc.to_string err));
+		       Netexn.to_string err));
     Netplex_ctrl_srv.Admin.V2.bind
       ~proc_ping:(fun () -> ())
       ~proc_list:(fun () ->
@@ -1371,7 +1401,7 @@ object(self)
 			       logger # log ~component:"netplex.controller"
 				 ~level:`Err
 				 ~message:("Exception packing plugin response: " ^ 
-					     Printexc.to_string error);
+					     Netexn.to_string error);
 			       reply_err()
 		       )
 		)
@@ -1380,7 +1410,7 @@ object(self)
 		  logger # log ~component:"netplex.controller"
 		    ~level:`Err
 		    ~message:("Exception in plugin call: " ^ 
-				Printexc.to_string error);
+				Netexn.to_string error);
 		  reply_err()
 	  )
       | None ->
@@ -1399,7 +1429,7 @@ object(self)
 	       logger # log ~component:"netplex.controller"
 		 ~level:`Err
 		 ~message:("Exception in ctrl_container_finished: " ^ 
-			     Printexc.to_string error);
+			     Netexn.to_string error);
       )
       plugins
 

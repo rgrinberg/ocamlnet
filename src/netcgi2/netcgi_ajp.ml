@@ -717,6 +717,7 @@ let rec handle_connection fd ~config ?script_name output_type arg_store
     exn_handler f =
 
   let log = Some ajp_log_error in
+  let fd_style = Netsys.get_fd_style fd in
 
   (* FIXME: Although the debug info says the connection is
      recycled, apache does not close the sockect and tries to
@@ -725,7 +726,8 @@ let rec handle_connection fd ~config ?script_name output_type arg_store
      if I have to wait more and 1 sec for the next request. *)
   let cdir =
     try
-      let ok = Netsys.restart_tmo (Netsys.wait_until_readable fd) 1.0 in
+      let ok = Netsys.restart_tmo
+	(Netsys.wait_until_readable fd_style fd) 1.0 in
       if not ok then (
 	(* ajp_log_error "Timeout waiting for the next connection.  Closing.";*)
 	`Conn_close
@@ -773,6 +775,6 @@ let run
     with
       | e when config.default_exn_handler ->
 	  (* Any exception occurring here is fatal *)
-	  ajp_log_error("FATAL: " ^ Printexc.to_string e);
+	  ajp_log_error("FATAL: " ^ Netexn.to_string e);
   done
 

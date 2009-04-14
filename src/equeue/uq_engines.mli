@@ -460,6 +460,8 @@ class receiver : src:Unix.file_descr ->
    * The engine goes to [`Error] state when either reading from [src]
    * or writing to [dst] raises an unexpected exception.
    *
+   * TODO: This class cannot yet cope with Win32 named piped.
+   *
    * @param close_src Whether to close [src] when the engine stops
    *   (default: [true])
    * @param close_dst Whether to close [dst] when the engine stops
@@ -486,6 +488,8 @@ class sender : src:#async_in_channel ->
    *
    * The engine goes to [`Error] state when either reading from [src]
    * or writing to [dst] raises an unexpected exception.
+   *
+   * TODO: This class cannot yet cope with Win32 named piped.
    *
    * @param close_src Whether to close [src] when the engine stops
    *   (default: [true])
@@ -540,6 +544,8 @@ class output_async_descr : dst:Unix.file_descr ->
    * The semantics of the engine is undefined if [dst] is not a
    * stream-oriented descriptor.
    *
+   * TODO: This class cannot yet cope with Win32 named piped.
+   *
    * @param buffer_size Limits the size of the buffer
    * @param close_dst Whether to close [dst] when the engine stops
    *    (default: [true])
@@ -551,8 +557,10 @@ class input_async_descr : src:Unix.file_descr ->
 			  ?close_src:bool ->    (* default: true *)
                           Unixqueue.event_system ->
                              async_in_channel_engine
- (** The corresponding class for asynchronous input channels. *)
-
+ (** The corresponding class for asynchronous input channels.
+   *
+   * TODO: This class cannot yet cope with Win32 named piped.
+  *)
 
 type copy_task =
     [ `Unidirectional of (Unix.file_descr * Unix.file_descr)
@@ -598,6 +606,8 @@ class copier : copy_task ->
    *
    * The semantics of the engine is undefined if one of the descriptors
    * is not stream-oriented.
+   *
+   * TODO: This class cannot yet cope with Win32 named piped.
    *)
 
 
@@ -676,11 +686,17 @@ class copier : copy_task ->
 
 (** {1 Socket engines} *)
 
+(** Note that Win32 named pipes are also supported by the following
+    API's, although they are not sockets. These pipes have a feature
+    set comparable to Unix domain sockets.
+ *)
+
 
 type sockspec =
   [ `Sock_unix of (Unix.socket_type * string)
   | `Sock_inet of (Unix.socket_type * Unix.inet_addr * int)
   | `Sock_inet_byname of (Unix.socket_type * string * int)
+  | `Pipe of (Netsys_win32.pipe_mode * string)
   ]
   (** Extended names for socket addresses. Currently, these naming schemes
    * are supported:
@@ -701,6 +717,7 @@ type sockspec =
    *   used. If the [name] cannot be resolved, no socket is meant; this
    *   is usually an error. [stype] is interpreted as for [`Sock_inet].
    *   If [port = 0], the name is to be considered as incomplete.
+   * - [`Pipe name]: A Win32 named pipe
    *
    * It is currently not possible to name IP sockets that are bound to
    * several IP addresses but not all IP addresses of the host. 
@@ -740,6 +757,7 @@ and connect_options =
     { conn_bind : sockspec option;
         (** Bind the connecting socket to this address (same family as the
 	 * connected socket required). [None]: Use an anonymous port.
+         * For Win32 named pipes, only [None] is supported.
 	 *)
     }
 ;;
@@ -809,6 +827,8 @@ type listen_address =
 and listen_options =
     { lstn_backlog : int;    (** The length of the queue of not yet accepted
 			      * connections.
+                              * Win32 named pipes: This param is currently
+                              * interpreted as the total maximum of connections.
 			      *)
       lstn_reuseaddr : bool; (** Whether to allow that the address can be
 			      * immediately reused after the previous listener
@@ -902,8 +922,14 @@ end
 class direct_socket_acceptor : 
         Unix.file_descr -> Unixqueue.event_system -> 
           server_socket_acceptor
-(** An implementation of [server_socket_acceptor] for sockets *)
+(** An implementation of [server_socket_acceptor] for sockets.
+    This class cannot be used for Win32 named pipes.
+ *)
    
+class pipe_acceptor : 
+        Netsys_win32.pipe_mode -> string -> int -> Unixqueue.event_system -> 
+          server_socket_acceptor
+(** An implementation of [server_socket_acceptor] for Win32 named pipes *)
 
 
 
@@ -1184,6 +1210,7 @@ val create_multiplex_controller_for_connected_socket :
       Unix.file_descr -> Unixqueue.unix_event_system -> multiplex_controller
   (** Creates a multiplex controller for a bidirectional socket (e.g.
     * a TCP socket). It is essential that the socket is in connected state.
+    * This function also supports Win32 named pipes.
     *
     * Note that the file descriptor is not closed when the attached engines
     * are terminated. One can call [inactivate] manually to do that.

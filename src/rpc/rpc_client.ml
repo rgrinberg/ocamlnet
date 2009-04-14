@@ -35,6 +35,25 @@ exception Keep_call
 exception Unbound_exception of exn
 
 
+let () =
+  Netexn.register_printer
+    (Communication_error Not_found)
+    (fun e ->
+       match e with
+	 | Communication_error e' ->
+	     "Rpc_client.Communication_error(" ^ Netexn.to_string e' ^ ")"
+	 | _ -> assert false
+    );
+  Netexn.register_printer
+    (Unbound_exception Not_found)
+    (fun e ->
+       match e with
+	 | Unbound_exception e' ->
+	     "Rpc_client.Unbound_exception(" ^ Netexn.to_string e' ^ ")"
+	 | _ -> assert false
+    )
+
+
 
 module SessionInt = struct
   type t = int
@@ -108,7 +127,7 @@ and t =
         mutable esys :  event_system;
 	
 	mutable est_engine : Rpc_transport.rpc_multiplex_controller Uq_engines.engine option;
-	mutable shutdown_connector : t -> Rpc_transport.rpc_multiplex_controller -> unit;
+	mutable shutdown_connector : t -> Rpc_transport.rpc_multiplex_controller -> (unit->unit) -> unit;
 
 	mutable waiting_calls : call Queue.t;
 	mutable pending_calls : call SessionMap.t;
@@ -137,6 +156,7 @@ and connector =
     Inet of (string * int)                        (* Hostname, port *)
   | Internet of (Unix.inet_addr * int)
   | Unix of string                                (* path to unix dom sock *)
+  | Pipe of string
   | Descriptor of Unix.file_descr
   | Dynamic_descriptor of (unit -> Unix.file_descr)
   | Portmapped of string
@@ -211,7 +231,7 @@ let pass_result cl call f =
 	begin  (* pass the exception to the exception handler: *)
 	  if !debug then
 	    prerr_endline ("Rpc_client: Exception from callback: " ^
-			     Printexc.to_string any);
+			     Netexn.to_string any);
 	  cl.exception_handler any
 	end
 
@@ -222,8 +242,10 @@ let pass_exception cl call x =
    *)
   if call.state <> Done then (  (* Don't call back twice *)
     try
-      if !debug then 
-	prerr_endline ("Rpc_client: Passing exception " ^ Printexc.to_string x);
+      if !debug then (
+	let sx = Netexn.to_string x in
+	prerr_endline ("Rpc_client: Passing exception " ^ sx)
+      );
       pass_result cl call (fun () -> raise x)
     with
 	Keep_call -> ()          (* ignore *)
@@ -246,7 +268,7 @@ let pass_exception_to_all cl x =
 
   (*****)
 
-let close ?error cl =
+let close ?error ?(ondown=fun()->()) cl =
   if cl.ready then (
     if !debug then prerr_endline "Rpc_client: Closing";
     cl.ready <- false;
@@ -257,11 +279,14 @@ let close ?error cl =
     cl.pending_calls <- SessionMap.empty;
     Queue.clear cl.waiting_calls;
     match cl.trans with
-      | None -> ()
+      | None -> 
+	  ondown()
       | Some trans ->
 	  cl.trans <- None;
-	  cl.shutdown_connector cl trans
+	  cl.shutdown_connector cl trans ondown
   )
+  else
+    ondown()
 ;;
 
   (*****)
@@ -664,17 +689,19 @@ check_for_output := next_outgoing_message ;;
  *)
 
 
-let shutdown_connector cl mplex =
+let shutdown_connector cl mplex ondown =
   if !debug then prerr_endline "Rpc_client: shutdown_connector";
   mplex # abort_rw();
   ( try
       mplex # start_shutting_down
 	~when_done:(fun exn_opt ->
 		      (* CHECK: Print exception? *)
-		      mplex # inactivate())
+		      mplex # inactivate();
+		      ondown()
+		   )
 	()
     with
-      | _ -> mplex # inactivate()
+      | _ -> mplex # inactivate(); ondown()
   )
 
 
@@ -703,7 +730,15 @@ object
   method non_blocking_connect = true
   method multiplexing ~close_inactive_descr prot fd esys =
     let close() =
-      if close_inactive_descr then Unix.close fd in
+      if close_inactive_descr then 
+	try
+	  match Netsys_win32.lookup fd with
+	    | Netsys_win32.W32_pipe_helper ph ->
+		Netsys_win32.pipe_shutdown ph
+	    | _ -> 
+		()
+	with Not_found ->
+	  Unix.close fd in
     let eng = 
       try
 	let mplex = mplex_of_fd ~close_inactive_descr prot fd esys in
@@ -902,7 +937,23 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
 		  let addr = `Sock_inet(stype, host, port) in
 		  (prot, open_socket addr prot conf)
 	      | Unix path ->
-		  let addr = `Sock_unix(stype, path) in
+		  ( match Sys.os_type with
+		      | "Win32" ->
+			  let f = open_in path in
+			  let port = int_of_string (input_line f) in
+			  close_in f;
+			  let addr = `Sock_inet(stype, 
+						Unix.inet_addr_loopback,
+						port) in
+			  (prot, open_socket addr prot conf)
+		      | _ ->
+			  let addr = `Sock_unix(stype, path) in
+			  (prot, open_socket addr prot conf)
+		  )
+	      | Pipe path ->
+		  if prot <> Rpc.Tcp then
+		    failwith "Rpc_client.create2: Pipe only supported for Rpc.Tcp protocol type";
+		  let addr = `Pipe(Netsys_win32.Pipe_duplex, path) in
 		  (prot, open_socket addr prot conf)
 	      |	Descriptor fd -> 
 		  let m = 
@@ -935,7 +986,7 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
       max_retransmissions = 3;
       exception_handler = (fun exn -> 
 			     prerr_endline ("Rpc_client: Uncaught exception " ^ 
-					      Printexc.to_string exn)
+					      Netexn.to_string exn)
 			  );
       auth_methods = [ ];
       current_auth_method = auth_none;
@@ -986,17 +1037,47 @@ let set_dgram_destination cl addr_opt =
 let set_exception_handler cl xh =
   cl.exception_handler <- xh
 
-let shut_down cl =
+
+let gen_shutdown cl is_running run ondown =
   if cl.ready then (
+    let b = is_running cl.esys in
     ( match cl.est_engine with
 	| None -> ()
 	| Some e -> e#abort()
     );
-    close cl;
-    if not (Unixqueue.is_running cl.esys) then
-      (* assume synchronous invocation *)
-      Unixqueue.run cl.esys
+    close ~ondown cl;
+    if not b then run cl.esys
   )
+  else
+    ondown()
+
+let shut_down cl =
+  gen_shutdown 
+    cl 
+    Unixqueue.is_running 
+    Unixqueue.run 
+    (fun () -> ())
+
+let sync_shutdown cl =
+  gen_shutdown 
+    cl 
+    (fun esys -> 
+       if Unixqueue.is_running esys then
+	 failwith "Rpc_client.sync_shutdown: called from event loop";
+       false)
+    Unixqueue.run 
+    (fun () -> ())
+  
+let trigger_shutdown cl ondown =
+  gen_shutdown
+    cl
+    (fun _ -> true)
+    Unixqueue.run
+    (fun () ->
+       let g = Unixqueue.new_group cl.esys in
+       Unixqueue.once cl.esys g 0.0 ondown
+    )
+
 
 let event_system cl =
   cl.esys

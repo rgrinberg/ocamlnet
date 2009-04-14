@@ -9,6 +9,17 @@ exception FTP_protocol_violation of string
 let proto_viol s =
   raise(FTP_protocol_violation s)
 
+let () =
+  Netexn.register_printer
+    (FTP_error Not_found)
+    (fun e ->
+       match e with
+	 | FTP_error e' ->
+	     "Ftp_client.FTP_error(" ^ Netexn.to_string e' ^ ")"
+	 | _ -> assert false
+    )
+
+
 let verbose = true
 
 type cmd_state =

@@ -235,7 +235,7 @@ object (self)
     with
 	any ->
 	  prerr_endline("Uq_tcl: Internal uncaught exception: " ^
-			Printexc.to_string any);
+			Netexn.to_string any);
 
   method private tcl_handler 
                    ((infiles, outfiles, oobfiles, time) as watch_tuple) () =
@@ -273,7 +273,7 @@ object (self)
     with
 	any ->
 	  prerr_endline ("Uq_tcl: Uncaught exception: " ^
-			 Printexc.to_string any
+			 Netexn.to_string any
 			);
     end;
     tcl_is_running <- false;

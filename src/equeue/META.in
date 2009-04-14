@@ -1,11 +1,5 @@
 version = "@VERSION@"
 description = "Ocamlnet - Event queues"
 requires = "unix,netsys"
-requires(mt) = "unix,netsys,threads"
 archive(byte) = "equeue.cma"
-archive(byte,mt) = "equeue.cma unixqueue_mt.cmo"
 archive(native) = "equeue.cmxa"
-archive(native,mt) = "equeue.cmxa unixqueue_mt.cmx"
-#error(mt_vm) = "The equeue library does not work for the VM threading implementation!"
-# This error should only happen when linking, not when compiling. Because
-# this cannot be distinguished right now, the condition is commented out.

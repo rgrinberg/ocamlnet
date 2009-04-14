@@ -3,9 +3,11 @@ TOP_DIR=../..
 include Makefile.conf
 
 PKGNAME  = netsys
-OBJECTS  = netsys_util.cmo \
-	   netsys.cmo netsys_pollset.cmo netsys_pollset_posix.cmo \
-	   netsys_win32.cmo netsys_pollset_win32.cmo
+OBJECTS  = netexn.cmo netsys_impl_util.cmo \
+	   netsys_posix.cmo netsys_win32.cmo netsys.cmo \
+	   netsys_pollset.cmo netsys_pollset_posix.cmo \
+	   netsys_pollset_win32.cmo netsys_pollset_generic.cmo \
+	   netsys_util.cmo
 COBJECTS = netsys_c.o netsys_c_win32.o
 DOBJECTS = netsys.mli netsys_pollset.mli
 LINK_OPTIONS = $(NETSYS_LINK_OPTIONS)

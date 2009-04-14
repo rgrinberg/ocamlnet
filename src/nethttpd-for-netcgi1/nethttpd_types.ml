@@ -24,8 +24,51 @@
 
 open Nethttp
 open Nethttp.Header
+open Printf
 
 exception Standard_response of http_status * http_header option * string option
+
+let exn_print_header b hdr =
+  Buffer.add_string b "[";
+  let first = ref true in
+  List.iter
+    (fun (n,v) ->
+       if not !first then Buffer.add_string b ", ";
+       bprintf b "%s: %S" n v;
+       first := false
+    )
+    hdr#fields;
+  Buffer.add_string b "]"
+
+
+let () =
+  Netexn.register_printer
+    (Standard_response(`Continue, None, None))
+    (fun e ->
+       match e with
+	 | Standard_response(status, hdr_opt, err_opt) ->
+	     let b = Buffer.create 200 in
+	     Buffer.add_string b "Nethttpd_types.Standard_response(";
+	     Buffer.add_string b (Nethttp.string_of_http_status status);
+	     Buffer.add_string b ", ";
+	     ( match hdr_opt with
+		 | None ->
+		     Buffer.add_string b "None"
+		 | Some hdr ->
+		     Buffer.add_string b "Some ";
+		     exn_print_header b hdr
+	     );
+	     Buffer.add_string b ", ";
+	     ( match err_opt with
+		 | None ->
+		     Buffer.add_string b "None"
+		 | Some err ->
+		     bprintf b "Some %S" err
+	     );
+	     Buffer.add_string b ")";
+	     Buffer.contents b
+	 | _ -> assert false
+    )
 
 class type virtual v_extended_environment =
 object
@@ -356,6 +399,33 @@ let output_std_response config env status hdr_opt msg_opt =
 
 exception Redirect_request of string * http_header
 exception Redirect_response of string * http_header
+
+
+let () =
+  Netexn.register_printer
+    (Redirect_request("", new Netmime.basic_mime_header []))
+    (fun e ->
+       match e with
+	 | Redirect_request(url, hdr) ->
+	     let b = Buffer.create 200 in
+	     bprintf b "Nethttpd_types.Redirect_request(%S, " url;
+	     exn_print_header b hdr;
+	     Buffer.add_string b ")";
+	     Buffer.contents b
+	 | _ -> assert false
+    );
+  Netexn.register_printer
+    (Redirect_response("", new Netmime.basic_mime_header []))
+    (fun e ->
+       match e with
+	 | Redirect_response(url, hdr) ->
+	     let b = Buffer.create 200 in
+	     bprintf b "Nethttpd_types.Redirect_response(%S, " url;
+	     exn_print_header b hdr;
+	     Buffer.add_string b ")";
+	     Buffer.contents b
+	 | _ -> assert false
+    )
 
 
 class type http_service_generator =

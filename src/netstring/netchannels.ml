@@ -7,6 +7,24 @@ exception Closed_channel
 exception Buffer_underrun
 exception Command_failure of Unix.process_status
 
+let () =
+  Netexn.register_printer
+    (Command_failure(Unix.WEXITED 0))
+    (fun e ->
+       match e with
+	 | Command_failure ps ->
+	     let ps_str =
+	       match ps with
+		 | Unix.WEXITED n -> "WEXITED " ^ string_of_int n
+		 | Unix.WSIGNALED n -> "WSIGNALED " ^ string_of_int n
+		 | Unix.WSTOPPED n -> "WSTOPPED " ^ string_of_int n
+	     in
+	     "Netchannels.Command_failure(" ^ ps_str ^ ")"
+	 | _ ->
+	     assert false
+    )
+
+
 class type rec_in_channel = object
   method input : string -> int -> int -> int
   method close_in : unit -> unit
@@ -1229,6 +1247,7 @@ let lift_out ?(buffered=true) ?buffer_size (x : lift_out_arg) =
 (************************* raw channels *******************************)
 
 class input_descr_prelim ?(blocking=true) ?(start_pos_in = 0) fd =
+  let fd_style = Netsys.get_fd_style fd in
 object (self)
   val fd_in = fd
   val mutable pos_in = start_pos_in
@@ -1250,7 +1269,8 @@ object (self)
       | Unix.Unix_error(Unix.EAGAIN,_,_)
       | Unix.Unix_error(Unix.EWOULDBLOCK,_,_) ->
 	  if blocking then (
-	    let _  = Netsys.restart (Netsys.wait_until_readable fd) (-1.0) in
+	    let _  = Netsys.restart 
+	      (Netsys.wait_until_readable fd_style fd) (-1.0) in
 	    self # input buf pos len
 	  )
 	  else 0
@@ -1273,6 +1293,7 @@ class input_descr ?blocking ?start_pos_in fd : raw_in_channel =
 
 
 class output_descr_prelim ?(blocking=true) ?(start_pos_out = 0) fd =
+  let fd_style = Netsys.get_fd_style fd in
 object (self)
   val fd_out = fd
   val mutable pos_out = start_pos_out
@@ -1293,7 +1314,8 @@ object (self)
       | Unix.Unix_error(Unix.EAGAIN,_,_)
       | Unix.Unix_error(Unix.EWOULDBLOCK,_,_) ->
 	  if blocking then (
-	    let _  = Netsys.restart (Netsys.wait_until_writable fd) (-1.0) in
+	    let _  = Netsys.restart 
+	      (Netsys.wait_until_writable fd_style fd) (-1.0) in
 	    self # output buf pos len
 	  )
 	  else

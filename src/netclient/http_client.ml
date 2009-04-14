@@ -17,6 +17,18 @@ exception Too_many_redirections;;
 exception Name_resolution_error of string
 exception URL_syntax_error of string
 
+let () =
+  Netexn.register_printer
+    (Http_protocol Not_found)
+    (fun e ->
+       match e with
+	 | Http_protocol e' ->
+	     "Http_client.Http_protocol(" ^ Netexn.to_string e' ^ ")"
+	 | _ ->
+	     assert false
+    )
+
+
 type status =
   [ `Unserved
   | `Http_protocol_error of exn
@@ -2344,7 +2356,7 @@ class transmitter
 	      let e_msg =
 		match e with
 		  | Bad_message s -> ": Bad message: " ^ s
-		  | _ -> ": " ^ Printexc.to_string e in
+		  | _ -> ": " ^ Netexn.to_string e in
 	      if options.verbose_status then
 		prerr_endline ("HTTP protocol error" ^ e_msg)
 	  | _ -> 
@@ -2826,7 +2838,7 @@ class connection the_esys
 			      Unix.error_message e)
 	  | _ ->
 	      prerr_endline("HTTP connection: Cannot connect: Exception " ^ 
-			      Printexc.to_string err)
+			      Netexn.to_string err)
       );
       Unixqueue.clear esys g;         (* clean up esys *)
       group <- None;
@@ -3373,7 +3385,7 @@ class connection the_esys
 			   *)
 			  x ->
 			    prerr_string "Exception caught in Http_client: ";
-			    prerr_endline (Printexc.to_string x);
+			    prerr_endline (Netexn.to_string x);
 			    false
 		    end
 	    in
@@ -4114,7 +4126,7 @@ class pipeline =
 				 x ->
 				   prerr_string 
 				     "Exception caught in Http_client: ";
-				   prerr_endline (Printexc.to_string x);
+				   prerr_endline (Netexn.to_string x);
 				   false
 			   end
 		   in

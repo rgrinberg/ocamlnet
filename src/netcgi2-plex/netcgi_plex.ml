@@ -8,10 +8,11 @@ type mountpoint =
     ]
 
 let wait_for_request timeout fd =
+  let fd_style = Netsys.get_fd_style fd in
   let rec wait t =
     let t0 = Unix.gettimeofday() in
     try
-      let ok = Netsys.wait_until_readable fd t in
+      let ok = Netsys.wait_until_readable fd_style fd t in
       if not ok then
 	`Conn_close
       else
@@ -57,7 +58,7 @@ let term_connection cont fd cdir =
 	Unix.shutdown fd Unix.SHUTDOWN_ALL;
 	Unix.close fd
     | `Conn_error e ->
-	cont # log `Crit ("Exception " ^ Printexc.to_string e);
+	cont # log `Crit ("Exception " ^ Netexn.to_string e);
 	Unix.shutdown fd Unix.SHUTDOWN_ALL;
 	Unix.close fd;
     | `Conn_keep_alive ->

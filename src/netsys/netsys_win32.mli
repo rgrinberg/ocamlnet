@@ -2,21 +2,43 @@
 
 (** Primitives for Win32 *)
 
+val fill_random : string -> unit
+  (** Fills the string with random bytes. A cryptographically secure RNG
+      is used
+   *)
+
 (** {1 Event objects} *)
 
 type w32_event
 
 val create_event : unit -> w32_event
+  (** Create an event object *)
 
 val set_event : w32_event -> unit
+  (** Set the object to "signaled" state *)
 
 val reset_event : w32_event -> unit
+  (** Set the object to "non-signaled" state *)
+
+val test_event : w32_event -> bool
+  (** Test whether the object is in signaled state *)
+
+val event_wait : w32_event -> float -> bool
+  (** Wait until the event is set to signaled state. The float argument
+      is the timeout in seconds. The function returns whether the object
+      is in signaled state.
+   *)
+
+val event_descr : w32_event -> Unix.file_descr
+  (** Creates a proxy descriptor for the event. See [lookup] below for
+      more on proxy descriptors.
+   *)
 
 
 (** {1 Primitives for sockets} *)
 
 val wsa_event_select : 
-      w32_event -> Unix.file_descr -> Netsys.poll_in_events -> unit
+      w32_event -> Unix.file_descr -> Netsys_posix.poll_req_events -> unit
   (** associate event objects with socket conditions *)
 
 val wsa_maximum_wait_events : 
@@ -40,8 +62,9 @@ val wsa_wait_for_multiple_events :
 
 
 val wsa_enum_network_events : 
-      Unix.file_descr -> w32_event -> Netsys.poll_out_events
+      Unix.file_descr -> w32_event -> Netsys_posix.poll_act_events
     (** Checks whether an event has been recorded *)
+
 
 (** {1 Support for named pipes} *)
 
@@ -78,6 +101,8 @@ type w32_pipe_helper
 
 type pipe_mode = Pipe_in | Pipe_out | Pipe_duplex
 
+type pipe_conn_state = Pipe_deaf | Pipe_listening | Pipe_connected | Pipe_down
+
 val create_local_named_pipe : string -> pipe_mode -> int -> w32_pipe_helper
   (** [create_local_named_pipe name mode n]: Create an instance of a 
       named pipe. The [name] must have the format "\\.\pipe\<name>".
@@ -87,6 +112,8 @@ val create_local_named_pipe : string -> pipe_mode -> int -> w32_pipe_helper
 
       This function is called by the pipe server. It can be called up to
       [n] times with the same name.
+
+      The returned pipe is in the connection state [Pipe_deaf].
    *)
 
 (** In the following, a terminology has been chosen that is similar to
@@ -104,19 +131,26 @@ val pipe_listen : w32_pipe_helper -> unit
          error occurred the error code is immediately returned.
        - [pipe_read] is also possible (length of 0 only checks the error
          code, and length > 0 tries to read). Note, however, that the
-         pipe never becomes readable after the connection is established
-         - even if there is data to read. The reason is that the Win32
-         API permits to signal the completion of an I/O operation
+         pipe never becomes readable after the connection is 
+         established - even if there is data to read. The reason is that the 
+         Win32 API permits to signal the completion of an I/O operation
          by one event object only, and not by two objects. After the
          first [pipe_read] or [pipe_write] it is then correctly signaled
          which kind of I/O is possible.
+
+      This function causes that the connection state transitions from
+      [Pipe_deaf] to [Pipe_listening]. When the connection is established,
+      the state transitions further to [Pipe_connected].
    *)
 
-val pipe_unlisten : w32_pipe_helper -> unit
+val pipe_deafen : w32_pipe_helper -> unit
   (** The pipe server forces the client to disconnect. The pipe handle can
       be reused for further [pipe_listen] calls.
 
-      See the comments on closing pipes below.
+      See the comments on shutting down pipes below.
+
+      This function causes that the connection state transitions from
+      [Pipe_listening] or [Pipe_connected] to [Pipe_deaf].
    *)
 
 val pipe_connect : string -> pipe_mode -> w32_pipe_helper
@@ -127,7 +161,16 @@ val pipe_connect : string -> pipe_mode -> w32_pipe_helper
 
       Note that there is no other way to wait asynchronously for the
       availability of the pipe than busy waiting.
+
+      The pipe is in state [Pipe_connected].
    *)
+
+val pipe_pair : pipe_mode -> (w32_pipe_helper * w32_pipe_helper)
+  (** Returns a pair of connected pipes (using automatically generated
+      names). The left pipe is in the passed [pipe_mode], and the
+      right pipe is in the matching complementaty mode.
+   *)
+
 
 val pipe_read : w32_pipe_helper -> string -> int -> int -> int
   (** [pipe_read p s pos len]: Tries to read data from the pipe. If data
@@ -149,14 +192,21 @@ val pipe_write : w32_pipe_helper -> string -> int -> int -> int
       [EAGAIN].
    *)
 
-val pipe_close : w32_pipe_helper -> unit
+val pipe_shutdown : w32_pipe_helper -> unit
   (** Cancels all pending I/O operations and closes the pipe handle.
 
       Note that there is no way to close only one direction of bidirectional
       pipes.
 
       See the comments on closing pipes below.
+
+      It is an error to call this function after [pipe_deaf]. Just forget
+      about the pipe helper in this case. This function causes that the
+      connection state transitions from [Pipe_connected] to [Pipe_down].
    *)
+
+val pipe_conn_state : w32_pipe_helper -> pipe_conn_state
+  (** Return the connection state *)
 
 val pipe_rd_event : w32_pipe_helper -> w32_event
 val pipe_wr_event : w32_pipe_helper -> w32_event
@@ -167,28 +217,36 @@ val pipe_wr_event : w32_pipe_helper -> w32_event
       read-only pipes).
    *)
 
-val pipe_descr : w32_pipe_helper -> Unix.file_descr
-val lookup_pipe : Unix.file_descr -> w32_pipe_helper
-  (** [pipe_descr] returns a file descriptor that can be used as proxy in
-      all interfaces that use file descriptors to identify system objects.
-      Subsequent calls of [pipe_descr] return the same descriptor.
-      The function [lookup_pipe] finds the [w32_pipe_helper] for a given
-      descriptor, or raises [Not_found] if there is none, or if the 
-      pipe helper is already closed.
+val pipe_wait_rd : w32_pipe_helper -> float -> bool
+val pipe_wait_wr : w32_pipe_helper -> float -> bool
+  (** Wait until the pipe becomes readable or writable. The float argument
+      is the timeout in seconds. The function returns whether there is
+      data to read or write. If not, a timeout has occurred.
+   *)
 
-      The caller must not [Unix.close] the file descriptor. This is
-      implicitly done when the pipe helper is closed.
+val pipe_signal : w32_pipe_helper -> w32_event -> unit
+  (** Associates the pipe with an event object. The event is signaled
+      when the pipe changes its connection state to Pipe_deaf or
+      Pipe_down. The event must be manually reset by the caller.
    *)
 
 
-(** {b Closing pipes.} The suggested model is that the client closes the
-    pipe first. A pipe client ensures that all data are transmitted
+val pipe_descr : w32_pipe_helper -> Unix.file_descr
+  (** [pipe_descr] returns a file descriptor that can be used as proxy in
+      all interfaces that use file descriptors to identify system objects.
+      Subsequent calls of [pipe_descr] return the same descriptor.
+      See the docs on [lookup] below.
+   *)
+
+
+(** {b Shutting down pipes.} The suggested model is that the client shuts
+    down the pipe first. A pipe client ensures that all data are transmitted
     by waiting until the pipe becomes writable again, and then calling
-    [pipe_close]. The server then sees EOF when reading from the pipe,
+    [pipe_shutdown]. The server then sees EOF when reading from the pipe,
     or gets an [EPIPE] error when writing to the pipe. The server can
     react on this by reusing the pipe instance for another client
-    ([pipe_unlisten] followed by [pipe_listen]), or by closing the instance
-    ([pipe_close]).
+    ([pipe_deaf] followed by [pipe_listen]), or by getting rid of the instance
+    ([pipe_shutdown]).
 
     When servers start the closure of connections, there is no clean way
     of ensuring that all written data are transmitted. There is the
@@ -196,37 +254,36 @@ val lookup_pipe : Unix.file_descr -> w32_pipe_helper
  *)
 
 
+(** {1 Proxy Descriptors} *)
 
-(*
+(** For a number of objects ([w32_event], [w32_pipe_helper]) it is possible
+    to obtain proxy descriptors. These have type [Unix.file_descr] and they
+    contain a real file handle. The purpose of these descriptors is to
+    be used as proxy objects that can be passed to functions expecting
+    file descriptors as input. However, you cannot do anything with the
+    proxies except looking the corresponding real objects up. This feature
+    is used by Ocamlnet to emulate POSIX behavior for Win32 kernel objects
+    lacking it.
 
-(** {1 Primitives for pipes} *)
+    Note that you can call functions like [Unix.close] or [Unix.dup] on
+    the proxies, but they are meaningless, and can even cause malfunction
+    (especially [close]).
 
-val is_pipe_readable : Unix.file_descr -> bool
-  (** Returns whether there is something to read from a pipe *)
+    Proxy descriptors are automatically closed.
+ *)
 
-(** {1 Primitives for event objects} *)
+type w32_object =
+    | W32_event of w32_event
+    | W32_pipe_helper of w32_pipe_helper
 
-val create_event : unit -> Unix.file_descr
-  (** Creates an event object with the properties:
-      - default security descriptor
-      - manual reset
-      - initially the event is in nonsignaled state
-      - no name is associated with the event
+val lookup : Unix.file_descr -> w32_object
+  (** Returns the real object behind a proxy descriptor, or raises
+      [Not_found]
    *)
 
+val lookup_event : Unix.file_descr -> w32_event
+val lookup_pipe_helper : Unix.file_descr -> w32_pipe_helper
+  (** Returns the real object. If not found, or if the object is of unexpected
+      type, [Failure] is raised.
+   *)
 
-val reset_event : Unix.file_descr -> unit
-
-val set_event : Unix.file_descr -> unit
-
-val wait_for_multiple_objects : 
-      Unix.file_descr array -> int -> int option
-    (** Waits until one of the events in the array is in signaled state,
-        or until a timeout happens. The int is the timeout in milliseconds.
-        A negative timeout means infinity.
-
-        The function returns the first index in the array that is signaled.
-
-        On timeout, [None] is returned.
-     *)
- *)

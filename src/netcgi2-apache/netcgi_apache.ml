@@ -543,7 +543,7 @@ let load_file filename =
 		   filename ^ ": Dynlink.Error: " ^ Dynlink.error_message e,
 		   "Couldn't load the script."))
    | e -> raise(Error(`Internal_server_error,
-		      filename ^ ": " ^ Printexc.to_string e,
+		      filename ^ ": " ^ Netexn.to_string e,
 		      "Couldn't load the script.")));
   (* If the file was loaded and thus the toplevel code executed,
      [current_script] should now be [Some handler]. *)

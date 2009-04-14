@@ -255,7 +255,7 @@ let serve_connection ?config ?(https=false) ?jk_servletSubString
 		    `Start ->
 		      env # set_output_header_fields
 			[ "Status", "500 Internal Server Error";
-			  "Servlet-Error", (String.escaped (Printexc.to_string
+			  "Servlet-Error", (String.escaped (Netexn.to_string
 							      err));
 			];
 		      env # send_output_header();

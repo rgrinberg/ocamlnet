@@ -19,6 +19,17 @@
 
 exception Telnet_protocol of exn;;
 
+let () =
+  Netexn.register_printer
+    (Telnet_protocol Not_found)
+    (fun e ->
+       match e with
+	 | Telnet_protocol e' ->
+	     "Telnet_client.Telnet_protocol(" ^ Netexn.to_string e' ^ ")"
+	 | _ ->
+	     assert false
+    )
+
 
 type telnet_command =
     Telnet_data of string
