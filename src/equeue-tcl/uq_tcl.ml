@@ -65,7 +65,7 @@ type runner =
 
 class tcl_event_system ?(run : runner option) () =
 object (self)
-  inherit unix_event_system() as super
+  inherit Unixqueue_select.select_based_event_system() as super
 
   val mutable tcl_attaching = false
   val mutable tcl_run_soon = false

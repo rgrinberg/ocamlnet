@@ -31,6 +31,15 @@ let reset() =
   pipes_m # unlock()
 
 
+let() =
+  Netsys_posix.register_post_fork_handler
+    ( object
+	method name = "Netsys_pollset_posix"
+	method run() = reset()
+      end
+    )
+
+
 let get_pipe_pair() =
   pipes_m # lock();
   let pid = Unix.getpid() in

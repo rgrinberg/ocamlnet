@@ -1758,3 +1758,7 @@ object(self)
   method run () = Unixqueue.run event_system
 
 end
+
+
+let () =
+  Netsys_signal.init()

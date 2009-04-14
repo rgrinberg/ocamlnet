@@ -91,7 +91,9 @@ val get_fd_style : Unix.file_descr -> fd_style
 val gread : fd_style -> Unix.file_descr -> string -> int -> int -> int
   (** [gread fd_style fd s pos len]: Reads up to [len] bytes from 
       descriptor [fd] which is supposed to support the I/O style 
-      [fd_style]. After [n <= len] bytes have been read these are put into
+      [fd_style], i.e. the right system call ([read], [recv],
+      [recvfrom]) is chosen to read from the descriptor.
+       After [n <= len] bytes have been read these are put into
       string [s] at positions [pos] to [pos+n-1], and [n] is returned.
       The function can fail with any I/O exception defined for the
       actually performed I/O operation. Whether the operation is blocking
@@ -131,7 +133,9 @@ val really_gread : fd_style -> Unix.file_descr -> string -> int -> int -> unit
 val gwrite : fd_style -> Unix.file_descr -> string -> int -> int -> int
   (** [gwrite fd_style fd s pos len]: Writes up to [len] bytes to
       descriptor [fd] which is supposed to support the I/O style 
-      [fd_style]. The [n <= len] written bytes are taken from string [s],
+      [fd_style], i.e. the right system call ([write], [send],
+      [sendto]) is chosen to write to the descriptor.
+    . The [n <= len] written bytes are taken from string [s],
       starting at position [pos] until [pos+n-1]. The number [n] is
       returned. The function can fail with any I/O exception defined for the
       actually performed I/O operation. Whether the operation is blocking
@@ -157,13 +161,14 @@ val is_prird : fd_style -> Unix.file_descr -> bool
       output, or priority input operations were done.
 
       On POSIX systems the tests work for a wide variety of descriptor 
-      types (but not for regular files).
+      types (but not for regular files which are assumed to be always
+      readable and writable).
       If the [poll] interface is available it is preferred over the
       [select] interface to conduct the test.
 
       On Win32, the tests are limited to sockets, named pipes and
       event objects. (The latter two only in the form provided by
-      {!Netsys_win32}).
+      {!Netsys_win32}, see there.)
 
       Generally, if the blocking status cannot be determined for
       a class of I/O operations, the functions return [true], in
@@ -180,14 +185,15 @@ val wait_until_prird : fd_style -> Unix.file_descr -> float -> bool
       there was a timeout ([false]).
 
       On POSIX systems this works for a wide variety of descriptor 
-      types (but not for regular files).
+      types (but not for regular files which are assumed to be always
+      readable and writable).
       If the [poll] interface is available it is preferred over the
       [select] interface to wait for I/O. The functions also catch
       interruptions by signals.
 
       On Win32, waiting is limited to sockets, named pipes and
       event objects. (The latter two only in the form provided by
-      {!Netsys_win32}).
+      {!Netsys_win32}, see there.)
 
       Generally, if waiting is not supported for
       a class of I/O operations, the functions return immediately [true], in
@@ -213,7 +219,7 @@ val wait_until_connected : Unix.file_descr -> float -> bool
 
 val connect_check : Unix.file_descr -> unit
   (** Tests whether the socket is connected with the peer after calling
-      Unix.connect. If the socket is connected, the function returns normally.
+      [Unix.connect]. If the socket is connected, the function returns normally.
       Otherwise, the current socket error is raised as a [Unix.Unix_error]
       exception. This function is intended to be called after a 
       non-blocking connect has been initiated, and the success or error

@@ -1101,4 +1101,5 @@ class telnet_session =
   end
 ;;
 
-
+let () =
+  Netsys_signal.init()

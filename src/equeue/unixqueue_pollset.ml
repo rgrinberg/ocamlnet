@@ -89,8 +89,8 @@ let while_locked mutex f =
   mutex # lock();
   let r = 
     try f ()
-    with e -> mutex # unlock; raise e in
-  mutex # unlock;
+    with e -> mutex # unlock(); raise e in
+  mutex # unlock();
   r
 
 
@@ -98,8 +98,8 @@ let escape_lock mutex f =
   mutex # unlock();
   let r = 
     try f ()
-    with e -> mutex # lock; raise e in
-  mutex # lock;
+    with e -> mutex # lock(); raise e in
+  mutex # lock();
   r
  
 

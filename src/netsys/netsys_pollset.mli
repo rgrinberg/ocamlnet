@@ -34,7 +34,12 @@ object
      *)
 
   method dispose : unit -> unit
-    (** Release any OS resources associated with the poll set. *)
+    (** Release any OS resources associated with the pollset. The pollset
+        remains usable, however, and by invoking any method except
+        [cancel_wait] the required OS resources are automatically allocated
+        again. Only for [cancel_wait] it is ensured that the disposal
+        remains in effect.
+     *)
 
   method cancel_wait : bool -> unit
     (** There is a cancel bit in the pollset, and this method sets it

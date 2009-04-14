@@ -1860,6 +1860,11 @@ object(self)
 	  | `W32_pipe -> Netsys_win32.pipe_shutdown (get_ph())
 	  | _ -> Unix.close fd
       )
+	(* It is important that Unix.close (or substitute) is the very
+           last action. From here on, a thread running in parallel can
+           allocate this descriptor again, so it is essential that there
+           are no references anymore to it when the old descriptor is closed.
+	 *)
     )
 
   method event_system = esys
@@ -2289,125 +2294,304 @@ let rec pipe_connect_loop name mode =
 	pipe_connect_loop name mode
     
 
+(*
+type xdom =
+    [ `Socket of socket_domain
+    | `Pipe
+    ]
+ *)
 
+
+(* - new impl, not yet ready *)
+(*
 class direct_socket_connector() : client_socket_connector =
 object (self)
   method connect connaddr ues =
 
-    let close_descr s () = Unix.close s in
+    let const_eng v =
+      new epsilon_engine(`Done v) ues in
 
-    let setup_socket s stype dest_addr opts =
-      try
-	Unix.set_close_on_exec s;
-	Unix.set_nonblock s;
-	( match opts.conn_bind with
-	      Some bind_spec ->
-		( match bind_spec with
-		      `Sock_unix(stype', path) ->
-			if stype <> stype' then invalid_arg "Socket type mismatch";
-			Unix.bind s (Unix.ADDR_UNIX path)
-		    | `Sock_inet(stype', addr, port) ->
-			if stype <> stype' then invalid_arg "Socket type mismatch";
-			Unix.bind s (Unix.ADDR_INET(addr,port))
-		    | `Sock_inet_byname(stype', name, port) ->
-			if stype <> stype' then invalid_arg "Socket type mismatch";
-			let addr = addr_of_name name in
-			Unix.bind s (Unix.ADDR_INET(addr,port))
-		    | `Pipe _ ->
-			assert false
-		)
-	    | None -> ()
-	);
-	Unix.connect s dest_addr;
-	(s, stype, true, close_descr s)
-      with
-	  Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) -> 
-	    (s,stype,false, close_descr s)
-	      (* Note: Win32 returns EWOULDBLOCK instead of EINPROGRESS *)
-	| error ->
-	    (* Remarks:
+    let sock_prim_data_eng sockspec =
+      match sockspec with
+	| `Sock_unix(stype, path) ->
+	    let addr = Unix.ADDR_UNIX path in
+	    const_eng(`Socket Unix.PF_UNIX, stype, addr)
+	| `Sock_inet(stype, ip, port) ->
+	    let dom = Netsys.domain_of_inet_addr ip in
+	    let addr = Unix.ADDR_INET(ip,port) in
+	    const_eng(`Socket dom, stype, addr)
+	| `Sock_inet_by_name(stype, name, port) ->
+	    let ip_opt = XXX in
+	    ( match ip_opt with
+		| Some ip ->
+		    let dom = Netsys.domain_of_inet_addr ip in
+		    let addr = Unix.ADDR_INET(ip, port) in
+		    const_eng(`Socket dom, stype, addr)
+		| None ->
+		    (* Now need a real host lookup *)
+		    let r = Uq_resolver.current_resolver() in
+		    let eng = r # host_by_name name ues in
+		    new map_engine
+		      ~map_done:(fun he ->
+				   let dom = he.Unix.h_addrtype in
+				   let ip = he.Unix.h_addr_list.(0) in
+				   let addr = Unix.ADDR_INET(ip, port) in
+				   `Done(`Socket dom, stype, addr)
+				)
+		      eng
+	    )
+
+	    
+	| `Pipe XXX ->
+    in
+
+    let sock_data_eng sockspec opts =
+      (* Creates an engine that finds out the relevant data to create
+         the socket
+       *)
+      match opts.conn_bind with
+	| None ->
+	    new map_engine
+	      ~map_done:(fun (dom, stype, addr) ->
+			   `Done(dom, stype, addr, None))
+	      (sock_prim_data_eng sockspec)
+	| Some bind_sockspec ->
+	    (* Run two resolver engines in parallel *)
+	    let d1_eng = sock_prim_data_eng sockspec in
+	    let d2_eng = sock_prim_data_eng bind_sockspec in
+	    new map_engine
+	      ~map_done:(fun ((dom1, stype1, addr1), (dom2, _, addr2)) ->
+			   if dom1 <> dom2 then
+			     `Error(Failure("direct_socket_connector: Socket domain mismatch"))
+			   else
+			     `Done(dom1, stype1, addr1, Some addr2)
+			)
+	      (new sync_engine d1_eng d2_eng)
+    in
+
+    let sock_data_check sockspec opts =
+      (* Check whether params are valid *) 
+      match (sockspec, opts.conn_bind) with
+	| `Sock_unix(stype,_), None -> ()
+	| `Sock_unix(stype,_), Some(`Sock_unix(stype, _)) -> ()
+	| `Sock_inet(stype,_,_), None -> ()
+	| `Sock_inet_byname(stype,_,_), None -> ()
+	| `Sock_inet(stype,_,_), Some(`Sock_inet(stype,_,_)) -> ()
+	| `Sock_inet(stype,_,_), Some(`Sock_inet_byname(stype,_,_)) -> ()
+	| `Sock_inet_byname(stype,_,_), Some(`Sock_inet(stype,_,_)) -> ()
+
+	| `Sock_inet_byname(stype,_,_), Some(`Sock_inet_byname(stype,_,_)) -> ()
+	| `Pipe(_,_), None -> ()
+	| `Pipe(_,_), Some(`Pipe(_,_)) -> ()
+	| _ ->
+	    invalid_arg "direct_socket_connector: socket type mismatch"
+    in
+
+    let create_eng sockspec (dom, stype, addr, bind_addr_opt) ->
+      (* Create and connect the socket s, and return the connect engine
+       *)
+      match dom with
+	| `Socket sockdom ->
+	    let connect_tried = ref false in
+	    let s = Unix.socket sockdom 0 in
+	    ( try
+		Unix.set_close_on_exec s;
+		Unix.set_nonblock s;
+		( match bind_addr_opt with
+		    | None -> ()
+		    | Some bind_addr ->
+			Unix.bind s bind_addr
+		);
+		connect_tried := true;
+		Unix.connect s addr;
+		Netsys.connect_check s;
+		let fake_conn_eng =
+		  const_eng(`Socket(s, getsockspec stype s)) in
+		when_state
+		  ~is_aborted:(fun _ -> Unix.close s)
+		  fake_conn_eng;
+		fake_conn_eng
+	      with
+		| Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) 
+		    when !connect_tried -> 
+		    (* Note: Win32 returns EWOULDBLOCK instead of EINPROGRESS *)
+		    (* Wait until the socket is writeable. Win32 reports connect
+                       errors by signaling that out-of-band data can be received
+                       (funny, right?), so we wait for that condition, too.
+		     *)
+		    let poll_eng = 
+		      new poll_engine [ Unixqueue.Wait_out s, (-1.0);
+					Unixqueue.Wait_oob s, (-1.0)
+				      ] ues in
+		    let conn_eng =
+		      new map_engine
+			~map_done:(fun _ ->
+				     try
+				       Netsys.connect_check s;
+				       `Done(getsockspec stype s)
+				     with
+				       | error -> 
+					   Unix.close s; `Error error
+				  )
+			~map_error:(fun e ->
+				      Unix.close s; `Error e)
+			~map_aborted:(fun _ ->
+					Unix.close s; `Aborted)
+			(poll_eng :> Unixqueue.event engine) in
+		    conn_eng
+		| e ->
+		    Unix.close s; raise e
+	    )
+
+	| `Pipe ->
+	    ( match sockspec with
+		| `Pipe(mode,name) ->
+		    let ph = Netsys_win32.pipe_connect name mode in
+		    let s = Netsys_win32.pipe_descr ph in
+		    (s, None)
+		      (* CHECK: do we need
+		         Netsys_win32.pipe_shutdown ph
+		       *)
+		| _ ->
+		    assert false
+	    )
+    in
+
+    match connaddr with
+      | `Socket(sockspec,opts) ->
+	  (* Check on wrong arguments: *)
+	  sock_data_check sockspec opts;
+	  (* Create and use the engines: *)
+	  let data_eng = sock_data_eng sockspec opts in
+	  new seq_engine
+	    data_eng
+	    (fun sock_data ->
+	       create_eng sockspec sock_data)
+      | _ ->
+	  raise Addressing_method_not_supported
+end
+ *)
+
+
+(* Old impl with sync name lookup *)
+  class direct_socket_connector() : client_socket_connector =
+  object (self)
+    method connect connaddr ues =
+
+      let close_descr s () = Unix.close s in
+
+      let setup_socket s stype dest_addr opts =
+	try
+	  Unix.set_close_on_exec s;
+	  Unix.set_nonblock s;
+	  ( match opts.conn_bind with
+		Some bind_spec ->
+		  ( match bind_spec with
+			`Sock_unix(stype', path) ->
+			  if stype <> stype' then invalid_arg "Socket type mismatch";
+			  Unix.bind s (Unix.ADDR_UNIX path)
+		      | `Sock_inet(stype', addr, port) ->
+			  if stype <> stype' then invalid_arg "Socket type mismatch";
+			  Unix.bind s (Unix.ADDR_INET(addr,port))
+		      | `Sock_inet_byname(stype', name, port) ->
+			  if stype <> stype' then invalid_arg "Socket type mismatch";
+			  let addr = addr_of_name name in
+			  Unix.bind s (Unix.ADDR_INET(addr,port))
+		      | `Pipe _ ->
+			  assert false
+		  )
+	      | None -> ()
+	  );
+	  Unix.connect s dest_addr;
+	  (s, stype, true, close_descr s)
+	with
+	    Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) -> 
+	      (s,stype,false, close_descr s)
+		(* Note: Win32 returns EWOULDBLOCK instead of EINPROGRESS *)
+	  | error ->
+	      (* Remarks:
              * We can get here EAGAIN. Unfortunately, this is a kind of
              * "catch-all" error for Unix.connect, e.g. you can get it when
              * you are run out of local ports, or if the backlog limit is
              * exceeded. It is totally unclear what to do in this case,
              * so we do not handle it here. The user is supposed to connect
              * later again.
-             *)
-	    Unix.close s; raise error
-    in
+               *)
+	      Unix.close s; raise error
+      in
 
-    match connaddr with
-	`Socket(sockspec,opts) ->
-	  let (s, stype, is_connected, close) = 
-	    match sockspec with
-		`Sock_unix(stype, path) ->
-		  let s = Unix.socket Unix.PF_UNIX stype 0 in
-		  setup_socket s stype (Unix.ADDR_UNIX path) opts;
-	      | `Sock_inet(stype, addr, port) ->
-		  let dom = Netsys.domain_of_inet_addr addr in
-		  let s = Unix.socket dom stype 0 in
-		  setup_socket s stype (Unix.ADDR_INET(addr,port)) opts;
-	      | `Sock_inet_byname(stype, name, port) ->
-		  let addr = addr_of_name name in
-		  let dom = Netsys.domain_of_inet_addr addr in
-		  let s = Unix.socket dom stype 0 in
-		  setup_socket s stype (Unix.ADDR_INET(addr,port)) opts;
-	      | `Pipe (mode,name) ->
-		  let ph = Netsys_win32.pipe_connect name mode in
-		  let s = Netsys_win32.pipe_descr ph in
-		  (s, Unix.SOCK_STREAM, true, 
-		   (fun () -> Netsys_win32.pipe_shutdown ph)
-		  )
-	  in
-	  let conn_eng =
-	    if is_connected then (
+      match connaddr with
+	  `Socket(sockspec,opts) ->
+	    let (s, stype, is_connected, close) = 
 	      match sockspec with
-		| `Pipe (mode,_) ->
-		    let status = 
-		      `Done(`Socket(s, `Pipe(mode, ""))) in
-		    new epsilon_engine status ues
-		| _ ->
-		    let status =
-		      try 
-			Netsys.connect_check s;
-			`Done(`Socket(s, getsockspec stype s))
-		      with
-			| error -> 
-			    `Error error in
-		    new epsilon_engine status ues
-	    )
-	    else (
-	      (* Now wait until the socket is writeable. Win32 reports connect
+		  `Sock_unix(stype, path) ->
+		    let s = Unix.socket Unix.PF_UNIX stype 0 in
+		    setup_socket s stype (Unix.ADDR_UNIX path) opts;
+		| `Sock_inet(stype, addr, port) ->
+		    let dom = Netsys.domain_of_inet_addr addr in
+		    let s = Unix.socket dom stype 0 in
+		    setup_socket s stype (Unix.ADDR_INET(addr,port)) opts;
+		| `Sock_inet_byname(stype, name, port) ->
+		    let addr = addr_of_name name in
+		    let dom = Netsys.domain_of_inet_addr addr in
+		    let s = Unix.socket dom stype 0 in
+		    setup_socket s stype (Unix.ADDR_INET(addr,port)) opts;
+		| `Pipe (mode,name) ->
+		    let ph = Netsys_win32.pipe_connect name mode in
+		    let s = Netsys_win32.pipe_descr ph in
+		    (s, Unix.SOCK_STREAM, true, 
+		     (fun () -> Netsys_win32.pipe_shutdown ph)
+		    )
+	    in
+	    let conn_eng =
+	      if is_connected then (
+		match sockspec with
+		  | `Pipe (mode,_) ->
+		      let status = 
+			`Done(`Socket(s, `Pipe(mode, ""))) in
+		      new epsilon_engine status ues
+		  | _ ->
+		      let status =
+			try 
+			  Netsys.connect_check s;
+			  `Done(`Socket(s, getsockspec stype s))
+			with
+			  | error -> 
+			      `Error error in
+		      new epsilon_engine status ues
+	      )
+	      else (
+		(* Now wait until the socket is writeable. Win32 reports connect
                  errors by signaling that out-of-band data can be received
                  (funny, right?), so we wait for that condition, too.
-	       *)
-	      let e = new poll_engine [ Unixqueue.Wait_out s, (-1.0);
-					Unixqueue.Wait_oob s, (-1.0)
-				      ] ues in
-	      new map_engine
-		~map_done:(fun _ ->
-			     try
-			       Netsys.connect_check s;
-			       `Done(`Socket(s, getsockspec stype s))
-			     with
-			       | error -> 
-				   `Error error
-			  )
-		(e :> Unixqueue.event engine)
-	    ) in
-	  (* It is possible that somebody aborts conn_eng. In this case,
+		 *)
+		let e = new poll_engine [ Unixqueue.Wait_out s, (-1.0);
+					  Unixqueue.Wait_oob s, (-1.0)
+					] ues in
+		new map_engine
+		  ~map_done:(fun _ ->
+			       try
+				 Netsys.connect_check s;
+				 `Done(`Socket(s, getsockspec stype s))
+			       with
+				 | error -> 
+				     `Error error
+			    )
+		  (e :> Unixqueue.event engine)
+	      ) in
+	    (* It is possible that somebody aborts conn_eng. In this case,
            * the socket must be closed. Same when we enter an error state.
-           *)
-	  when_state
-	    ~is_aborted:(fun () -> close())
-	    ~is_error:(fun _ -> close())
-	    conn_eng;
-	  (* conn_eng is what the user sees: *)
-	  conn_eng
+             *)
+	    when_state
+	      ~is_aborted:(fun () -> close())
+	      ~is_error:(fun _ -> close())
+	      conn_eng;
+	    (* conn_eng is what the user sees: *)
+	    conn_eng
 
-      | _ ->
-	  raise Addressing_method_not_supported
-end ;;
+	| _ ->
+	    raise Addressing_method_not_supported
+  end ;;
 
 
 (* TODO: Close u, v on abort/error *)

@@ -33,3 +33,19 @@ val performance_pollset : unit -> pollset
       implementations exist. In the future, [performance_pollset] will use
       kernel-based polling on some OS ("epoll", "kqueue", "/dev/poll", etc.)
  *)
+
+val select_emulation : 
+      pollset ->
+      Unix.file_descr list ->
+      Unix.file_descr list ->
+      Unix.file_descr list ->
+      float ->
+        (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list)
+  (** [let select = select_emulation pset]: Returns a function with the
+      same meaning as [Unix.select]. It is emulated on top of [pset].
+
+      Using the function is only recommended when the lists of file
+      descriptors are short. Long lists impose a big performance penalty.
+
+      Unlike [Unix.select] the descriptors may be returned in any order.
+   *)

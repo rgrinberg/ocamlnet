@@ -17,13 +17,19 @@ CLEAN_LIST += finder_daemon finder_client
 
 all: finderlib.cma finder_daemon finder_client
 
-opt: finderlib.cmxa
+opt: finderlib.cmxa finder_daemon.opt finder_client.opt
 
 finder_daemon: $(SRV_EXPLICIT_OBJ)
 	$(OCAMLC) -o finder_daemon finderlib.cma $(SRV_EXPLICIT_OBJ) -linkpkg -thread
 
+finder_daemon.opt: $(SRV_EXPLICIT_XOBJ)
+	$(OCAMLOPT) -o finder_daemon finderlib.cmxa $(SRV_EXPLICIT_XOBJ) -linkpkg -thread
+
 finder_client: $(CLNT_EXPLICIT_OBJ)
 	$(OCAMLC) -o finder_client finderlib.cma $(CLNT_EXPLICIT_OBJ) -linkpkg
+
+finder_client.opt: $(CLNT_EXPLICIT_XOBJ)
+	$(OCAMLOPT) -o finder_client finderlib.cmxa $(CLNT_EXPLICIT_XOBJ) -linkpkg
 
 finderlib.cma: $(OBJ)
 	$(OCAMLC) -o finderlib.cma -a $(OBJ)

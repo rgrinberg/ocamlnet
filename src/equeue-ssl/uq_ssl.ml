@@ -66,6 +66,7 @@ object(self)
     if connecting || accepting then
       failwith "#start_connecting: handshake already in progress";
     self # nonblock_operation
+      (ref false)
       `Connecting
       (fun () ->
 	 try
@@ -96,6 +97,7 @@ object(self)
     if connecting || accepting then
       failwith "#start_accepting: handshake already in progress";
     self # nonblock_operation
+      (ref false)
       `Accepting
       (fun () ->
 	 try
@@ -129,7 +131,9 @@ object(self)
       failwith "#start_reading: already reading";
     if shutting_down <> None then
       failwith "#start_reading: already shutting down";
+    let cancel_flag = ref false in
     self # nonblock_operation
+      cancel_flag
       `Reading
       (fun () ->
 	 try
@@ -158,15 +162,17 @@ object(self)
 	       reading <- None;
 	       (false, false, fun () -> when_done (Some err) 0)
       );
-    reading <- Some when_done
+    reading <- Some (when_done, cancel_flag)
 
 
   method cancel_reading () =
     match reading with
       | None ->
 	  ()
-      | Some f_when_done ->
+      | Some (f_when_done, cancel_flag) ->
+	  assert(not !cancel_flag);
 	  self # cancel_operation `Reading;
+	  cancel_flag := true;
 	  reading <- None;
 	  f_when_done (Some Uq_engines.Cancelled) 0
 
@@ -182,7 +188,9 @@ object(self)
       failwith "#start_writing: already shutting down";
     if wrote_eof then
       failwith "#start_writing: already past EOF";
+    let cancel_flag = ref false in
     self # nonblock_operation
+      cancel_flag
       `Writing
       (fun () ->
 	 try
@@ -205,7 +213,7 @@ object(self)
 	       writing <- None;
 	       (false, false, fun () -> when_done (Some err) 0)
       );
-    writing <- Some when_done
+    writing <- Some (when_done, cancel_flag)
 
 
   method start_writing_eof ~when_done () =
@@ -216,8 +224,10 @@ object(self)
     match writing with
       | None ->
 	  ()
-      | Some f_when_done ->
+      | Some (f_when_done, cancel_flag) ->
+	  assert(not !cancel_flag);
 	  self # cancel_operation `Writing;
+	  cancel_flag := true;
 	  writing <- None;
 	  f_when_done (Some Uq_engines.Cancelled) 0
 
@@ -230,7 +240,9 @@ object(self)
     if shutting_down <> None then
       failwith "#start_shutting_down: already shutting down";
     let n = ref 0 in
+    let cancel_flag = ref false in
     self # nonblock_operation
+      cancel_flag
       `Shutting_down
       (fun () ->
 	 try
@@ -282,33 +294,37 @@ object(self)
 	       shutting_down <- None;
 	       (false, false, fun () -> when_done (Some err))
       );
-    shutting_down <- Some when_done
+    shutting_down <- Some(when_done, cancel_flag)
 
   method cancel_shutting_down () =
     match shutting_down with
       | None ->
 	  ()
-      | Some f_when_done ->
+      | Some (f_when_done, cancel_flag) ->
+	  assert(not !cancel_flag);
 	  self # cancel_operation `Shutting_down;
+	  cancel_flag := true;
 	  shutting_down <- None;
 	  f_when_done (Some Uq_engines.Cancelled)
 
 
-  method private nonblock_operation tag f =
+  method private nonblock_operation cancel_flag tag f =
     Unixqueue.once
       esys
       group
       0.0
       (fun () ->
-	 let (want_rd, want_wr, action) = f() in
-	 if want_rd || want_wr then
-	   pending <- (tag, want_rd, want_wr, f) :: pending;
-	 ( try
-	     action();
-	     self # setup_queue();
-	   with
-	     | error ->
-		 self # setup_queue(); raise error
+	 if not !cancel_flag then (
+	   let (want_rd, want_wr, action) = f() in
+	   if want_rd || want_wr then
+	     pending <- (tag, want_rd, want_wr, f) :: pending;
+	   ( try
+	       action();
+	       self # setup_queue();
+	     with
+	       | error ->
+		   self # setup_queue(); raise error
+	   )
 	 )
       )
 

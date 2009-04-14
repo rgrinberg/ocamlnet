@@ -36,7 +36,7 @@ end
 module Fdescr = struct
   type t = Unix.file_descr
 
-  let compare = Pervasives.compare
+  let compare (a:t) (b:t) = Pervasives.compare a b
 
 end;;
 
@@ -58,17 +58,38 @@ exception Keep_alive
 module RID = struct
   (* RID = resource identifier, i.e. the operation *)
   type t = operation
-  let compare (rid1:t) (rid2:t) =
-    Pervasives.compare rid1 rid2
+
+  (* let compare (rid1:t) (rid2:t) =
+        Pervasives.compare rid1 rid2
+   *)
+
+  let equal (rid1:t) (rid2:t) =
+    rid1 = rid2
+    
+  let hash =
+    match Sys.os_type with
+      | "Win32" ->
+	  Hashtbl.hash
+      | _ ->
+	  (fun (rid:t) ->
+	     match rid with
+	       | Wait_in fd -> (Obj.magic fd : int)
+	       | Wait_out fd -> 1031 + (Obj.magic fd : int)
+	       | Wait_oob fd -> 2029 + (Obj.magic fd : int)
+	       | Wait wid -> 3047 + Oo.id wid
+	  )
+
+
 end
 
-module RID_Map = Map.Make(RID)
+(* module RID_Map = Map.Make(RID) *)
+module RID_Table = Hashtbl.Make(RID)
 
 exception Exists;;
 
 let rid_map_exists f map =
   try
-    RID_Map.iter
+    RID_Table.iter
       (fun k v -> if f k v then raise Exists)
       map;
     false
@@ -105,10 +126,17 @@ class select_based_event_system () =
 object(self)
 
   val mutable sys = lazy (assert false)   (* initialized below *)
-  val mutable res = (RID_Map.empty : resource_prop RID_Map.t)
-            (* current resources *)
-  val mutable new_res = (RID_Map.empty : resource_prop RID_Map.t)
-            (* added resources *)
+  val mutable res = (RID_Table.create 47 : resource_prop RID_Table.t)
+            (* current resources. Note that this map may contain terminated
+               groups! These groups are first removed at the next [setup]
+               time.
+	     *)
+  val mutable res_may_contain_terminated_groups = false
+  val mutable new_res = (RID_Table.create 47 : resource_prop RID_Table.t)
+            (* added resources. Note that this map may contain terminated
+               groups! These groups are first removed at the next [setup]
+               time.
+	     *)
   val mutable close_tab = (Hashtbl.create 10 : (Unix.file_descr, (group * (Unix.file_descr -> unit))) Hashtbl.t)
   val mutable abort_tab = ([] : (group * (group -> exn -> unit)) list)
   val mutable aborting = false
@@ -138,38 +166,59 @@ object(self)
     (* CHECK: Can we do this faster? Only new_res? *)
     let tref = Unix.gettimeofday () in
 
-    if new_res <> RID_Map.empty then begin
+    if res_may_contain_terminated_groups then (
+      (* This is the right time to remove references to terminated groups
+         from [res]. We don't do it directly in [clear] to avoid bad
+         performance when there are a lot of resources.
+       *)
+      let to_del =
+	RID_Table.fold 
+	  (fun op (g,_,_) acc ->
+	     if g#is_terminating then op :: acc else acc
+	  )
+	  res
+	  [] in
+      List.iter
+	(fun op ->
+	   RID_Table.remove res op
+	)
+	to_del;
+      res_may_contain_terminated_groups <- false;
+    );
+
+    if RID_Table.length new_res <> 0 then begin
       (* Append new_res to res, and change negative tlast to tref.
        * A negative event time tlast indicates that the
        * resource has just been added; such a resource is handled as if 
        * the last event has just been seen.
        *)    
-      res <- RID_Map.fold 
-                  (fun op (g, tout, tlast) res ->
-		     RID_Map.add op (g, tout, tref) res)
-                  new_res
-                  res;
-      new_res <- RID_Map.empty;
+      RID_Table.iter
+	(fun op (g, tout, _) ->
+	   if not(g#is_terminating) then 
+	     RID_Table.replace res op (g, tout, ref tref)
+	)
+	new_res;
+      RID_Table.clear new_res
     end;
 
     debug_print (lazy (
 		   let reslst =
-		     RID_Map.fold
+		     RID_Table.fold
 		       (fun op (g, tout, tlast) acc ->
 			  (sprintf "%s => group %d, timeout %f, lastevent %f"
-			     (string_of_op op) (Oo.id g) tout tlast) :: acc)
+			     (string_of_op op) (Oo.id g) tout !tlast) :: acc)
 		       res
 		       [] in
 		   sprintf "setup <resources: %s>"
 		     (String.concat "; " reslst)));
 
-    if res <> RID_Map.empty then begin
+    if RID_Table.length res <> 0 then begin
       let infiles, outfiles, oobfiles, time =
 	(* (infiles, outfiles, oobfiles, time): Lists of file descriptors
 	 * that must be observed and the maximum period of time until
 	 * something must have been happened (-1 means infinite period)
 	 *)
-	RID_Map.fold
+	RID_Table.fold
 	  (fun op (g, tout,tlast) (inf, outf, oobf, t) ->
 	     (* (inf, outf, oobf, t): Current intermediate result. The descrip-
 	      *      tors inf, outf, oobf are already known to be observed, and
@@ -196,7 +245,7 @@ object(self)
 		  * tdelta: how much time may elapse until the timeout
 		  *     happens in the future. No negative values.
 		  *)
-		 let tdelta = max 0.0 (tout -. (tref -. tlast)) in
+		 let tdelta = max 0.0 (tout -. (tref -. !tlast)) in
 		 if t < 0.0 then 
 		   (* t: was infinite timeout, and t' is now tdelta *)
 		   tdelta 
@@ -274,7 +323,7 @@ object(self)
 	(fun d ->
 	   try
 	     let r = res_constructor d in
-	     let g, _, _ = RID_Map.find r res in
+	     let g, _, _ = RID_Table.find res r in
 	     if g = ctrl_pipe_group then
 	       (* It's only the control pipe. Drop any bytes from the pipe. *)
 	       read_ctrl_pipe()
@@ -299,47 +348,37 @@ object(self)
     let outfiles'_set = set_of_list outfiles' in
     let oobfiles'_set = set_of_list oobfiles' in
     
-    let res'' =        (* The updated resource list *)
-      RID_Map.mapi
-	(fun op (g, tout, tlast) ->
-	   (* Note: In previous versions of this library, we compared the
-	    * group of xxxfiles with g. Actually, the group is guaranteed
-	    * to match, because it is not possible to change the groups
-	    * in res between [setup] and [queue_events]. So this test
-	    * is superflous.
+    RID_Table.iter
+      (fun op (g, tout, tlast) ->
+	 (* Note: In previous versions of this library, we compared the
+	  * group of xxxfiles with g. Actually, the group is guaranteed
+	  * to match, because it is not possible to change the groups
+	  * in res between [setup] and [queue_events]. So this test
+	  * is superflous.
+	  *)
+	 if match op with 
+	     Wait_in d  -> Fd_Set.mem d infiles'_set
+	   | Wait_out d -> Fd_Set.mem d outfiles'_set
+	   | Wait_oob d -> Fd_Set.mem d oobfiles'_set
+	   | Wait _     -> false
+	 then
+	   (* r denotes a file descriptor resource that must be updated 
+	    * because an event happened
 	    *)
-	   if match op with 
-	       Wait_in d  -> Fd_Set.mem d infiles'_set
-	     | Wait_out d -> Fd_Set.mem d outfiles'_set
-	     | Wait_oob d -> Fd_Set.mem d oobfiles'_set
-	     | Wait _     -> false
-	   then
-	     (* r denotes a file descriptor resource that must be updated 
-	      * because an event happened
-	      *)
-	     (g, tout, tref')
-	   else
-	     (* r is some other resource. Find out if it is timed out
-	      * and generate a Timeout event in this case.
-	      *)
-	     if tout >= 0.0 then begin
-	       if tref' >= tout +. tlast then begin
-		 have_event := true;
-		 Equeue.add_event (Lazy.force sys) (Timeout(g,op));
-		 (g, tout, tref')
-	       end
-	       else
-		 (g, tout, tlast)      (* resource entry is unchanged *)
+	   tlast := tref'
+	 else
+	   (* r is some other resource. Find out if it is timed out
+	    * and generate a Timeout event in this case.
+	    *)
+	   if tout >= 0.0 then begin
+	     if tref' >= tout +. !tlast then begin
+	       have_event := true;
+	       Equeue.add_event (Lazy.force sys) (Timeout(g,op));
+	       tlast := tref'
 	     end
-	     else
-	       (* r is a resource without timeout value. It is always
-		* unchanged.
-		*)
-	       (g, tout, tlast)
-	)
-	res in
-
-    res <- res'';
+	   end
+      )
+      res;
 
     match !deferred_exn with
 	None -> !have_event
@@ -448,13 +487,13 @@ object(self)
 
   method private exists_resource_nolock op =
     try
-      let _ = RID_Map.find op res in
-      true
+      let (g,_,_) = RID_Table.find res op in
+      not (g#is_terminating)
     with
 	Not_found ->
 	  try
-	    let _ = RID_Map.find op new_res in
-	    true
+	    let (g,_,_) = RID_Table.find new_res op in
+	    not (g#is_terminating)
 	  with
 	      Not_found ->
 		false
@@ -497,7 +536,7 @@ object(self)
 	 )
 	 else begin
 	   (* add the resource: *)
-	   new_res <- RID_Map.add op (g,t,-1.0) new_res;
+	   RID_Table.replace new_res op (g,t,ref (-1.0));
 	   (* wake the thread up that runs the system (if in mt mode): *)
            self#wake_up true
 	 end
@@ -546,12 +585,13 @@ object(self)
       invalid_arg "Unixqueue.remove_resource: the group is terminated";
     (* If there is no resource (g,op) raise Not_found *)
     let g_found, _, _ = 
-      try RID_Map.find op res 
-      with Not_found -> RID_Map.find op new_res in
+      try RID_Table.find res op 
+      with Not_found -> RID_Table.find new_res op in
+    if g_found # is_terminating then raise Not_found; (* ADD TO WINK PATCH *)
     if g <> g_found then
       failwith "remove_resource: descriptor belongs to different group";
-    res     <- RID_Map.remove op res;
-    new_res <- RID_Map.remove op new_res;
+    RID_Table.remove res op;
+    RID_Table.remove new_res op;
     (* is there a close action ? *)
     let sd =
       match op with
@@ -644,7 +684,11 @@ object(self)
       let hlist_all =
 	self#protect
 	  (fun () ->
-	     Hashtbl.fold (fun g hlist l -> (g,hlist) :: l) handlers [])
+	     Hashtbl.fold
+	       (fun g hlist l -> 
+		  if g#is_terminating then l else (g,hlist) :: l)
+	       handlers []
+	  )
 	  ()
       in
       try
@@ -733,6 +777,12 @@ object(self)
     g # terminate();
 
     (* (i) delete all resources of g: *)
+    (* This is no longer done immediately like in the two following assignments
+       that are commented out. Instead, the resources are deleted the next
+       time [setup] is running. Also, the access functions like
+       [exists_resource] hide the existence of terminated groups.
+     *)
+    (*
     res <- RID_Map.fold
              (fun op (g',tout,tlast) res ->
 		if g <> g' then RID_Map.add op (g',tout,tlast) res
@@ -745,8 +795,10 @@ object(self)
 		    else res)
                  new_res
                  RID_Map.empty;
+     *)
+    res_may_contain_terminated_groups <- true;  (* Faster replacement *)
 
-    (* (ii) delete all handlers of g: *)
+    (* (ii) delete all handlers of g: (delayed *)
     self#add_event_nolock (Extra (Term g));
 
     (* (iii) delete special actions of g: *)
@@ -812,7 +864,7 @@ object(self)
       let (p_rd, p_wr) = Unix.pipe() in
       ctrl_pipe_rd <- Some p_rd;
       ctrl_pipe_wr <- Some p_wr;
-      new_res <- RID_Map.add (Wait_in p_rd) (ctrl_pipe_group,-1.0,-1.0) new_res
+      RID_Table.add new_res (Wait_in p_rd) (ctrl_pipe_group,-1.0, ref(-1.0))
     );
 
   method private close_ctrl_pipe() =
@@ -820,8 +872,8 @@ object(self)
       | None, None -> ()
       | (Some p_rd), (Some p_wr) ->
 	  let op = Wait_in p_rd in
-	  res     <- RID_Map.remove op res;
-	  new_res <- RID_Map.remove op new_res;
+	  RID_Table.remove res op;
+	  RID_Table.remove new_res op;
 	  Unix.close p_wr;
 	  Unix.close p_rd;
 	  ctrl_pipe_rd <- None;

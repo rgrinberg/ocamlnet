@@ -835,9 +835,8 @@ module Header : sig
      * use [set_set_cookie] instead!
      *)
 
-(*
   val get_set_cookie : #http_header_ro -> cookie list
- *)
+    (** Get the [Set-Cookie] header *)
 
   val set_set_cookie : #http_header -> cookie list -> unit
     (** Set the [Set-Cookie] header *)

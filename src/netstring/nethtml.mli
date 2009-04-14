@@ -242,6 +242,7 @@ val decode :
       ?subst:(int -> string) ->                (* default: failure *)
       ?entity_base:[ `Html | `Xml | `Empty ] -> 
       ?lookup:(string -> string) ->
+      ?dtd:simplified_dtd ->
       document list -> document list
   (** Converts entities [&name;] and [&#num;] into the corresponding 
    * characters. The argument [enc] must indicate the character set of
@@ -255,13 +256,16 @@ val decode :
    * (see {!Netencoding.Html.decode}). The function [lookup] is called
    * for all unknown [&name;] entities. By default, this function fails.
    *
-   * Note: Declarations, processing instructions, and comments are not
-   * decoded.
+   * Declarations, processing instructions, and comments are not
+   * decoded. The same also applies to elements declared as [`Special]
+   * in the DTD. The [dtd] argument determines the DTD, by default
+   * [html40_dtd] is assumed.
    *)
 
 val encode : 
       ?enc:Netconversion.encoding ->           (* default: `Enc_iso88591 *)
       ?prefer_name:bool ->                     (* default: true *)
+      ?dtd:simplified_dtd ->
       document list -> document list
   (** Converts problematic characters to their corresponding
    * entities. The argument [enc] must indicate the character set of
@@ -270,8 +274,10 @@ val encode :
    * ([&name;]); otherwise only numeric entities ([&#num;]) are generated.
    * Names are preferred by default.
    * 
-   * Note: Declarations, processing instructions, and comments are not
-   * encoded.
+   * Declarations, processing instructions, and comments are not
+   * encoded. The same also applies to elements declared as [`Special]
+   * in the DTD. The [dtd] argument determines the DTD, by default
+   * [html40_dtd] is assumed.
    *)
 
 val map_list : (string -> string) -> document list -> document list
@@ -285,6 +291,32 @@ val map_list : (string -> string) -> document list -> document list
    * ]}
    * converts all text data to lowercase characters. 
    *)
+
+type xmap_value =
+  | Xmap_attribute of string * string * string
+  | Xmap_data of string option * string
+
+val xmap_list : (xmap_value -> string) -> string option ->
+                   document list -> document list
+  (** [xmap_list f surrounding_element_opt doclst]: Similar to [map_list],
+    * the function [f] is applied to all attribute values and data strings.
+    * Unlike [map_list], more information is passed to the callback function
+    * [f]. This function is called with an [xmap_value] argument:
+    * - [Xmap_attribute(ename,aname,aval)]: The function is called for an
+    *   attribute value of element [ename]. The attribute is [aname] and
+    *   has the value [aval]. The function must return the new value of
+    *   the attribute (i.e. [aval']).
+    * - [Xmap_data(ename_opt,data)]: The function is called for a data
+    *   node surrounded by an element [ename_opt] (which is [None] if the
+    *   data node is the outermost node). The string [data] is the value
+    *   of the data node. The function must return the new value of the
+    *   data node (i.e. [data']).
+    *
+    * [xmap_list] is invoked with [surrounding_element_opt] which is the
+    * name of the surrounding element, or [None] if such an element does 
+    * not exist, or is unknown.
+   *)
+
 
 val write : ?dtd:simplified_dtd ->            (* default: html40_dtd *) 
             Netchannels.out_obj_channel ->

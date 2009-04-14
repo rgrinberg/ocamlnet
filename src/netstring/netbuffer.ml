@@ -5,6 +5,7 @@
 
 type t = 
     { mutable buffer : string;
+      mutable buffer_length : int;  (* = String.length buffer *)
       mutable length : int;
       create_length : int;
     }
@@ -47,11 +48,17 @@ type t =
 let word_length = Sys.word_size / 8       (* in bytes *)
 
 let create n =
-  { buffer = String.create (max n 31); length = 0; create_length = n }
+  let bl = max n 31 in
+  { buffer = String.create bl;
+    buffer_length = bl;
+    length = 0; 
+    create_length = n }
 
 let reset b =
   let n = b.create_length in
-  b.buffer <- String.create (max n 31);
+  let bl = max n 31 in
+  b.buffer <- String.create bl;
+  b.buffer_length <- bl;
   b.length <- 0
 
 let contents b =
@@ -66,14 +73,20 @@ let get b k =
     
 let nth = get
 
+let sub_invalid() =
+  raise (Invalid_argument "Netbuffer.sub")
+
 let sub b k n =
-  if k < 0 || n < 0 || k+n > b.length then
-    raise (Invalid_argument "Netbuffer.sub");
+  if k < 0 || n < 0 || k > b.length-n then
+    sub_invalid();
   String.sub b.buffer k n
 
+let blit_to_string_invalid() =
+  raise (Invalid_argument "Netbuffer.blit_to_string")
+
 let blit_to_string b srcpos dest destpos n =
-  if srcpos < 0 || n < 0 || srcpos+n > b.length then
-    raise (Invalid_argument "Netbuffer.blit_to_string");
+  if srcpos < 0 || n < 0 || srcpos > b.length-n then
+    blit_to_string_invalid();
   String.blit b.buffer srcpos dest destpos n
 
 let blit = blit_to_string
@@ -85,28 +98,34 @@ let unsafe_buffer b =
 let length b =
   b.length
 
+let alloc_space b n =
+  let rec new_size s =
+    if s >= n then s else new_size(2*s + word_length + 1)
+  in
+  let size = min (new_size b.buffer_length) Sys.max_string_length in
+  if size < n then
+    failwith "Netbuffer: string too large";
+  let buffer' = String.create size in
+  String.blit b.buffer 0 buffer' 0 b.length;
+  b.buffer <- buffer';
+  b.buffer_length <- size
+
 let ensure_space b n =
   (* Ensure that there are n bytes space in b *)
-  if n > String.length b.buffer then begin
-    let rec new_size s =
-      if s >= n then s else new_size(2*s + word_length + 1)
-    in
-    let size = min (new_size (String.length b.buffer)) Sys.max_string_length in
-    if size < n then
-      failwith "Netbuffer: string too large";
-    let buffer' = String.create size in
-    String.blit b.buffer 0 buffer' 0 b.length;
-    b.buffer <- buffer'
-  end
+  if n > b.buffer_length then
+    alloc_space b n
 
 let add_sub_string_int b s k l =
   ensure_space b (l + b.length);
-  String.blit s k b.buffer b.length l;
+  String.unsafe_blit s k b.buffer b.length l;
   b.length <- b.length + l
 
+let add_sub_string_invalid() =
+  invalid_arg "Netbuffer.add_sub_string"
+
 let add_sub_string b s k l =
-  if k < 0 || l < 0 || k+l > String.length s then
-    invalid_arg "Netbuffer.add_sub_string";
+  if k < 0 || l < 0 || k > String.length s-l then
+    add_sub_string_invalid();
   add_sub_string_int b s k l
 
 let add_substring = add_sub_string
@@ -115,9 +134,26 @@ let add_string b s =
   add_sub_string b s 0 (String.length s)
 
 let add_char b c =
-  ensure_space b (b.length+1);
-  String.unsafe_set b.buffer b.length c;
-  b.length <- b.length + 1
+  let l = b.length in
+  ensure_space b (l+1);
+  String.unsafe_set b.buffer l c;
+  b.length <- l + 1
+
+let add_char_2 b c1 c2 =
+  let l = b.length in
+  ensure_space b (l+2);
+  String.unsafe_set b.buffer l c1;
+  String.unsafe_set b.buffer (l+1) c2;
+  b.length <- l + 2
+
+let add_char_4 b c1 c2 c3 c4 =
+  let l = b.length in
+  ensure_space b (l+4);
+  String.unsafe_set b.buffer l c1;
+  String.unsafe_set b.buffer (l+1) c2;
+  String.unsafe_set b.buffer (l+2) c3;
+  String.unsafe_set b.buffer (l+3) c4;
+  b.length <- l + 4
 
 let add_inplace ?len b f =
   let len' =
@@ -127,7 +163,7 @@ let add_inplace ?len b f =
 	  l
       | None ->
 	  ensure_space b (b.length + 1);
-	  String.length b.buffer - b.length
+	  b.buffer_length - b.length
   in
   let n = f b.buffer b.length len' in
   b.length <- b.length + n;
@@ -136,31 +172,37 @@ let add_inplace ?len b f =
 let add_buffer b1 b2 =
   let len = b1.length + b2.length in
   ensure_space b1 len;
-  String.blit b2.buffer 0 b1.buffer b1.length b2.length;
+  String.unsafe_blit b2.buffer 0 b1.buffer b1.length b2.length;
   b1.length <- len
 
 
+let insert_sub_string_invalid() =
+  invalid_arg "Netbuffer.insert_sub_string"
+
 let insert_sub_string_int b p s k l =
   if p < 0 || p > b.length then
-    invalid_arg "Netbuffer.insert_sub_string";
+    insert_sub_string_invalid();
   ensure_space b (l + b.length);
-  String.blit b.buffer p b.buffer (p+l) (b.length - p);
-  String.blit s k b.buffer p l;
+  String.unsafe_blit b.buffer p b.buffer (p+l) (b.length - p);
+  String.unsafe_blit s k b.buffer p l;
   b.length <- b.length + l
 
 let insert_sub_string b p s k l =
-  if k < 0 || l < 0 || k+l > String.length s then
-    invalid_arg "Netbuffer.insert_sub_string";
+  if k < 0 || l < 0 || k > String.length s - l then
+    insert_sub_string_invalid();
   insert_sub_string_int b p s k l
 
 let insert_string b p s =
   insert_sub_string_int b p s 0 (String.length s)
 
+let insert_char_invalid() =
+   invalid_arg "Netbuffer.insert_char"
+
 let insert_char b p c =
   if p < 0 || p > b.length then
-    invalid_arg "Netbuffer.insert_char";
+    insert_char_invalid();
   ensure_space b (1 + b.length);
-  String.blit b.buffer p b.buffer (p+1) (b.length - p);
+  String.unsafe_blit b.buffer p b.buffer (p+1) (b.length - p);
   b.buffer.[p] <- c;
   b.length <- b.length + 1
 
@@ -172,26 +214,32 @@ let set b k c =
   if k < 0 || k >= b.length then e_set();
   String.unsafe_set b.buffer k c
 
+let put_string_invalid() =
+  invalid_arg "Netbuffer.put_string"
+
 let put_string b p s =
   if p < 0 || p > b.length then
-    invalid_arg "Netbuffer.put_string";
+    put_string_invalid();
   let len = max b.length (p + String.length s) in
   ensure_space b len;
-  String.blit s 0 b.buffer p (String.length s);
+  String.unsafe_blit s 0 b.buffer p (String.length s);
   b.length <- len
 
+let blit_from_string_invalid() =
+  invalid_arg "Netbuffer.blit_from_string"
+
 let blit_from_string src srcpos b p n =
-  if p < 0 || p > b.length || srcpos < 0 || n < 0 || srcpos+n > String.length src then
-    invalid_arg "Netbuffer.blit_from_string";
+  if p < 0 || p > b.length || srcpos < 0 || n < 0 || srcpos > String.length src - n then
+    blit_from_string_invalid();
   let len = max b.length (p + n) in
   ensure_space b len;
-  String.blit src srcpos b.buffer p n;
+  String.unsafe_blit src srcpos b.buffer p n;
   b.length <- len
 
 
 let delete b k l =
   (* deletes l bytes at position k in b *)
-  let n = String.length b.buffer in
+  let n = b.buffer_length in
   if k+l <> n & k <> n then
     String.blit b.buffer (k+l) b.buffer k (n-l-k);
   b.length <- b.length - l;
@@ -199,21 +247,26 @@ let delete b k l =
 
 let try_shrinking b =
   (* If the buffer size decreases drastically, reallocate the buffer *)
-  if b.length < (String.length b.buffer / 2) then begin
+  if b.length < (b.buffer_length / 2) then begin
     let rec new_size s =
       if s >= b.length then s else new_size(2*s + word_length + 1)
     in
-    let buffer' = String.create (new_size 31) in
+    let size = new_size 31 in
+    let buffer' = String.create size in
     String.blit b.buffer 0 buffer' 0 b.length;
-    b.buffer <- buffer'
+    b.buffer <- buffer';
+    b.buffer_length <- size
   end 
 
 let clear b =
   delete b 0 (b.length)
   
+let index_from_invalid() =
+  raise (Invalid_argument "Netbuffer.index_from")
+
 let index_from b k c =
   if k > b.length then
-    raise (Invalid_argument "Netbuffer.index_from");
+    index_from_invalid();
   let p = String.index_from b.buffer k c in
   if p >= b.length then raise Not_found;
   p
@@ -222,5 +275,5 @@ let print_buffer b =
   Format.printf
     "<NETBUFFER: %d/%d>"
     b.length
-    (String.length b.buffer)
+    b.buffer_length
 ;;

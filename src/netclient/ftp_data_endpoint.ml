@@ -1085,3 +1085,7 @@ object(self)
 
   method descr_state = !descr_state
 end ;;
+
+
+let () =
+  Netsys_signal.init()

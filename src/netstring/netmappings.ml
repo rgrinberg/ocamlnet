@@ -13,11 +13,11 @@ type from_uni_list =
 let to_unicode = Hashtbl.create 50;;
 let from_unicode = Hashtbl.create 50;;
 
-let f_lock = ref (fun () -> ());;
-let f_unlock = ref (fun () -> ());;
+let omtp = !Netsys_oothr.provider
+let mutex = omtp # create_mutex()
 
-let lock () = !f_lock();;
-let unlock () = !f_unlock();;
+let lock () = mutex#lock();;
+let unlock () = mutex#unlock();;
 
 
 let get_to_unicode enc_name : int array =
@@ -59,10 +59,4 @@ let get_from_unicode enc_name : from_uni_list array =
       error -> 
 	unlock();
 	raise error
-;;
-
-
-let init_mt new_f_lock new_f_unlock =
-  f_lock := new_f_lock;
-  f_unlock := new_f_unlock
 ;;

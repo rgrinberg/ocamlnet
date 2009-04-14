@@ -156,5 +156,5 @@ let start() =
 ;;
 
 
-Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
+Netsys_signal.init();
 start();;

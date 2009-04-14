@@ -25,7 +25,7 @@ type runner =
 
 class gtk_event_system ?(run : runner option) () =
 object (self)
-  inherit unix_event_system() as super
+  inherit Unixqueue_select.select_based_event_system() as super
 
   val mutable gtk_attaching = false
   val mutable gtk_run_soon = false

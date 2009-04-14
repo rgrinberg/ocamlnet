@@ -1,20 +1,5 @@
 (* $Id$ *)
 
-let esys_style style =
-  match style with
-    | "select" ->
-	Unixqueue.set_event_system_factory
-	  Unixqueue.select_event_system
-    | "poll" ->
-	Unixqueue.set_event_system_factory
-	  (fun () ->
-	     let pset = Netsys_pollset_posix.poll_based_pollset 10 in
-	     Unixqueue2.pollset_event_system pset
-	  )
-    | _ ->
-	raise(Arg.Bad("Unknown event system style: " ^ style))
-
-
 let start() =
   let host = ref "localhost" in
   let port = ref None in
@@ -32,9 +17,6 @@ let start() =
 
       "-timeout", Arg.Set_float tmo,
       "<tmo>  Set a timeout value in seconds";
-
-      "-esys-style", Arg.String esys_style,
-      " (select|poll)  Set the style of the event system (EXPERIMENTAL)";
 
       "-shutdown", Arg.Set shutdown,
       "  Shut the server down";
@@ -122,6 +104,5 @@ let start() =
 	prerr_endline "RPC: Authentication failed";
 ;;
 
-if Sys.os_type <> "Win32" then
-  Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
+Netsys_signal.init();
 start();;

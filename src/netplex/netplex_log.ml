@@ -125,10 +125,20 @@ end
 
 class file_logger ?(fmt = std_fmt) file : logger =
 object(self)
+
   val mutable out = 
     open_out_gen [ Open_wronly; Open_append; Open_creat ] 0o666 file
 
   val mutable max_level = `Info
+
+  initializer
+    Netsys_posix.register_post_fork_handler
+      (object
+	 method name = "Netplex_log.file_logger"
+	 method run() = self # post_fork()
+       end
+      )
+
 
   method log_subch ~component ~subchannel ~level ~message =
     let w = level_weight level in
@@ -158,6 +168,9 @@ object(self)
   method max_level = max_level
 
   method set_max_level l = max_level <- l
+
+  method private post_fork() =
+    close_out out
 
 end
 
@@ -225,6 +238,14 @@ object(self)
     (* Maps files to channels *)
 
   val mutable max_level = `Info
+
+  initializer
+    Netsys_posix.register_post_fork_handler
+      (object
+	 method name = "Netplex_log.multi_file_logger"
+	 method run() = self # post_fork()
+       end
+      )
 
   method log_subch ~component ~subchannel ~level ~message =
     let w = level_weight level in
@@ -295,6 +316,9 @@ object(self)
   method max_level = max_level
 
   method set_max_level l = max_level <- l
+
+  method private post_fork() =
+    self # reopen()
 
 end
 

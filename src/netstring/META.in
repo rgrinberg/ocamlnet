@@ -6,14 +6,8 @@ archive(byte) =
     "netstring.cma"
 archive(byte,toploop) = 
     "netstring.cma netstring_top.cmo"
-archive(byte,mt) = 
-    "netstring.cma netstring_mt.cmo"
-archive(byte,mt,toploop) = 
-    "netstring.cma netstring_mt.cmo netstring_top.cmo"
 archive(native) = 
     "netstring.cmxa"
-archive(native,mt) = 
-    "netstring.cmxa netstring_mt.cmx"
 
 archive(byte,netstring_only_iso) += 
     "netmappings_iso.cmo"

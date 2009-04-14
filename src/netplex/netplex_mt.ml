@@ -2,7 +2,20 @@
 
 open Netplex_types
 
+let close_list l =
+  List.iter
+    (fun fd ->
+      ( try
+	  Unix.close fd
+	with
+	  | _ -> ()
+      )
+    )
+    l
+
+
 class mt () : Netplex_types.parallelizer =
+  let oothr = !Netsys_oothr.provider in
 object(self)
   method ptype = `Multi_threading
 
@@ -10,32 +23,38 @@ object(self)
     ()
 
   method current_sys_id =
-    `Thread (Thread.id(Thread.self()))
+    `Thread (oothr # self # id)
 
   method create_mem_mutex() =
-    let m = Mutex.create() in
-    (fun () -> Mutex.lock m), (fun () -> Mutex.unlock m)
+    let m = oothr # create_mutex() in
+    (fun () -> m#lock() ), (fun () -> m#unlock() )
 
-  method start_thread : (par_thread -> unit) -> 'x -> string -> logger -> par_thread =
-    fun f l srv_name logger ->
+  method start_thread : (par_thread -> unit) -> 'x -> 'y -> string -> logger -> par_thread =
+    fun f l_close l_share srv_name logger ->
       let throbj t =
 	( object
 	    method ptype = `Multi_threading
-	    method sys_id = `Thread (Thread.id t)
-	    method info_string = "Thread " ^ string_of_int (Thread.id t)
+	    method sys_id = `Thread (t#id)
+	    method info_string = "Thread " ^ string_of_int (t#id)
 	    method watch_shutdown _ =
 	      (* We cannot do anything here to ensure the thread is really dead *)
 	      ()
 	    method parallelizer = (self : #parallelizer :> parallelizer)
 	  end
 	) in
+      let m = oothr # create_mutex() in
+      m # lock();
       let t = 
-	Thread.create
+	oothr # create_thread 
 	  (fun () ->
-	     let o = throbj (Thread.self()) in
+	     let o = throbj (oothr # self) in
+	     close_list l_close;
+	     m # unlock();
 	     f o
 	  ) 
 	  () in
+      m # lock();
+      m # unlock();
       throbj t
 end
 

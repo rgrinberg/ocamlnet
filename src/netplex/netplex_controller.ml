@@ -122,6 +122,9 @@ let close_pipe fd =
 	Unix.close fd
 
 
+(* TODO: represent clist as [Set] *)
+
+
 class std_socket_controller ?(no_disable = false)
                             rm_service (par: parallelizer) 
                             controller sockserv wrkmng
@@ -295,7 +298,7 @@ object(self)
 		      close_pipe sys_fd_clnt
 		    )
 		 ) :: !onerror;
-      let fd_list =
+      let fd_share =
 	fd_clnt :: sys_fd_clnt ::
 	  (List.flatten
 	     (List.map
@@ -303,6 +306,11 @@ object(self)
 		sockserv # sockets
 	     )
 	  ) in
+      let fd_close =
+	if par # ptype = `Multi_processing then
+	  [ fd_srv; sys_fd_srv] 
+	else
+	  [] in
       let container = sockserv # create_container par#ptype sockserv in
       if !debug_containers then
 	debug_logf controller "Service %s: Container %d: Starting (pre_start)"
@@ -332,7 +340,8 @@ object(self)
 	       close_pipe sys_fd_clnt 
 	     )
 	  )
-	  fd_list
+	  fd_close
+	  fd_share
 	  sockserv#name
 	  controller#logger in
       if par # ptype = `Multi_processing then (
@@ -957,8 +966,8 @@ object(self)
 
   method init() = ()
 
-  method start_thread : (par_thread -> unit) -> 'x -> string -> logger -> par_thread =
-    fun f l srv_name logger ->
+  method start_thread : (par_thread -> unit) -> 'x -> 'y -> string -> logger -> par_thread =
+    fun f l_close l_share srv_name logger ->
       let pid = Unix.getpid() in
       let throbj =
 	( object
@@ -1174,10 +1183,10 @@ object(self)
 end
 
 
-class std_controller (par : parallelizer) (config : controller_config) 
+class std_controller_for_esys esys
+       (par : parallelizer) (config : controller_config) 
        : extended_controller =
   let dl = new deferring_logger in
-  let esys = Unixqueue.create_unix_event_system() in
   let eps_group = Unixqueue.new_group esys in
 object(self)
   val mutable logger = (dl :> logger)
@@ -1436,8 +1445,13 @@ object(self)
 end
 
 
+let create_controller_for_esys esys par config =
+  (new std_controller_for_esys esys par config :> controller)
+
+
 let create_controller par config =
-  (new std_controller par config :> controller)
+  let esys = Unixqueue.standard_event_system() in
+  create_controller_for_esys esys par config
 
 
 let default_socket_directory = "/tmp/.netplex"

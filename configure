@@ -660,7 +660,8 @@ if [ $with_rpc_auth_dh -gt 0 ]; then
 	    echo "-auth-dh-style tirpc needs rpc-xti which is missing"
 	    exit 1
 	fi
-	adh_reqs="rpc-xti"
+	adh_reqs=",rpc-xti"  # This is for META.in, hence the comma
+	adh_style="Rpc_xti_client.keyserv"
     fi
 
     echo "    SecureRPC is supported"

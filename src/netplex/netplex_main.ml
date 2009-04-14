@@ -59,9 +59,10 @@ let daemon f arg =
                 Unix.close Unix.stdout;
                 ignore(Unix.openfile "/dev/null" [ Unix.O_WRONLY ] 0);
                 (* Keep stderr open: error messages should appear *)
+		Netsys_posix.run_post_fork_handlers();
                 f arg
             | _ ->
-                ()
+                Netsys._exit 0
         )
     | _ ->
         ()

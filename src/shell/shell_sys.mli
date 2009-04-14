@@ -814,7 +814,6 @@ val configure_job_handlers :
       ?catch_sigterm:bool ->     (* default: true *)
       ?catch_sighup:bool ->      (* default: true *)
       ?catch_sigchld:bool ->     (* default: true *)
-      ?set_sigpipe:bool ->       (* default: true *)
       ?at_exit:bool ->           (* default: true *)
       unit ->
       unit
@@ -822,22 +821,22 @@ val configure_job_handlers :
    * - The keyboard signals SIGINT and SIGQUIT are forwarded to all jobs
    *   which are running in the background (and thus are not
    *   automatically notified) and want to get such signals ([forward_signals]).
-   *   After the signals have been forwarded, the previous signal action
-   *   is performed.
    * - The signals SIGTERM and SIGHUP are (if the handler is installed) 
    *   forwarded to all dependent processes (regardless whether they are
    *   running in their own Unix process group or not, and regardless of
    *   [forward_signals]).
-   *   After the signals have been forwarded, the previous signal action
-   *   is performed.
    * - The [at_exit] handler sends a SIGTERM to all dependent processes, too.
    * - the SIGCHLD handler calls [watch_for_zombies].
-   *   After this function is called, the previous signal action
-   *   is performed; however if the previous action was [Signal_ignore]
-   *   this is incorrectly interpreted as empty action (zombies are not
-   *   avoided)
-   * - The handler for SIGPIPE does nothing; note that a previous action
-   *   is overwritten (the parameter is called [set_sigpipe] to stress this)
+   *
+   * The handlers are now managed by {!Netsys_signal}. The handlers of this
+   * module set the [keep_default] flag for SIGINT, SIGQUIT, SIGTERM, and
+   * SIGHUP, so that the default action for these signals is executed after
+   * the forwarding to the child processes is done. By setting another
+   * handler in {!Netsys_signal} without that flag this behavior can be
+   * overridden.
+   *
+   * In previous versions of Ocamlnet there was also a [set_sigpipe] flag.
+   * This flag is gone as a SIGPIPE handler is now always installed.
    *
    * Dependent processes are:
    * - For jobs with mode = [Foreground] or [Background]: the processes
@@ -853,16 +852,11 @@ val configure_job_handlers :
    * [install_job_handlers] (below) is invoked.
    * The function fails if the handlers are already installed.
    *
-   * KNOWN BUGS: At least for O'Caml 3.00, the handlers do not call the old
-   * signal handlers after their own work has been done; this is due to an
-   * error in Sys.signal.
-   *
    * @param catch_sigint whether to install a SIGINT handler (default: [true])
    * @param catch_sigquit whether to install a SIGQUIT handler (default: [true])
    * @param catch_sigterm whether to install a SIGTERM handler (default: [true])
    * @param catch_sighup whether to install a SIGHUP handler (default: [true])
    * @param catch_sigchld whether to install a SIGCHLD handler (default: [true])
-   * @param set_sigpipe whether to set a SIGPIPE handler (default: [true])
    * @param at_exit whether to set the [at_exit] handler (default: [true])
    *)
 
@@ -877,9 +871,3 @@ val install_job_handlers : unit -> unit
  * They were added prior to the merge with the equeue library. Use a 
  * Unixqueue now, which is much more powerful.
  *)
-
-
-(**/**)
-
-val init_mt : (unit -> ((unit -> unit) * (unit -> unit))) -> unit
-  (* private *)

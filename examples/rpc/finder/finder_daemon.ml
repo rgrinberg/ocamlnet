@@ -104,21 +104,6 @@ let setup srv root_dir =
 ;;
 
 
-let esys_style style =
-  match style with
-    | "select" ->
-	Unixqueue.set_event_system_factory
-	  Unixqueue.select_event_system
-    | "poll" ->
-	Unixqueue.set_event_system_factory
-	  (fun () ->
-	     let pset = Netsys_pollset_posix.poll_based_pollset 10 in
-	     Unixqueue2.pollset_event_system pset
-	  )
-    | _ ->
-	raise(Arg.Bad("Unknown event system style: " ^ style))
-
-
 let start() =
   let (opt_list, cmdline_cfg) = Netplex_main.args() in
 
@@ -129,9 +114,6 @@ let start() =
     [ "-mt", Arg.Set use_mt,
       "  Use multi-threading instead of multi-processing";
       
-      "-esys-style", Arg.String esys_style,
-      " (select|poll)  Set the style of the event system (EXPERIMENTAL)";
- 
       "-debug", Arg.Set debug,
       "  Enable (some) debug messages";
    ] @ opt_list in
@@ -182,6 +164,5 @@ let start() =
     cmdline_cfg
 ;;
 
-if Sys.os_type <> "Win32" then
-  Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
+Netsys_signal.init();
 start();;

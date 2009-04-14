@@ -62,6 +62,12 @@ val add_substring : t -> string -> int -> int -> unit
 val add_char : t -> char -> unit
     (** [add_char nb c]: Adds a single char at the end of the buffer *)
 
+val add_char_2 : t -> char -> char -> unit
+    (** [add_char_2 nb c1 c2]: Adds two chars at the end of the buffer *)
+
+val add_char_4 : t -> char -> char -> char -> char -> unit
+    (** [add_char_4 nb c1 c2 c3 c4]: Adds four chars at the end of the buffer *)
+
 val add_inplace : ?len:int -> t -> (string -> int -> int -> int) -> int
     (** [add_inplace nb f]: Calls the function [f] to add bytes to the
      * netbuffer [nb]. The arguments of [f] are the buffer, the position

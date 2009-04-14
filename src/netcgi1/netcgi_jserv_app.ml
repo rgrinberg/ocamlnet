@@ -538,8 +538,6 @@ let run_process_pool_server
       (* [timeout] should be called every second. To do this, we install a 
        * signal handler for SIGALRM, and start an itimer
        *)
-      let old_handler = 
-	Sys.signal Sys.sigalrm (Sys.Signal_handle (fun _ -> ())) in
       ignore(
 	U.setitimer U.ITIMER_REAL { U.it_interval = 1.0; U.it_value = 1.0 });
       (* Now every second the lockf function will be interrupted and raise
@@ -554,8 +552,6 @@ let run_process_pool_server
       (* Stop the timer *)
       ignore(
 	U.setitimer U.ITIMER_REAL { U.it_interval = 0.0; U.it_value = 0.0 });
-      (* Activate the old signal handler *)
-      Sys.set_signal Sys.sigalrm old_handler;
       try
 	let r = f arg in
 	unlock_msg_board msg_board pos;
@@ -643,6 +639,14 @@ let run_process_pool_server
 	    n
     in
     
+    (* Register an empty signal handler for sigalrm, so EINTR is emitted if
+       the alarm timer expires
+     *)
+    Netsys_signal.register_handler
+      ~library:"netcgi1"
+      ~name:"Timer for Netcgi_jserv_app"
+      ~signal:Sys.sigalrm
+      ~callback:(fun _ -> ());
     (* Initialize the message board *)
     write_msg_board msg_board_master 0 ' ';
     write_msg_board msg_board_master 1 'n';

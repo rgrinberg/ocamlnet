@@ -24,15 +24,15 @@ OTHER_MAPPINGS = mappings/cp*.unimap \
 
 PMAP = netmappings_iso.pmap netmappings_other.pmap netmappings_jp.pmap netmappings_kr.pmap
 
-# netconversion.cmx: Allow cross-library inlining for this module
+# netconversion.cmx, netbuffer.cmx: 
+# Allow cross-library inlining for these modules
 
-INSTALL_EXTRA = netstring_mt.cmo      netstring_mt.cmx      netstring_mt.o     \
-	        netmappings_iso.cmo   netmappings_iso.cmx   netmappings_iso.o  \
+INSTALL_EXTRA = netmappings_iso.cmo   netmappings_iso.cmx   netmappings_iso.o  \
 	        netmappings_jp.cmo   netmappings_jp.cmx   netmappings_jp.o  \
 	        netmappings_kr.cmo   netmappings_kr.cmx   netmappings_kr.o  \
 	        netmappings_other.cmo netmappings_other.cmx netmappings_other.o\
 		netmappings_min.cmo  netmappings_min.cmx netmappings_min.o \
-		netconversion.cmx \
+		netconversion.cmx netbuffer.cmx \
 		netstring_top.cmo \
 		netdb-packlist \
 		dllnetaccel_c.* netaccel_link.cmo
@@ -41,15 +41,11 @@ DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netmime.mli netsendmail.mli neturl.mli netaddress.mli netbuffer.mli \
 	netdate.mli netencoding.mli netulex.mli netaccel.mli \
 	netaccel_link.mli nethtml.mli netstring_str.mli netstring_pcre.mli \
-	netstring_mt.mli \
 	netmappings.mli netaux.mli nethttp.mli \
 	netchannels_tut.txt netmime_tut.txt netsendmail_tut.txt \
 	netulex_tut.txt neturl_tut.txt
 
 PP_OPTIONS = -package camlp4 -syntax camlp4o
-
-OCAMLC_OPTIONS_FOR_netstring_mt.ml = $(THREAD)
-OCAMLOPT_OPTIONS_FOR_netstring_mt.ml = $(THREAD)
 
 INSTOTHER = install-netdb
 PACKLIST = netdb-packlist
@@ -58,9 +54,7 @@ BUILD_EXTRA = netaccel.cma  netaccel_link.cmo \
 	      $(PMAP:.pmap=.cmo) netmappings_min.cmo
 
 ALL_EXTRA = $(BUILD_EXTRA) netstring_top.cmo
-ALLMT_EXTRA = netstring_mt.cmo 
 OPT_EXTRA = $(BUILD_EXTRA:.cmo=.cmx)
-OPTMT_EXTRA = netstring_mt.cmx
 
 netaccel.cma: netaccel_c.o netaccel.cmo
 	$(OCAMLMKLIB) -o netaccel -oc netaccel_c netaccel_c.o netaccel.cmo

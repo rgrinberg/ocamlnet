@@ -24,6 +24,9 @@ let () =
 	     assert false
     )
 
+let () =
+  Netsys_signal.init()
+
 
 class type rec_in_channel = object
   method input : string -> int -> int -> int

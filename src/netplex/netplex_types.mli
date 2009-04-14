@@ -606,10 +606,20 @@ object
      *)
 
   method start_thread : 
-         (par_thread -> unit) -> Unix.file_descr list -> string -> logger -> par_thread
-    (** [start_thread f l name logger]: Starts a new thread or process and calls
-      * [f thread] in that context. The list of file descriptors [l] is ensured
-      * to be shared with the main process.
+         (par_thread -> unit) -> 
+         Unix.file_descr list -> 
+         Unix.file_descr list -> 
+         string -> 
+         logger -> 
+           par_thread
+    (** [start_thread f l_close l_share name logger]: 
+      * Starts a new thread or process and calls
+      * [f thread] in that context. Before this is done, file descriptors
+      * are closed, controlled by the parameters [l_close] and [l_share].
+      * The descriptors in [l_close] are always closed. The descriptors
+      * in [l_share] are not closed. The implementation of the parallelizer
+      * is free to close a reasonable set of descriptors, and [l_close]
+      * is the minimum, and [all - l_share] is the maximum.
       *
       * There is no way to check when the thread terminates.
       *

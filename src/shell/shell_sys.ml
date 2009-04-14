@@ -409,6 +409,8 @@ let run
        * - fork() resets pending signals - however, we may now get new signals
        *   sent to the process or process group
        * - We do not use cleanup() on error but simply _exit the process
+       * - From now on we do not use Netsys_signal anymore. We just set
+       *   signal handlers directly.
        *)
 
       try
@@ -661,6 +663,11 @@ let wait
     List.filter (fun p -> p.p_status = None) pl0 in
   (* Only processes we not yet have waited for are relevant *)
 
+  let select_emulation = lazy (
+    let pset = Netsys_pollset_generic.standard_pollset() in
+    Netsys_pollset_generic.select_emulation pset
+  ) in
+
   if List.exists (fun p -> p.p_abandoned) pl then
     failwith "Shell_sys.wait: cannot wait for abandoned processes";
 
@@ -716,7 +723,7 @@ let wait
 	  let timeout =
 	    if wnohang then 0.0 else check_interval in
 	  let indicate_read, indicate_write, indicate_except =
-	    Unix.select read write except timeout in
+	    (Lazy.force select_emulation) read write except timeout in
 	  if indicate_read = [] && indicate_write = [] && indicate_except = []
 	     && not wnohang
 	  then
@@ -1083,23 +1090,24 @@ let current_jobs = ref [];;
    * Job_running or Job_partially_running.
    *)
 
-let lock_current_jobs = ref (fun () -> ());;
-let unlock_current_jobs = ref (fun () -> ());;
+let omtp = !Netsys_oothr.provider
+
+let mutex_jobs = omtp # create_mutex()
   (* For multi-threaded programs: lock/unlock the mutex for current_jobs *)
   (* NOTE: Although here is some code for multi-threaded programs, this
    * does not mean it works
    *)
 
 let with_current_jobs f =
-  !lock_current_jobs();
+  mutex_jobs # lock();
   ( try
       f()
     with
 	any ->
-	  !unlock_current_jobs();
+	  mutex_jobs # unlock();
 	  raise any
   );
-  !unlock_current_jobs()
+  mutex_jobs # unlock()
 ;;
 
 
@@ -1831,20 +1839,19 @@ let watch_for_zombies () =
 ;;
 
 
-let lock_reconf = ref (fun () -> ());;
-let unlock_reconf = ref (fun () -> ());;
+let mutex_reconf = omtp # create_mutex()
   (* For multi-threaded programs: lock/unlock the mutex while reconfiguring *)
 
 let with_reconf f =
-  !lock_reconf();
+  mutex_reconf # lock();
   ( try
       f()
     with
 	any ->
-	  !unlock_reconf();
+	  mutex_reconf # unlock();
 	  raise any
   );
-  !unlock_reconf()
+  mutex_reconf # unlock()
 ;;
 
 
@@ -1866,7 +1873,6 @@ let configure_job_handlers
       ?(catch_sigterm = true)
       ?(catch_sighup  = true)
       ?(catch_sigchld = true)
-      ?(set_sigpipe   = true)
       ?(at_exit       = true)
       () =
   with_reconf
@@ -1879,7 +1885,6 @@ let configure_job_handlers
        want_sigterm_handler := catch_sigterm;
        want_sighup_handler  := catch_sighup;
        want_sigchld_handler := catch_sigchld;
-       want_sigpipe_handler := set_sigpipe;
        want_at_exit_handler := at_exit;
        ()
     )
@@ -1887,46 +1892,14 @@ let configure_job_handlers
 
 
 let install_job_handlers () =
-  let default_action signo =
-    if signo <> Sys.sigchld then begin
-      (* This works only if the default action is to terminate the process. *)
-      ignore(Sys.signal signo Sys.Signal_default);
-      Unix.kill (Unix.getpid()) signo;
-      (* The signal signo is pending but usually blocked because this function
-       * is called from within the signal handler for signo. To force that
-       * the signal is delivered we must unblock the signal.
-       *)
-      ignore(Unix.sigprocmask Unix.SIG_UNBLOCK [ signo ]);
-      (* Wait for any signal - at least signo will happen! *)
-      while true do Unix.pause() done;
-      (* Never return to this point of execution! *)
-      assert false
-    end
-  in
   let install signo h =
-    let previous_handler = ref Sys.Signal_default in
-    let sys_signal_is_buggy = ref false in
-    let new_handler _ =
-      h signo;
-      (match !previous_handler with
-	  Sys.Signal_default    -> default_action signo
-	| Sys.Signal_ignore     -> ()
-	| Sys.Signal_handle h'  ->
-	    if !sys_signal_is_buggy then begin
-	      (* In some versions of O'Caml h' is not the old handler, but
-	       * the new one! - make sure that at least CTRL-C works:
-	       *)
-	      if signo = Sys.sigint then raise Sys.Break;
-	    end
-	    else
-	      h' signo);
-    in
-    previous_handler := Sys.signal signo (Sys.Signal_handle new_handler);
-    match !previous_handler with
-	Sys.Signal_handle old ->
-	  sys_signal_is_buggy := old == new_handler
-	    (* true for O'Caml-3.00 *)
-      | _ -> ()
+    Netsys_signal.register_handler
+      ~library:"shell"
+      ~name:"Shell_sys forwarding to child processes"
+      ~keep_default:(signo <> Sys.sigchld)
+      ~signal:signo
+      ~callback:h
+      ()
   in
 
   let forward_signal always signo =
@@ -1961,22 +1934,9 @@ let install_job_handlers () =
        if !want_sighup_handler  then install Sys.sighup  (forward_signal true);
        if !want_sigchld_handler then install Sys.sigchld watch_for_zombies;
 
-       if !want_sigpipe_handler then Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
-
        if !want_at_exit_handler then
 	 at_exit (fun () -> forward_signal true Sys.sigterm);
 
        ()
     )
 ;;
-
-
-let init_mt mk_mutex_pair =
-  let lock_cj, unlock_cj = mk_mutex_pair() in
-  lock_current_jobs := lock_cj;
-  unlock_current_jobs := unlock_cj;
-  let lock_rc, unlock_rc = mk_mutex_pair() in
-  lock_reconf := lock_rc;
-  unlock_reconf := unlock_rc
-;;
-

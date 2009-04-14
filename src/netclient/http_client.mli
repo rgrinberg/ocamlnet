@@ -1126,9 +1126,3 @@ sig
     (** Turns on debug messages on stderr. *)
 
 end
-
-(**/**)
-
-val init_mt : 
-      create_lock_unlock_pair:(unit -> ( (unit->unit) * (unit->unit) ) ) ->
-      unit

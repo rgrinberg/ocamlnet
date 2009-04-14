@@ -7,7 +7,7 @@ OBJECTS  = netexn.cmo netsys_impl_util.cmo \
 	   netsys_posix.cmo netsys_win32.cmo netsys.cmo \
 	   netsys_pollset.cmo netsys_pollset_posix.cmo \
 	   netsys_pollset_win32.cmo netsys_pollset_generic.cmo \
-	   netsys_util.cmo
+	   netsys_signal.cmo netsys_util.cmo
 COBJECTS = netsys_c.o netsys_c_win32.o
 DOBJECTS = netsys.mli netsys_pollset.mli
 LINK_OPTIONS = $(NETSYS_LINK_OPTIONS)
@@ -34,7 +34,7 @@ netsys_oothr.cma: netsys_oothr.cmo netsys_oothr_mt.cmo
 netsys_oothr.cmxa: netsys_oothr.cmx netsys_oothr-$(MT_TYPE)
 	extra=""; \
 	if [ -f  netsys_oothr_mt.cmx ]; then extra="netsys_oothr_mt.cmx"; fi; \
-	$(OCAMLOPT) -o netsys_oothr.cmxa -a netsys_oothr.cmx $$(extra)
+	$(OCAMLOPT) -o netsys_oothr.cmxa -a netsys_oothr.cmx $$extra
 
 .PHONY: netsys_oothr-vm netsys_oothr-posix
 netsys_oothr-vm:

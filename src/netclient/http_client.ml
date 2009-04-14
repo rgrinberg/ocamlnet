@@ -28,6 +28,9 @@ let () =
 	     assert false
     )
 
+let() =
+  Netsys_signal.init()
+
 
 type status =
   [ `Unserved
@@ -4282,26 +4285,19 @@ class pipeline =
  * of this HTTP implementation.
  *)
 
-let lock = ref (fun () -> ())
-let unlock = ref (fun () -> ())
+let omtp = !Netsys_oothr.provider
+let mutex = omtp # create_mutex()
 
 let serialize f arg =
-  !lock();
+  mutex # lock();
   try
     let r = f arg in
-    !unlock();
+    mutex # unlock();
     r
   with
-      err -> !unlock(); raise err
+      err -> mutex # unlock(); raise err
 ;;
 	
-
-let init_mt ~create_lock_unlock_pair =
-  let f1, f2 = create_lock_unlock_pair() in
-  lock := f1;
-  unlock := f2
-;;
-
 
 module Convenience =
   struct

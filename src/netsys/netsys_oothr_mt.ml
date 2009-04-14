@@ -15,9 +15,13 @@ let mtthread t : thread =
   )
 
 let mtmutex t : mutex =
-  ( object
-      method lock() = Mutex.lock t
-      method unlock() = Mutex.unlock t
+  ( object(self)
+      method lock() = 
+	(* Printf.eprintf "LOCK oid=%d\n%!" (Oo.id self); *)
+	Mutex.lock t
+      method unlock() = 
+	(* Printf.eprintf "UNLOCK oid=%d\n%!" (Oo.id self); *)
+	Mutex.unlock t
       method try_lock() = Mutex.try_lock t
       method repr = Mutex_val t
     end
@@ -51,8 +55,5 @@ let mtprovider() : mtprovider =
     end
   )
 
-let () =
-  Netsys_oothr.provider := mtprovider()
-
 let init() =
-  ()
+  Netsys_oothr.provider := mtprovider()
