@@ -760,7 +760,7 @@ if [ $with_nethttpd -gt 0 ]; then
     pkglist="$pkglist nethttpd-for-netcgi1 nethttpd-for-netcgi2"
 fi
 
-for opt in $woptions rpc_auth_local rpc_xti equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl netzip; do
+for opt in rpc_xti $woptions rpc_auth_local equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl netzip; do
 	e="o=\$with_$opt"
 	eval "$e"
 	if [ $o -gt 0 ]; then
