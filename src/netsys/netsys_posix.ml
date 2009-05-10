@@ -279,6 +279,52 @@ let run_post_fork_handlers() =
     !post_fork_registry
 
 
+(* Spawn *)
+
+type wd_spec =
+  | Wd_keep
+  | Wd_chdir of string
+  | Wd_fchdir of Unix.file_descr
+
+type pg_spec =
+  | Pg_keep
+  | Pg_new_bg_group
+  | Pg_new_fg_group
+  | Pg_join_group of int
+
+type fd_action =
+  | Fda_close of Unix.file_descr
+  | Fda_close_ignore of Unix.file_descr
+  | Fda_close_except of bool array
+  | Fda_dup2 of Unix.file_descr * Unix.file_descr
+
+type sig_action =
+  | Sig_default of int
+  | Sig_ignore of int
+
+external netsys_spawn : wd_spec -> pg_spec -> fd_action list -> 
+                        sig_action list -> string array ->
+                        string -> string array -> int
+  = "netsys_spawn_byte" "netsys_spawn_nat"
+
+let spawn ?(chdir = Wd_keep) ?(pg = Pg_keep) ?(fd_actions = [])
+          ?(sig_actions = []) ?(env = Unix.environment()) cmd args =
+  (* Fixup: if pg = Pg_new_fg_group, we remove any Sig_default for
+     SIGTTOU from sig_actions. Because of special handling, the effect
+     of Sig_default is enforced by the implementation, but this must be
+     done at [execve] time.
+   *)
+  let sig_actions =
+    if pg = Pg_new_fg_group then
+      List.filter 
+	(fun spec -> spec <> Sig_default Sys.sigttou)
+	sig_actions
+    else
+      sig_actions in
+  netsys_spawn chdir pg fd_actions sig_actions env cmd args
+
+
+
 (* Optional POSIX functions *)
 
 external have_fadvise : unit -> bool = "netsys_have_posix_fadvise"

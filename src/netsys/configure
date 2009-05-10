@@ -4,6 +4,7 @@ netsys_link_options=""
 have_posix_shm=0
 have_posix_fadvise=0
 have_posix_fallocate=0
+have_posix_pthread=0
 
 ######################################################################
 
@@ -54,7 +55,7 @@ then
 fi
 
 if [ $posix_fadv_compile -gt 0 ]; then
-    if configtests/posix_fadvise >>configtests/posix_fadvise.err 2>&1; then
+    if ( cd configtests; ./posix_fadvise >>posix_fadvise.err 2>&1 ); then
 	have_posix_fadvise=1
 	netsys_link_options="$netsys_link_options $posix_fadv_link_options"
     fi
@@ -82,7 +83,7 @@ then
 fi
 
 if [ $posix_fallo_compile -gt 0 ]; then
-    if configtests/posix_fallocate >>configtests/posix_fallocate.err 2>&1; then
+    if ( cd configtests && ./posix_fallocate >>posix_fallocate.err 2>&1) ; then
 	have_posix_fallocate=1
 	netsys_link_options="$netsys_link_options $posix_fallo_link_options"
     fi
@@ -95,6 +96,34 @@ else
     echo "not found"
     def_have_posix_fallocate="#undef HAVE_POSIX_FALLOCATE"
 fi
+
+######################################################################
+
+printf "Checking for POSIX pthread... "
+posix_pthr_compile=0
+posix_pthr_link_options=""
+rm -f configtests/posix_pthread.err
+if (cd configtests; ocamlc -o posix_pthread posix_pthread.c main.ml -custom ) \
+      >>configtests/posix_pthread.err 2>&1
+then
+    posix_pthr_compile=1
+fi
+
+if [ $posix_pthr_compile -gt 0 ]; then
+    if configtests/posix_pthread >>configtests/posix_pthread.err 2>&1; then
+	have_posix_pthread=1
+	netsys_link_options="$netsys_link_options $posix_pthr_link_options"
+    fi
+fi
+
+if [ $have_posix_pthread -gt 0 ]; then
+    echo "found"
+    def_have_posix_fallocate="#define HAVE_PTHREAD"
+else
+    echo "not found"
+    def_have_posix_fallocate="#undef HAVE_PTHREAD"
+fi
+
 
 ######################################################################
 

@@ -2,6 +2,12 @@
 
 #include "config.h"
 
+/* Linux: make all system prototypes available */
+#ifdef __linux__
+#define _GNU_SOURCE
+#define _XOPEN_SOURCE 600
+#endif
+
 #ifdef _WIN32
 #include "config_win32.h"
 
@@ -107,3 +113,9 @@ extern void unix_error (int errcode, char * cmdname, value arg) Noreturn;
 extern void uerror (char * cmdname, value arg) Noreturn;
 
 #endif
+
+/**********************************************************************/
+/* From signals.h                                                     */
+/**********************************************************************/
+
+CAMLextern int caml_convert_signal_number (int);

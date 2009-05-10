@@ -238,6 +238,69 @@ external setregid : int -> int -> unit = "netsys_setregid"
    *)
 
 
+(** {1 Fork+exec} *)
+
+(** The following function has some similarity with posix_spawn, but
+    is changed to our needs, Only special (although frequent) cases
+    can be implemented with posix_spawn.
+ *)
+
+type wd_spec =
+  | Wd_keep
+  | Wd_chdir of string
+  | Wd_fchdir of Unix.file_descr
+
+type pg_spec =
+  | Pg_keep
+  | Pg_new_bg_group
+  | Pg_new_fg_group
+  | Pg_join_group of int
+
+type fd_action =
+  | Fda_close of Unix.file_descr
+      (** Close the descriptor *)
+  | Fda_close_ignore of Unix.file_descr
+      (** Close the descriptor but ignore [EBADF] errors *)
+  | Fda_close_except of bool array
+      (** Closes all descriptors except those for which
+          [except.(k)] is true where [k = int_of_file_descr fd].
+          Descriptors outside the array index range are closed.
+       *)
+  | Fda_dup2 of Unix.file_descr * Unix.file_descr
+      (** Duplicate the first descriptor to the second as [dup2] does *)
+
+type sig_action =
+  | Sig_default of int
+  | Sig_ignore of int
+
+val spawn : ?chdir:wd_spec ->
+            ?pg:pg_spec ->
+            ?fd_actions:fd_action list ->
+            ?sig_actions:sig_action list ->
+            ?env:string array ->
+            string -> string array ->
+              int
+  (** [spawn cmd args]: Fork the process and exec [cmd] which gets the
+      arguments [args]. On success, the PID of the new process is returned.
+
+      - [chdir]: If set, the new process starts with this working directory
+        (this is done before anything else)
+      - [pg]: If set, the new process will be a member of this process group
+      - [fd_actions]: If set, these descriptor actions are executed 
+        sequentially
+      - [sig_actions]: If set, these signal actions are executed sequentially
+      - [env]: If set, the process gets this environment instead of the
+        current one
+
+      Any exceptions in the subprocess are detected, and reported. However,
+      if [Fda_close] leads to [EBADF] for a descriptor, this error is
+      ignored.
+
+      If [pg=Pg_new_fg_group], one should include [Sig_ignore Sys.sigttou]
+      in [sig_actions].
+   *)
+
+
 (** {1 Optional POSIX functions} *)
 
 external have_fadvise : unit -> bool = "netsys_have_posix_fadvise"
