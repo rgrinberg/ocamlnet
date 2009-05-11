@@ -375,6 +375,15 @@ let retransmit cl call =
        *)
       pass_exception cl call Message_timeout;
       (* Note: The call_auth_session is dropped. *)
+      (* If we still try to connect the TCP socket, shut the client
+         completely down:
+       *)
+      ( match cl.est_engine with
+	  | None -> ()
+	  | Some e -> 
+	      e#abort();
+	      close cl;
+      );
       (* Check state of reources: *)
       !check_for_output cl
     end
