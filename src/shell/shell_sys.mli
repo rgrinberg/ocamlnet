@@ -5,19 +5,10 @@
 
 (** Calls external programs, creates pipelines, etc. (full interface) *)
 
-(** This module is {b not thread-safe} because of undefined behaviour
- * of some signal related functions in multi-threaded programs. This
- * problem cannot be easily fixed, as the necessary multi-threading
- * primitives are not available in O'Caml. (Maybe there is a solution
- * for bytecode threads...)
- *
- * Nevertheless, [shell] often seems to work in a multi-threaded environment.
- * However, strange things can happen when two threads start new processes
- * at the same time, because they overwrite the global signal mask. As
- * a minimum precaution you should ensure that only one thread uses [shell]
- * at any time. Anyway, you have been warned.
- *)
-
+(** This module is now thread-safe (as of May 2009), provided the
+    threads do no share the same [Shell] or [Shell_sys] values.
+    Problems reported earlier here have been resolved.
+*)
 
 (** {1 Common exceptions} *)
 

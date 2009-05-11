@@ -5,10 +5,6 @@
 
 (** Calls external programs, creates pipelines, etc. (simplified interface) *)
 
-(** This module is {b not thread-safe}. See the module [Shell_sys] for
- * more information.
- *)
-
 (** {b Signal handlers:} When you call the function [call], signal handlers
  * are automatically installed by {!Shell_sys.install_job_handlers}, unless
  * this installation has already been performed. You can configure these
