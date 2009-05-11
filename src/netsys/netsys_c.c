@@ -480,8 +480,10 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
     cleanup_sub_env = 1;
 
     /* Because fork() can be slow we allow here that other threads can run */
-    caml_enter_blocking_section();
-    cleanup_bsection = 1;
+    /* caml_enter_blocking_section();
+       cleanup_bsection = 1;
+       -- TODO: check this more carefully before enabling it
+    */
 
     /* Fork the process. */
     pid = fork();
@@ -579,7 +581,7 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
 	switch(Tag_val(v_sig_actions_hd)) {
 	case 0:  /* Sig_default */
 	    signr = caml_convert_signal_number
-	  	       (Val_int(Field(v_sig_actions_hd,0)));
+	  	       (Int_val(Field(v_sig_actions_hd,0)));
 	    sigact.sa_sigaction = NULL;
 	    sigact.sa_handler = SIG_DFL;
 	    sigact.sa_flags = 0;
@@ -590,7 +592,7 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
 	    break;
 	case 1: /* Sig_ignore */
 	    signr = caml_convert_signal_number
-	  	       (Val_int(Field(v_sig_actions_hd,0)));
+	  	       (Int_val(Field(v_sig_actions_hd,0)));
 	    sigact.sa_sigaction = NULL;
 	    sigact.sa_handler = SIG_IGN;
 	    sigact.sa_flags = 0;
@@ -727,6 +729,13 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
 	uerror_errno = EINVAL;
 	uerror_function = "netsys_spawn/assert_me [302]";
     }
+
+    /* Also don't forget to wait on the child to avoid zombies: */
+    code = 1;
+    while (code) {
+	code = waitpid(pid, NULL, 0);
+	code = (code == -1 && errno == EINTR);
+    };
 
     uerror_errno = me.decoded.b_errno;
     uerror_function = me.decoded.b_function;

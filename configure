@@ -584,7 +584,7 @@ EOF
         fi
     fi
 
-    for f in Makefile uq_gtk.ml uq_gtk.mli; do
+    for f in Makefile uq_gtk.ml uq_gtk.mli uq_gtk_helper.ml; do
 	rm -f src/equeue-gtk2/$f
 	ln -s ../equeue-gtk1/$f src/equeue-gtk2
     done

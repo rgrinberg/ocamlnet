@@ -3,10 +3,6 @@
  *
  *)
 
-(* Bases on rev. 1.4 of the old CVS repository, plus the removal of
- * is_file_descr of the shell-0.2 branch.
- *)
-
 let safe_close fd =
   (* Try to close, but don't fail if the descriptor is bad *)
   try
@@ -304,38 +300,13 @@ let all_signals =
     Sys.sigprof; ];;
 
 
-let run
+let posix_run
       ?(group = Current_group)
       ?(pipe_assignments = [])
       c =
 
-  (* Collect cleanup actions here. This makes it possible to revert any
-   * modifications to the process state (which descriptors are open etc.)
-   *)
-  let cleanup_procmask = ref None in
-  let cleanup_control_in = ref None in
-  let cleanup_control_out = ref None in
-  let cleanup_subprocess = ref None in
-
-  (* Functions cleaning up: *)
-  let cleanup_this f =
-    match !f with
-	None -> ()
-      | Some cleaner ->
-	  try
-	    cleaner();
-	    f := None
-	  with
-	      exn ->
-		raise(Fatal_error exn)
-  in
-  let cleanup() =
-    cleanup_this cleanup_procmask;
-    cleanup_this cleanup_control_in;
-    cleanup_this cleanup_control_out;
-    cleanup_this cleanup_subprocess;
-  in
-
+  (* This [run] implementation bases on [Netsys_posix.spawn] *)
+  
   let args = Array.append [| c.c_cmdname |] c.c_arguments in
 
   (* Signals:
@@ -344,291 +315,222 @@ let run
    * - SIGCHLD: this must be reset to default otherwise the subprocess will
    *   be confused ("wait" would not work as expected)
    * - other signals: it is good practice also to reset them to default
-   * - race conditions: while forking, signals must be blocked until the
-   *   handlers have been reset. Just before exec, the blocking mask must
-   *   be reset (because exec preserves this mask)
-   *
-   *   Note: The latter does not work in a multi-threaded program, because
-   *   it would be necessary to change the per-thread signal mask, not the
-   *   per-process signal mask.
    *)
 
-  try
-
-    let old_mask = Unix.sigprocmask Unix.SIG_BLOCK all_signals in
-    cleanup_procmask :=
-      Some (fun () -> ignore(Unix.sigprocmask Unix.SIG_SETMASK old_mask));
-
-    (* Create a pipeline for control messages: *)
-    let control_in, control_out = Unix.pipe() in
-    let control_out = ref control_out in     (* make control_out assignable *)
-    cleanup_control_in :=
-      Some (fun () -> Unix.close control_in);
-    cleanup_control_out :=
-      Some (fun () -> Unix.close !control_out);
-
-    let pipe_assignments =
-      List.map
-	(fun (from_fd, to_fd) -> (ref from_fd, to_fd))
-                                 (* such that from_fd can be altered *)
-	pipe_assignments
-    in
-
-    (* Collect the descriptors that must not be closed by [exec]: *)
-    let open_descr_ht = Hashtbl.create 50 in
-    List.iter
-      (fun (_, to_fd) ->
-	 Hashtbl.replace open_descr_ht to_fd ())
-      pipe_assignments;
-    List.iter
-      (fun (from_fd, to_fd) ->
-	 Hashtbl.remove  open_descr_ht from_fd;
-	 Hashtbl.replace open_descr_ht to_fd ())
-      c.c_assignments;
-    List.iter
-      (fun fd ->
-	 Hashtbl.replace open_descr_ht fd ())
-      c.c_descriptors;
-
-    (* Ensure that the subprocess can at least allocate several small blocks
-     * without risking a major GC:
-     *)
-    Gc.minor();
-
-    (* TEST: check that no major heap allocations happen:
-       Gc.print_stat stdout;
-       flush stdout;
-    *)
-
-    let pid = Unix.fork() in
-    if pid = 0 then begin
-      (* Beginning of the new subprocess -
-       *
-       * Notes:
-       * - Be careful not to allocate too much memory! (Don't risk a GC cycle.)
-       * - fork() resets pending signals - however, we may now get new signals
-       *   sent to the process or process group
-       * - We do not use cleanup() on error but simply _exit the process
-       * - From now on we do not use Netsys_signal anymore. We just set
-       *   signal handlers directly.
-       *)
-
-      try
-
-	( match c.c_directory with
-	      None -> ()
-	    | Some d -> Unix.chdir d
-	);
-
-        (* Close control_in such that the parent process can detect EOF: *)
-
-        Unix.close control_in;
-
-        (* Process group: *)
-
-	begin match group with
-	    Current_group -> ()
-	  | New_bg_group  -> Netsys_posix.setpgid 0 0
-	  | Join_group g  -> Netsys_posix.setpgid 0 g
-	  | New_fg_group  ->
-	      Netsys_posix.setpgid 0 0;
-	      (* Get a file descriptor of the tty: *)
-	      let tty_name = Netsys_posix.ctermid() in
-	      let tty =
-		try
-		  Unix.openfile tty_name [ Unix.O_RDWR ] 0
-		with
-		    Unix.Unix_error(_,_,_) ->
-		      (* There is no tty, or a serious system failure *)
-		      failwith "Cannot open controlling tty"
-	      in
-	      (* Ignore SIGTTOU. We can get SIGTTOU when doing tcsetpgrp
-	       * because this operation counts as writing to the terminal
-	       * which may cause SIGTTOU
-	       *)
-	      ignore(Sys.signal Sys.sigttou Sys.Signal_ignore);
-	      (* Set the foreground process group: *)
-	      Netsys_posix.tcsetpgrp tty (Unix.getpid());
-	      (* Close tty *)
-	      Unix.close tty;
-	      ()
-	end;
-
-        (* Perform descriptor assignments: *)
-
-        (* Note: We must be careful not to overwrite control_out *)
-
-	(* Do first pipe_assignments. These are _parallel_ assignments, i.e.
-	 * if (fd1, fd2) and (fd2, fd3) are in the list, the first assginment
-	 * fd1 -> fd2 must not overwrite fd2, because the second assignment
-	 * fd2 -> fd3 refers to the original fd2.
-	 *)
-	let rec assign_parallel fdlist =
-	  match fdlist with
-	      (from_fd, to_fd) :: fdlist' ->
-		(* If to_fd occurs on the left side in fdlist', we must be
-		 * careful.
+  let sig_actions =
+    List.flatten
+      (List.map
+	 (fun signo ->
+	    if signo = Sys.sigint || signo = Sys.sigquit then
+	      [ ]  
+		(* keep them as-is. If a handler exists, it will be reset
+		   to the default action by [exec]
 		 *)
-		if List.exists (fun (fd1,fd2) -> !fd1=to_fd) fdlist' then begin
-		  let new_fd = Unix.dup to_fd in
-		  Unix.set_close_on_exec new_fd;
-		  List.iter
-		    (fun (fd1, fd2) -> if !fd1 = to_fd then fd1 := new_fd)
-		    fdlist'
-		end
-		  (* Be careful if to_fd = control_out, too *)
-		else
-		  if to_fd = !control_out then
-		    control_out := Unix.dup !control_out;
-		Unix.dup2 !from_fd to_fd;
-		assign_parallel fdlist'
-	    | [] ->
-		()
-	in
-	assign_parallel pipe_assignments;
+	    else
+	      [ Netsys_posix.Sig_default signo ]
+	 )
+	 all_signals
+      ) in
 
-	(* Also perform c.c_assignments; however this can be done in a
-	 * sequential way.
-	 *)
+  (* Descriptor assignments. We have to translate the parallel
+     pipe_assigmnents into a list of [dup2] operations. Also, we have
+     to check which descriptors are kept open at all
+   *)
 
-	List.iter
-	  (fun (from_fd, to_fd) ->
-	     if to_fd = !control_out then
-	       control_out := Unix.dup !control_out;
-	     Unix.dup2 from_fd to_fd
-	  )
-	  c.c_assignments;
+  let pipe_assignments =
+    List.map
+      (fun (from_fd, to_fd) -> (ref from_fd, to_fd))
+                           (* such that from_fd can be altered *)
+      pipe_assignments
+  in
 
-        (* Close all descriptors that must be closed: *)
+  (* Collect the descriptors that must not be closed by [exec] (final view): *)
+  let open_descr_ht = Hashtbl.create 50 in
 
-	for fd = 0 to Netsys_posix.sysconf_open_max() - 1 do
-	  let fd' = Netsys_posix.file_descr_of_int fd in
-	  if not(Hashtbl.mem open_descr_ht fd') && fd' <> !control_out then
-	    safe_close fd'
-	done;
+  List.iter
+    (fun (from_fd, to_fd) ->
+       Hashtbl.replace open_descr_ht to_fd ())
+    pipe_assignments;
+  List.iter
+    (fun (from_fd, to_fd) ->
+       Hashtbl.remove  open_descr_ht from_fd;
+       Hashtbl.replace open_descr_ht to_fd ())
+    c.c_assignments;
+  List.iter
+    (fun fd ->
+       Hashtbl.replace open_descr_ht fd ())
+    c.c_descriptors;
 
-	(* Clear the close-on-exec flag for the other descriptors: *)
+  (* In this table we track the use of descriptors (dup2 tracking).
+     At this point, this table must contain the fd's that will be used
+     later, either as a source fd in a dup2, or it ends in [c_descriptors].
+     In the algorithm below, temp_descr_ht is then updated by each dup2.
+   *)
+  let temp_descr_ht = Hashtbl.create 50 in
 
-	Hashtbl.iter
-	  (fun fd _ ->
-	     try Unix.clear_close_on_exec fd
-	     with Unix.Unix_error(Unix.EBADF,_,_) -> ())
-	  open_descr_ht;
+  Hashtbl.iter       (* starting point: the fd's that remain finally open *)
+    (fun fd _ -> Hashtbl.replace temp_descr_ht fd ())
+    open_descr_ht;
+  List.iter          (* go backward: first the c_assignments *)
+    (fun (from_fd, to_fd) -> 
+       Hashtbl.remove  temp_descr_ht to_fd;
+       Hashtbl.replace temp_descr_ht from_fd ())
+    (List.rev c.c_assignments);
+  List.iter
+    (fun (from_fd, to_fd) -> 
+       Hashtbl.remove  temp_descr_ht to_fd;
+    )
+    pipe_assignments;
+  List.iter
+    (fun (from_fd, to_fd) -> 
+       Hashtbl.replace temp_descr_ht to_fd ();
+    )
+    pipe_assignments;
 
-        (* Set the close-on-exec flag for control_out: *)
+  (* Here we manage additional descriptors that are required for emulating
+     parallel assignment by sequential dup2's:
+   *)
+  let next_fd = ref 3 in
+  let rec new_descriptor() =
+    let fd = Netsys_posix.file_descr_of_int !next_fd in
+    if (Hashtbl.mem temp_descr_ht fd) then (
+      incr next_fd;
+      new_descriptor();
+    ) else (
+      Hashtbl.add temp_descr_ht fd ();
+      fd
+    ) in
+  let alloc_descriptor fd =
+    Hashtbl.replace temp_descr_ht fd () in
+  let rel_descriptor fd =
+    if Hashtbl.mem temp_descr_ht fd then (
+      Hashtbl.remove temp_descr_ht fd;
+      let ifd = Netsys_posix.int_of_file_descr fd in
+      if ifd < !next_fd then next_fd := ifd
+    ) in
+  
+  (* These are all destination fd's of [dup2]. *)
+  let dest_descr_ht = Hashtbl.create 50 in
 
-	Unix.set_close_on_exec !control_out;
+  let fd_actions = ref [] in    (* actions in reverse order *)
 
-        (* Set signals to SIG_DFL (except keyboard signals) *)
-
-        (* Note: Unfortunately, Sys.signal may allocate memory *)
-
-	List.iter
-	  (fun signo ->
-	     if signo = Sys.sigint || signo = Sys.sigquit then begin
-	       (* If there is a handler, reset it to Signal_default *)
-	       let old_hdl = Sys.signal signo Sys.Signal_default in
-	       if old_hdl = Sys.Signal_ignore then
-		 ignore(Sys.signal signo old_hdl);
-	     end
-	     else
-	       ignore(Sys.signal signo Sys.Signal_default)
-	  )
-	  all_signals;
-
-        (* Set the signal blocking mask to [], thus allowing all signals again: *)
-
-	ignore(Unix.sigprocmask Unix.SIG_SETMASK []);
-
-        (* TEST: check that no major heap allocations happen:
-	   Gc.print_stat stdout;
-	   flush stdout;
-	*)
-
-        (* Exec the new program: *)
-
-	Unix.execve c.c_filename args !(c.c_environment); (* Produces warning X *)
-
-        (* On success, control_out will be closed. On failure, an exception
-	 * is raised and we can use control_out to pass the exception to the
-	 * calling process.
-	 *)
-
-        (* This point will never be reached. However, we are careful. *)
-
-	assert false
-
-      with
-	  any_exception ->
-	    (* An exception happened in the subprocess. *)
-
-	    let out = Unix.out_channel_of_descr !control_out in
-	    Marshal.to_channel out any_exception [];
-	    close_out out;
-	    Netsys._exit 127
-    end;
-
-    cleanup_subprocess :=
-      Some (fun () ->
-	      try ignore(Unix.waitpid [] pid)
-	      with Unix.Unix_error(Unix.ECHILD,_,_) -> ()
-		      (* may happen if SIGCHILD handler is modified *)
-	   );
-
-    (* The calling process continues here: *)
-
-    cleanup_this cleanup_control_out;
-
-    (* Check whether the command could be executed or not: *)
-
-    let inch = Unix.in_channel_of_descr control_in in
-    cleanup_control_in :=
-      Some (fun () -> close_in inch);
-    let subprocess_exception =
-      try
-	Some(Marshal.from_channel inch)
-      with
-	  End_of_file -> None
-	      (* Note: Detecting End_of_file ensures that:
-	       * - setpgid has been performed and was successful
-	       * - execve was successful; however the command needs not be
-	       *   completely executed
-	       *)
-    in
-    begin match subprocess_exception with
-	Some x ->
-	  (* Wait for the process to avoid zombies: *)
-	  begin
-	    try ignore(Unix.waitpid [] pid)
-	    with Unix.Unix_error(Unix.ECHILD,_,_) -> ()
-	  end;
-	  raise x
-      | None ->
+  (* Do first pipe_assignments. These are _parallel_ assignments, i.e.
+   * if (fd1, fd2) and (fd2, fd3) are in the list, the first assginment
+   * fd1 -> fd2 must not overwrite fd2, because the second assignment
+   * fd2 -> fd3 refers to the original fd2.
+   *)
+  let rec assign_parallel fdlist =
+    match fdlist with
+      | (from_fd, to_fd) :: fdlist' ->
+	  (* If to_fd occurs on the left side in fdlist', we must be
+           * careful, and rename this descriptor.
+	   *)
+	  if !from_fd <> to_fd then (
+	    if List.exists (fun (fd1,fd2) -> !fd1=to_fd) fdlist' then (
+	      let new_fd = new_descriptor() in
+	      List.iter
+		(fun (fd1, fd2) -> if !fd1 = to_fd then fd1 := new_fd)
+		fdlist';
+	      fd_actions := 
+		(Netsys_posix.Fda_dup2(to_fd, new_fd)) :: !fd_actions;
+	      Hashtbl.replace dest_descr_ht new_fd ();
+	    );
+	    fd_actions := 
+	      (Netsys_posix.Fda_dup2(!from_fd, to_fd)) :: !fd_actions;
+	    alloc_descriptor to_fd;
+	    rel_descriptor !from_fd;
+	    Hashtbl.replace dest_descr_ht to_fd ();
+	  );
+	  assign_parallel fdlist'
+      | [] ->
 	  ()
-    end;
+  in
+  assign_parallel pipe_assignments;
 
-    (* Restore process state: *)
+  (* Also perform c.c_assignments; however this can be done in a
+   * sequential way.
+   *)
+  List.iter
+    (fun (from_fd, to_fd) ->
+       if from_fd <> to_fd then (
+	 fd_actions := 
+	   (Netsys_posix.Fda_dup2(from_fd, to_fd)) :: !fd_actions;
+	 alloc_descriptor to_fd;
+	 rel_descriptor from_fd;
+	 Hashtbl.replace dest_descr_ht to_fd ();
+       )
+    )
+    c.c_assignments;
 
-    cleanup_subprocess := None;
-      (* It will continue running in the background *)
+  (* Close the descriptors that are not shared with this process: *)
+  let max_open_ht = ref 2 in
+  Hashtbl.iter
+    (fun fd _ ->
+       let ifd = Netsys_posix.int_of_file_descr fd in
+       if ifd > !max_open_ht then max_open_ht := ifd
+    )
+    open_descr_ht;
+  let keep_open = Array.create (!max_open_ht+1) false in
+  Hashtbl.iter
+    (fun fd _ ->
+       let ifd = Netsys_posix.int_of_file_descr fd in
+       keep_open.(ifd) <- true
+    )
+    open_descr_ht;
+  fd_actions :=
+    (Netsys_posix.Fda_close_except keep_open) :: !fd_actions;
 
-    cleanup();
+  (* Clear the close-on-exec flag for the shared descriptors. There
+     is no Fda_clear_close_on_exec, so we have to get this effect by
+     using dup2 (i.e. dup2(fd, tmp_fd); dup2(tmp_fd, fd); close(tmp_fd) ).
+     Note that dup2(fd,fd) is not sufficient (POSIX does not mention
+     that the close-on-exec flag is cleared in this case).
+   *)
+  let clear_fd = new_descriptor() in
+  Hashtbl.iter
+    (fun fd _ ->
+       if not (Hashtbl.mem dest_descr_ht fd) then
+	 fd_actions := 
+	   [ Netsys_posix.Fda_close clear_fd;   (* rev order! *)
+	     Netsys_posix.Fda_dup2(clear_fd, fd);
+	     Netsys_posix.Fda_dup2(fd, clear_fd)
+	   ] @ !fd_actions;
+    )
+    open_descr_ht;
 
-    { p_command = c;
-      p_id = pid;
-      p_status = None;
-      p_abandoned = false;
-    }
+  let pg =
+    match group with
+      | Current_group -> Netsys_posix.Pg_keep
+      | New_bg_group  -> Netsys_posix.Pg_new_bg_group
+      | Join_group g  -> Netsys_posix.Pg_join_group g
+      | New_fg_group  -> Netsys_posix.Pg_new_fg_group in
 
-  with
-      (Fatal_error _) as any ->
-	(* Give up *)
-	raise any
-    | any ->
-	(* Cleanup the process state: *)
-	cleanup();
-	raise any
+  let chdir =
+    match c.c_directory with
+      | None   -> Netsys_posix.Wd_keep
+      | Some d -> Netsys_posix.Wd_chdir d in
+
+  (* Now spawn the new process: *)
+  let pid =
+    Netsys_posix.spawn
+      ~chdir
+      ~pg
+      ~fd_actions:(List.rev !fd_actions)
+      ~sig_actions
+      ~env:!(c.c_environment)
+      c.c_filename
+      args in
+
+  { p_command = c;
+    p_id = pid;
+    p_status = None;
+    p_abandoned = false;
+  }
 ;;
+
+
+let run = posix_run;;
+(* Right now no Win32 implementation available *)
 
 
 let process_id p = p.p_id;;
@@ -1862,7 +1764,6 @@ let want_sigterm_handler = ref true;;
 let want_sighup_handler  = ref true;;
 let want_sigchld_handler = ref true;;
 let want_at_exit_handler = ref true;;
-let want_sigpipe_handler = ref true;;
 
 
 exception Already_installed;;

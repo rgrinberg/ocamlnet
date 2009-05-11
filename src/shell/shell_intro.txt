@@ -32,7 +32,7 @@ parallely. For example:
 {[
 let s = "d\na\nc\nb\n" in
 let b = Buffer.create 20 in
-call ~stdin:(from_string s) ~stdout:(to_buffer b) [ cmd "sort" ]
+call ~stdin:(from_string s) ~stdout:(to_buffer b) [ cmd "sort" [] ]
 ]}
 
 Here, "sort" reads the contents of s and writes the result to b.

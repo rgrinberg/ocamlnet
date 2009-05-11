@@ -151,8 +151,10 @@ META: META.in
 
 DEP_FILES ?= $(wildcard *.ml) $(wildcard *.mli)
 
+# Set NODEP to "@true" in order to disable "depend".
+
 depend: $(DEP_FILES)
-	$(OCAMLDEP) *.ml *.mli >$@ || { rm -f $@; exit 1; }
+	$(NODEP) $(OCAMLDEP) *.ml *.mli >$@ || { rm -f $@; exit 1; }
 
 .PHONY: clean
 clean::

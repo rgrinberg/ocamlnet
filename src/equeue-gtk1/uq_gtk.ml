@@ -147,7 +147,7 @@ object (self)
 	       gtk_event_source_hup = None; } in
 	 ( match g.gtk_event_source_in with
 	       None when i ->
-		 g.gtk_event_source_in <- Some(mk_handler `IN [fd] [] []);
+		 g.gtk_event_source_in <- Some(mk_handler Uq_gtk_helper._in [fd] [] []);
 	     | Some s when not i ->
 		 dest_handler s;
 		 g.gtk_event_source_in <- None
