@@ -250,9 +250,12 @@ object(self)
 		  transfer_encoding <- `Identity;
 	  );
 	  (* Update the header: *)
-	  ( match transfer_encoding with
-	      | `Identity -> resp_header # delete_field "Transfer-Encoding"
-	      | `Chunked  -> set_transfer_encoding resp_header ["chunked", []]
+	  ( match transfer_encoding, suppress_body with
+	      | (`Identity, false)
+	      | (_, true) ->
+		  resp_header # delete_field "Transfer-Encoding"
+	      | (`Chunked, false) -> 
+		  set_transfer_encoding resp_header ["chunked", []]
 	  );
 	  resp_header # delete_field "Trailer";
 	  set_date resp_header (Unix.time());
