@@ -233,6 +233,11 @@ val domain_of_inet_addr : Unix.inet_addr -> Unix.socket_domain
     * address is IPv4 or IPv6
    *)
 
+val getpeername : Unix.file_descr -> Unix.sockaddr
+  (** like [Unix.getpeername], but errors are fixed up. [ENOTCONN] is
+      ensured when the socked is unconnected or shut down.
+   *)
+
 (** {1 Deprecated} *)
 
 (** The following interfaces have been replaced by more generic implementations

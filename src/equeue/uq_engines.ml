@@ -2265,7 +2265,7 @@ let getsockspec stype s =
 
 
 let getpeerspec stype s =
-  match Unix.getpeername s with
+  match Netsys.getpeername s with
       Unix.ADDR_UNIX path ->
 	`Sock_unix(stype, path)
     | Unix.ADDR_INET(addr, port) ->

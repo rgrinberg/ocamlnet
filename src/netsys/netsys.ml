@@ -3,6 +3,11 @@
 let is_win32 =
   Sys.os_type = "Win32"
 
+external netsys_is_darwin : unit -> bool = "netsys_is_darwin"
+
+let is_darwin =
+  netsys_is_darwin()
+
 let restart = Netsys_impl_util.restart
 let restart_tmo = Netsys_impl_util.restart_tmo
 
@@ -16,6 +21,18 @@ let sleep t =
 
 let restarting_sleep t =
   restart_tmo sleep t
+
+
+let getpeername fd =
+  try
+    Unix.getpeername fd
+  with
+    | Unix.Unix_error(Unix.EINVAL,a1,a2) ->
+	(* SUS defines EINVAL as "socket has been shut down". This is a bit
+         * surprising for developers of Open Source OS where this is reported
+         * as ENOTCONN. We map it here.
+	 *)
+	raise(Unix.Unix_error(Unix.ENOTCONN,a1,a2))
 
 
 type fd_style =
@@ -43,7 +60,7 @@ let get_fd_style fd =
 	  (* Now check whether the socket is connected or not: *)
 	  try
 	    let sockaddr = Unix.getsockname fd in
-	    let peeraddr = Unix.getpeername fd in
+	    let peeraddr = getpeername fd in
 	    (* fd is a connected socket *)
 	    `Recv_send(sockaddr,peeraddr)
 	  with
@@ -215,7 +232,7 @@ external unix_error_of_code : int -> Unix.error = "netsys_unix_error_of_code"
 let connect_check fd =
   let e_code = Unix.getsockopt_int fd Unix.SO_ERROR in
   try
-    ignore(Unix.getpeername fd); 
+    ignore(getpeername fd); 
     ()
   with
     | Unix.Unix_error(Unix.ENOTCONN,_,_) ->

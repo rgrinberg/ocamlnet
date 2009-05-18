@@ -6,7 +6,7 @@ COBJECTS = rpclocal.o
 DOBJECTS = rpc_auth_local.mli
 ARCHIVE = rpc_auth_local
 
-INCLUDES += $(INC_RPC)
+INCLUDES += $(INC_RPC) $(INC_NETSYS)
 
 include $(TOP_DIR)/Makefile.rules
 

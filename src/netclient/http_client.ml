@@ -1574,7 +1574,7 @@ object(self)
 	    Hashtbl.replace rev_active_conns owner (fd :: fd_list)
       | `Inactive ->
 	  ( try
-	      let peer = Unix.getpeername fd in
+	      let peer = Netsys.getpeername fd in
 	      self # forget_active_connection fd;
 	      Hashtbl.replace inactive_conns fd peer;
 	      let fd_list =

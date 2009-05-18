@@ -535,7 +535,7 @@ let stream_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
       | Unix.Unix_error(_,_,_) -> `Implied in
   let peername = 
     try
-      `Sockaddr(Unix.getpeername fd)
+      `Sockaddr(Netsys.getpeername fd)
     with
       | Unix.Unix_error(_,_,_) -> `Implied in
   let mplex = 

@@ -33,6 +33,17 @@ CAMLprim value netsys_int64_of_file_descr(value fd) {
 #endif
 }
 
+/**********************************************************************/
+/* OS recognition                                                     */
+/**********************************************************************/
+
+CAMLprim value netsys_is_darwin(value dummy) {
+#if defined(__darwin__) || defined(__DARWIN__) || defined(__APPLE__)
+    return Val_bool(1);
+#else
+    return Val_bool(0);
+#endif
+}
 
 /**********************************************************************/
 /* Standard POSIX stuff                                               */

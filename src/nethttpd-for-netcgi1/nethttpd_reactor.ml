@@ -433,7 +433,7 @@ class http_reactor (config : #http_reactor_config) fd =
 object(self)
   val proto = new http_protocol config fd
   val fd_addr = Unix.getsockname fd
-  val peer_addr = Unix.getpeername fd
+  val peer_addr = Netsys.getpeername fd
 
   method private cycle() =
     let block = 
@@ -636,7 +636,7 @@ type x_reaction =
 let process_connection config fd (stage1 : 'a http_service) =
 
   let _fd_addr = Unix.getsockname fd in
-  let _peer_addr = Unix.getpeername fd in
+  let _peer_addr = Netsys.getpeername fd in
 
   let protect env f arg =
     try

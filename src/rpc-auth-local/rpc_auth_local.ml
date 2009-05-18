@@ -19,7 +19,7 @@ object
   method peek =
     `Peek_descriptor
       (fun d ->
-	 match Unix.getpeername d with
+	 match Netsys.getpeername d with
 	     Unix.ADDR_UNIX _ ->
 	       (* Try now peek_peer_credentials: *)
 	       begin try

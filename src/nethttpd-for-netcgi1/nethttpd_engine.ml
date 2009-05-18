@@ -496,7 +496,7 @@ object(self)
   inherit [unit] engine_mixin (`Working 0)
 
   val fd_addr = Unix.getsockname fd
-  val peer_addr = Unix.getpeername fd
+  val peer_addr = Netsys.getpeername fd
 
   val mutable conn_state = (`Active _proto : conn_state)
   val mutable group = Unixqueue.new_group ues
@@ -981,7 +981,7 @@ end
 
 let process_connection config pconfig fd ues stage1 : http_engine_processing_context =
   let fd_addr = Unix.getsockname fd in
-  let peer_addr = Unix.getpeername fd in
+  let peer_addr = Netsys.getpeername fd in
 
   let on_req_hdr = ref (fun _ -> ()) in
 
