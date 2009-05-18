@@ -1,6 +1,6 @@
 version = "@VERSION@"
-requires = "equeue,unix,netstring"
-requires(mt) = "equeue,unix,netstring,threads"
+requires = "netsys,equeue,unix,netstring"
+requires(mt) = "netsys,equeue,unix,netstring,threads"
 archive(byte) = "netclient.cma"
 archive(native) = "netclient.cmxa"
 archive(mt,byte) = "netclient.cma http_client_mt.cmo"
