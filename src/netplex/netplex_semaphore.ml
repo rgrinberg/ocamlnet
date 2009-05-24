@@ -37,10 +37,21 @@ let int64_decr v =
   v := Int64.pred !v
 
 
+let release = ref (fun () -> ())
+
+
 let plugin : plugin =
   ( object(self)
       val mutable semaphores = Hashtbl.create 50
       val mutable containers = Hashtbl.create 50
+
+      initializer (
+	release :=
+	  (fun () -> 
+	     semaphores <- Hashtbl.create 1;
+	     containers <- Hashtbl.create 1
+	  )
+      )
 
       method program = 
 	Netplex_ctrl_aux.program_Semaphore'V1
@@ -175,6 +186,15 @@ let plugin : plugin =
 	  
      end
   )
+
+let () =
+  (* Release memory after [fork]: *)
+  Netsys_posix.register_post_fork_handler
+    (object
+       method name = "Netplex_semaphore"
+       method run () = !release()
+     end
+    )
 
 
 let increment sem_name =

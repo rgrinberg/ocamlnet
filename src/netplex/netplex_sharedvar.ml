@@ -2,10 +2,21 @@
 
 open Netplex_types
 
+let release = ref (fun () -> ())
+
+
 let plugin : plugin =
   ( object (self)
       val mutable variables = Hashtbl.create 50
       val mutable owns = Hashtbl.create 50
+
+      initializer (
+	release :=
+	  (fun () -> 
+	     variables <- Hashtbl.create 1;
+	     owns <- Hashtbl.create 1
+	  )
+      )
 
       method program =
 	Netplex_ctrl_aux.program_Sharedvar'V1
@@ -171,6 +182,15 @@ let plugin : plugin =
 
     end
   )
+
+let () =
+  (* Release memory after [fork]: *)
+  Netsys_posix.register_post_fork_handler
+    (object
+       method name = "Netplex_sharedvar"
+       method run () = !release()
+     end
+    )
 
 let create_var ?(own=false) ?(ro=false) var_name =
   let cont = Netplex_cenv.self_cont() in
