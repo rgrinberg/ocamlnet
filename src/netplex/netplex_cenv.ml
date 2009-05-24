@@ -74,6 +74,71 @@ let log level msg =
 let logf level fmt =
   Printf.ksprintf (log level) fmt
 
+type timer = < f : timer -> bool; tmo : float > ;;
+
+let timer_table = Hashtbl.create 50
+let timer_mutex = ( !Netsys_oothr.provider ) # create_mutex()
+
+
+let rec restart_timer tobj g =
+  let cont = self_cont() in
+  let esys = cont#event_system in
+  Unixqueue.once esys g tobj#tmo 
+    (fun () ->
+       (* We let exceptions fall through to Netplex_container.run *)
+       let flag = tobj#f tobj in
+       if flag then restart_timer tobj g
+    )
+
+
+let create_timer f tmo =
+  let cont = self_cont() in
+  let esys = cont#event_system in
+  let g = Unixqueue.new_group esys in
+  let tobj =
+    ( object
+	method f = f
+	method tmo = tmo
+      end
+    ) in
+  timer_mutex # lock();
+  Hashtbl.add timer_table tobj g;
+  timer_mutex # unlock();
+  restart_timer tobj g;
+  tobj
+  
+
+let cancel_timer tobj =
+  let cont = self_cont() in
+  let esys = cont#event_system in
+  timer_mutex # lock();
+  let g_opt =
+    try Some(Hashtbl.find timer_table tobj) with Not_found -> None in
+  Hashtbl.remove timer_table tobj;
+  timer_mutex # unlock();
+  match g_opt with
+    | None -> ()
+    | Some g -> 
+	Unixqueue.clear esys g
+
+
+let cancel_all_timers() =
+  let cont = self_cont() in
+  let esys = cont#event_system in
+  timer_mutex # lock();
+  Hashtbl.iter
+    (fun tobj g ->
+       Unixqueue.clear esys g
+    )
+    timer_table;
+  Hashtbl.clear timer_table;
+  timer_mutex # unlock()
+
+
+let timer_id tobj =
+  Oo.id tobj
+
+
 let admin_connector() =
   let cont = self_cont() in
   match cont#lookup "netplex.controller" "admin" with

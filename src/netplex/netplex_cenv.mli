@@ -21,6 +21,32 @@ val log : level -> string -> unit
 val logf : level -> ('a, unit, string, unit) format4 -> 'a
   (** Writes a log message like [printf] *)
 
+type timer
+  (** A timer *)
+
+val create_timer : (timer -> bool) -> float -> timer
+  (** [create_timer f tmo]: Creates a timer with timeout value [tmo]:
+      In [tmo] seconds [f] is called, and if this function returns [true],
+      the timer remains active, and another round of timing is arranged.
+      If the functions returns [false] or raises an exception, the timer
+      is stopped.
+
+      Timers are also stopped on container shutdown.
+
+      Timers are attached to the container event system, and run only
+      if this event system runs.
+   *)
+
+val cancel_timer : timer -> unit
+  (** Cancels the timer: The callback function is not called any longer *)
+
+val cancel_all_timers : unit -> unit
+  (** Cancels all active timers *)
+
+val timer_id : timer -> int
+  (** Returns an ID, e.g. useful for debugging *)
+
+
 val admin_connector : unit -> Rpc_client.mode2
   (** Determines the admin socket of the controller, and returns an RPC
       client connector suitable for connecting with the admin interface

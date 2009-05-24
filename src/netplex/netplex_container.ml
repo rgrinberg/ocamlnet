@@ -153,6 +153,12 @@ object(self)
 			       "shutdown"
 			       (sockserv # processor # shutdown)
 			       ();
+			     ( try
+				 Netplex_cenv.cancel_all_timers()
+			       with
+				   (* can happen in the admin case: *)
+				 | Netplex_cenv.Not_in_container_thread -> ()
+			     );
 			     ( match rpc with
 				 | None -> ()
 				 | Some r -> 
@@ -270,6 +276,12 @@ object(self)
       | Some r -> r
 
   method shutdown() =
+    ( try
+	Netplex_cenv.cancel_all_timers()
+      with
+	  (* can happen in the admin case: *)
+	| Netplex_cenv.Not_in_container_thread -> ()
+    );
     self # disable_accepting();
     ( match rpc with
 	| None -> ()
@@ -283,7 +295,8 @@ object(self)
 	     *)
     )
 
-  method private shutdown_extra() =   (* for subclasses *)
+  method private shutdown_extra() = 
+    (* to be subclassed *)
     ()
 
   method log_subch subchannel level message =
