@@ -276,18 +276,36 @@ program Semaphore {
            initial value of 0, and 1 is returned.
 	*/
 
-	_int64 hyper protected_increment(longstring) = 2;
-	/* Same as increment, but if the container finishes (or even crashes),
-           the samaphore is decremented by the number pi-d, where pi is
-           the number of protected increments the container has requested,
-           and d the number of decrements the container has requested.
-	*/
-
-	_int64 hyper decrement(longstring) = 3;
+	_int64 hyper decrement(longstring, bool) = 3;
 	/* Decrements the semaphore by 1, and returns the new value.
 	   A semaphore value cannot become negative. If the value is already
-           0, the semaphore is not decremented. If the semaphore does not exist,
-           it is created with an initial value of 0, and 0 is returned
+           0, the semaphore is not decremented, but -1 is returned. 
+           If the semaphore does not exist,
+           it is created with an initial value of 0, and -1 is returned.
+
+	   If the bool arg is true, and the semaphore is already 0, it is
+	   first waited until it is incremented again.
+	*/
+
+	_int64 hyper get(longstring) = 4;
+	/* Returns the value of the semaphore. If the semaphore does not
+	   exist a value of 0 is returned instead.
+	*/
+
+	bool create(longstring, _int64 hyper, bool) = 5;
+	/* Create the semaphore if it does not exist. The second arg is the
+	   initial value. Returns whether the semaphore has been created
+	   (true), or the semaphore already existed (false).
+
+           The bool arg says whether the semaphore is protected.
+	   When the container finishes (or even crashes), the protected 
+	   semaphore is decremented by the number pi-d, where pi is
+           the number of increments the container has requested,
+           and d the number of decrements the container has requested.
+
+	   It is not possible to change the style of semaphores from 
+	   non-protected to protected or back after creation. 
+	   Implicitly created semaphores are always protected.
 	*/
 
     } = 1;

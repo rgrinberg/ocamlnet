@@ -16,6 +16,9 @@ open Netplex_types
     increment/decrement operations are realized by RPC's. It is good
     enough when these operations are only infrequently called, e.g. in
     the post-start and pre-finish processor callbacks.
+
+    This interface is designed so that a later re-implementation with
+    POSIX semaphores is relatively straight-forward.
   *)
 
 val plugin : plugin
@@ -30,25 +33,50 @@ val plugin : plugin
     {!Netplex_cenv.Not_in_container_thread} is raised. 
  *)
 
-val increment : ?protected:bool -> string -> int64
+val increment : string -> int64
   (** Increment the named semaphore by 1, and return the new value.
       If the semaphore does not exist yet, it is created with an initial
-      value of 0, which is then incremented. If [protected], the semaphore
-      is automatically decremented by some value when the container
-      calling this function terminates. This value is [pi - d] where
-      [pi] is the number of protected increments and [d] is the number
-      of (successful) decrements requested by the container.
+      value of 0, which is then incremented. 
 
       Semaphore names are global to the whole netplex system. By convention,
       these names are formed like ["service_name.local_name"], i.e. they
       are prefixed by the socket service to which they refer.
    *)
 
-val decrement : string -> int64
+val decrement : ?wait:bool -> string -> int64
   (** Decrement the named semaphore by 1, and return the new value.
       Semaphore values cannot become negative. If the value is already 0,
-      it is not decremented.
+      it is not decremented anymore if [wait = false]. However, (-1)
+      is then returned nevertheless.
+
+      If the value is already 0 and [wait=true], the operation waits until
+      the value exceeds 0, and when this happens, the semaphore is then
+      decremented again. If several waiters exist, only one waiter gets
+      the chance to decrement.
    *)
+
+val get : string -> int64
+  (** Get the value of the named semaphore. Useful e.g. for monitoring
+      the semaphore. If the semaphore does not exist, a value of 0 is
+      returned.
+   *)
+
+val create : ?protected:bool -> string -> int64 -> bool
+  (** Create the semaphore with this initial value. Returns [true] if the
+      creation is successful, and [false] if the semaphore already existed.
+
+      If [protected], the semaphore
+      is automatically decremented by some value when the container
+      calling this function terminates. This value is [pi - d] where
+      [pi] is the number of increments and [d] is the number
+      of (successful) decrements requested by the container.
+
+      A semaphore needs not to be explicitly created by calling [create].
+      It is automatically created at the first use time with a value of 0
+      and [protected=true].
+   *)
+
+
 
 (** Example (code fragment):
 
@@ -62,7 +90,7 @@ val decrement : string -> int64
     method post_start_hook container =
       let sem_name = container#socket_service#name ^ ".counter" in
       let n =
-        Netplex_semaphore.increment ~protected:true sem_name in
+        Netplex_semaphore.increment sem_name in
       if n=1 then
         prerr_endline "First container"
 
