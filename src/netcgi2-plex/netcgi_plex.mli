@@ -13,6 +13,9 @@ val factory :
       ?output_type:output_type ->
       ?arg_store:arg_store ->
       ?exn_handler:exn_handler ->
+      ?configure:(Netplex_types.config_file -> 
+                  Netplex_types.address ->
+		    Netplex_types.processor_hooks) ->
       (Netplex_types.container -> cgi -> unit) ->
         Netplex_types.processor_factory
   (** Reads a Netplex configuration section like
@@ -89,6 +92,10 @@ val factory :
     * @param arg_store Default: [`Automatic] for all arguments.
     * @param exn_handler See {!Netcgi.exn_handler}.  Default: delegate
     *      all exceptions to the default handler.
+    * @param configure Parameters are the netplex configuration file
+    *     and the address of the [processor] section. The configure
+    *     function can look for additional parameters. It returns
+    *     service hooks that are added to the resulting processor.
    *)
 
 

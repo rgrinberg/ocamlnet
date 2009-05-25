@@ -173,9 +173,10 @@ let ajp_processor ?(config = Netcgi.default_config)
 
 
 let multi_process ?config ?output_type ?arg_store ?exn_handler ?timeout
-                  ?mount ?(enable = [ `FCGI; `SCGI; `AJP ]) f =
+                  ?mount ?(enable = [ `FCGI; `SCGI; `AJP ]) 
+		  hooks f =
   ( object
-      inherit Netplex_kit.empty_processor_hooks()
+      inherit Netplex_kit.processor_base hooks
 
       method process ~when_done cont fd proto =
 	let real_processor =
@@ -209,6 +210,7 @@ let multi_process ?config ?output_type ?arg_store ?exn_handler ?timeout
 
 class factory ?config ?enable ?(name = "netcgi")
               ?output_type ?arg_store ?exn_handler
+	      ?configure
 	      f : Netplex_types.processor_factory =
 object
   method name = name
@@ -218,12 +220,19 @@ object
       with
 	| Not_found -> None in
 
+    let hooks =
+      match configure with
+	| Some c ->
+	    c cfg addr
+	| None ->
+	    new Netplex_kit.empty_processor_hooks() in
+
     (* TODO: parse mount_dir, mount_at *)
 
     multi_process
       ?config ?output_type ?arg_store ?exn_handler ?timeout:timeout_opt
       (* ?mount *) ?enable 
-      f
+      hooks f
     
 end
 
