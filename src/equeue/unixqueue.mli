@@ -448,3 +448,5 @@ val set_debug_mode : bool -> unit
    * is required to interpret debug protocols.
    *)
 
+val set_debug_target : Equeue.debug_target -> unit
+  (** More fine-grained debug control *)

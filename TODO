@@ -1,4 +1,23 @@
 ----------------------------------------------------------------------
+Performance improvements
+----------------------------------------------------------------------
+
+A list of possible improvements, once interfaces are stable again:
+
+- Provide epoll/kqueue-based event_system
+
+- Implement Netplex_semaphore with POSIX semaphores for systems
+  supporting them
+
+- Implement Netplex_sharedvar with Netshm shared memory for systems
+  supporting that
+
+- Implement Netsys_posix.spawn with posix_spawn for systems 
+  supporting that
+
+
+
+----------------------------------------------------------------------
 Things to do + roadmap
 ----------------------------------------------------------------------
 
@@ -13,19 +32,12 @@ TESTS:
 
 
 Overall:
-	- Concept for signals
-	  Sched: after 2.2.0 is out
-
 	- Pluggable name service (for hosts, at least)
 	  Sched: 2.3
 
 Feature request:
 	- netclient: Support for CONNECT
 	  Sched: 2.3
-
-	- Nethttp.Header.get_set_cookie
-	  Sched: after 2.2.0 is out
-	   (see get-set-cookie.ml)	   
 
 Equeue:
 	- Fix command engines as commented in the code.
@@ -40,25 +52,12 @@ Equeue:
 	- ...
 
 Netplex:
-	- Make the container easily accessible: Netplex_container.get_current.
-	  Implementation is actually in Netplex_mp and Netplex_mt.
-
 	- Move accepted() from Control to System? Implement totally different
 	  mechanisms?
-
-	- Enhanced logging. Also allow non-error channels.
-	  Sched: 2.3
-
-	- 2-phase shutdown
-	  ("announce" callback)
-	  Sched: after 2.2.0 is out	
 
 	- Netplex_main.startup: Option [ctrl_initializer : controller -> unit]
 	  to allow initialization of the controller right after it has been
           created, and before services are added.
-
-	- Bug: Netplex_controller's alive_check isn't stopped when the
- 	  controller is shut down
 
 	- Bug: daemonization doesn't wait until the inner process is
 	  initialized (enough)
@@ -94,10 +93,6 @@ Bugs Tidalwave:
 	  Sched: 2.3
 
 Http_client.pipeline:
-
-	- CHECK: Assert_failure Http_client line 1870
-	  A possible cause has been fixed. Check whether this holds.
-	
 	- aggressive caching does not work properly. Sometimes descriptors
 	  are closed in the wrong moment.
 	  Sched: 2.3
@@ -105,7 +100,3 @@ Http_client.pipeline:
 Shell_uq:
 	- Double close von stderr-Descriptor falls in when_done eine
           exception geworfen wird
-
-Later:
-	- Use poll() instead of select() to overcome fdset limitations
-	  Sched: 2.3

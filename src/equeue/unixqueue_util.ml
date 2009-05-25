@@ -7,6 +7,24 @@
 open Printf
 
 
+let debug_mode = ref `None;;
+
+let debug_print s =
+  if Equeue.test_debug_target !debug_mode then
+    prerr_endline("Unixqueue debug msg: " ^ Lazy.force s)
+;;
+
+
+let set_debug_target t = 
+  debug_mode := t;
+  Equeue.set_debug_target t
+
+
+let set_debug_mode b =
+  set_debug_target (if b then `Any else `None)
+;;
+
+
 (* [group] and [wait_id] are now objects. The structural equality
  * ( = ) compares object IDs if applied to objects, so that this
  * is exactly what we need. It is no longer necessary to manage
@@ -17,11 +35,14 @@ open Printf
  *)
 
 class group_object =
-object
+object(self)
   val mutable terminating = false
       (* Whether the group is terminating *)
   method is_terminating = terminating
-  method terminate() = terminating <- true
+  method terminate() = 
+    debug_print (lazy (sprintf "group_terminate <group %d>" (Oo.id self)));
+    (* eprintf "group_terminate <group %d>\n%!" (Oo.id self); *)
+    terminating <- true
 end
 
 type group = group_object
@@ -137,20 +158,6 @@ let string_of_event ev =
       "Signal"
   | Extra x ->
       sprintf "Extra(%s)" (Netexn.to_string x)
-;;
-
-
-let debug_mode = ref false;;
-
-let debug_print s =
-  if !debug_mode then
-    prerr_endline("Unixqueue debug msg: " ^ Lazy.force s)
-;;
-
-
-let set_debug_mode b =
-  debug_mode := b;
-  Equeue.set_debug_mode b
 ;;
 
 let () =

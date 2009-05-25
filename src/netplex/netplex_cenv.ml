@@ -74,17 +74,38 @@ let log level msg =
 let logf level fmt =
   Printf.ksprintf (log level) fmt
 
-type timer = < f : timer -> bool; tmo : float > ;;
+type timer = < f : timer -> bool; tmo : float; cont : container > ;;
 
 let timer_table = Hashtbl.create 50
 let timer_mutex = ( !Netsys_oothr.provider ) # create_mutex()
 
 
+let cancel_timer_int do_clear tobj =
+  let cont = self_cont() in
+  let esys = cont#event_system in
+  timer_mutex # lock();
+  let g_opt =
+    try Some(Hashtbl.find timer_table tobj) with Not_found -> None in
+  Hashtbl.remove timer_table tobj;
+  timer_mutex # unlock();
+  if do_clear then
+    match g_opt with
+      | None -> ()
+      | Some g -> 
+	  Unixqueue.clear esys g
+
+
+let cancel_timer = cancel_timer_int true
+
 let rec restart_timer tobj g =
   let cont = self_cont() in
   let esys = cont#event_system in
+  timer_mutex # lock();
+  Hashtbl.add timer_table tobj g;
+  timer_mutex # unlock();
   Unixqueue.once esys g tobj#tmo 
     (fun () ->
+       cancel_timer_int false tobj;
        (* We let exceptions fall through to Netplex_container.run *)
        let flag = tobj#f tobj in
        if flag then restart_timer tobj g
@@ -99,28 +120,12 @@ let create_timer f tmo =
     ( object
 	method f = f
 	method tmo = tmo
+	method cont = cont
       end
     ) in
-  timer_mutex # lock();
-  Hashtbl.add timer_table tobj g;
-  timer_mutex # unlock();
   restart_timer tobj g;
   tobj
   
-
-let cancel_timer tobj =
-  let cont = self_cont() in
-  let esys = cont#event_system in
-  timer_mutex # lock();
-  let g_opt =
-    try Some(Hashtbl.find timer_table tobj) with Not_found -> None in
-  Hashtbl.remove timer_table tobj;
-  timer_mutex # unlock();
-  match g_opt with
-    | None -> ()
-    | Some g -> 
-	Unixqueue.clear esys g
-
 
 let cancel_all_timers() =
   let cont = self_cont() in
@@ -128,7 +133,8 @@ let cancel_all_timers() =
   timer_mutex # lock();
   Hashtbl.iter
     (fun tobj g ->
-       Unixqueue.clear esys g
+       if tobj # cont = cont then
+	 Unixqueue.clear esys g
     )
     timer_table;
   Hashtbl.clear timer_table;
@@ -166,3 +172,31 @@ let system_shutdown() =
 let system_restart() =
   admin_call Netplex_ctrl_clnt.Admin.V2.restart_all
 
+let run_in_controller_context ctrl f =
+  let cont = self_cont() in
+  if cont#ptype <> `Multi_threading then
+    failwith "Netplex_cenv.run_in_controller_context: only possible for multi-threaded environments";
+  let mutex = !Netsys_oothr.provider # create_mutex() in
+  let cond = !Netsys_oothr.provider # create_condition() in
+  let esys = ctrl # event_system in
+  let g = Unixqueue.new_group esys in
+  let r = ref (fun () -> assert false) in
+  Unixqueue.once esys g 0.0
+    (fun () ->
+       ( try
+	   f();
+	   mutex # lock();
+	   r := (fun () -> ());
+	   mutex # unlock();
+	 with
+	   | e -> 
+	       mutex # lock();
+	       r := (fun () -> raise e);
+	       mutex # unlock();
+       );
+       cond # signal()
+    );
+  mutex # lock();
+  cond # wait mutex;
+  mutex # unlock();
+  !r()

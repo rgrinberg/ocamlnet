@@ -103,6 +103,15 @@ let escape_lock mutex f =
   r
  
 
+(* A little encapsulation so we can easily identify handlers by Oo.id *)
+class ohandler (h:handler) = 
+object
+  method run esys eq ev =
+    h esys eq ev
+end
+
+
+
 class pollset_event_system (pset : Netsys_pollset.pollset) =
   let mtp = !Netsys_oothr.provider in
 object(self)
@@ -124,7 +133,7 @@ object(self)
   val mutable aborting = false
   val mutable close_tab = (Hashtbl.create 10 : (Unix.file_descr, (group * (Unix.file_descr -> unit))) Hashtbl.t)
   val mutable abort_tab = ([] : (group * (group -> exn -> unit)) list)
-  val mutable handlers = (Hashtbl.create 10 : (group, handler list) Hashtbl.t)
+  val mutable handlers = (Hashtbl.create 10 : (group, ohandler list) Hashtbl.t)
   val mutable handled_groups = 0
             (* the number of keys in [handlers] *)
 
@@ -179,9 +188,9 @@ object(self)
              still running).
 	   *)
 	  pset # cancel_wait false;
+	  waiting <- true;
 	  mutex # unlock();
 	  locked := false;
-	  waiting <- true;
 	  (pset # wait delta, false)
 	)
       with
@@ -487,7 +496,7 @@ object(self)
 
 
   method debug_log ?label msg =
-    if !debug_mode then
+    if Equeue.test_debug_target !debug_mode then
       prerr_endline("Unixqueue debug log: " ^
                     ( match label with
                           Some l -> l
@@ -496,7 +505,7 @@ object(self)
 
   method exn_log ?(suppressed = false) ?(to_string = Netexn.to_string)
                  ?label e =
-    if !debug_mode then
+    if Equeue.test_debug_target !debug_mode then
       let msg =
         if suppressed then
           "Suppressed exn " ^ to_string e
@@ -557,31 +566,46 @@ object(self)
      *)
 
     let terminate_handler_wl g h =
-      debug_print (lazy (sprintf "uq_handler <terminating handler group %d>"
-                           (Oo.id g)));
+      debug_print 
+	(lazy 
+	   (sprintf "uq_handler <terminating handler group %d, handler %d>"
+              (Oo.id g) (Oo.id h)));
       let hlist =
         try Hashtbl.find handlers g with Not_found -> [] in
       let hlist' =
-        List.filter (fun h' -> h' != h) hlist in
+        List.filter (fun h' -> h' <> h) hlist in
       if hlist' = [] then (
         Hashtbl.remove handlers g;
         handled_groups <- handled_groups - 1;
-        if handled_groups = 0 then
+        if handled_groups = 0 then (
+	  debug_print (lazy "uq_handler <self-terminating>");
           raise Equeue.Terminate  (* delete uq_handler from esys *)
+	)
       ) else (
         Hashtbl.replace handlers g hlist'
       )
     in
 
-    let rec forward_event_to g (hlist : handler list) =
+    let rec forward_event_to g (hlist : ohandler list) =
       (* The caller does not have the lock when this fn is called! *)
       match hlist with
           [] ->
+	    debug_print (lazy "uq_handler <empty list>");
             raise Equeue.Reject
         | h :: hlist' ->
             ( try
                 (* Note: ues _must not_ be locked now *)
-                h (self :> event_system) esys ev
+		debug_print
+		  (lazy 
+		     (sprintf 
+			"uq_handler <invoke handler group %d, handler %d>"
+			(Oo.id g) (Oo.id h)));
+                h#run (self :> event_system) esys ev;
+		debug_print
+		  (lazy 
+		     (sprintf 
+			"uq_handler <invoke_success handler group %d, handler %d>"
+			(Oo.id g) (Oo.id h)));
               with
                   Equeue.Reject ->
                     forward_event_to g hlist'
@@ -597,6 +621,9 @@ object(self)
 
     let forward_event g =
       (* The caller does not have the lock when this fn is called! *)
+      debug_print
+	(lazy
+	   (sprintf "uq_handler <forward_event group %d>" (Oo.id g)));
       let hlist =
         while_locked mutex
 	  (fun () -> 
@@ -626,16 +653,26 @@ object(self)
           Exit_loop -> ()
     in
 
+    debug_print
+      (lazy
+	 (sprintf "uq_handler <event %s>"
+	    (string_of_event ev)));
+
     match ev with
       | Extra (Term g) ->
           (* Terminate all handlers of group g *)
 	  while_locked mutex
 	    (fun () ->
                if Hashtbl.mem handlers g then (
+		 debug_print 
+		   (lazy
+		      (sprintf "uq_handler <terminating group %d>" (Oo.id g)));
 		 Hashtbl.remove handlers g;
 		 handled_groups <- handled_groups - 1;
-		 if handled_groups = 0 then
+		 if handled_groups = 0 then (
+		   debug_print (lazy "uq_handler <self-terminating>");
 		   raise Equeue.Terminate  (* delete uq_handler from esys *)
+		 )
                )
                else raise Equeue.Reject (* strange, should not happen *)
 	    )
@@ -669,18 +706,22 @@ object(self)
   method add_handler g h =
     while_locked mutex
       (fun () ->
-	 debug_print (lazy (sprintf "add_handler <group %d>" (Oo.id g)));
+	 let oh = new ohandler h in
+	 debug_print 
+	   (lazy
+	      (sprintf
+		 "add_handler <group %d, handler %d>" (Oo.id g) (Oo.id oh)));
 	 
 	 if g # is_terminating then
 	   invalid_arg "Unixqueue.add_handler: the group is terminated";
 	 
 	 ( try
              let old_handlers = Hashtbl.find handlers g in
-             Hashtbl.replace handlers g (h :: old_handlers)
+             Hashtbl.replace handlers g (oh :: old_handlers)
 	   with
              | Not_found ->
 		 (* The group g is new *)
-		 Hashtbl.add handlers g [h];
+		 Hashtbl.add handlers g [oh];
 		 handled_groups <- handled_groups + 1;
 		 if handled_groups = 1 then
 		   self#equeue_add_handler ()
@@ -808,17 +849,33 @@ object(self)
     let called_back = ref false in
 
     let handler ues ev e =
-      if !called_back then
+      if !called_back then (
+	debug_print 
+	  (lazy
+	     (sprintf
+		"once handler <unexpected terminate group %d>" (Oo.id g)));
         raise Equeue.Terminate
+      )
       else
-        if e = Timeout(g,op) then begin
+	let e_ref = Timeout(g,op) in
+        if e = e_ref then begin
+	  debug_print 
+	    (lazy
+	       (sprintf
+		  "once handler <regular timeout group %d>" (Oo.id g)));
           self#remove_resource g op;  (* delete the resource *)
           called_back := true;
           f();                        (* invoke f (callback) *)
           raise Equeue.Terminate      (* delete the handler *)
         end
-        else
+        else (
+	  debug_print 
+	    (lazy
+	       (sprintf
+		  "once handler <rejected timeout group %d, got %s but expected %s >"
+		  (Oo.id g) (string_of_event e) (string_of_event e_ref)));
           raise Equeue.Reject
+	)
     in
 
     if duration >= 0.0 then begin

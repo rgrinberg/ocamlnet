@@ -50,3 +50,24 @@ class virtual processor_base :  processor_hooks -> v_processor
     *    end
     * ]}
    *)
+
+val add_helper_service : controller -> string -> processor_hooks -> unit
+  (** [add_helper_service ctrl name hooks]: Adds a helper service [name] to
+      the controller
+      [ctrl]. The helper service does not have any externally
+      accessible socket, but starts a single regular container that looks
+      like any other container. Whatever needs to be initialized must be
+      done in the [pre_start_hook] or the [post_start_hook].
+
+      This function must be called in controller context, for example
+      in the [late_initializer] of {!Netplex_main.startup}, but it can
+      also be started later.
+
+      For an example, look at [examples/netplex/helper_container.ml] in
+      the distributed source tarball.
+
+      For multi-threaded programs, {!Netplex_cenv.run_in_controller_context}
+      is the required companion function to start helper threads at any
+      time. Multi-processing programs do not have such an easy way to 
+      add helpers. They should it at program startup time.
+   *)

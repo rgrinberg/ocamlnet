@@ -5,6 +5,14 @@ open Netsys_pollset
 
 let oothr = !Netsys_oothr.provider
 
+let while_locked mutex f =
+  mutex # lock();
+  let r = 
+    try f ()
+    with e -> mutex # unlock(); raise e in
+  mutex # unlock();
+  r
+
 let pipe_limit = 4
   (* We keep up to [pipe_limit] pairs of pipes for interrupting [poll].
      If more than this number of pairs become unused, they are closed.
@@ -26,9 +34,9 @@ let reset_locked() =
 
 
 let reset() =
-  pipes_m # lock();
-  reset_locked();
-  pipes_m # unlock()
+  while_locked 
+    pipes_m
+    reset_locked
 
 
 let() =
@@ -41,35 +49,39 @@ let() =
 
 
 let get_pipe_pair() =
-  pipes_m # lock();
-  let pid = Unix.getpid() in
-  if !pipe_pid <> None && !pipe_pid <> Some pid then (
-    reset_locked();
-  );
-  pipe_pid := Some pid;
-  let pp =
-    match !pipes with
-      | [] ->
-	  let (p1,p2) = Unix.pipe() in
-	  Unix.set_close_on_exec p1;
-	  Unix.set_close_on_exec p2;
-	  (p1,p2)
-      | (p1,p2) :: r ->
-	  pipes := r;
-	  (p1,p2) in
-  pipes_m # unlock();
-  pp
+  while_locked
+    pipes_m
+    (fun () ->
+       let pid = Unix.getpid() in
+       if !pipe_pid <> None && !pipe_pid <> Some pid then (
+	 reset_locked();
+       );
+       pipe_pid := Some pid;
+       let pp =
+	 match !pipes with
+	   | [] ->
+	       let (p1,p2) = Unix.pipe() in
+	       Unix.set_close_on_exec p1;
+	       Unix.set_close_on_exec p2;
+	       (p1,p2)
+	   | (p1,p2) :: r ->
+	       pipes := r;
+	       (p1,p2) in
+       pp
+    )
 
 
 let return_pipe_pair ((p1,p2) as pp) =
-  pipes_m # lock();
-  if List.length !pipes >= pipe_limit then (
-    Unix.close p1;
-    Unix.close p2
-  )
-  else
-    pipes := pp :: !pipes;
-  pipes_m # unlock()
+  while_locked 
+    pipes_m
+    (fun () ->
+       if List.length !pipes >= pipe_limit then (
+	 Unix.close p1;
+	 Unix.close p2
+       )
+       else
+	 pipes := pp :: !pipes
+    )
 
 
 let rounded_pa_size l =
@@ -124,18 +136,22 @@ object(self)
     )
     else (
       let (p_rd, p_wr) = get_pipe_pair() in
+      let have_intr_lock = ref false in
       let r =
 	try
 	  let no_wait = (
 	    intr_m # lock();
+	    have_intr_lock := true;
 	    if cancel_flag then (
 	      intr_fd <- None;
+	      have_intr_lock := false;
 	      intr_m # unlock();
 	      true
 	    )
 	    else (
 	      intr_flag <- false;
 	      intr_fd <- Some p_wr;
+	      have_intr_lock := false;
 	      intr_m # unlock();
 	      false
 	    )
@@ -145,16 +161,19 @@ object(self)
 	  else (
 	    let r = self # wait_1 tmo (Some p_rd) in
 	    intr_m # lock();
+	    have_intr_lock := true;
 	    if intr_flag then (
 	      try let _ = Netsys.restart(Unix.read p_rd s1 0) 1 in ()
 	      with _ -> assert false
 	    );
 	    intr_fd <- None;
+	    have_intr_lock := false;
 	    intr_m # unlock();
 	    r
 	  )
 	with
 	  | err ->
+	      if !have_intr_lock then intr_m # unlock();
 	      return_pipe_pair (p_rd, p_wr);
 	      raise err in
       return_pipe_pair (p_rd, p_wr);
@@ -216,20 +235,19 @@ object(self)
 
 
   method cancel_wait b =
-    intr_m # lock();
-    cancel_flag <- b;
-    if b && not intr_flag then (
-      match intr_fd with
-	| None -> ()
-	| Some fd ->
-	    let _n = 
-	      try Netsys.restart(Unix.single_write fd s1 0) 1
-	      with _ -> assert false
-	    in
-	    intr_flag <- true
-    );
-    intr_m # unlock()
-
-    
-
+    while_locked
+      intr_m
+      (fun () ->
+	 cancel_flag <- b;
+	 if b && not intr_flag then (
+	   match intr_fd with
+	     | None -> ()
+	     | Some fd ->
+		 let _n = 
+		   try Netsys.restart(Unix.single_write fd s1 0) 1
+		   with _ -> assert false
+		 in
+		 intr_flag <- true
+	 )
+      )
 end

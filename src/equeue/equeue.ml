@@ -21,6 +21,7 @@ type 'a t =
 and 'a hdl = 'a t -> 'a -> unit           (* The type of handlers *)
 ;;
 
+type debug_target = [ `Any | `Process of int | `Thread of int | `None ]
 
 exception Reject;;          (* Event handler rejects an event *)
 exception Terminate;;       (* Event handler removes itself from the list *)
@@ -40,23 +41,36 @@ let create ?(string_of_event = fun _ -> "<abstr>") source =
 ;;
 
 
-let debug_mode = ref false;;
+let debug_mode = ref `None;;
+
+
+let test_debug_target t =
+  match t with
+    | `Any -> true
+    | `Process pid -> Unix.getpid() = pid
+    | `Thread id -> 
+	!Netsys_oothr.provider # self # id = id
+    | `None -> false
 
 let debug_print s =
-  if !debug_mode then
+  if test_debug_target !debug_mode then
     prerr_endline("Equeue debug msg: " ^ Lazy.force s)
 ;;
 
 
 let set_debug_mode b =
-  debug_mode := b
+  debug_mode := (if b then `Any else `None)
+;;
+
+
+let set_debug_target t =
+  debug_mode := t
 ;;
 
 
 let add_handler esys h =
   debug_print (lazy "add_handler");
-  Queue.push (ref (Some h)) esys.new_handlers;
-  esys.live_handlers <- esys.live_handlers + 1
+  Queue.push (ref (Some h)) esys.new_handlers
 ;;
 
 
@@ -97,6 +111,7 @@ let run esys =
       debug_print debug_msg;
 
       if 2 * esys.live_handlers < Queue.length esys.handlers then (
+	debug_print (lazy "run <garbage collecting handlers>");
 	let handlers' = Queue.create() in
 	Queue.iter
 	  (fun h ->
@@ -109,7 +124,13 @@ let run esys =
 	esys.handlers <- handlers';
 	esys.live_handlers <- Queue.length handlers'
       );
-      Queue.transfer esys.new_handlers esys.handlers;
+      let l_new_handlers = Queue.length esys.new_handlers in
+      if l_new_handlers > 0 then (
+	Queue.transfer esys.new_handlers esys.handlers;
+	esys.live_handlers <- esys.live_handlers + l_new_handlers;
+	debug_print (lazy (sprintf "run <considering %d new handlers>" 
+			     l_new_handlers))
+      );
      
       let e = Queue.take esys.queue in
       let accept = ref false in
@@ -136,7 +157,8 @@ let run esys =
 			   | Terminate ->
 			       accept := true;
 			       h := None;
-			       esys.live_handlers <- esys.live_handlers - 1
+			       esys.live_handlers <- esys.live_handlers - 1;
+			       debug_print (lazy (sprintf "run <got Terminate #handlers=%d>" esys.live_handlers));
 		       )
 		     )
 	    )

@@ -124,5 +124,17 @@ val run : 'a t -> unit
 val is_running : 'a t -> bool
   (** Returns whether the event loop is active *)
 
+type debug_target = [ `Any | `Process of int | `Thread of int | `None ]
+
 val set_debug_mode : bool -> unit
-  (** Enables or disables debug mode. Output goes to stderr. *)
+  (** Enables or disables debug mode. Output goes to stderr. 
+      Identical to set_debug_target (if flag then `Any else `None)
+   *)
+
+val set_debug_target : debug_target -> unit
+  (** Enables debug mode for this target *)
+
+(**/**)
+
+val test_debug_target : debug_target -> bool
+  (* internal: returns whether Equeue would output a message *)

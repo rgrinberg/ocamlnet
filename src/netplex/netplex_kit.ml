@@ -61,3 +61,26 @@ object(self)
   method virtual supported_ptypes : parallelization_type list
 end
 
+
+let add_helper_service ctrl name hooks =
+  let helper_sockserv_cfg =
+    ( object
+	method name = name
+	method protocols = []
+	method change_user_to = None
+      end
+    ) in
+  let helper_processor =
+    ( object
+	inherit processor_base hooks
+	method process ~when_done _ _ _ = assert false  (* never called *)
+	method supported_ptypes = [ `Multi_processing; `Multi_threading ]
+      end
+    ) in
+  let helper_service = 
+    Netplex_sockserv.create_socket_service 
+      helper_processor helper_sockserv_cfg in
+  let helper_wload_mng =
+    Netplex_workload.create_constant_workload_manager 1 in
+  ctrl # add_service helper_service helper_wload_mng
+

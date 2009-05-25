@@ -74,6 +74,15 @@ val system_restart : unit -> unit
       controller)
      *)
 
+val run_in_controller_context : controller -> (unit -> unit) -> unit
+  (** [run_in_controller_context ctrl f]: Arranges that [f()] is executed
+      in the context of the controller. {b This is only possible for
+      multi-threading but not for multi-processing style!}
+
+      For example, this allows it to start helper threads via
+      {!Netplex_kit.add_helper_service} at any time.
+   *)
+
 
 (**/**)
 

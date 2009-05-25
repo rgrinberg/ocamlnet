@@ -452,7 +452,7 @@ object(self)
   (**********************************************************************)
 
   method debug_log ?label msg =
-    if !debug_mode then
+    if Equeue.test_debug_target !debug_mode then
       prerr_endline("Unixqueue debug log: " ^
 		    ( match label with
 			  Some l -> l
@@ -461,7 +461,7 @@ object(self)
 
   method exn_log ?(suppressed = false) ?(to_string = Netexn.to_string)
                  ?label e =
-    if !debug_mode then
+    if Equeue.test_debug_target !debug_mode then
       let msg = 
 	if suppressed then
 	  "Suppressed exn " ^ to_string e

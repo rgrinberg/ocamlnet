@@ -122,3 +122,5 @@ let debug_log ues =
   ues # debug_log
 
 let set_debug_mode = Unixqueue_util.set_debug_mode
+
+let set_debug_target = Unixqueue_util.set_debug_target
