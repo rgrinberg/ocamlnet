@@ -2,6 +2,14 @@
 Plan for Ocamlnet 3
 ----------------------------------------------------------------------
 
+- Focus RPC:
+  * Rpc_proxy: layer on top of Rpc_client w/ automatic connection handling
+  * Generate proxies
+  * Rpc_server: Allow to set timeout for the server response itself
+    (self-watching)
+
+- Netlog/Nettrace
+
 - Focus Win32:
 
   * Redesign named pipe support. Interface resembles socket API.
@@ -22,11 +30,71 @@ Plan for Ocamlnet 3
   }
 
 - Focus Netplex:
+  * Nethttpd_plex.nethttpd_factory:
+    new opt arg
+    ?ext_handlers:
+       (string * 
+          (config_file -> addr -> 'a Nethttpd_services.dynamic_service) list)
+    so that dynamic services can access the config file
+
+    also
+
+    ?services:
+       (string *
+          (config_file -> addr -> nethttpd_service)) list
+
+    val file_service_config : config_file -> addr -> nethttpd_service
+    val dynamic_service_config : config_file -> addr -> nethttpd_service
+
+  * Netplex_control_routine:
+    Use plugin mechanism to run ad-hoc defined routines in controller
+    context.
+
+    define_control_routines
+      ["foo", (foo : string array -> string array); ... ]
+
+    let [| ... |] = call_control_routine "foo" [| ... |]
+
+  * Netcgi_plex: more configurable factory
+ 
+  * Netplex_kit: 
+      - delegate processor/factory
+      - merge processors/factories
+
+  * netplex_main:
+      - set logger earlier (if external logger is used)
+      - chdir for daemonize
+
+  * Rpc_netplex: config var for Rpc_server.set_timeout
+
+  * RPc_netplex:
+      - Debug log: RPC trace
+      - "netplex.activations": Print all activations at a certain time
+        (also for nethttpd?)
 
 
-- Focus RPC:
-  * Rpc_proxy: layer on top of Rpc_client w/ automatic connection handling
-  * Generate proxies
+- NetCGI cleanup
+  * remove netcgi1
+  * cgi = alias for netcgi2
+  * remove nethttpd-for-netcgi1, and fix types in nethttpd_for_netcgi2
+
+- Bug fixes:
+  * netcgi2, url: better magic to enfore '/' between script name and path info
+  * nethtml: <body> should have ANY as sub elements
+  * netclient: parsing fails of URL
+    http://host?param
+  * netplex: socket directory is ignored for Unix domain sockets.
+    relative UD sockets should be taken relative to socket dir
+  * RPC: prevent that xid's can be reused
+  * nethttpd+netcgi2: GET /file//path?p=1
+    parameters like p are not recognized when there is "//" in path
+  * netclient: Set "Host" header also for proxy requests
+
+- Other
+  * Nethttpd: configurable error response
+  * Nethttpd: suppress "broken pipe"
+  * Check $Id$
+  * Go through examples. Fix programming style
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0
@@ -45,38 +113,31 @@ A list of possible improvements, once interfaces are stable again:
 - Implement Netsys_posix.spawn with posix_spawn for systems 
   supporting that
 
+- Improve Rtypes performance
+
+- RPC: generate direct mapping
+
 ----------------------------------------------------------------------
 Implementation improvements after Ocamlnet 3.0
 ----------------------------------------------------------------------
 
-- Think about better support for container-local storage
+- Name_resulution_error
+- Configurable async name resolution
 
+- Message bus
+
+- Netdate: support for newer RFC date formats
+
+- Fix netplex + nethttpd + async API: netcgi cannot be used right now
+
+- Netclient: Support for CONNECT
 
 ----------------------------------------------------------------------
-Things to do + roadmap
+Old stuff, check first
 ----------------------------------------------------------------------
-
-Unix.select => poll:
-	- nethttpd_kernel: Still uses select
-	- netcgi1/jserv: Still uses select (just document, won't fix)
-
-TESTS:
-	- Netplex_cenv
-	- searcher
-	- examples
-
-
-Overall:
-	- Pluggable name service (for hosts, at least)
-	  Sched: 2.3
-
-Feature request:
-	- netclient: Support for CONNECT
-	  Sched: 2.3
 
 Equeue:
 	- Fix command engines as commented in the code.
-	  Sched: after 2.2.0 is out
 
 	- Uq_engines.connector: currently raises Not_found for a name
 	  resolution error. Do something better.
@@ -90,10 +151,6 @@ Netplex:
 	- Move accepted() from Control to System? Implement totally different
 	  mechanisms?
 
-	- Netplex_main.startup: Option [ctrl_initializer : controller -> unit]
-	  to allow initialization of the controller right after it has been
-          created, and before services are added.
-
 	- Bug: daemonization doesn't wait until the inner process is
 	  initialized (enough)
 
@@ -101,7 +158,6 @@ Integration of new netcgi2
 	- All the TODOs in Netcgi_common
 	  Sched: after 2.2.0 is out
 
-	- Test nethttpd when linked with netcgi2
 	- Move new cookie implementation to Nethttp, and make it a 
 	  class
 	  Sched: 2.3
