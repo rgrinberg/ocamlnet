@@ -145,6 +145,85 @@ let timer_id tobj =
   Oo.id tobj
 
 
+exception Container_variable_not_found of string
+exception Container_variable_type_mismatch of string
+
+let get_var name =
+  let cont = self_cont() in
+  try cont # var name 
+  with Not_found -> raise(Container_variable_not_found name)
+
+let int_var name =
+  match get_var name with
+    | `Int i -> i
+    | _ -> raise(Container_variable_type_mismatch name)
+
+let string_var name =
+  match get_var name with
+    | `String i -> i
+    | _ -> raise(Container_variable_type_mismatch name)
+
+let float_var name =
+  match get_var name with
+    | `Float i -> i
+    | _ -> raise(Container_variable_type_mismatch name)
+
+let bool_var name =
+  match get_var name with
+    | `Bool i -> i
+    | _ -> raise(Container_variable_type_mismatch name)
+
+let set_int_var name i =
+  let cont = self_cont() in
+  cont # set_var name (`Int i)
+
+let set_string_var name i =
+  let cont = self_cont() in
+  cont # set_var name (`String i)
+
+let set_float_var name i =
+  let cont = self_cont() in
+  cont # set_var name (`Float i)
+
+let set_bool_var name i =
+  let cont = self_cont() in
+  cont # set_var name (`Bool i)
+
+let make_var_type to_exn from_exn =
+  let get name =
+    match get_var name with
+      | `Any x ->
+	  ( try from_exn x
+	    with
+	      | Not_found
+	      | Match_failure(_,_,_) -> 
+		  raise(Container_variable_type_mismatch name)
+	  )
+      | _ ->
+	  raise(Container_variable_type_mismatch name) in
+  let set name x =
+    let cont = self_cont() in
+    cont # set_var name (`Any (to_exn x)) in
+  (get, set)
+
+module type TYPE = sig type t end
+
+module type VAR_TYPE = sig
+  type t 
+  val get : string -> t
+  val set : string -> t -> unit
+end
+
+module Make_var_type(T:TYPE) = struct
+  type t = T.t
+  exception X of t
+  let (get, set) =
+    make_var_type
+      (fun x -> X x)
+      (function (X x) -> x | _ -> raise Not_found)
+end
+
+
 let admin_connector() =
   let cont = self_cont() in
   match cont#lookup "netplex.controller" "admin" with
