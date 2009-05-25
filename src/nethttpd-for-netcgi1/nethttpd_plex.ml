@@ -13,6 +13,16 @@ type config_log_access =
     Nethttp.http_header -> int64 -> (string * string) list -> bool -> 
     int -> Nethttp.http_header -> int64 -> unit
 
+type ('a,'b) service_factory =
+    (string * 'a Nethttpd_services.dynamic_service) list ->
+    Netplex_types.config_file ->
+    Netplex_types.address -> 
+    string ->
+      'b Nethttpd_types.http_service
+    constraint 'b = [ `Dynamic_service of 'a Nethttpd_services.dynamic_service
+                    | `File_service of Nethttpd_services.file_service 
+		    ]
+
 
 let std_log_error container _ peeraddr_opt meth_opt _ msg =
   let s =
@@ -133,32 +143,138 @@ let split_name_port s =
     | None ->
 	failwith "Bad name:port specifier"
 
-let create_processor config_cgi handlers log_error log_access ctrl_cfg cfg addr =
 
-  let req_str_param addr name =
+let cfg_req_str_param cfg addr name =
+  try
+    cfg#string_param (cfg # resolve_parameter addr name)
+  with
+    | Not_found ->
+	failwith ("Missing parameter: " ^ cfg#print addr ^ "." ^ name)
+
+let cfg_opt_str_param cfg addr name =
+  try
+    Some(cfg#string_param (cfg # resolve_parameter addr name))
+  with
+    | Not_found -> None
+
+let cfg_float_param cfg default addr name =
+  try
+    cfg#float_param (cfg # resolve_parameter addr name)
+  with
+    | Not_found -> default
+
+let cfg_bool_param cfg addr name =
+  try
+    cfg#bool_param (cfg # resolve_parameter addr name)
+  with
+    | Not_found -> false
+
+let restrict_file_service_config cfg addr =
+  cfg # restrict_subsections addr [ "media_type" ];
+  cfg # restrict_parameters addr [ "type"; "media_types_file";
+				   "docroot"; "default_media_type";
+				   "enable_gzip"; "index_files";
+				   "enable_listings";
+				   "hide_from_listings" ]
+
+let read_file_service_config cfg addr uri_path =
+  let req_str_param = cfg_req_str_param cfg in
+  let opt_str_param = cfg_opt_str_param cfg in
+  let bool_param = cfg_bool_param cfg in
+  let suffix_types =
+    ( List.map
+	(fun addr ->
+	   cfg # restrict_subsections addr [];
+	   cfg # restrict_parameters addr [ "suffix"; "type" ];
+	   (req_str_param addr "suffix", req_str_param addr "type")
+	)
+	(cfg # resolve_section addr "media_type")
+    ) @
+      ( match opt_str_param addr "media_types_file" with
+	  | None -> []
+	  | Some f ->
+	      read_media_types_file f
+      ) in
+  let spec =
+    { file_docroot = req_str_param addr "docroot";
+      file_uri = ( match opt_str_param addr "uri" with
+		     | None -> uri_path
+		     | Some uri -> uri );
+      file_suffix_types = suffix_types;
+      file_default_type = 
+	( match opt_str_param addr "default_media_type" with
+	    | None -> "text/plain"
+	    | Some t -> t);
+      file_options = 
+	( if bool_param addr "enable_gzip" then
+	    [ `Enable_gzip ] 
+	  else 
+	    []
+	) @
+	  ( match opt_str_param addr "index_files" with
+	      | None -> []
+	      | Some s -> [ `Enable_index_file (split_ws s) ]
+	  ) @
+	  ( if bool_param addr "enable_listings" then
+	      let hide = 
+		match opt_str_param addr "hide_from_listings" with
+		  | None -> []
+		  | Some s -> split_ws s in
+	      let l = simple_listing ~hide in
+	      [ `Enable_listings l ]
+	    else
+	      []
+	  )
+    } in
+  spec
+
+
+let (default_file_service : ('a,'b) service_factory) handlers cfg addr uri_path =
+  restrict_file_service_config cfg addr;
+  let spec = read_file_service_config cfg addr uri_path in
+  Nethttpd_services.file_service spec
+
+
+let restrict_dynamic_service_config cfg addr =
+  cfg # restrict_subsections addr [];
+  cfg # restrict_parameters addr [ "type"; "handler" ]
+
+
+let read_dynamic_service_config xhandlers cfg addr uri_path =
+  let handler_name = cfg_req_str_param cfg addr "handler" in
+  let xhandler =
     try
-      cfg#string_param (cfg # resolve_parameter addr name)
+      List.assoc handler_name xhandlers
     with
       | Not_found ->
-	  failwith ("Missing parameter: " ^ cfg#print addr ^ "." ^ name) in
+	  failwith ("Unknown handler `" ^ handler_name ^ "' in param " ^ 
+		      cfg#print addr ^ ".handler") in
+  let srv = xhandler cfg addr uri_path in
+  srv
 
-  let opt_str_param addr name =
-    try
-      Some(cfg#string_param (cfg # resolve_parameter addr name))
-    with
-      | Not_found -> None in
+let default_dynamic_service handlers cfg addr uri_path =
+  restrict_dynamic_service_config cfg addr;
+  let xhandlers =
+    List.map
+      (fun (name,h) ->
+	 (name, (fun _ _ _ -> h))
+      )
+      handlers in
+  let spec = read_dynamic_service_config xhandlers cfg addr uri_path in
+  Nethttpd_services.dynamic_service spec
 
-  let float_param default addr name =
-    try
-      cfg#float_param (cfg # resolve_parameter addr name)
-    with
-      | Not_found -> default in
 
-  let bool_param addr name =
-    try
-      cfg#bool_param (cfg # resolve_parameter addr name)
-    with
-      | Not_found -> false in
+let default_services =
+  [ "file", default_file_service;
+    "dynamic", default_dynamic_service
+  ]
+
+let create_processor config_cgi handlers services log_error log_access 
+                     ctrl_cfg cfg addr =
+
+  let req_str_param = cfg_req_str_param cfg in
+  let opt_str_param = cfg_opt_str_param cfg in
+  let float_param = cfg_float_param cfg in
 
   let rec sub_service outermost_flag uri_path addr =
     let host_sects = cfg # resolve_section addr "host" in
@@ -297,78 +413,20 @@ let create_processor config_cgi handlers log_error log_access ctrl_cfg cfg addr 
 
   and service uri_path addr =
     let typ = req_str_param addr "type" in
-    match typ with
-      | "file"    -> file_service uri_path addr
-      | "dynamic" -> dynamic_service addr
-      | _ ->
-	  failwith ("Unknown service type: " ^ cfg#print addr ^ ".type")
-
-  and file_service uri_path addr =
-    cfg # restrict_subsections addr [ "media_type" ];
-    cfg # restrict_parameters addr [ "type"; "media_types_file";
-				     "docroot"; "default_media_type";
-				     "enable_gzip"; "index_files";
-				     "enable_listings";
-				     "hide_from_listings" ];
-    let suffix_types =
-      ( List.map
-	  (fun addr ->
-	     cfg # restrict_subsections addr [];
-	     cfg # restrict_parameters addr [ "suffix"; "type" ];
-	     (req_str_param addr "suffix", req_str_param addr "type")
-	  )
-	  (cfg # resolve_section addr "media_type")
-      ) @
-	( match opt_str_param addr "media_types_file" with
-	    | None -> []
-	    | Some f ->
-		read_media_types_file f
-	) in
-    let spec =
-      { file_docroot = req_str_param addr "docroot";
-	file_uri = ( match opt_str_param addr "uri" with
-		       | None -> uri_path
-		       | Some uri -> uri );
-	file_suffix_types = suffix_types;
-	file_default_type = 
-	  ( match opt_str_param addr "default_media_type" with
-	      | None -> "text/plain"
-	      | Some t -> t);
-	file_options = 
-	  ( if bool_param addr "enable_gzip" then
-	      [ `Enable_gzip ] 
-	    else 
-	      []
-	  ) @
-	  ( match opt_str_param addr "index_files" with
-	      | None -> []
-	      | Some s -> [ `Enable_index_file (split_ws s) ]
-	  ) @
-	  ( if bool_param addr "enable_listings" then
-	      let hide = 
-		match opt_str_param addr "hide_from_listings" with
-		  | None -> []
-		  | Some s -> split_ws s in
-	      let l = simple_listing ~hide in
-	      [ `Enable_listings l ]
-	    else
-	      []
-	  )
-      } in
-    Nethttpd_services.file_service spec
-
-  and dynamic_service addr =
-    cfg # restrict_subsections addr [];
-    cfg # restrict_parameters addr [ "type"; "handler" ];
-    let handler_name = req_str_param addr "handler" in
-    let srv =
-      try
-	List.assoc handler_name handlers
+    let get_serv = 
+      try List.assoc typ services
       with
 	| Not_found ->
-	    failwith ("Unknown handler `" ^ handler_name ^ "' in param " ^ 
-			cfg#print addr ^ ".handler") in
-    Nethttpd_services.dynamic_service srv
+	    failwith ("Unknown service type: " ^ cfg#print addr ^ ".type") in
+    let serv = get_serv handlers cfg addr (uri_path:string) in
+    (serv
+      :  ( [ `Dynamic_service of 'a Nethttpd_services.dynamic_service
+           | `File_service of Nethttpd_services.file_service 
+           ] Nethttpd_types.http_service ) 
+      :> ( [> `Dynamic_service of 'a Nethttpd_services.dynamic_service
+           | `File_service of Nethttpd_services.file_service
+           ] Nethttpd_types.http_service )
+    )
   in
 
   cfg # restrict_subsections addr
@@ -427,13 +485,15 @@ let create_processor config_cgi handlers log_error log_access ctrl_cfg cfg addr 
 class nethttpd_factory ?(name = "nethttpd") 
                        ?(config_cgi = Netcgi1_compat.Netcgi_env.default_config) 
                        ?(handlers=[]) 
+		       ?(services=default_services)
 		       ?(log_error = std_log_error)
 		       ?(log_access = std_log_access)
 		       () : processor_factory =
 object
   method name = name
   method create_processor ctrl_cfg cfg addr =
-    create_processor config_cgi handlers log_error log_access ctrl_cfg cfg addr
+    create_processor 
+      config_cgi handlers services log_error log_access ctrl_cfg cfg addr
 end
 
 let nethttpd_factory =
