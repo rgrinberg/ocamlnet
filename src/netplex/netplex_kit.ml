@@ -85,7 +85,8 @@ let of_set s =
     (fun x acc -> x :: acc) s []
 
 
-class protocol_switch (merge_list : (string * processor) list) : processor =
+class protocol_switch_processor
+         (merge_list : (string * processor) list) : processor =
   let r_merge_list = List.rev merge_list in
   let supported_ptypes =
     match merge_list with
@@ -143,6 +144,33 @@ object(self)
     List.for_all
       (fun (_,hooks) -> hooks # global_exception_handler e) merge_list
 
+end
+
+
+class protocol_switch_factory 
+         name (merge_list : (string*processor_factory) list)
+       : processor_factory =
+object(self)
+  method name = name
+  method create_processor ctrl_cfg cfg addr =
+    let named_processors =
+      List.map
+	(fun (proto_name, fac) ->
+	   let sub_addrs =
+	     cfg # resolve_section addr proto_name in
+	   match sub_addrs with
+	     | [ sub_addr ] ->
+		 let p = fac # create_processor ctrl_cfg cfg sub_addr in
+		 (proto_name, p)
+	     | [] ->
+		 failwith("Missing section: " ^ cfg#print addr ^ "." ^ 
+			    proto_name)
+	     | _ ->
+		 failwith("Section must only occur once: " ^ 
+			    cfg#print addr ^ "." ^ proto_name)
+	) 
+	merge_list in
+    new protocol_switch_processor named_processors
 end
 
 

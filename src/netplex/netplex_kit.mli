@@ -56,7 +56,7 @@ class virtual processor_base :  processor_hooks -> v_processor
     * ]}
    *)
 
-class protocol_switch : (string * processor) list -> processor
+class protocol_switch_processor : (string * processor) list -> processor
   (** The arg is a list of pairs [(proto_name, proto_proc)]. All mentioned
       processors are merged into a single processor. When a TCP connection
       arrives, it depends on the protocol which processor is actually
@@ -64,6 +64,49 @@ class protocol_switch : (string * processor) list -> processor
       from the socket.)
 
       It is up to the user whether the merge makes sense.
+   *)
+
+class protocol_switch_factory : string ->
+                                (string * processor_factory) list ->
+                                processor_factory
+  (** [protocol_switch_factory name merge_list]: Merges the factories
+      in [merge_list] to a single factory. Which factory is selected
+      depends on the protocol.
+
+      For example:
+
+      {[
+          service {
+            name = "...";
+            protocol {
+               name = "A"; ...;
+            }
+            protocol {
+               name = "B"; ...;
+            }
+            processor {
+               type = "merged";
+               A {
+                  ...
+               }
+               B {
+                  ...
+               }
+            }
+          }
+      ]}
+                                  
+      Here, two protocols [A] and [B] are defined, and there is a
+      subsection in [processor] for each of the protocols configuring
+      the used service. "merged" is the [name] of the merged factories.
+
+      For example, [A] could be an RPC interface, and [B] could be
+      an HTTP interface providing the same service.
+
+      For every protocol in [merge_list] there must be a subsection in
+      [processor] for the protocol. This subsection configures then
+      the processor. It is not an error not to create sockets for
+      a protocol in [merge_list].
    *)
 
 
