@@ -23,6 +23,11 @@ class empty_processor_hooks : unit -> processor_hooks
   (** This is an empty set of processor hooks, i.e. all methods are empty
    *)
 
+class processor_hooks_delegation : processor_hooks -> processor_hooks
+  (** Takes a hooks object, and makes a class of it. Useful for overriding
+      methods in an object.
+   *)
+
 class virtual processor_base :  processor_hooks -> v_processor
   (** A virtual (incomplete) base class for processors. As argument the
     * user-supplied hooks are passed in. Use this class as in:
@@ -50,6 +55,17 @@ class virtual processor_base :  processor_hooks -> v_processor
     *    end
     * ]}
    *)
+
+class protocol_switch : (string * processor) list -> processor
+  (** The arg is a list of pairs [(proto_name, proto_proc)]. All mentioned
+      processors are merged into a single processor. When a TCP connection
+      arrives, it depends on the protocol which processor is actually
+      activated. (Every socket is bound to a protocol, so this can be derived
+      from the socket.)
+
+      It is up to the user whether the merge makes sense.
+   *)
+
 
 val add_helper_service : controller -> string -> processor_hooks -> unit
   (** [add_helper_service ctrl name hooks]: Adds a helper service [name] to
