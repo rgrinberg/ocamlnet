@@ -30,22 +30,6 @@ Plan for Ocamlnet 3
   }
 
 - Focus Netplex:
-  * Nethttpd_plex.nethttpd_factory:
-    new opt arg
-    ?ext_handlers:
-       (string * 
-          (config_file -> addr -> 'a Nethttpd_services.dynamic_service) list)
-    so that dynamic services can access the config file
-
-    also
-
-    ?services:
-       (string *
-          (config_file -> addr -> nethttpd_service)) list
-
-    val file_service_config : config_file -> addr -> nethttpd_service
-    val dynamic_service_config : config_file -> addr -> nethttpd_service
-
   * Netplex_control_routine:
     Use plugin mechanism to run ad-hoc defined routines in controller
     context.
@@ -54,12 +38,6 @@ Plan for Ocamlnet 3
       ["foo", (foo : string array -> string array); ... ]
 
     let [| ... |] = call_control_routine "foo" [| ... |]
-
-  * Netcgi_plex: more configurable factory
- 
-  * Netplex_kit: 
-      - delegate processor/factory
-      - merge processors/factories
 
   * netplex_main:
       - set logger earlier (if external logger is used)
@@ -95,6 +73,7 @@ Plan for Ocamlnet 3
   * Nethttpd: suppress "broken pipe"
   * Check $Id$
   * Go through examples. Fix programming style
+  * Gprof support (as for Wink)
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0
