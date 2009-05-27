@@ -1614,14 +1614,18 @@ let output_progdefs (mli:formatter) (f:formatter) (dl:xdr_def list) =
 let output_client (mli:formatter) (f:formatter) (dl:xdr_def list) auxname =
 
   let rec check_program prog =
+    (* Make functor: *)
+    
     (* MLI: *)
     fprintf mli "@[<v>";
-    fprintf mli "@[<v 2>module %s : sig@ " prog.prog_symbol.ocaml_name;
+    fprintf mli "@[<v 2>module Make'%s(U'C:Rpc_client.USE_CLIENT) : sig@ "
+      prog.prog_symbol.ocaml_name;
     (* ML: *)
     fprintf f "@[<v>";
-    fprintf f "@[<v 2>module %s = struct@ " prog.prog_symbol.ocaml_name;
+    fprintf f "@[<v 2>module Make'%s(U'C:Rpc_client.USE_CLIENT) = struct@ " 
+      prog.prog_symbol.ocaml_name;
     (* Both: *)
-    List.iter (check_version prog) prog.prog_def;
+    List.iter (check_version `Make prog) prog.prog_def;
     (* MLI: *)
     fprintf mli "@]@ ";
     fprintf mli "end@ ";
@@ -1631,7 +1635,29 @@ let output_client (mli:formatter) (f:formatter) (dl:xdr_def list) auxname =
     fprintf f "end@ ";
     fprintf f "@]@\n";
 
-  and check_version prog vers =
+    (* Mapping with U'C=Rpc_client: *)
+
+    (* MLI: *)
+    fprintf mli "@[<v>";
+    fprintf mli "@[<v 2>module %s : sig@ "
+      prog.prog_symbol.ocaml_name;
+    (* ML: *)
+    fprintf f "@[<v>";
+    fprintf f "@[<v 2>module %s = struct@ " 
+      prog.prog_symbol.ocaml_name;
+    (* Both: *)
+    List.iter (check_version `Client prog) prog.prog_def;
+    (* MLI: *)
+    fprintf mli "@]@ ";
+    fprintf mli "end@ ";
+    fprintf mli "@]@\n";
+    (* ML: *)
+    fprintf f "@]@ ";
+    fprintf f "end@ ";
+    fprintf f "@]@\n";
+    
+
+  and check_version inst prog vers =
     let pv =
       prog.prog_symbol.ocaml_name ^ "'" ^ vers.version_symbol.ocaml_name in
     (* MLI: *)
@@ -1639,46 +1665,65 @@ let output_client (mli:formatter) (f:formatter) (dl:xdr_def list) auxname =
     fprintf mli "@[<v 2>module %s : sig" vers.version_symbol.ocaml_name;
     fprintf mli "@ ";
     fprintf mli "open %s@ " auxname;
-    fprintf mli "val @[<hv 4>create_client :@ ?esys:Unixqueue.event_system ->@ ?program_number:Rtypes.uint4 -> @ ?version_number:Rtypes.uint4 -> @ Rpc_client.connector ->@ Rpc.protocol ->@ Rpc_client.t@]";
-    fprintf mli "@ ";
-    fprintf mli "val @[<hv 4>create_portmapped_client :@ ?esys:Unixqueue.event_system ->@ ?program_number:Rtypes.uint4 -> @ ?version_number:Rtypes.uint4 -> @ string ->@ Rpc.protocol ->@ Rpc_client.t@]";
-    fprintf mli "@ ";
-    fprintf mli "val @[<hv 4>create_client2 :@ ?esys:Unixqueue.event_system ->@ ?program_number:Rtypes.uint4 -> @ ?version_number:Rtypes.uint4 -> @ Rpc_client.mode2 ->@ Rpc_client.t@]";
-    fprintf mli "@ ";
+    ( match inst with
+	| `Client ->
+	    fprintf mli "type t = Rpc_client.t@ ";
+	    fprintf mli "val @[<hv 4>create_client :@ ?esys:Unixqueue.event_system ->@ ?program_number:Rtypes.uint4 -> @ ?version_number:Rtypes.uint4 -> @ Rpc_client.connector ->@ Rpc.protocol ->@ Rpc_client.t@]";
+	    fprintf mli "@ ";
+	    fprintf mli "val @[<hv 4>create_portmapped_client :@ ?esys:Unixqueue.event_system ->@ ?program_number:Rtypes.uint4 -> @ ?version_number:Rtypes.uint4 -> @ string ->@ Rpc.protocol ->@ Rpc_client.t@]";
+	    fprintf mli "@ ";
+	    fprintf mli "val @[<hv 4>create_client2 :@ ?esys:Unixqueue.event_system ->@ ?program_number:Rtypes.uint4 -> @ ?version_number:Rtypes.uint4 -> @ Rpc_client.mode2 ->@ Rpc_client.t@]";
+	    fprintf mli "@ ";
+	| `Make ->
+	    fprintf mli "type t = U'C.t@ ";
+    );
     (* ML: *)
     fprintf f "@[<v>";
     fprintf f "@[<v 2>module %s = struct@ " vers.version_symbol.ocaml_name;
-    fprintf f "open %s@ " auxname;
-    fprintf f "let _program = program_%s@ " pv;
+    ( match inst with
+	| `Client ->
+	    (* Ocaml doesn't like: Make'<prog>(Rpc_client).<vers> *)
+	    fprintf f "module M'0 = Make'%s(Rpc_client)@ "
+	      prog.prog_symbol.ocaml_name ;
+	    fprintf f "include M'0.%s@ " 
+	      vers.version_symbol.ocaml_name;
+	    fprintf f "open %s@ " auxname;
+	    fprintf f "let _program = program_%s@ " pv;
 
-    fprintf f "@ ";
-    fprintf f "@[<hv 2>let create_client@ ";
-    fprintf f "?(esys = Unixqueue.create_unix_event_system())@ ";
-    fprintf f "?program_number@ ";
-    fprintf f "?version_number@ ";
-    fprintf f "connector@ ";
-    fprintf f "protocol =@ ";
-    fprintf f "  Rpc_client.create ?program_number ?version_number esys connector protocol _program";
-    fprintf f "@]";
+	    fprintf f "@ ";
+	    fprintf f "@[<hv 2>let create_client@ ";
+	    fprintf f "?(esys = Unixqueue.create_unix_event_system())@ ";
+	    fprintf f "?program_number@ ";
+	    fprintf f "?version_number@ ";
+	    fprintf f "connector@ ";
+	    fprintf f "protocol =@ ";
+	    fprintf f "  Rpc_client.create ?program_number ?version_number esys connector protocol _program";
+	    fprintf f "@]";
 
-    fprintf f "@ @ ";
-    fprintf f "@[<hv 2>let create_portmapped_client ?esys ?program_number ?version_number host protocol =@ ";
-    fprintf f "create_client ?esys ?program_number ?version_number (Rpc_client.Portmapped host) protocol";
-    fprintf f "@]";
+	    fprintf f "@ @ ";
+	    fprintf f "@[<hv 2>let create_portmapped_client ?esys ?program_number ?version_number host protocol =@ ";
+	    fprintf f "create_client ?esys ?program_number ?version_number (Rpc_client.Portmapped host) protocol";
+	    fprintf f "@]";
+	    
+	    fprintf f "@ @ ";
+	    fprintf f "@[<hv 2>let create_client2@ ";
+	    fprintf f "?(esys = Unixqueue.create_unix_event_system())@ ";
+	    fprintf f "?program_number@ ";
+	    fprintf f "?version_number@ ";
+	    fprintf f "mode2 =@ ";
+	    fprintf f "  Rpc_client.create2 ?program_number ?version_number mode2 _program esys";
+	    fprintf f "@]";
 
-    fprintf f "@ @ ";
-    fprintf f "@[<hv 2>let create_client2@ ";
-    fprintf f "?(esys = Unixqueue.create_unix_event_system())@ ";
-    fprintf f "?program_number@ ";
-    fprintf f "?version_number@ ";
-    fprintf f "mode2 =@ ";
-    fprintf f "  Rpc_client.create2 ?program_number ?version_number mode2 _program esys";
-    fprintf f "@]";
-
-    fprintf f "@ @ ";
+	    fprintf f "@ ";
+	| `Make ->
+	    fprintf f "open %s@ " auxname;
+	    fprintf f "let _program = program_%s@ " pv;
+	    fprintf f "type t = U'C.t@ ";
+	    fprintf f "@ ";
+    );
 
     (* Both: *)
-    List.iter (define_procedure prog vers) vers.version_def;
+    List.iter (define_procedure inst prog vers) vers.version_def;
 
     (* MLI: *)
     fprintf mli "@]@ end@ @]";
@@ -1687,35 +1732,46 @@ let output_client (mli:formatter) (f:formatter) (dl:xdr_def list) auxname =
     fprintf f "end@ ";
     fprintf f "@]";
 
-  and define_procedure prog vers proc =
+  and define_procedure inst prog vers proc =
     let pvp = prog.prog_symbol.ocaml_name ^ "'" ^
 	      vers.version_symbol.ocaml_name ^ "'" ^
 	      proc.proc_symbol.ocaml_name in
+    let cm =
+      match inst with
+	| `Client -> "Rpc_client"
+	| `Make -> "U'C" in
+
     (* MLI: *)
-    fprintf mli "val @[<hv 4>%s :@ Rpc_client.t ->@ %s ->@ %s@]@ "
+    fprintf mli "val @[<hv 4>%s :@ %s.t ->@ %s ->@ %s@]@ "
       proc.proc_symbol.ocaml_name
+      cm
       ("t_" ^ pvp ^ "'arg")
       ("t_" ^ pvp ^ "'res");
-    fprintf mli "val @[<hv 4>%s'async :@ Rpc_client.t ->@ %s ->@ ((unit -> %s) -> unit) ->@ unit@]@ "
+    fprintf mli "val @[<hv 4>%s'async :@ %s.t ->@ %s ->@ ((unit -> %s) -> unit) ->@ unit@]@ "
       proc.proc_symbol.ocaml_name
+      cm
       ("t_" ^ pvp ^ "'arg")
       ("t_" ^ pvp ^ "'res");
     (* ML: *)
-    fprintf f "@[<hv 2>";
-    fprintf f "let %s client arg =@ " proc.proc_symbol.ocaml_name;
-    (* fprintf f "assert(Rpc_client.program client == _program);@ "; *)
-    fprintf f "_to_%s'res (Rpc_client.sync_call client \"%s\" (_of_%s'arg arg))"
-      pvp proc.proc_symbol.xdr_name pvp;
-    fprintf f "@]@ @ ";
-
-    fprintf f "@[<hv 2>";
-    fprintf f "let %s'async client arg pass_reply =@ " proc.proc_symbol.ocaml_name;
-    (* fprintf f "assert(Rpc_client.program client == _program);@ "; *)
-    fprintf f "Rpc_client.add_call client \"%s\" (_of_%s'arg arg)@ "
-      proc.proc_symbol.xdr_name pvp;
-    fprintf f "  (fun g -> pass_reply (fun () -> _to_%s'res (g())))@ " pvp;
-    fprintf f "@]@ @ "
-
+    ( match inst with
+	| `Client ->
+	    ()
+	| `Make ->
+	    fprintf f "@[<hv 2>";
+	    fprintf f "let %s client arg =@ " proc.proc_symbol.ocaml_name;
+	    (* fprintf f "assert(Rpc_client.program client == _program);@ "; *)
+	    fprintf f "_to_%s'res (U'C.unbound_sync_call client _program \"%s\" (_of_%s'arg arg))"
+	      pvp proc.proc_symbol.xdr_name pvp;
+	    fprintf f "@]@ @ ";
+	    
+	    fprintf f "@[<hv 2>";
+	    fprintf f "let %s'async client arg pass_reply =@ " proc.proc_symbol.ocaml_name;
+	    (* fprintf f "assert(Rpc_client.program client == _program);@ "; *)
+	    fprintf f "U'C.unbound_async_call client _program \"%s\" (_of_%s'arg arg)@ "
+	      proc.proc_symbol.xdr_name pvp;
+	    fprintf f "  (fun g -> pass_reply (fun () -> _to_%s'res (g())))@ " pvp;
+	    fprintf f "@]@ @ "
+    )
   in
 
   fprintf mli "@[<v>";
