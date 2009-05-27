@@ -238,37 +238,34 @@ object(self)
     match rpc with
       | None -> assert false
       | Some r ->
-	  Rpc_client.add_call
-	    ~when_sent:(fun () ->
-			  nr_conns <- nr_conns + 1;
-			  let when_done_called = ref false in
-			  if !debug_containers then
-			    debug_logf self#log "Container %d: Accepted connection (total: %d)" (Oo.id self) nr_conns;
-			  self # protect
-			    "process"
-			    (sockserv # processor # process
-			       ~when_done:(fun fd ->
-					     if not !when_done_called then (
-					       nr_conns <- nr_conns - 1;
-					       when_done_called := true;
-					       self # setup_polling();
-					       if !debug_containers then
-						 debug_logf self#log "Container %d: Done with connection (total %d)" (Oo.id self) nr_conns;
-
-					     )
-					  )
-			       (self : #container :> container)
-			       fd_slave
-			    )
-			    proto;
-			  if not !when_done_called then
+	  Rpc_client.set_batch_call r;
+	  Rpc_client.unbound_async_call
+	    r Netplex_ctrl_aux.program_Control'V1 "accepted" Xdr.XV_void
+	    (fun _ ->
+	       nr_conns <- nr_conns + 1;
+	       let when_done_called = ref false in
+	       if !debug_containers then
+		 debug_logf self#log "Container %d: Accepted connection (total: %d)" (Oo.id self) nr_conns;
+	       self # protect
+		 "process"
+		 (sockserv # processor # process
+		    ~when_done:(fun fd ->
+				  if not !when_done_called then (
+				    nr_conns <- nr_conns - 1;
+				    when_done_called := true;
+				    self # setup_polling();
+				    if !debug_containers then
+				      debug_logf self#log "Container %d: Done with connection (total %d)" (Oo.id self) nr_conns;
+				    
+				  )
+			       )
+		    (self : #container :> container)
+		    fd_slave
+		 )
+		 proto;
+	       if not !when_done_called then
 			    self # setup_polling();
-			  false
-		       )
-	    r
-	    "accepted"
-	    Xdr.XV_void
-	    (fun _ -> ())
+	    )
 
   method system =
     match sys_rpc with
@@ -314,13 +311,8 @@ object(self)
 		  | `Notice -> log_notice
 		  | `Info -> log_info
 		  | `Debug -> log_debug in
-	      Rpc_client.add_call
-		~when_sent:(fun () -> false)
-		r
-		"log"
-		(_of_System'V1'log'arg(lev,subchannel,message))
-		(fun _ -> ());
-	      Unixqueue.run sys_esys
+	      Rpc_client.set_batch_call r;
+	      Netplex_ctrl_clnt.System.V1.log r (lev,subchannel,message);
 	    with
 	      | error ->
 		  prerr_endline("Netplex Catastrophic Error: Unable to send log message - exception " ^ Netexn.to_string error);

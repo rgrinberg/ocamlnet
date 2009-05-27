@@ -74,6 +74,7 @@ Plan for Ocamlnet 3
   * Check $Id$
   * Go through examples. Fix programming style
   * Gprof support (as for Wink)
+  * Log of deprecated functions (Netlog). Enabled by default.
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0

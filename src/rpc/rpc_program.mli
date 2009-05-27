@@ -35,13 +35,19 @@ val create :
     t
       (** [create program_nr version_nr type_system procedures] *)
 
+val id : t -> int
+      (** The ID identifies the program (used in {!Rpc_client]) *)
+
 
 val update :
       ?program_number:uint4 ->
       ?version_number:uint4 ->
       t ->
 	t
-	(** Modifies program and/or version number *)
+	(** Modifies program and/or version number. The modified program
+            is returned. The program keeps its identity, i.e. the [id]
+            function returns the same number.
+	 *)
 
 
 

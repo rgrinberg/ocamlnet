@@ -34,6 +34,15 @@ exception Client_is_down
 exception Keep_call
 exception Unbound_exception of exn
 
+module type USE_CLIENT = sig
+  type t
+  val use : t -> Rpc_program.t -> unit
+  val unbound_sync_call : 
+        t -> Rpc_program.t -> string -> xdr_value -> xdr_value
+  val unbound_async_call :
+        t -> Rpc_program.t -> string -> xdr_value -> 
+        ((unit -> xdr_value) -> unit) -> unit
+end
 
 let () =
   Netexn.register_printer
@@ -97,7 +106,8 @@ end
 
 
 type call =
-      { mutable proc : string;
+      { mutable prog : Rpc_program.t;
+	mutable proc : string;
 	mutable xdr_value : xdr_value;      (* the argument of the call *)
 	mutable value : packed_value;       (* the argument of the call *)
 	mutable get_result : (unit -> xdr_value) -> unit;
@@ -115,14 +125,14 @@ type call =
 	mutable call_auth_method : t pre_auth_method;
 	  (* calls store the authentication session and the method. *)
 
-	mutable when_sent : unit -> bool;
+	mutable batch_flag : bool
       }
 
 and t =
       { mutable ready : bool;
 
         mutable trans : Rpc_transport.rpc_multiplex_controller option;
-	mutable prog :  Rpc_program.t;
+	mutable progs :  Rpc_program.t list;
 	mutable prot :  protocol;
         mutable esys :  event_system;
 	
@@ -138,7 +148,10 @@ and t =
 	(* configs: *)
 	mutable timeout : float;
         mutable max_retransmissions : int;
+	mutable next_timeout : float;
+	mutable next_max_retransmissions : int;
 	mutable next_destination : Unix.sockaddr option;
+	mutable next_batch_flag : bool;
 
 	(* authentication: *)
 	mutable auth_methods : t pre_auth_method list;     (* methods to try *)
@@ -324,7 +337,7 @@ let add_call_again cl call =
 
   let value =
     Rpc_packer.pack_call
-      cl.prog
+      call.prog
       (uint4_of_int call.xid)                   (* use old XID again (CHECK) *)
       call.proc
       cred_flav cred_data verf_flav verf_data
@@ -418,17 +431,33 @@ let set_timeout cl call =
   )
 
 
-let add_call ?(when_sent = fun () -> true) cl procname param receiver =
+let unbound_async_call_r cl prog procname param receiver =
   if not cl.ready then
     raise Client_is_down;
+  if cl.progs <> [] then (
+    let prog_id = Rpc_program.id prog in
+    if not (List.exists (fun p -> Rpc_program.id p = prog_id) cl.progs) then
+      failwith "Rpc_client.unbound_async_call: \
+                This client is not bound to the requested program"
+  );
 
+  let (_, _, out_type) =
+    try Rpc_program.signature prog procname 
+    with Not_found ->
+      failwith ("Rpc_client.unbound_async_call: No such procedure: " ^
+		  procname) in
+
+  if cl.next_batch_flag && Xdr.xdr_type_term out_type <> X_void then
+    failwith ("Rpc_client.unbound_async_call: Cannot call in batch mode: " ^
+		procname);
+  
   let s = find_or_make_auth_session cl in
 
   let (cred_flav, cred_data, verf_flav, verf_data) = s # next_credentials cl in
 
   let value =
     Rpc_packer.pack_call
-      cl.prog
+      prog
       (uint4_of_int cl.next_xid)
       procname
       cred_flav cred_data verf_flav verf_data
@@ -436,24 +465,29 @@ let add_call ?(when_sent = fun () -> true) cl procname param receiver =
   in
 
   let new_call =
-    { proc = procname;
+    { prog = prog;
+      proc = procname;
       xdr_value = param;
       value = value;
       get_result = receiver;
       state = Waiting;
-      retrans_count = cl.max_retransmissions;
+      retrans_count = cl.next_max_retransmissions;
       xid = cl.next_xid;
       destination = cl.next_destination;
-      call_timeout = cl.timeout;
+      call_timeout = cl.next_timeout;
       timeout_group = None;
       call_auth_session = s;
       call_auth_method = cl.current_auth_method;
-      when_sent = when_sent
+      batch_flag = cl.next_batch_flag
     }
   in
 
   Queue.add new_call cl.waiting_calls;
   cl.next_xid <- cl.next_xid + 1;
+  cl.next_timeout <- cl.timeout;
+  cl.next_max_retransmissions <- cl.max_retransmissions;
+  cl.next_batch_flag <- false;
+  (* We keep next_destination, as required by the API. *)
 
   (* For TCP and timeout > 0.0 set the timeout handler immediately, so the
      timeout includes connecting
@@ -462,8 +496,14 @@ let add_call ?(when_sent = fun () -> true) cl procname param receiver =
     set_timeout cl new_call;
 
 
-  !check_for_output cl
-;;
+  !check_for_output cl;
+
+  new_call
+
+
+let unbound_async_call cl prog procname param receiver =
+  ignore(unbound_async_call_r cl prog procname param receiver)
+
 
   (*****)
 
@@ -528,11 +568,12 @@ let process_incoming_message cl message =
 	    (* else: in the meantime the method has already been
 	     * switched
 	     *)
-	    add_call cl call.proc call.xdr_value call.get_result;
+	    unbound_async_call 
+	      cl call.prog call.proc call.xdr_value call.get_result;
 	    None                     (* don't pass a value back to the caller *)
 	| _ ->
 	    let (xid,verf_flavour,verf_data,response) =
-	      Rpc_packer.unpack_reply cl.prog call.proc message
+	      Rpc_packer.unpack_reply call.prog call.proc message
 		(* may raise an exception *)
             in
 	    call.call_auth_session # server_accepts verf_flavour verf_data;
@@ -623,9 +664,16 @@ let rec handle_outgoing_message cl call r =
 
     | `Ok () ->
 	if !debug then prerr_endline "Rpc_client: message writing finished";
-	let cont = call.when_sent() in
-	if not cont || call.call_timeout = 0.0 then
-	  remove_pending_call cl call;
+	if call.batch_flag || call.call_timeout = 0.0 then (
+	  try
+	    if call.batch_flag then
+	      pass_result cl call (fun () -> XV_void) (* may raise Keep_call *)
+	    else
+	      pass_exception cl call Message_timeout;
+	    remove_pending_call cl call;
+	  with Keep_call ->  (* no removal *)
+	    ()
+	);
 	!check_for_input cl;
 	next_outgoing_message cl
 
@@ -779,57 +827,95 @@ type mode2 =
     ]
 
 
-class add_call_as_engine cl name v =
+class unbound_async_call cl prog name v =
+  let emit = ref (fun _ -> assert false) in
+  let call = unbound_async_call_r cl prog name v (fun gr -> !emit gr) in
 object(self)
   inherit [ Xdr.xdr_value ] Uq_engines.engine_mixin (`Working 0)
 
   initializer
-    add_call cl name v
-      (fun get_result ->
-	 try
-	   let r = get_result() in
-	   self # set_state (`Done r)
-	 with
-	   | err ->
-	       self # set_state (`Error err)
-      )
+    emit := (fun get_result -> 
+	       try
+		 let r = get_result() in
+		 self # set_state (`Done r)
+	       with
+		 | err ->
+		     self # set_state (`Error err)
+	    )
 
   method event_system = cl.esys
   method abort() =
-    (failwith "add_call_as_engine#abort: not implemented" : unit)
-
-  (* TODO: Once we have [abort], this class can be exported *)
-
+    match self#state with
+      | `Working _ ->
+	  if call.state <> Done then
+	    remove_pending_call cl call;
+	  call.state <- Done;
+	  self # set_state `Aborted
+      | _ -> ()
 end
 
 
-let rec create2 ?program_number ?version_number ?(initial_xid=0)
-            ?(shutdown = shutdown_connector)
-            mode prog0 esys =
+let string_of_file_descr fd =
+  Int64.to_string (Netsys.int64_of_file_descr fd)
 
-  let prog = Rpc_program.update ?program_number ?version_number prog0 in
+let rec internal_create initial_xid
+                        shutdown
+			prog_opt
+                        mode esys =
+
+  let id_s_0 =
+    match mode with
+      | `Socket_endpoint(_,fd) ->
+	  "Socket_endpoint(_," ^ string_of_file_descr fd ^ ")"
+      | `Multiplexer_endpoint ep ->
+	  "Multiplexer_endpoint(" ^ 
+	    string_of_int(Oo.id ep) ^ ")"
+      | `Socket(_, conn, _) ->
+	  let s_conn =
+	    match conn with
+	      | Inet(h,p) -> 
+		  "inet/" ^ h ^ ":" ^ string_of_int p
+	      | Internet(ip,p) -> 
+		  "inet/" ^ Unix.string_of_inet_addr ip ^ ":" ^ string_of_int p
+	      | Unix p ->
+		  "unix/" ^ p
+	      | Pipe p ->
+		  "pipe/" ^ p
+	      | Descriptor fd ->
+		  "fd/" ^ string_of_file_descr fd
+	      | Dynamic_descriptor f ->
+		  "dyn_fd"
+	      | Portmapped h ->
+		  "portmapped:" ^ h in
+	  "Socket(_," ^ s_conn ^ ",_)" in
   let id_s =
-    "program " ^ 
-      (Int32.to_string 
-	 (Rtypes.logical_int32_of_uint4
-	    (Rpc_program.program_number prog))) in
+    match prog_opt with
+      | None -> id_s_0
+      | Some prog ->
+	  id_s_0 ^ " for program " ^ 
+	    (Int32.to_string 
+	       (Rtypes.logical_int32_of_uint4
+		  (Rpc_program.program_number prog))) in
 
   let non_blocking_connect =
     match mode with
       | `Socket(_,_,conf) -> conf # non_blocking_connect
       | _ -> true in
 
-  let portmapper_engine prot host esys = 
+  let portmapper_engine prot host prog esys = 
     (* Performs GETPORT for the program on [host]. We use 
      * Rpc_portmapper_aux but not Rpc_portmapper_clnt. The latter is
      * impossible because of a dependency cycle.
      *)
     if !debug then prerr_endline "Rpc_client: starting portmapper query";
     let pm_port = Rtypes.int_of_uint4 Rpc_portmapper_aux.pmap_port in
+    let pm_prog = Rpc_portmapper_aux.program_PMAP'V2 in
     let pm_client = 
-      create2 
+      internal_create
+	0
+	shutdown_connector
+	(Some pm_prog)
 	(`Socket(Rpc.Udp, Inet(host, pm_port), default_socket_config))
-	Rpc_portmapper_aux.program_PMAP'V2
 	esys
     in
     let v =
@@ -869,27 +955,33 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
 		    if !debug then prerr_endline "Rpc_client: Portmapper GETPORT error";
 		    close_deferred();
 		    `Error err)
-      (new add_call_as_engine pm_client "PMAPPROC_GETPORT" v)
+      (new unbound_async_call pm_client pm_prog "PMAPPROC_GETPORT" v)
   in
 
   let connect_engine addr esys =
     match addr with
       | `Portmapped(prot,host) ->
-	  new Uq_engines.seq_engine
-	    (portmapper_engine prot host esys)
-	    (fun (sockaddr, port) ->
-	       let inetaddr =
-		 match sockaddr with
-		   | Unix.ADDR_INET(inet, _) -> inet
-		   | _ -> assert false in
-	       let stype = 
-		 match prot with 
-		   | Tcp -> Unix.SOCK_STREAM 
-		   | Udp -> Unix.SOCK_DGRAM in
-	       let addr = `Sock_inet(stype, inetaddr, port) in
-	       let opts = Uq_engines.default_connect_options in
-	       Uq_engines.connector (`Socket(addr,opts)) esys
-	    )
+	  ( match prog_opt with
+	      | None ->
+		  failwith 
+		    "Rpc_client.unbound_create: Portmapped not supported"
+	      | Some prog ->
+		  new Uq_engines.seq_engine
+		    (portmapper_engine prot host prog esys)
+		    (fun (sockaddr, port) ->
+		       let inetaddr =
+			 match sockaddr with
+			   | Unix.ADDR_INET(inet, _) -> inet
+			   | _ -> assert false in
+		       let stype = 
+			 match prot with 
+			   | Tcp -> Unix.SOCK_STREAM 
+			   | Udp -> Unix.SOCK_DGRAM in
+		       let addr = `Sock_inet(stype, inetaddr, port) in
+		       let opts = Uq_engines.default_connect_options in
+		       Uq_engines.connector (`Socket(addr,opts)) esys
+		    )
+	  )
 
       | #Uq_engines.sockspec as addr ->
 	  let opts = Uq_engines.default_connect_options in
@@ -932,7 +1024,8 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
 	  (prot, new Uq_engines.epsilon_engine (`Done m) esys)
       | `Multiplexer_endpoint(mplex) ->
 	  if mplex # event_system != esys then
-            failwith "Rpc_client.create2: Multiplexer is attached to the wrong event system";
+            failwith "Rpc_client.create2: \
+                      Multiplexer is attached to the wrong event system";
 	  (mplex # protocol,
 	   new Uq_engines.epsilon_engine (`Done mplex) esys)
        | `Socket(prot,conn,conf) ->
@@ -961,7 +1054,8 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
 		  )
 	      | Pipe path ->
 		  if prot <> Rpc.Tcp then
-		    failwith "Rpc_client.create2: Pipe only supported for Rpc.Tcp protocol type";
+		    failwith "Rpc_client.create2: \
+                              Pipe only supported for Rpc.Tcp protocol type";
 		  let addr = `Pipe(Netsys_win32.Pipe_duplex, path) in
 		  (prot, open_socket addr prot conf)
 	      |	Descriptor fd -> 
@@ -978,10 +1072,12 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
 	   )
   in
 
+  let timeout = if prot = Udp then 15.0 else (-.1.0) in
+  let max_retransmissions = if prot = Udp then 3 else 0 in
   let cl =
     { ready = true;
       trans = None;
-      prog = prog;
+      progs = ( match prog_opt with None -> [] | Some p -> [p] );
       prot = prot;
       esys = esys;
       est_engine = Some establish_engine;
@@ -990,9 +1086,12 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
       pending_calls = SessionMap.empty;
       next_xid = initial_xid;
       next_destination = None;
+      next_timeout = timeout;
+      next_max_retransmissions = max_retransmissions;
+      next_batch_flag = false;
       last_replier = None;
-      timeout = if prot = Udp then 15.0 else (-.1.0);
-      max_retransmissions = 3;
+      timeout = timeout;
+      max_retransmissions = max_retransmissions;
       exception_handler = (fun exn -> 
 			     prerr_endline ("Rpc_client: Uncaught exception " ^ 
 					      Netexn.to_string exn)
@@ -1025,14 +1124,27 @@ let rec create2 ?program_number ?version_number ?(initial_xid=0)
 ;;
 
 
-let create ?program_number ?version_number ?(initial_xid=0) 
-           ?(shutdown = shutdown_connector)
-           esys c prot prog0 =
-  create2 
-    ?program_number ?version_number ~initial_xid ~shutdown
-    (`Socket(prot, c, (new blocking_socket_config)))
-    prog0
-    esys
+let create2 ?program_number ?version_number ?(initial_xid=0)
+            ?(shutdown = shutdown_connector)
+            mode prog0 esys =
+  
+  let prog = Rpc_program.update ?program_number ?version_number prog0 in
+  let cl = internal_create initial_xid shutdown (Some prog) mode esys in
+  cl
+
+let unbound_create ?(initial_xid=0) ?(shutdown = shutdown_connector) 
+                   mode esys =
+  internal_create initial_xid shutdown None mode esys
+
+
+let bind cl prog =
+  cl.progs <- prog :: cl.progs
+
+let use cl prog =
+  let prog_id = Rpc_program.id prog in
+  if not(List.exists (fun p -> Rpc_program.id p = prog_id) cl.progs) then
+    failwith "Rpc_client.use: This program is not bound by this client"
+
 
   (*****)
 
@@ -1040,11 +1152,18 @@ let configure cl max_retransmission_trials timeout =
   cl.max_retransmissions <- max_retransmission_trials;
   cl.timeout <- timeout
 
+let configure_next_call cl max_retransmission_trials timeout =
+  cl.next_max_retransmissions <- max_retransmission_trials;
+  cl.next_timeout <- timeout
+
 let set_dgram_destination cl addr_opt =
   cl.next_destination <- addr_opt
 
 let set_exception_handler cl xh =
   cl.exception_handler <- xh
+
+let set_batch_call cl =
+  cl.next_batch_flag <- true
 
 
 let gen_shutdown cl is_running run ondown =
@@ -1092,8 +1211,10 @@ let event_system cl =
   cl.esys
 
 let program cl =
-  cl.prog
+  List.hd cl.progs
 
+let programs cl =
+  cl.progs
 
 let get_socket_name cl =
   match cl.trans with
@@ -1138,7 +1259,7 @@ type result =
 
 exception Stop_call
 
-let sync_call cl proc arg =
+let unbound_sync_call cl prog proc arg =
   let r = ref No in
   let get_result transmitter =
     try
@@ -1150,13 +1271,49 @@ let sync_call cl proc arg =
 	  raise (Unbound_exception Stop_call)
   in
   (* push the request onto the queue: *)
-  add_call cl proc arg get_result;
+  unbound_async_call cl prog proc arg get_result;
   (* run through the queue and process all elements: *)
   ( try Unixqueue.run cl.esys with Stop_call -> ());
   (* now a call back of 'get_result' should have happened. *)
   match !r with
-    No -> failwith "Rpc_client.sync_call: internal error"
+    No -> failwith "Rpc_client.unbound_sync_call: internal error"
   | Reply x -> x
   | Error e -> raise e
 
+
+  (*****)
+
+(* DEPRECATED FUNCTIONS *)
+
+
+let add_call cl procname param receiver =
+  if not cl.ready then
+    raise Client_is_down;
+  match cl.progs with
+    | [ prog ] ->
+	unbound_async_call cl prog procname param receiver
+    | _ ->
+	failwith "Rpc_client.add_call [deprecated function]: \
+                  The client does not have exactly one bound program"
+
+
+let sync_call cl procname param  =
+  if not cl.ready then
+    raise Client_is_down;
+  match cl.progs with
+    | [ prog ] ->
+	unbound_sync_call cl prog procname param 
+    | _ ->
+	failwith "Rpc_client.sync_call [deprecated function]: \
+                  The client does not have exactly one bound program"
+
+
+let create ?program_number ?version_number ?(initial_xid=0) 
+           ?(shutdown = shutdown_connector)
+           esys c prot prog0 =
+  create2 
+    ?program_number ?version_number ~initial_xid ~shutdown
+    (`Socket(prot, c, (new blocking_socket_config)))
+    prog0
+    esys
 

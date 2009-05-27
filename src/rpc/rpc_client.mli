@@ -72,7 +72,7 @@ exception Keep_call
    * when the server response arrives. It causes that the RPC call record
    * is kept in the housekeeping structure of the client. If the server
    * sends another response, the callback function will be invoked again.
-   * I.e. one call can be replied several times (batching).
+   * I.e. one call can be replied several times (server-driven batching).
    *)
 
 exception Unbound_exception of exn
@@ -121,51 +121,6 @@ val shutdown_connector :
     * For [Descriptor] connector the socket is shut down but not closed.
     * For the other connector types the socket is also closed. 
     * Win32 named pipes are shut down.
-   *)
-
-val create :
-      ?program_number:uint4 ->
-      ?version_number:uint4 ->
-      ?initial_xid:int ->
-      ?shutdown:(t -> Rpc_transport.rpc_multiplex_controller -> 
-		   (unit->unit) -> unit) ->
-      Unixqueue.event_system ->
-      connector ->
-      protocol ->
-      Rpc_program.t ->
-      t
-  (** Opens a connection to the server specified by the [connector].
-   * The server is assumed to implement an RPC program as specified by
-   * the [Rpc_program.t] argument. (You can override the program and version
-   * numbers stored in this argument by the optional parameters
-   * [program_number] and [version_number].)
-   *
-   * All communication to the server is handled using the given queue
-   * [Unixqueue.event_system].
-   *
-   * If the protocol is Tcp, the communication will be handled stream-
-   * oriented. In this case, no timeout is detected and no retransmissions
-   * are done.
-   *
-   * If the protocol is Udp, a datagram-oriented communication style is
-   * used. This works only for Internet UDP sockets because these are
-   * bidirectional (Unix domain sockets are unidirectional and do not
-   * work). For Udp, there is a timeout of 15 seconds and a maximum
-   * of 3 retransmissions (i.e. a total of 4 transmission trials).
-   *
-   * Unlike [create2], servers made with [create] always use blocking
-   * [connect] for backwards compatibility.
-   *
-   * @param program_number Overrides the program number in [Rpc_program.t]
-   *
-   * @param version_number Overrides the version number in [Rpc_program.t]
-   *
-   * @param initial_xid The initial value for the session identifier.
-   *
-   * @param shutdown This function is called when the client is shut down
-   *   to close the client socket. By default, [shutdown_connector] is
-   *   called.
-   *
    *)
 
 class type socket_config =
@@ -227,7 +182,71 @@ val create2 :
       Rpc_program.t ->
       Unixqueue.event_system ->
       t
-  (** Creates a new style client. See [create] and [mode2] for explanations. *)
+  (** New style clients:
+   * Opens a connection to the server specified by [mode2].
+   * The server is assumed to implement an RPC program as specified by
+   * the [Rpc_program.t] argument. (You can override the program and version
+   * numbers stored in this argument by the optional parameters
+   * [program_number] and [version_number]. If you need to call several
+   * programs/versions with the same client, use [unbound_create] instead.)
+   *
+   * All communication to the server is handled using the given queue
+   * [Unixqueue.event_system].
+   *
+   * If the protocol (passed along with [mode2]) is Tcp, the communication 
+   * will be handled stream-oriented. In this case, no timeout is detected
+   * and no retransmissions are done.
+   *
+   * If the protocol is Udp, a datagram-oriented communication style is
+   * used. This works only for Internet UDP sockets because these are
+   * bidirectional (Unix domain sockets are unidirectional and do not
+   * work). For Udp, there is a timeout of 15 seconds and a maximum
+   * of 3 retransmissions (i.e. a total of 4 transmission trials).
+   *
+   *
+   * @param program_number Overrides the program number in [Rpc_program.t]
+   *
+   * @param version_number Overrides the version number in [Rpc_program.t]
+   *
+   * @param initial_xid The initial value for the session identifier.
+   *
+   * @param shutdown This function is called when the client is shut down
+   *   to close the client socket. By default, [shutdown_connector] is
+   *   called.
+   *
+   *)
+
+val unbound_create :
+      ?initial_xid:int ->
+      ?shutdown:(t -> Rpc_transport.rpc_multiplex_controller -> 
+		   (unit -> unit) -> unit) ->
+      mode2 ->
+      Unixqueue.event_system ->
+      t
+  (** Creates an unbound client. This is like [create2], but the client is
+      not restricted to a particular RPC program.
+
+      One can convert an unbound client into a bound client by calling
+      [bind], see below. It is possible to bind several times, so several
+      programs can be called with the same client (provided the server is
+      also capable of dealing with several programs).
+
+      This function does not support [Portmapped] connectors.
+   *)
+
+val bind : t -> Rpc_program.t -> unit
+  (** Binds this program additionally *)
+
+val use : t -> Rpc_program.t -> unit
+  (** If there are no bound programs, this is a no-op. Otherwise it is 
+      checked whether the passed program is bound. If not, an exception
+      is raised.
+
+      Programs are compared by comparing {!Rpc_program.id}. The program
+      must be the same value, but it is also allowed to 
+      {!Rpc_program.update} it in the meantime, i.e. to change program
+      and version numbers.
+   *)
 
 val configure : t -> int -> float -> unit
   (** [configure client retransmissions timeout]:
@@ -256,6 +275,7 @@ val configure : t -> int -> float -> unit
    * exception for batch mode. The positive effect from the timeout is that
    * the internal management routines will remove the remote call from
    * the list of pending calls such that this list will not become too long.
+   * (You can get a similar effect by calling [set_batch_call], however.)
    *
    * Note that the meaning of timeouts for TCP connections is unclear.
    * The TCP stream may be in an undefined state. Because of this, the
@@ -271,17 +291,34 @@ val configure : t -> int -> float -> unit
    * rather than packet losses, and this behaviour is best for this purpose.
    *)
 
+val configure_next_call : t -> int -> float -> unit
+  (** Same as [configure], but it only affects the next call *)
+
 val set_dgram_destination : t -> Unix.sockaddr option -> unit
   (** [set_dgram_destination client addr_opt]: This function is required
     * for using the client in conjunction with unconnected UDP sockets.
     * For connected sockets, the destination of datagrams is implicitly
     * given. For unconnected sockets, one has to set the destination
     * explicitly. Do so by calling [set_dgram_destination] with
-    * [Some addr] as [addr_opt] argument before doing the next call.
+    * [Some addr] as [addr_opt] argument before calling.
     * Passing [None] as [addr_opt] removes the explicit destination again.
     * Note that unconnected sockets differ from connected sockets also in
     * the relaxation that they can receive messages from any IP address,
     * and not only the one they are connected to.
+    *
+    * The current destination is used for all following calls. It is
+    * not automatically reset to [None] after the next call.
+   *)
+
+val set_batch_call : t -> unit
+  (** The next call will be a batch call. The client does not wait for the
+      response of a batch call. Instead, the client immediately fakes the
+      response of a "void" return value.
+
+      It is required that the next call has a "void" return type. Otherwise,
+      the client raises an exception, and ignores the call.
+
+      This setting only affects the next call.
    *)
 
 val set_exception_handler : t -> (exn -> unit) -> unit
@@ -294,56 +331,17 @@ val set_exception_handler : t -> (exn -> unit) -> unit
    * fall through.
    *)
 
-val add_call :
-    ?when_sent:(unit -> bool) ->
-    t ->
-    string ->
-    xdr_value ->
-    ((unit -> xdr_value) -> unit) ->
-       unit
-  (** [add_call client proc_name arg f]: add the call to the procedure [name]
-    * with argument [arg] to the queue of unprocessed calls.
-    *
-    * When the reply has arrived or an error situation is detected, the
-    * function [f] is called back. The argument of [f] is another function
-    * that will return the result or raise an exception:
-    *
-    * {[ let my_f get_result =
-    *      try
-    *        let result = get_result() in
-    *        ...
-    *      with
-    *         exn -> ...
-    *    in
-    *    add_call client name arg my_f
-    * ]}
-    *
-    * If [f] does not catch the exception, the pluggable exception handler
-    * of the client is called (see [set_exception_handler]). Exceptions are
-    * either [Message_lost], [Message_timeout], or [Communication_error].
-    *
-    * The function [f] can raise the exception [Keep_call] to indicate
-    * the special handling that a further reply of the call is expected
-    * (batching).
-    *
-    * [when_sent]: This function is called when the call has been fully sent
-    * to the server, but before the reply arrives. The function returns whether
-    * to continue the call. By returning [false] the call is removed from the
-    * internal bookkeeping. The function [f] is not called in this case.
-   *)
-
-
 val event_system : t -> Unixqueue.event_system
   (** Returns the unixqueue to which the client is attached *)
 
-val program : t -> Rpc_program.t
-  (** Returns the program the client represents *)
+val programs : t -> Rpc_program.t list
+  (** Returns the list of all bound programs *)
 
 val get_socket_name : t -> Unix.sockaddr
 val get_peer_name : t -> Unix.sockaddr
   (** Return the addresses of the client socket and the server socket, resp.
     * Note that these are only available when the client is already connected.
-    * The function calls fail in this case. It is also possible that the
+    * The function calls fail otherwise. It is also possible that the
     * underlying transport mechanism does not know these data.
    *)
 
@@ -353,19 +351,40 @@ val get_sender_of_last_response : t -> Unix.sockaddr
 val get_protocol : t -> Rpc.protocol
   (** Get the protocol flavour *)
 
-
-val sync_call :
-    t ->            (* which client *)
-    string ->       (* which procedure (name) *)
-    xdr_value ->    (* the parameter of the procedure *)
-    xdr_value       (* the result of the procedure *)
-  (** Calls the procedure synchronously.
-   * Note that this implies that the underlying unixqueue is started and that
-   * all events are processed regardless of whether they have something to do
-   * with this call or not.
+val unbound_sync_call : 
+      t -> Rpc_program.t -> string -> xdr_value -> xdr_value
+  (** [unbound_sync_call client pgm proc arg]: Invoke the remote procedure
+      [proc] of the program [pgm] via [client]. The input arguments are
+      [arg]. The result arguments are returned (or an error is raised)
    *)
 
+val unbound_async_call :
+      t -> Rpc_program.t -> string -> xdr_value -> 
+      ((unit -> xdr_value) -> unit) -> unit
+  (** [unbound_ssync_call client pgm proc arg emit]: Invoke the remote 
+      procedure
+      [proc] of the program [pgm] via [client]. The input arguments are
+      [arg]. When the result [r] is available, the client will call
+      [emit (fun () -> r)] back. When an exception [e] is available, the
+      client will call [emit (fun () -> raise e)] back.
+   *)
 
+class unbound_async_call :
+      t -> Rpc_program.t -> string -> xdr_value -> [xdr_value] Uq_engines.engine
+  (** Same as [unbound_async_call], but with an engine API. The engine
+      is initially in state [`Working 0]. When the call is finished, the
+      engine transitions to [`Done r] where [r] is the response value.
+      If an error happens, it transitions to [`Error e] where [e] is the
+      exception.
+
+      One can [abort] the engine, but one caveat: This does not stop
+      the transmission of the current message (the underlying RPC client
+      doing this is not aborted). Aborting can only prevent that a
+      message is sent before it is sent, and it can remove the call from the
+      housekeeping data structures before the response arrives. Of course,
+      one can shut the client down to achieve immediate stop of data
+      transmission.
+   *)
 
 val shut_down : t -> unit
   (** Shuts down the connection. Any unprocessed calls get the exception
@@ -463,3 +482,147 @@ val set_auth_methods : t -> auth_method list -> unit
 
 val verbose : bool -> unit
   (** set whether you want debug messages or not *)
+
+
+(** This module type is what the generated "clnt" module assumes about the
+    client interface
+ *)
+module type USE_CLIENT = sig
+  type t
+    (** The client type *)
+
+  val use : t -> Rpc_program.t -> unit
+    (** Announcement that this program will be used. The client may
+        reject this by raising an exception.
+     *)
+
+  val unbound_sync_call : 
+        t -> Rpc_program.t -> string -> xdr_value -> xdr_value
+    (** [unbound_sync_call client pgm proc arg]: Invoke the remote procedure
+        [proc] of the program [pgm] via [client]. The input arguments are
+        [arg]. The result arguments are returned (or an error is raised)
+     *)
+
+  val unbound_async_call :
+        t -> Rpc_program.t -> string -> xdr_value -> 
+        ((unit -> xdr_value) -> unit) -> unit
+    (** [unbound_ssync_call client pgm proc arg emit]: Invoke the remote 
+        procedure
+        [proc] of the program [pgm] via [client]. The input arguments are
+        [arg]. When the result [r] is available, the client will call
+        [emit (fun () -> r)] back. When an exception [e] is available, the
+        client will call [emit (fun () -> raise e)] back.
+     *)
+
+end
+
+
+(** {2 Deprecated Interfaces} *)
+
+
+val create :
+      ?program_number:uint4 ->
+      ?version_number:uint4 ->
+      ?initial_xid:int ->
+      ?shutdown:(t -> Rpc_transport.rpc_multiplex_controller -> 
+		   (unit->unit) -> unit) ->
+      Unixqueue.event_system ->
+      connector ->
+      protocol ->
+      Rpc_program.t ->
+      t
+  (** Opens a connection to the server specified by the [connector].
+   * The server is assumed to implement an RPC program as specified by
+   * the [Rpc_program.t] argument. (You can override the program and version
+   * numbers stored in this argument by the optional parameters
+   * [program_number] and [version_number].)
+   *
+   * All communication to the server is handled using the given queue
+   * [Unixqueue.event_system].
+   *
+   * If the protocol is Tcp, the communication will be handled stream-
+   * oriented. In this case, no timeout is detected and no retransmissions
+   * are done.
+   *
+   * If the protocol is Udp, a datagram-oriented communication style is
+   * used. This works only for Internet UDP sockets because these are
+   * bidirectional (Unix domain sockets are unidirectional and do not
+   * work). For Udp, there is a timeout of 15 seconds and a maximum
+   * of 3 retransmissions (i.e. a total of 4 transmission trials).
+   *
+   * Unlike [create2], servers made with [create] always use blocking
+   * [connect] for backwards compatibility.
+   *
+   * @deprecated This function should not be used any more in new programs.
+   *    Use [create2] or [unbound_create].
+   *
+   * @param program_number Overrides the program number in [Rpc_program.t]
+   *
+   * @param version_number Overrides the version number in [Rpc_program.t]
+   *
+   * @param initial_xid The initial value for the session identifier.
+   *
+   * @param shutdown This function is called when the client is shut down
+   *   to close the client socket. By default, [shutdown_connector] is
+   *   called.
+   *
+   *)
+
+val program : t -> Rpc_program.t
+  (** Returns the program the client represents.
+
+      @deprecated This is the same as [List.hd (Rpc_client.programs client)]
+   *)
+
+val add_call :
+    t ->
+    string ->
+    xdr_value ->
+    ((unit -> xdr_value) -> unit) ->
+       unit
+  (** [add_call client proc_name arg f]: add the call to the procedure [name]
+    * with argument [arg] to the queue of unprocessed calls.
+    *
+    * When the reply has arrived or an error situation is detected, the
+    * function [f] is called back. The argument of [f] is another function
+    * that will return the result or raise an exception:
+    *
+    * {[ let my_f get_result =
+    *      try
+    *        let result = get_result() in
+    *        ...
+    *      with
+    *         exn -> ...
+    *    in
+    *    add_call client name arg my_f
+    * ]}
+    *
+    * If [f] does not catch the exception, the pluggable exception handler
+    * of the client is called (see [set_exception_handler]). Exceptions are
+    * either [Message_lost], [Message_timeout], or [Communication_error].
+    *
+    * The function [f] can raise the exception [Keep_call] to indicate
+    * the special handling that a further reply of the call is expected
+    * (batching).
+    *
+    * @deprecated [add_call] is restricted to the case that there is only
+    *   one bound program. It will fail in other cases. Use 
+    *   [unbound_async_call] instead. Note also that there is no longer
+    *   the optional [when_sent] argument. Use [set_batch_call] instead
+   *)
+
+val sync_call :
+    t ->            (* which client *)
+    string ->       (* which procedure (name) *)
+    xdr_value ->    (* the parameter of the procedure *)
+    xdr_value       (* the result of the procedure *)
+  (** Calls the procedure synchronously.
+   * Note that this implies that the underlying unixqueue is started and that
+   * all events are processed regardless of whether they have something to do
+   * with this call or not.
+   *
+   * @deprecated [sync_call] is restricted to the case that there is only
+   *   one bound program. It will fail in other cases. Use 
+   *   [unbound_sync_call] instead.
+   *)
+
