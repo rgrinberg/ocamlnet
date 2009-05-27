@@ -77,3 +77,11 @@ let stprovider : mtprovider =
   )
 
 let provider = ref stprovider
+
+let serialize  mutex f arg =
+  mutex # lock();
+  let r = 
+    try f arg
+    with e -> mutex # unlock(); raise e in
+  mutex # unlock();
+  r

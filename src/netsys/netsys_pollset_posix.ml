@@ -6,12 +6,7 @@ open Netsys_pollset
 let oothr = !Netsys_oothr.provider
 
 let while_locked mutex f =
-  mutex # lock();
-  let r = 
-    try f ()
-    with e -> mutex # unlock(); raise e in
-  mutex # unlock();
-  r
+  Netsys_oothr.serialize mutex f ()
 
 let pipe_limit = 4
   (* We keep up to [pipe_limit] pairs of pipes for interrupting [poll].

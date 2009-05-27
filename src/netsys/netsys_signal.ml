@@ -27,15 +27,7 @@ let mutex = otp # create_mutex()
 
 
 let while_locked f =
-  try
-    mutex # lock();
-    let r = f() in
-    mutex # unlock();
-    r
-  with e ->
-    mutex # unlock();
-    raise e
-
+  Netsys_oothr.serialize mutex f ()
 
 let lethal_default_actions =
   [ Sys.sighup; Sys.sigint; Sys.sigquit; Sys.sigill; Sys.sigabrt;
