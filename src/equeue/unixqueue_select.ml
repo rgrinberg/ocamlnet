@@ -12,6 +12,7 @@ object
   method new_wait_id : unit -> wait_id
   method exists_resource : operation -> bool
   method add_resource : group -> (operation * float) -> unit
+  method add_weak_resource : group -> (operation * float) -> unit
   method add_close_action : group -> (Unix.file_descr * (Unix.file_descr -> unit)) -> unit
   method add_abort_action : group -> (group -> exn -> unit) -> unit
   method remove_resource : group -> operation -> unit
@@ -20,9 +21,6 @@ object
   method clear : group -> unit
   method run : unit -> unit
   method is_running : bool
-  method once : group -> float -> (unit -> unit) -> unit
-  method exn_log : ?suppressed:bool -> ?to_string:(exn -> string) -> ?label:string -> exn -> unit
-  method debug_log : ?label:string -> string -> unit
   (* Protected interface *)
   method private setup : unit -> (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list * float)
   method private queue_events : (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list) -> bool
@@ -131,11 +129,14 @@ object(self)
                groups! These groups are first removed at the next [setup]
                time.
 	     *)
+  val mutable strong_res = (RID_Table.create 47 : unit RID_Table.t)
+            (* only the non-weak resources *)
   val mutable res_may_contain_terminated_groups = false
-  val mutable new_res = (RID_Table.create 47 : resource_prop RID_Table.t)
+  val mutable new_res = (RID_Table.create 47 : (resource_prop*bool) RID_Table.t)
             (* added resources. Note that this map may contain terminated
                groups! These groups are first removed at the next [setup]
                time.
+               The bool is the is_strong flag.
 	     *)
   val mutable close_tab = (Hashtbl.create 10 : (Unix.file_descr, (group * (Unix.file_descr -> unit))) Hashtbl.t)
   val mutable abort_tab = ([] : (group * (group -> exn -> unit)) list)
@@ -180,7 +181,8 @@ object(self)
 	  [] in
       List.iter
 	(fun op ->
-	   RID_Table.remove res op
+	   RID_Table.remove res op;
+	   RID_Table.remove strong_res op;
 	)
 	to_del;
       res_may_contain_terminated_groups <- false;
@@ -193,9 +195,12 @@ object(self)
        * the last event has just been seen.
        *)    
       RID_Table.iter
-	(fun op (g, tout, _) ->
-	   if not(g#is_terminating) then 
-	     RID_Table.replace res op (g, tout, ref tref)
+	(fun op ((g, tout, _), is_strong) ->
+	   if not(g#is_terminating) then (
+	     RID_Table.replace res op (g, tout, ref tref);
+	     if is_strong then
+	       RID_Table.replace strong_res op ()
+	   );
 	)
 	new_res;
       RID_Table.clear new_res
@@ -212,7 +217,8 @@ object(self)
 		   sprintf "setup <resources: %s>"
 		     (String.concat "; " reslst)));
 
-    if RID_Table.length res <> 0 then begin
+    (* When we only have weak resources, or nothing, we return the empty set *)
+    if RID_Table.length strong_res <> 0 then begin
       let infiles, outfiles, oobfiles, time =
 	(* (infiles, outfiles, oobfiles, time): Lists of file descriptors
 	 * that must be observed and the maximum period of time until
@@ -402,7 +408,7 @@ object(self)
 	   ));
 
       let interesting =
-	rid_map_exists (fun _ (g,_,_) -> g <> ctrl_pipe_group) res in
+	infiles <> [] || outfiles <> [] || oobfiles <> [] || time >= 0.0 in
 
       if interesting then begin
 	(* There ARE interesting situations. *)
@@ -451,24 +457,6 @@ object(self)
   (* External interface                                                 *)
   (**********************************************************************)
 
-  method debug_log ?label msg =
-    if Equeue.test_debug_target !debug_mode then
-      prerr_endline("Unixqueue debug log: " ^
-		    ( match label with
-			  Some l -> l
-			| None -> "anonymous" ) ^ 
-		    " <" ^ msg ^ ">")
-
-  method exn_log ?(suppressed = false) ?(to_string = Netexn.to_string)
-                 ?label e =
-    if Equeue.test_debug_target !debug_mode then
-      let msg = 
-	if suppressed then
-	  "Suppressed exn " ^ to_string e
-	else
-	  "Exn " ^ to_string e in
-      self # debug_log ?label msg
-
   method private protect : 's 't . ('s -> 't) -> 's -> 't =
     fun f arg ->
       mutex#lock();
@@ -492,7 +480,7 @@ object(self)
     with
 	Not_found ->
 	  try
-	    let (g,_,_) = RID_Table.find new_res op in
+	    let ( (g,_,_), _) = RID_Table.find new_res op in
 	    not (g#is_terminating)
 	  with
 	      Not_found ->
@@ -521,6 +509,12 @@ object(self)
     end
 
   method add_resource g (op,t) =
+    self # add_resource_1 g (op,t) true
+
+  method add_weak_resource g (op,t) =
+    self # add_resource_1 g (op,t) false
+
+  method private add_resource_1 g (op,t) is_strong =
     debug_print (lazy (sprintf "add_resource <group %d, %s, timeout %f>"
 			 (Oo.id g) (string_of_op op) t));
     if g # is_terminating then
@@ -536,7 +530,7 @@ object(self)
 	 )
 	 else begin
 	   (* add the resource: *)
-	   RID_Table.replace new_res op (g,t,ref (-1.0));
+	   RID_Table.replace new_res op ((g,t,ref (-1.0)), is_strong);
 	   (* wake the thread up that runs the system (if in mt mode): *)
            self#wake_up true
 	 end
@@ -586,12 +580,13 @@ object(self)
     (* If there is no resource (g,op) raise Not_found *)
     let g_found, _, _ = 
       try RID_Table.find res op 
-      with Not_found -> RID_Table.find new_res op in
+      with Not_found -> fst(RID_Table.find new_res op) in
     if g_found # is_terminating then raise Not_found; (* ADD TO WINK PATCH *)
     if g <> g_found then
       failwith "remove_resource: descriptor belongs to different group";
     RID_Table.remove res op;
     RID_Table.remove new_res op;
+    RID_Table.remove strong_res op;
     (* is there a close action ? *)
     let sd =
       match op with
@@ -864,7 +859,9 @@ object(self)
       let (p_rd, p_wr) = Unix.pipe() in
       ctrl_pipe_rd <- Some p_rd;
       ctrl_pipe_wr <- Some p_wr;
-      RID_Table.add new_res (Wait_in p_rd) (ctrl_pipe_group,-1.0, ref(-1.0))
+      (* The control pipe is weak - does not keep the event system running *)
+      RID_Table.add 
+	new_res (Wait_in p_rd) ((ctrl_pipe_group,-1.0, ref(-1.0)), false)
     );
 
   method private close_ctrl_pipe() =
@@ -874,6 +871,7 @@ object(self)
 	  let op = Wait_in p_rd in
 	  RID_Table.remove res op;
 	  RID_Table.remove new_res op;
+	  RID_Table.remove strong_res op;
 	  Unix.close p_wr;
 	  Unix.close p_rd;
 	  ctrl_pipe_rd <- None;
@@ -912,30 +910,6 @@ object(self)
   method is_running =
     Equeue.is_running (Lazy.force sys)
 
-  method once g duration f =
-    let id = self#new_wait_id () in
-    let op = Wait id in
-    let called_back = ref false in
-
-    let handler ues ev e =
-      if !called_back then
-	raise Equeue.Terminate
-      else
-	if e = Timeout(g,op) then begin
-	  self#remove_resource g op;  (* delete the resource *)
-	  called_back := true;
-	  f();                        (* invoke f (callback) *)
-	  raise Equeue.Terminate      (* delete the handler *)
-	end
-	else 
-	  raise Equeue.Reject
-    in
-  
-    if duration >= 0.0 then begin
-      self#add_resource g (op, duration);
-      self#add_handler g handler
-    end;
-    ()
 end
 ;;
 

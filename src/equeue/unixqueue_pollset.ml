@@ -86,12 +86,7 @@ let op_of_event ev =
 
 
 let while_locked mutex f =
-  mutex # lock();
-  let r = 
-    try f ()
-    with e -> mutex # unlock(); raise e in
-  mutex # unlock();
-  r
+  Netsys_oothr.serialize mutex f ()
 
 
 let escape_lock mutex f =
@@ -129,6 +124,9 @@ object(self)
        *)
   val mutable ops_of_tmo =
     (FloatMap.empty : operation list FloatMap.t)
+  val mutable strong_op =
+    (Hashtbl.create 10 : (operation, unit) Hashtbl.t)
+      (* contains all non-weak ops *)
 
   val mutable aborting = false
   val mutable close_tab = (Hashtbl.create 10 : (Unix.file_descr, (group * (Unix.file_descr -> unit))) Hashtbl.t)
@@ -166,7 +164,8 @@ object(self)
 		   sprintf "t0 = %f" t0));
 
     let nothing_to_do =
-      Hashtbl.length tmo_of_op = 0 in
+      (* For this test only non-weak resources count, so... *)
+      Hashtbl.length strong_op = 0 in
 
     let pset_events, have_eintr = 
       try
@@ -307,9 +306,12 @@ object(self)
 		try
 		  let op = op_of_event ev in
 		  let (tmo,_,g) = Hashtbl.find tmo_of_op op in (* or Not_found *)
+		  let is_strong = 
+		    try Hashtbl.find strong_op op; true
+		    with Not_found -> false in
 		  self#sched_remove_wl op;
 		  let t2 = if tmo < 0.0 then tmo else t1 +. tmo in
-		  self#sched_add_wl g op tmo t2
+		  self#sched_add_wl g op tmo t2 is_strong
 		with
 		  | Not_found -> assert false
 	     )
@@ -356,6 +358,7 @@ object(self)
       let tmo, t1, g = Hashtbl.find tmo_of_op op in  (* or Not_found *)
       debug_print(lazy (sprintf "sched_remove %s" (string_of_op op)));
       Hashtbl.remove tmo_of_op op;
+      Hashtbl.remove strong_op op;
       let l_ops =
 	if tmo >= 0.0 then
 	  try FloatMap.find t1 ops_of_tmo with Not_found -> [] 
@@ -385,10 +388,12 @@ object(self)
 	  ()
 	    
 
-  method private sched_add_wl g op tmo t1 =
-    debug_print(lazy (sprintf "sched_add %s tmo=%f t1=%f"
-			(string_of_op op) tmo t1));
+  method private sched_add_wl g op tmo t1 is_strong =
+    debug_print(lazy (sprintf "sched_add %s tmo=%f t1=%f is_strong=%b"
+			(string_of_op op) tmo t1 is_strong));
     Hashtbl.add tmo_of_op op (tmo, t1, g);
+    if is_strong then
+      Hashtbl.add strong_op op ();
     let l_ops =
       try FloatMap.find t1 ops_of_tmo with Not_found -> [] in
     if tmo >= 0.0 then
@@ -426,26 +431,36 @@ object(self)
   method add_resource g (op, tmo) =
     while_locked mutex
       (fun () ->
-	 if g # is_terminating then
-	   invalid_arg "Unixqueue.add_resource: the group is terminated";
-	 if not (Hashtbl.mem tmo_of_op op) then (
-	   self#pset_add_wl op;
-	   let t1 = if tmo < 0.0 then tmo else Unix.gettimeofday() +. tmo in
-	   self#sched_add_wl g op tmo t1;
-	   (* Multi-threading: interrupt [wait] *)
-	   pset # cancel_wait true;
-	   (* CHECK: In the select-based impl we add Keep_alive to equeue.
+	 self # add_resource_wl g (op, tmo) true
+      )
+
+  method add_weak_resource g (op, tmo) =
+    while_locked mutex
+      (fun () ->
+	 self # add_resource_wl g (op, tmo) false
+      )
+
+
+  method private add_resource_wl g (op, tmo) is_strong =
+    if g # is_terminating then
+      invalid_arg "Unixqueue.add_resource: the group is terminated";
+    if not (Hashtbl.mem tmo_of_op op) then (
+      self#pset_add_wl op;
+      let t1 = if tmo < 0.0 then tmo else Unix.gettimeofday() +. tmo in
+      self#sched_add_wl g op tmo t1 is_strong;
+      (* Multi-threading: interrupt [wait] *)
+      pset # cancel_wait true;
+      (* CHECK: In the select-based impl we add Keep_alive to equeue.
               This idea (probably): If [wait] is about to return, and the
               queue becomes empty, the whole esys terminates. The Keep_alive
               prevents that. 
               My current thinking is that this delays the race condition
               a bit, but does not prevent it from happening
-	    *)
-	 )
-	   (* Note: The second addition of a resource is silently ignored...
+       *)
+    )
+      (* Note: The second addition of a resource is silently ignored...
               Maybe this should be fixed, so that the timeout can be lowered
-	    *)
-      )
+       *)
 
 
   method remove_resource g op =
@@ -494,24 +509,6 @@ object(self)
 	   | None -> ()
       )
 
-
-  method debug_log ?label msg =
-    if Equeue.test_debug_target !debug_mode then
-      prerr_endline("Unixqueue debug log: " ^
-                    ( match label with
-                          Some l -> l
-                        | None -> "anonymous" ) ^
-                    " <" ^ msg ^ ">")
-
-  method exn_log ?(suppressed = false) ?(to_string = Netexn.to_string)
-                 ?label e =
-    if Equeue.test_debug_target !debug_mode then
-      let msg =
-        if suppressed then
-          "Suppressed exn " ^ to_string e
-        else
-          "Exn " ^ to_string e in
-      self # debug_log ?label msg
 
   method new_group () =
     new group_object
@@ -841,48 +838,6 @@ object(self)
 
   method is_running =
     Equeue.is_running (Lazy.force sys)
-
-  method once g duration f =
-    (* this is completely on top of locking-aware methods *)
-    let id = self#new_wait_id () in
-    let op = Wait id in
-    let called_back = ref false in
-
-    let handler ues ev e =
-      if !called_back then (
-	debug_print 
-	  (lazy
-	     (sprintf
-		"once handler <unexpected terminate group %d>" (Oo.id g)));
-        raise Equeue.Terminate
-      )
-      else
-	let e_ref = Timeout(g,op) in
-        if e = e_ref then begin
-	  debug_print 
-	    (lazy
-	       (sprintf
-		  "once handler <regular timeout group %d>" (Oo.id g)));
-          self#remove_resource g op;  (* delete the resource *)
-          called_back := true;
-          f();                        (* invoke f (callback) *)
-          raise Equeue.Terminate      (* delete the handler *)
-        end
-        else (
-	  debug_print 
-	    (lazy
-	       (sprintf
-		  "once handler <rejected timeout group %d, got %s but expected %s >"
-		  (Oo.id g) (string_of_event e) (string_of_event e_ref)));
-          raise Equeue.Reject
-	)
-    in
-
-    if duration >= 0.0 then begin
-      self#add_resource g (op, duration);
-      self#add_handler g handler
-    end;
-    ()
 
 end
 

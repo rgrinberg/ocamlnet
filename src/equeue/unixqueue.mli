@@ -154,6 +154,7 @@ object
   method new_wait_id : unit -> wait_id
   method exists_resource : operation -> bool
   method add_resource : group -> (operation * float) -> unit
+  method add_weak_resource : group -> (operation * float) -> unit
   method add_close_action : group -> (file_descr * (file_descr -> unit)) -> unit
   method add_abort_action : group -> (group -> exn -> unit) -> unit
   method remove_resource : group -> operation -> unit
@@ -162,9 +163,6 @@ object
   method clear : group -> unit
   method run : unit -> unit
   method is_running : bool
-  method once : group -> float -> (unit -> unit) -> unit
-  method exn_log : ?suppressed:bool -> ?to_string:(exn -> string) -> ?label:string -> exn -> unit
-  method debug_log : ?label:string -> string -> unit
 end
   (** The [event_system] manages events, handlers, resources, groups,
    * etc. It is now a class type, and you may invoke the operations directly
@@ -274,6 +272,20 @@ val add_resource : event_system -> group -> (operation * float) -> unit
    * period starts again in this case.
    *)
 
+val add_weak_resource : event_system -> group -> (operation * float) -> unit
+  (** Similar to [add_resource], but the resource is weak. Such resources
+    * do not keep the event system running when only weak resources remain.
+    * Normally, [Unixqueue.run] returns to the caller not before
+    * all resources are removed and all events are processed. Weak
+    * resources do not count for this condition, i.e. [Unixqueue.run]
+    * also returns when there are only weak resources left.
+    * As an example, weak resources can be used to time out unused
+    * file descriptors.
+    *
+    * Weak resources can be removed with [remove_resource].
+    *
+    * {b New in Ocamlnet 3.}
+   *)
 
 val add_close_action : 
   event_system -> group -> (file_descr * (file_descr -> unit)) 
@@ -383,7 +395,10 @@ val once : event_system -> group -> float -> (unit -> unit)
    * group, the timer is deleted, too.
    *)
 
-
+val weak_once : event_system -> group -> float -> (unit -> unit) -> unit
+  (** Same as [once], but the timer does not keep the event system running
+      if it is the only remaining resource.
+   *)
 
 (** {1 Debugging} *)
 

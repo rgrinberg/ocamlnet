@@ -9,6 +9,7 @@ object
   method new_wait_id : unit -> wait_id
   method exists_resource : operation -> bool
   method add_resource : group -> (operation * float) -> unit
+  method add_weak_resource : group -> (operation * float) -> unit
   method add_close_action : group -> (Unix.file_descr * (Unix.file_descr -> unit)) -> unit
   method add_abort_action : group -> (group -> exn -> unit) -> unit
   method remove_resource : group -> operation -> unit
@@ -17,9 +18,6 @@ object
   method clear : group -> unit
   method run : unit -> unit
   method is_running : bool
-  method once : group -> float -> (unit -> unit) -> unit
-  method exn_log : ?suppressed:bool -> ?to_string:(exn -> string) -> ?label:string -> exn -> unit
-  method debug_log : ?label:string -> string -> unit
   (* Protected interface *)
   method private setup : unit -> (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list * float)
   method private queue_events : (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list) -> bool

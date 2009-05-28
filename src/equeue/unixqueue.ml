@@ -36,6 +36,7 @@ object
   method new_wait_id : unit -> wait_id
   method exists_resource : operation -> bool
   method add_resource : group -> (operation * float) -> unit
+  method add_weak_resource : group -> (operation * float) -> unit
   method add_close_action : group -> (Unix.file_descr * (Unix.file_descr -> unit)) -> unit  method add_abort_action : group -> (group -> exn -> unit) -> unit
   method remove_resource : group -> operation -> unit
   method add_handler : group -> (event_system -> event Equeue.t -> event -> unit) -> unit
@@ -43,9 +44,6 @@ object
   method clear : group -> unit
   method run : unit -> unit
   method is_running : bool
-  method once : group -> float -> (unit -> unit) -> unit
-  method exn_log : ?suppressed:bool -> ?to_string:(exn -> string) -> ?label:string -> exn -> unit
-  method debug_log : ?label:string -> string -> unit
   (* Protected interface *)
   method private setup : unit -> (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list * float)
   method private queue_events : (Unix.file_descr list * Unix.file_descr list * Unix.file_descr
@@ -88,6 +86,9 @@ let exists_resource ues =
 let add_resource ues =
   ues # add_resource
 
+let add_weak_resource ues =
+  ues # add_weak_resource
+
 let add_close_action ues =
   ues # add_close_action
 
@@ -113,14 +114,19 @@ let is_running ues =
   ues # is_running
 
 let once ues =
-  ues # once 
+  Unixqueue_util.once ues
+
+let weak_once ues =
+  Unixqueue_util.weak_once ues
 
 let exn_log ues =
-  ues # exn_log
+  Unixqueue_util.exn_log ues
 
 let debug_log ues =
-  ues # debug_log
+  Unixqueue_util.debug_log ues
 
-let set_debug_mode = Unixqueue_util.set_debug_mode
+let set_debug_mode =
+  Unixqueue_util.set_debug_mode
 
-let set_debug_target = Unixqueue_util.set_debug_target
+let set_debug_target = 
+  Unixqueue_util.set_debug_target

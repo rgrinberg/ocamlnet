@@ -77,6 +77,7 @@ type event_system_t =
       new_wait_id : unit -> wait_id;
       exists_resource : operation -> bool;
       add_resource : group -> (operation * float) -> unit;
+      add_weak_resource : group -> (operation * float) -> unit;
       add_close_action : group -> (Unix.file_descr * (Unix.file_descr -> unit)) -> unit;
       add_abort_action : group -> (group -> exn -> unit) -> unit;
       remove_resource : group -> operation -> unit;
@@ -85,9 +86,6 @@ type event_system_t =
       clear : group -> unit;
       run : unit -> unit;
       is_running : bool;
-      once : group -> float -> (unit -> unit) -> unit;
-      exn_log : ?suppressed:bool -> ?to_string:(exn -> string) -> ?label:string -> exn -> unit;
-      debug_log : ?label:string -> string -> unit
     >
 
 class type event_system =
@@ -96,6 +94,7 @@ object
   method new_wait_id : unit -> wait_id
   method exists_resource : operation -> bool
   method add_resource : group -> (operation * float) -> unit
+  method add_weak_resource : group -> (operation * float) -> unit
   method add_close_action : group -> (Unix.file_descr * (Unix.file_descr -> unit)) -> unit
   method add_abort_action : group -> (group -> exn -> unit) -> unit
   method remove_resource : group -> operation -> unit
@@ -104,9 +103,6 @@ object
   method clear : group -> unit
   method run : unit -> unit
   method is_running : bool
-  method once : group -> float -> (unit -> unit) -> unit
-  method exn_log : ?suppressed:bool -> ?to_string:(exn -> string) -> ?label:string -> exn -> unit
-  method debug_log : ?label:string -> string -> unit
 end
 
 
@@ -159,6 +155,73 @@ let string_of_event ev =
   | Extra x ->
       sprintf "Extra(%s)" (Netexn.to_string x)
 ;;
+
+let once_int is_weak (esys:event_system) g duration f =
+  let id = esys#new_wait_id () in
+  let op = Wait id in
+  let called_back = ref false in
+
+  let handler _ ev e =
+    if !called_back then (
+      debug_print 
+	(lazy
+	   (sprintf
+	      "once handler <unexpected terminate group %d>" (Oo.id g)));
+      raise Equeue.Terminate
+    )
+    else
+      let e_ref = Timeout(g,op) in
+      if e = e_ref then begin
+	debug_print 
+	  (lazy
+	     (sprintf
+		"once handler <regular timeout group %d>" (Oo.id g)));
+        esys#remove_resource g op;  (* delete the resource *)
+        called_back := true;
+        let () = f() in             (* invoke f (callback) *)
+        raise Equeue.Terminate      (* delete the handler *)
+      end
+      else (
+	debug_print 
+	  (lazy
+	     (sprintf
+		"once handler <rejected timeout group %d, got %s but expected %s >"
+		(Oo.id g) (string_of_event e) (string_of_event e_ref)));
+        raise Equeue.Reject
+      )
+  in
+
+  if duration >= 0.0 then begin
+    if is_weak then
+      esys#add_weak_resource g (op, duration)
+    else
+      esys#add_resource g (op, duration);
+    esys#add_handler g handler
+  end;
+  ()
+
+let once = once_int false
+let weak_once = once_int true
+
+
+let debug_log esys ?label msg =
+  if Equeue.test_debug_target !debug_mode then
+    prerr_endline("Unixqueue debug log: " ^
+                    ( match label with
+                          Some l -> l
+                        | None -> "anonymous" ) ^
+                    " <" ^ msg ^ ">")
+
+let exn_log esys ?(suppressed = false) ?(to_string = Netexn.to_string)
+                 ?label e =
+  if Equeue.test_debug_target !debug_mode then
+    let msg =
+      if suppressed then
+        "Suppressed exn " ^ to_string e
+      else
+        "Exn " ^ to_string e in
+    debug_log esys ?label msg
+
 
 let () =
   Netsys_signal.init()
