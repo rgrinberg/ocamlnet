@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+(* TODO: logging callback for disabled services *)
+
 module ReliabilityCache = struct
 
   type rcache_policy =
@@ -250,13 +252,18 @@ module ManagedClient = struct
       ]
 
   type mclient =
-      { config : mclient_config;
+      { id : < >;      (* for comparing clients, used in ManagedSet *)
+	config : mclient_config;
 	conn : Rpc_client.connector;
 	esys : Unixqueue.event_system;
 	null_proc_name : string;
 	mutable estate : extended_state;
 	mutable next_batch_call : bool;
 	mutable pending_calls : int;
+	mutable pending_calls_callback : int -> int -> unit;
+	(* Called when pending_calls is changed, with old and new value.
+           Also called on state change.
+	 *)
       }
 	
   type t = mclient
@@ -316,13 +323,15 @@ module ManagedClient = struct
   let create_mclient config conn esys =
     ignore(sockaddr_of_conn conn);
     let null_proc_name = get_null_proc_name config in
-    { config = config;
+    { id = (object end);
+      config = config;
       conn = conn;
       esys = esys;
       estate = `Down;
       next_batch_call = false;
       null_proc_name = null_proc_name;
-      pending_calls = 0
+      pending_calls = 0;
+      pending_calls_callback = (fun _ _ -> ())
     }
         
   let mclient_state mc =
@@ -332,8 +341,17 @@ module ManagedClient = struct
       | `Up up -> `Up (try Some(Rpc_client.get_socket_name up.client) 
 		       with _ -> None)
 
+  let compare mc1 mc2 =
+    Pervasives.compare mc1.id mc2.id
+
   let pending_calls mc =
     mc.pending_calls
+
+  let change_pending_calls mc delta =
+    let old_n = mc.pending_calls in
+    let new_n = old_n + delta in
+    mc.pending_calls_callback old_n new_n;
+    mc.pending_calls <- new_n
 
   let if_up mc f =
     match mc.estate with
@@ -357,21 +375,25 @@ module ManagedClient = struct
       (fun client -> Rpc_client.shut_down client);
     if_up mc
       (fun up -> cancel_idle_timer mc up);
-    mc.estate <- `Down
+    mc.estate <- `Down;
+    change_pending_calls mc 0
 
   let sync_shutdown mc =
     if_connecting_or_up mc
       (fun client -> Rpc_client.sync_shutdown client);
     if_up mc
       (fun up -> cancel_idle_timer mc up);
-    mc.estate <- `Down
+    mc.estate <- `Down;
+    change_pending_calls mc 0
 
   let trigger_shutdown mc f =
     if_connecting_or_up mc
       (fun client -> Rpc_client.trigger_shutdown client f);
     if_up mc
       (fun up -> cancel_idle_timer mc up);
-    mc.estate <- `Down
+    mc.estate <- `Down;
+    change_pending_calls mc 0
+
 
   let enforce_unavailability mc =
     ( match mc.estate with
@@ -386,6 +408,9 @@ module ManagedClient = struct
   let set_batch_call mc =
     mc.next_batch_call <- true
 
+  let event_system mc =
+    mc.esys
+
   let use mc prog =
     let prog_id = Rpc_program.id prog in
     if not(List.exists 
@@ -398,8 +423,10 @@ module ManagedClient = struct
   let reconcile_state mc =
     if_connecting_or_up mc
       (fun client ->
-	 if not(Rpc_client.is_up client) then
-	   mc.estate <- `Down
+	 if not(Rpc_client.is_up client) then (
+	   mc.estate <- `Down;
+	   change_pending_calls mc 0
+	 )
       )
 
   let create_up mc client =
@@ -416,7 +443,8 @@ module ManagedClient = struct
 	 if tmo = 0.0 then (
 	   (* Stop client immediately again! *)
 	   Rpc_client.trigger_shutdown up.client (fun () -> ());
-	   mc.estate <- `Down
+	   mc.estate <- `Down;
+	   change_pending_calls mc 0
 	 )
 	 else
 	   if tmo > 0.0 then (
@@ -425,7 +453,8 @@ module ManagedClient = struct
 	     Unixqueue.weak_once mc.esys g tmo
 	       (fun () ->
 		  Rpc_client.trigger_shutdown up.client (fun () -> ());
-		  mc.estate <- `Down
+		  mc.estate <- `Down;
+		  change_pending_calls mc 0
 	       );
 	     up.idle_timer <- Some g
 	   )
@@ -458,7 +487,8 @@ module ManagedClient = struct
 	       List.iter
 		 (fun f_up -> 
 		    Unixqueue.once mc.esys g 0.0 (fun () -> f_up up))
-		 cstate.c_when_up
+		 cstate.c_when_up;
+	       change_pending_calls mc 0
 	     with error -> 
 	       Rpc_client.trigger_shutdown client (fun () -> ());
 	       let g = Unixqueue.new_group mc.esys in
@@ -471,13 +501,15 @@ module ManagedClient = struct
 	       List.iter
 		 (fun f_fail -> 
 		    Unixqueue.once mc.esys g 0.0 (fun () -> f_fail error))
-		 cstate.c_when_fail
+		 cstate.c_when_fail;
+	       change_pending_calls mc 0
 	  )
       with
 	| error ->
 	    when_fail error
     );
-    mc.estate <- `Connecting cstate
+    mc.estate <- `Connecting cstate;
+    change_pending_calls mc 0
 
   let bring_up mc when_up when_fail =
     (* Check availability: *)
@@ -510,6 +542,7 @@ module ManagedClient = struct
 	      (* Easier: just claim that the client is up *)
 	      let up = create_up mc client in
 	      mc.estate <- `Up up;
+	      change_pending_calls mc 0;
 	      when_up up
 	    )
 
@@ -535,7 +568,7 @@ module ManagedClient = struct
 	 try
 	   Rpc_client.unbound_async_call up.client prog procname param
 	     (fun get_reply ->
-		mc.pending_calls <- mc.pending_calls - 1;
+		change_pending_calls mc (-1);
 		if mc.pending_calls = 0 then
 		  maybe_start_idle_timer mc;
 		receiver 
@@ -549,14 +582,14 @@ module ManagedClient = struct
 	     )
 	 with
 	   | error ->
-	       mc.pending_calls <- mc.pending_calls - 1;
+	       change_pending_calls mc (-1);
 	       receiver (fun () -> raise error)
       )
       (fun error ->
-	 mc.pending_calls <- mc.pending_calls - 1;
+	 change_pending_calls mc (-1);
 	 receiver (fun () -> raise error)
       );
-    mc.pending_calls <- mc.pending_calls + 1
+    change_pending_calls mc 1
 
 
   let unbound_sync_call mc prog procname param =
@@ -567,8 +600,343 @@ module ManagedClient = struct
 end
 
 
-(*
+module MclientSet = Set.Make(ManagedClient)
+
+
 module ManagedSet = struct
-  
+  type mset_policy =
+      [ `Failover | `Balance_load ]
+	
+  type mset_config =
+      { mset_mclient_config : ManagedClient.mclient_config;
+	mset_policy : mset_policy;
+	mset_pending_calls_max : int;
+	mset_pending_calls_norm : int;
+	mset_idempotent_max : int;
+        mset_idempotent_wait : float;
+      }
+
+  type load_level =
+      { mutable clients : MclientSet.t
+      }
+
+  type mset =
+      { config : mset_config;
+	services : (Rpc_client.connector * int) array;
+	by_load : (int, load_level) Hashtbl.t array;
+	(* For every service there is a hashtable mapping load to the
+           clients with the load. Load is measured as pending_calls value
+	 *)
+	total_load : int array;  	(* Total sum of load *)
+	total_clients : int array;      (* Total number of non-down clients *)
+	esys : Unixqueue.event_system;
+	mutable timer_group : Unixqueue.group;  (* for idempotent repetition *)
+	mutable timer_active : < cancel : unit -> unit > list;
+      }
+
+  exception Maximum_capacity
+
+  let default_mclient_config =
+    ManagedClient.create_mclient_config()
+
+  let create_mset_config 
+        ?(mclient_config = default_mclient_config)
+        ?(policy = `Balance_load)
+        ?(pending_calls_max = max_int)
+        ?(pending_calls_norm = 1)
+        ?(idempotent_max = 3)
+        ?(idempotent_wait = 5.0)
+        () =
+    { mset_mclient_config = mclient_config;
+      mset_policy = policy;
+      mset_pending_calls_max = pending_calls_max;
+      mset_pending_calls_norm = pending_calls_norm;
+      mset_idempotent_max = idempotent_max;
+      mset_idempotent_wait = idempotent_wait
+    }
+
+  let create_mset config services esys =
+    (* Check services: *)
+    Array.iter
+      (fun (conn,_) -> ignore(ManagedClient.sockaddr_of_conn conn))
+      services;
+    let by_load =
+      Array.map (fun _ -> Hashtbl.create 10 ) services in
+    let total_load =
+      Array.map (fun _ -> 0) services in
+    let total_clients =
+      Array.map (fun _ -> 0) services in
+     { config = config;
+       services = services;
+       by_load = by_load;
+       total_load = total_load;
+       total_clients = total_clients;
+       esys = esys;
+       timer_group = Unixqueue.new_group esys;
+       timer_active = []
+     }
+
+  let cancel_timer mset =
+    Unixqueue.clear mset.esys mset.timer_group;
+    List.iter
+      (fun act -> act#cancel())
+      mset.timer_active;
+    mset.timer_group <- Unixqueue.new_group mset.esys;
+    mset.timer_active <- []
+
+  let pending_calls_callback mset k mc old_pc new_pc =
+    (* Called when pending_calls or mclient_state changes *)
+    let remove_from_level() =
+      (* Remove client from old load level: *)
+      ( try
+	  let old_level = Hashtbl.find mset.by_load.(k) old_pc in
+	  if not(MclientSet.mem mc old_level.clients) then 
+	    raise Not_found;
+	  old_level.clients <- MclientSet.remove mc old_level.clients;
+	  if old_level.clients = MclientSet.empty then
+	    Hashtbl.remove mset.by_load.(k) old_pc;
+	  mset.total_clients.(k) <- mset.total_clients.(k) - 1;
+	  true
+	with
+	  | Not_found -> false
+      ) in
+    let enter_into_level() =
+      (* Enter client into new load level: *)
+      let new_level =
+	try
+	  Hashtbl.find mset.by_load.(k) new_pc
+	with
+	  | Not_found ->
+	      let level = { clients = MclientSet.empty } in
+	      Hashtbl.add mset.by_load.(k) new_pc level;
+	      level in
+      if not (MclientSet.mem mc new_level.clients) then (
+	new_level.clients <- MclientSet.add mc new_level.clients;
+	mset.total_clients.(k) <- mset.total_clients.(k) + 1
+      ) in
+    let adjust_total_load opc npc =
+      mset.total_load.(k) <- mset.total_load.(k) - opc + npc in
+    match ManagedClient.mclient_state mc with
+      | `Down ->
+	  (* The client is completely removed, even when there are still
+             calls pending (which will be called back asap).
+	   *)
+	  let rflag = remove_from_level() in
+	  if rflag then
+	    adjust_total_load old_pc 0
+      | `Connecting
+      | `Up _ ->
+	  let rflag = remove_from_level() in
+	  enter_into_level();
+	  if rflag then
+	    adjust_total_load old_pc 0;
+	  adjust_total_load 0 new_pc
+
+
+  let create_mclient mset k =
+    let conn = fst(mset.services.(k)) in
+    let mc = 
+      ManagedClient.create_mclient
+	mset.config.mset_mclient_config
+	conn
+	mset.esys in
+    mc.ManagedClient.pending_calls_callback <- 
+      (pending_calls_callback mset k mc);
+    mc
+
+
+  let pick_from_service mset k =
+    let rec pick_from_level_down pc =
+      try
+	let level = Hashtbl.find mset.by_load.(k) pc in
+	MclientSet.min_elt level.clients
+      with
+	| Not_found ->
+	    if pc > 0 then
+	      pick_from_level_down (pc-1)
+	    else (
+	      (* If possible create new client *)
+	      if mset.total_clients.(k) >= snd(mset.services.(k)) then
+		raise Not_found;
+	      (* Create a new client. No need to enter it into the by_load
+                 structure because it is still `Down.
+	       *)
+	      create_mclient mset k
+	    )
+    in
+    (* Test if this service is available: *)
+    let sa = ManagedClient.sockaddr_of_conn (fst mset.services.(k)) in
+    if not (ReliabilityCache.sockaddr_is_enabled 
+	      mset.config.mset_mclient_config.ManagedClient.mclient_rcache
+	      sa) 
+    then
+      raise Not_found;
+    (* Try the levels from pending_calls_norm-1 on downward: *)
+    try
+      pick_from_level_down (mset.config.mset_pending_calls_norm-1)
+    with
+      | Not_found ->
+	  (* There might be still clients that have not reached
+             pending_calls_max
+	   *)
+	  let norm_pc = mset.config.mset_pending_calls_norm in
+	  let max_pc = mset.config.mset_pending_calls_max in
+	  let overload_levels =
+	    Hashtbl.fold
+	      (fun pc _ acc -> 
+		 if pc >= norm_pc && pc < max_pc then pc :: acc else acc)
+	      mset.by_load.(k)
+	      [] in
+	  let pc =
+	    List.find   (* or Not_found *)
+	      (fun pc -> 
+		 let level = Hashtbl.find mset.by_load.(k) pc in
+		 level.clients <> MclientSet.empty
+	      )
+	      overload_levels in
+	  let level = Hashtbl.find mset.by_load.(k) pc in
+	  MclientSet.min_elt level.clients
+
+
+  let pick_from mset order =
+    let rec next j =
+      try pick_from_service mset order.(j)
+      with
+	| Not_found -> 
+	    let j' = j+1 in
+	    if j' < Array.length order then
+	      next j'
+	    else
+	      raise Maximum_capacity in
+    next 0
+
+
+  let mset_pick mset =
+    match mset.config.mset_policy with
+      | `Failover ->
+	  (* Try the services in given order: *)
+	  let order = Array.init (Array.length mset.services) (fun k -> k) in
+	  pick_from mset order
+      | `Balance_load ->
+	  (* Sort the services by total load first: *)
+	  let order = Array.init (Array.length mset.services) (fun k -> k) in
+	  Array.sort 
+	    (fun j1 j2 ->
+	       Pervasives.compare 
+		 mset.total_load.(j1)
+		 mset.total_load.(j2)
+	    )
+	    order;
+	  pick_from mset order
+
+
+  let mset_services mset =
+    mset.services
+
+  let mset_load mset =
+    mset.total_load
+
+  let event_system mset =
+    mset.esys
+
+  let trigger_shutdown mset ondown =
+    cancel_timer mset;   (* stop timer for idempotent repetition *)
+    let all_clients_of_service k =
+      Hashtbl.fold
+	(fun pc level acc ->
+	   MclientSet.union level.clients acc
+	)
+	mset.by_load.(k)
+	MclientSet.empty in
+    let all_clients =
+      List.fold_left
+	(fun acc k ->
+	   MclientSet.union (all_clients_of_service k) acc
+	)
+	MclientSet.empty
+	(Array.to_list 
+	   (Array.init (Array.length mset.services) (fun k -> k))) in
+    let n = ref (MclientSet.cardinal all_clients) in
+    MclientSet.iter
+      (fun mc ->
+	 ManagedClient.trigger_shutdown mc
+	   (fun () ->
+	      decr n;
+	      if !n = 0 then ondown()
+	   )
+      )
+      all_clients;
+    if !n = 0 then ondown()
+
+  let sync_shutdown mset =
+    if Unixqueue.is_running mset.esys then
+      failwith "Rpc_proxy.ManagedSet.sync_shutdown: called from event loop";
+    trigger_shutdown mset (fun () -> ());
+    Unixqueue.run mset.esys
+
+  let shut_down mset =
+    if Unixqueue.is_running mset.esys then
+      trigger_shutdown mset (fun () -> ())
+    else
+      sync_shutdown mset 
+
+  let idempotent_async_call mset async_call arg emit =
+    let config_delay = mset.config.mset_idempotent_wait in
+    let n = ref 0 in
+    let rec next_attempt last_err delay =
+      incr n;
+      if !n > mset.config.mset_idempotent_max then
+	emit (fun () -> raise last_err)
+      else
+	let cancel_obj =
+	  ( object
+	      method cancel() =
+		emit (fun () -> raise last_err)
+	    end
+	  ) in
+	Unixqueue.once mset.esys mset.timer_group delay
+	  (fun () ->
+	     mset.timer_active <-
+	       List.filter (fun obj -> obj <> cancel_obj) mset.timer_active;
+	     try
+	       let mc = mset_pick mset in
+	       async_call mc arg
+		 (fun get_reply ->
+		    let repeat_flag =
+		      try ignore(get_reply()); None
+		      with
+			| (Rpc_client.Message_lost
+			  | Rpc_client.Message_timeout
+			  | Rpc_client.Communication_error _
+			  | ManagedClient.Service_unavailable
+			  ) as error ->
+			    Some error
+			| _ -> 
+			    None in
+		    match repeat_flag with
+		      | None ->
+			  emit get_reply
+		      | Some error ->
+			  next_attempt error config_delay
+		 )
+	     with
+	       | (ManagedClient.Service_unavailable
+		 | Maximum_capacity
+		 ) as error ->
+		   next_attempt error config_delay
+	       | error ->
+		   emit (fun () -> raise error)
+	  );
+	mset.timer_active <- cancel_obj :: mset.timer_active
+    in
+    next_attempt 
+      Rpc_client.Message_lost   (* most appropriate *)
+      0.0
+
+  let idempotent_sync_call mset async_call arg =
+    Rpc_client.synchronize
+      mset.esys
+      (idempotent_async_call mset async_call)
+      arg
+
 end
- *)

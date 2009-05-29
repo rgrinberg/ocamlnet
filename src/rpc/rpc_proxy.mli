@@ -236,6 +236,9 @@ module ManagedClient : sig
   val pending_calls : mclient -> int
     (** Returns the number of pending calls *)
 
+  val event_system : mclient -> Unixqueue.event_system
+    (** Return the event system *)
+
   val shut_down : mclient -> unit
   val sync_shutdown : mclient -> unit
   val trigger_shutdown : mclient -> (unit -> unit) -> unit
@@ -256,11 +259,13 @@ module ManagedClient : sig
   val set_batch_call : mclient -> unit
     (** The next call is a batch call. See {!Rpc_client.set_batch_call} *)
 
+  val compare : mclient -> mclient -> int
+    (** [ManagedClient] can be used with [Set.Make] and [Map.Make] *)
+
   include Rpc_client.USE_CLIENT with type t = mclient
     (** We implement the [USE_CLIENT] interface for calling procedures *)
 end
 
-(*
 module ManagedSet : sig
   (** Manages a set of clients *)
 
@@ -269,10 +274,22 @@ module ManagedSet : sig
 
   type mset_policy =
       [ `Failover | `Balance_load ]
+	(** Sets in which order managed clients are picked from the 
+            [services] array passed to [create_mset]:
+             - [`Failover]: Picks an element from the first service
+               in [services] that is enabled and has free capacity.
+               That means that the first service is preferred until it is
+               maxed out or it fails, then the second service is preferred,
+               and so on.
+             - [`Balance_load]: Picks an element from the service in 
+               [services] that is enabled and has the lowest load.
+	 *)
 
   type mset_config =
-      { mset_mclient_config : mclient_config;  (** The mclient config *)
-	mset_policy : mset_policy;             (** The policy *)
+      { mset_mclient_config : ManagedClient.mclient_config;  
+	   (** The mclient config *)
+	mset_policy : mset_policy;
+           (** The policy *)
 	mset_pending_calls_max : int;
 	  (** When an mclient processes this number of calls at the same time,
               it is considered as fully busy. (Value must by > 0).
@@ -283,10 +300,32 @@ module ManagedSet : sig
               more load on this client before opening another one
 	   *)
 	mset_idempotent_max : int;
-	  (** How often idempotent procedures may be tried to be called *)
+	  (** How often idempotent procedures may be tried to be called.
+              A negative value means infinite.
+	   *)
+        mset_idempotent_wait : float;
+          (** Wait this number of seconds before trying again *)
       }
 
-  val create_mset_config : XXX -> mset_config
+  exception Maximum_capacity
+    (** Raised by [mset_pick] when there is no capacity anymore *)
+
+  val create_mset_config : ?mclient_config:ManagedClient.mclient_config ->
+                           ?policy:mset_policy ->
+                           ?pending_calls_max:int ->
+                           ?pending_calls_norm:int ->
+                           ?idempotent_max:int ->
+                           ?idempotent_wait:float ->
+                           unit -> mset_config
+    (** Create a config record. The optional arguments set the config
+        components with the same name. The defaults are:
+         - [mclient_config]: The default mclient config
+         - [policy]: [`Balance_load]
+         - [pending_calls_max]: [max_int]
+         - [pending_calls_norm]: 1
+         - [idempotent_max]: 3
+         - [idempotent_wait]: 5.0
+     *)
 
   val create_mset : mset_config ->
                     (Rpc_client.connector * int) array ->
@@ -296,10 +335,19 @@ module ManagedSet : sig
         and the [services] array describes which ports are available,
         and how often each port may be contacted (i.e. max number of
         connections).
- *)
+     *)
 
-  val mset_pick : mset -> mclient
-    (** Pick an mclient for another call *)
+  val mset_pick : mset -> ManagedClient.mclient
+    (** Pick an mclient for another call, or raise [Maximum_capacity] *)
+
+  val mset_services : mset -> (Rpc_client.connector * int) array
+    (** Returns the service array *)
+
+  val mset_load : mset -> int array
+    (** Returns the number of pending calls per service *)
+
+  val event_system : mset -> Unixqueue.event_system
+    (** Return the event system *)
 
   val shut_down : mset -> unit
   val sync_shutdown : mset -> unit
@@ -309,53 +357,30 @@ module ManagedSet : sig
         {!Rpc_client.trigger_shutdown}
      *)
 
-  val unbound_idempotent_async_call :
-       mset -> 
-       (mclient -> Rpc_program.t -> string -> xdr_value ->
-        ((unit -> xdr_value) -> unit) -> unit) ->
-       Rpc_program.t -> string -> xdr_value ->
-       (unit -> xdr_value) -> unit) -> 
-         unit
-    (** [unbound_idempotent_async_call
-           mset unbound_async_call pgm proc arg emit]: Picks a new
-        [mclient] and calls [unbound_async_call mclient pgm proc arg emit].
-        If the call times out or leads to a socket error, another [mclient]
-        is picked, and the call is repeated. In total, the call may be
-        tried [mset_idempotent_max] times.
-     *)
-
-  val unbound_idempotent_sync_call :
-       mset -> 
-       (mclient -> Rpc_program.t -> string -> xdr_value -> xdr_value) ->
-       Rpc_program.t -> string -> xdr_value -> xdr_value
-    (** [unbound_idempotent_sync_call
-           mset unbound_sync_call pgm proc arg]: Picks a new
-        [mclient] and calls [unbound_sync_call mclient pgm proc arg].
-        If the call times out or leads to a socket error, another [mclient]
-        is picked, and the call is repeated. In total, the call may be
-        tried [mset_idempotent_max] times.
-     *)
-
   val idempotent_async_call :
        mset -> 
-       (mclient -> 'a -> ((unit -> 'b) -> unit) -> unit) ->
+       (ManagedClient.mclient -> 'a -> ((unit -> 'b) -> unit) -> unit) ->
        'a ->
-       (unit -> 'b) -> unit) -> 
+       ((unit -> 'b) -> unit) -> 
          unit
-    (** Same as [unbound_idempotent_async_call], but program and procedure
-        name are not passed. This form is compatible with the 
+    (** [idempotent_async_call
+           mset async_call arg emit]: Picks a new
+        [mclient] and calls [async_call mclient arg emit].
+        If the call times out or leads to a socket error, another [mclient]
+        is picked, and the call is repeated. In total, the call may be
+        tried [mset_idempotent_max] times.
+
+        Note that this form of function is compatible with the 
         generated [foo'async] functions of the language mapping.
      *)
 
   val idempotent_sync_call :
        mset -> 
-       (mclient -> 'a -> 'b) ->
+       (ManagedClient.mclient -> 'a -> ((unit -> 'b) -> unit) -> unit) ->
        'a ->
        'b
-    (** Same as [unbound_idempotent_sync_call], but program and procedure
-        name are not passed. This form is compatible with the 
-        generated synchronous functions of the language mapping.
+    (** Synchronized version. Note that you have to pass an asynchronous
+        function as second argument. The result is synchronous, however.
      *)
 
 end
- *)
