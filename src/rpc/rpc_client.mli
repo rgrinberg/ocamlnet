@@ -351,6 +351,9 @@ val get_sender_of_last_response : t -> Unix.sockaddr
 val get_protocol : t -> Rpc.protocol
   (** Get the protocol flavour *)
 
+val is_up : t -> bool
+  (** Return whether the client is up *)
+
 val unbound_sync_call : 
       t -> Rpc_program.t -> string -> xdr_value -> xdr_value
   (** [unbound_sync_call client pgm proc arg]: Invoke the remote procedure
@@ -385,6 +388,12 @@ class unbound_async_call :
       one can shut the client down to achieve immediate stop of data
       transmission.
    *)
+
+val synchronize : Unixqueue.event_system ->
+                  ('a -> ((unit -> 'b) -> unit) -> unit) ->
+                  'a -> 'b
+  (** Turns an async call into a synchronous call *)
+
 
 val shut_down : t -> unit
   (** Shuts down the connection. Any unprocessed calls get the exception

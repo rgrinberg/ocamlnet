@@ -36,7 +36,7 @@ val create :
       (** [create program_nr version_nr type_system procedures] *)
 
 val id : t -> int
-      (** The ID identifies the program (used in {!Rpc_client]) *)
+      (** The ID identifies the program (used in {!Rpc_client}) *)
 
 
 val update :
@@ -60,6 +60,11 @@ val version_number :
     t ->
       uint4
 	(** Return the version number *)
+
+val null_proc_name :
+    t ->
+       string option
+	 (** Returns the name of procedure 0 (or [None] if not found) *)
 
 val signature :
     t ->

@@ -148,6 +148,7 @@ This library implements OncRPC (alias SunRPC).
    Rpc_program
    Rpc_client
    Rpc_simple_client
+   Rpc_proxy
    Rpc_server
    Rpc_auth_sys
    Rpc_portmapper

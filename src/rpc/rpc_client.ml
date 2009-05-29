@@ -1148,6 +1148,9 @@ let use cl prog =
 
   (*****)
 
+let is_up cl =
+  cl.ready
+
 let configure cl max_retransmission_trials timeout =
   cl.max_retransmissions <- max_retransmission_trials;
   cl.timeout <- timeout
@@ -1251,15 +1254,15 @@ let verbose b =
 
 (* Now synchronous calls: *)
 
-type result =
+type 'a result =
     No
-  | Reply of xdr_value
+  | Reply of 'a
   | Error of exn
 
 
 exception Stop_call
 
-let unbound_sync_call cl prog proc arg =
+let synchronize esys f_async arg =
   let r = ref No in
   let get_result transmitter =
     try
@@ -1271,14 +1274,22 @@ let unbound_sync_call cl prog proc arg =
 	  raise (Unbound_exception Stop_call)
   in
   (* push the request onto the queue: *)
-  unbound_async_call cl prog proc arg get_result;
+  let () = f_async arg get_result in
   (* run through the queue and process all elements: *)
-  ( try Unixqueue.run cl.esys with Stop_call -> ());
+  ( try Unixqueue.run esys with Stop_call -> ());
   (* now a call back of 'get_result' should have happened. *)
   match !r with
-    No -> failwith "Rpc_client.unbound_sync_call: internal error"
+    No -> failwith "Rpc_client.synchronize: internal error"
   | Reply x -> x
   | Error e -> raise e
+
+
+
+let unbound_sync_call cl prog proc arg =
+  synchronize
+    cl.esys
+    (unbound_async_call cl prog proc)
+    arg
 
 
   (*****)

@@ -20,10 +20,15 @@ type t =
       spec_procs :
 	(uint4 * xdr_type_term * xdr_type_term) StringMap.t;
       spec_procs_validated :
-	(uint4 * xdr_type * xdr_type) StringMap.t ref
+	(uint4 * xdr_type * xdr_type) StringMap.t ref;
+      null_proc : string option;
     }
 
 let create prognr versnr ts procs =
+  let null = Rtypes.uint4_of_int 0 in
+  let null_proc =
+    try Some(fst(List.find (fun (_, (nr,_,_)) -> nr = null) procs))
+    with Not_found -> None in
   { id_obj = (object end);
     prog_nr = prognr;
     vers_nr = versnr;
@@ -32,7 +37,8 @@ let create prognr versnr ts procs =
 		   (fun set (name,proc) -> StringMap.add name proc set)
 		   StringMap.empty
 		   procs;
-    spec_procs_validated = ref StringMap.empty
+    spec_procs_validated = ref StringMap.empty;
+    null_proc = null_proc
   }
 
 let id p =
@@ -48,6 +54,8 @@ let update ?program_number ?version_number p =
 let program_number p = p.prog_nr
 
 let version_number p = p.vers_nr
+
+let null_proc_name p = p.null_proc
 
 let mutex = !Netsys_oothr.provider # create_mutex()
 
