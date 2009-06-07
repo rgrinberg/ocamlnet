@@ -7,6 +7,7 @@ Plan for Ocamlnet 3
   * Generate proxies
   * Rpc_server: Allow to set timeout for the server response itself
     (self-watching)
+  * Annotations
 
 - Netlog/Nettrace
 
@@ -67,6 +68,10 @@ Plan for Ocamlnet 3
   * nethttpd+netcgi2: GET /file//path?p=1
     parameters like p are not recognized when there is "//" in path
   * netclient: Set "Host" header also for proxy requests
+
+- syslog:
+  * "syslog": Just calls syslog()
+  * "syslog_emulation": The syslog protocol itself
 
 - Other
   * Nethttpd: configurable error response

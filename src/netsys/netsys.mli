@@ -238,6 +238,32 @@ val getpeername : Unix.file_descr -> Unix.sockaddr
       ensured when the socked is unconnected or shut down.
    *)
 
+(** {1 Multicast Functions} *)
+
+val mcast_set_loop : Unix.file_descr -> bool -> unit
+  (** Whether sent multicast messages are received by the sending host *)
+
+val mcast_set_ttl : Unix.file_descr -> int -> unit
+  (** Set TTL/hops value *)
+
+val mcast_add_membership : Unix.file_descr -> 
+                           Unix.inet_addr -> Unix.inet_addr -> unit
+  (** Join a multicast group.
+
+      First inet addr is the group to join. Second inet addr selects the
+      network interface (or [Unix.inet_addr_any]).
+   *)
+
+val mcast_drop_membership : Unix.file_descr -> 
+                            Unix.inet_addr -> Unix.inet_addr -> unit
+  (** Leave a multicast group.
+   
+     First inet addr is the group to leave. Second inet addr selects the
+     network interface (or [Unix.inet_addr_any]).
+   *)
+
+
+
 (** {1 Deprecated} *)
 
 (** The following interfaces have been replaced by more generic implementations

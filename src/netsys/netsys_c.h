@@ -28,10 +28,20 @@
 #include <errno.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/un.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #endif
 
 #include <string.h>
+
+#include "caml/misc.h"
+/* misc.h also includes OCaml's config.h
+   All HAS_* macros come from there. All HAVE_* macros come from our own
+   config.h
+*/
 
 #include "caml/mlvalues.h"
 #include "caml/alloc.h"
@@ -81,7 +91,6 @@ struct filedescr {
 #define CRT_fd_val(v) (((struct filedescr *) Data_custom_val(v))->crt_fd)
 
 #define NO_CRT_FD (-1)
-#define Nothing ((value) 0)
 
 /* These functions are actually defined in unixsupport_w32.c */
 
@@ -109,6 +118,10 @@ value netsysw32_win_alloc_socket(SOCKET);
 
 /* POSIX */
 
+/* Since OCaml 3.10 there is unixsupport.h, and we could also include
+   this file.
+*/
+
 extern value unix_error_of_code (int errcode);
 extern void unix_error (int errcode, char * cmdname, value arg) Noreturn;
 extern void uerror (char * cmdname, value arg) Noreturn;
@@ -120,3 +133,24 @@ extern void uerror (char * cmdname, value arg) Noreturn;
 /**********************************************************************/
 
 CAMLextern int caml_convert_signal_number (int);
+
+/**********************************************************************/
+/* From socketaddr.h                                                  */
+/**********************************************************************/
+
+union sock_addr_union {
+    struct sockaddr s_gen;
+#ifndef _WIN32
+    struct sockaddr_un s_unix;
+#endif
+    struct sockaddr_in s_inet;
+#ifdef HAS_IPV6
+    struct sockaddr_in6 s_inet6;
+#endif
+};
+
+#define GET_INET_ADDR(v) (*((struct in_addr *) (v)))
+
+#ifdef HAS_IPV6
+#define GET_INET6_ADDR(v) (*((struct in6_addr *) (v)))
+#endif

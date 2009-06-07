@@ -251,6 +251,19 @@ external int64_of_file_descr : Unix.file_descr -> int64
 external _exit : int -> unit = "netsys__exit";;
 
 
+external mcast_set_loop : Unix.file_descr -> bool -> unit 
+  = "netsys_mcast_set_loop"
+external mcast_set_ttl : Unix.file_descr -> int -> unit 
+  = "netsys_mcast_set_ttl"
+external mcast_add_membership : 
+  Unix.file_descr -> Unix.inet_addr -> Unix.inet_addr -> unit 
+  = "netsys_mcast_add_membership"
+external mcast_drop_membership : 
+  Unix.file_descr -> Unix.inet_addr -> Unix.inet_addr -> unit 
+  = "netsys_mcast_drop_membership"
+
+
+
 (* Compatibility with older ocamlnet versions *)
 
 let really_write = really_gwrite `Read_write
