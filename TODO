@@ -3,8 +3,6 @@ Plan for Ocamlnet 3
 ----------------------------------------------------------------------
 
 - Focus RPC:
-  * Rpc_proxy: layer on top of Rpc_client w/ automatic connection handling
-  * Generate proxies
   * Rpc_server: Allow to set timeout for the server response itself
     (self-watching)
   * Annotations
@@ -80,6 +78,11 @@ Plan for Ocamlnet 3
   * Go through examples. Fix programming style
   * Gprof support (as for Wink)
   * Log of deprecated functions (Netlog). Enabled by default.
+
+--- Already done:
+
+  * Rpc_proxy: layer on top of Rpc_client w/ automatic connection handling
+  * Generate proxies
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0
