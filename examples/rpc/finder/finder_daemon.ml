@@ -108,14 +108,21 @@ let start() =
   let (opt_list, cmdline_cfg) = Netplex_main.args() in
 
   let use_mt = ref false in
-  let debug = ref false in
 
   let opt_list' =
     [ "-mt", Arg.Set use_mt,
       "  Use multi-threading instead of multi-processing";
       
-      "-debug", Arg.Set debug,
-      "  Enable (some) debug messages";
+      "-debug", Arg.String (fun s -> Netlog.Debug.enable_module s),
+      "<module>  Enable debug messages for <module>";
+
+      "-debug-all", Arg.Unit (fun () -> Netlog.Debug.enable_all()),
+      "  Enable all debug messages";
+
+      "-debug-list", Arg.Unit (fun () -> 
+				 List.iter print_endline (Netlog.Debug.names());
+				 exit 0),
+      "  Show possible modules for -debug, then exit"
    ] @ opt_list in
 
   Arg.parse
@@ -123,14 +130,6 @@ let start() =
     (fun s -> raise (Arg.Bad ("Don't know what to do with: " ^ s)))
     "usage: netplex [options]";
 
-  if !debug then (
-    (*Unixqueue_util.set_debug_mode !debug; *)
-    Netplex_log.debug_containers := !debug;
-    Netplex_log.debug_scheduling := !debug;
-    (*Rpc_client.verbose !debug; *)
-    (*Rpc_server.verbose !debug; *)
-  );
-  
   if Sys.os_type = "Win32" && not !use_mt then
     failwith "For Win32 multi-processing is unsupported. Use -mt switch";
 

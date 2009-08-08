@@ -6,8 +6,27 @@ Plan for Ocamlnet 3
   * Rpc_server: Allow to set timeout for the server response itself
     (self-watching)
   * Annotations
+  * Doc: Tutorial for Rpc_proxy. Upgrade one example.
 
-- Netlog/Nettrace
+- Netlog:
+
+  Modules to look through:
+  - Rpc_client DONE
+  - Rpc_server DONE
+  - netplex: redirect DONE
+
+  - Equeue
+  - Unixqueue_select
+  - Unixqueue_util
+  - Uq_gtk
+  - Uq_tcl
+  - netcgi2 Netcgi_ajp
+  - netcgi2 Netcgi_common
+  - netcgi2 Netcgi_scgi
+  - netclient
+  - nethttpd_engine
+  - Netplex_log.debug_*
+
 
 - Focus Win32:
 
@@ -45,7 +64,6 @@ Plan for Ocamlnet 3
   * Rpc_netplex: config var for Rpc_server.set_timeout
 
   * RPc_netplex:
-      - Debug log: RPC trace
       - "netplex.activations": Print all activations at a certain time
         (also for nethttpd?)
 
@@ -83,6 +101,7 @@ Plan for Ocamlnet 3
 
   * Rpc_proxy: layer on top of Rpc_client w/ automatic connection handling
   * Generate proxies
+  * Rpc trace
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0

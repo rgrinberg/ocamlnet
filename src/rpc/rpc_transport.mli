@@ -25,6 +25,9 @@ type sockaddr =
     | `Sockaddr of Unix.sockaddr
     ]
 
+val string_of_sockaddr : sockaddr -> string
+  (** Convert to string, for debugging purposes *)
+
 
 exception Error of string
   (** Passed back as [`Error]. Such errors are fatal. *)

@@ -371,6 +371,33 @@ Unixqueue.run esys
 (Note: To create servers that implement several program or version
 definitions, look for what the -srv2 switch of [ocamlrpcgen] generated.)
 
+{2:debuggig Debugging aids}
+
+There are some built-in debugging aids for developing RPC clients and
+servers. Debug messages can be enabled by setting certain variables
+to [true]:
+  - {!Rpc_client.Debug.enable}: Enables a general debug log for clients
+  - {!Rpc_client.Debug.enable_ptrace}: Enables the client-side procedure
+    trace. For every procedure call two messages are emitted, one for
+    the request message and one for the response message. The level of
+    verbosity can be set with {!Rpc_client.Debug.ptrace_verbosity}.
+  - {!Rpc_server.Debug.enable}: Enables a general debug log for servers
+  - {!Rpc_server.Debug.enable_ptrace}: Enables the server-side procedure
+    trace. For every procedure call three messages are emitted, one for
+    the request message, one at the time the request is decoded, and one
+    for the response message. The level of
+    verbosity can be set with {!Rpc_server.Debug.ptrace_verbosity}.
+  - {!Rpc_server.Debug.enable_ctrace}: Enables the server-side connection
+    trace
+
+The messages are output via {!Netlog.Debug}, and have a [`Debug] log
+level.
+
+In Netplex context, the messages are redirected to the current Netplex
+logger, so that they appear in the normal log file. Also, messages are
+suppressed when they refer to the internally used RPC clients and servers.
+
+
 {1:rpcgen Command line arguments of ocamlrpcgen}
 
 The tool accepts the following options:

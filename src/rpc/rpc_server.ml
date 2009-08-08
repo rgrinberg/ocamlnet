@@ -9,6 +9,8 @@ open Unixqueue
 open Uq_engines
 open Rpc_common
 open Rpc
+open Printf
+
 
 exception Connection_lost
 
@@ -150,7 +152,8 @@ type t =
 	mutable auth_peekers : (auth_peeker * t pre_auth_method) list;
 	mutable connections : connection list;
 	mutable master_acceptor : server_socket_acceptor option;
-	mutable transport_timeout : float
+	mutable transport_timeout : float;
+	mutable nolog : bool
       }
 
 and connection =
@@ -199,6 +202,7 @@ and session =
 	parameter : xdr_value;     (* XV_void if not used *)
 	result : Rpc_packer.packed_value;
          (* complete result; "" if not used *)
+	ptrace_result :string;  (* ptrace only; "" if not used *)
 	auth_method : t pre_auth_method;
 	auth_user : string;
 	auth_ret_flav : string;
@@ -267,28 +271,40 @@ let auth_transport = new auth_transport
 
   (*****)
 
-let debug_internals_log = ref None
+module Debug = struct
+  let enable = ref false
+  let enable_ctrace = ref false
+  let enable_ptrace = ref false
+  let ptrace_verbosity = ref `Name_abbrev_args
+  let disable_for_server srv = srv.nolog <- true
+end
 
-let debug_service_log = ref None
+let dlog0 = Netlog.Debug.mk_dlog "Rpc_server" Debug.enable
+let dlogr0 = Netlog.Debug.mk_dlogr "Rpc_server" Debug.enable
+
+let dlog srv m = if not srv.nolog then dlog0 m
+let dlogr srv m = if not srv.nolog then dlogr0 m
+
+let dlog0_ctrace = Netlog.Debug.mk_dlog "Rpc_server.Ctrace" Debug.enable_ctrace
+let dlogr0_ctrace = Netlog.Debug.mk_dlogr "Rpc_server.Ctrace" Debug.enable_ctrace
+
+let dlog_ctrace srv m = if not srv.nolog then dlog0_ctrace m
+let dlogr_ctrace srv m = if not srv.nolog then dlogr0_ctrace m
 
 
-let debug_service msg =
-  match !debug_service_log with
-    | None -> ()
-    | Some f -> f msg
+let dlog0_ptrace = Netlog.Debug.mk_dlog "Rpc_server.Ptrace" Debug.enable_ptrace
+let dlogr0_ptrace = Netlog.Debug.mk_dlogr "Rpc_server.Ptrace" Debug.enable_ptrace
 
-let debug_servicef msgf =
-  Printf.kprintf debug_service msgf
+let dlog_ptrace srv m = if not srv.nolog then dlog0_ptrace m
+let dlogr_ptrace srv m = if not srv.nolog then dlogr0_ptrace m
 
 
-let debug_internals msg =
-  match !debug_internals_log with
-    | None -> ()
-    | Some f -> f msg
+let () =
+  Netlog.Debug.register_module "Rpc_server" Debug.enable;
+  Netlog.Debug.register_module "Rpc_server.Ctrace" Debug.enable_ctrace;
+  Netlog.Debug.register_module "Rpc_server.Ptrace" Debug.enable_ptrace
 
-let debug_internalsf msgf =
-  Printf.kprintf debug_internals msgf
-
+  (*****)
 
 let sockaddrname sa =
   match sa with
@@ -358,10 +374,15 @@ type reaction =
     Execute_procedure
   | Reject_procedure of server_error
 
-let process_incoming_message srv conn sockaddr peeraddr message reaction =
+let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 
   let sockaddr_opt =
-    try Some(Lazy.force sockaddr) with _ -> None in
+    try Some(Lazy.force sockaddr_lz) with _ -> None in
+
+  let sockaddr =
+    match sockaddr_opt with
+      | Some a -> `Sockaddr a
+      | None -> `Implied in
 
   let peeraddr_opt =
     match peeraddr with
@@ -374,12 +395,12 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 	     | `Sockaddr a -> a
 	 ) in
 
-  let make_immediate_answer xid procname result =
+  let make_immediate_answer xid procname result f_ptrace_result =
     { server = conn;
       prog = None;
       sess_conn_id = if srv.prot = Rpc.Tcp then conn.conn_id
-                     else new connection_id sockaddr peeraddr_lz;
-      sockaddr = sockaddr;
+                     else new connection_id sockaddr_lz peeraddr_lz;
+      sockaddr = sockaddr_lz;
       peeraddr = peeraddr;
       call_id = (-1);          (* not applicable *)
       client_id = xid;
@@ -390,6 +411,7 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
       auth_user = "";
       auth_ret_flav = "AUTH_NONE";
       auth_ret_data = "";
+      ptrace_result = (if !Debug.enable_ptrace then f_ptrace_result() else "")
     }
   in
 
@@ -418,11 +440,9 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 	       let xid = Rpc_packer.peek_xid message in
 	       let reply = Rpc_packer.pack_accepting_reply xid
 			     ret_flav ret_data condition in
-	       let answer = make_immediate_answer xid "" reply in
-	       if !debug_service_log <> None then
-		 debug_servicef "Rpc_server (port %s, xid %s): Error %s"
-		   (mplexoptname conn.trans) (xidname answer.client_id) 
-		   (errname condition);
+	       let answer = 
+		 make_immediate_answer xid "" reply 
+		   (fun () -> "Error " ^ errname condition) in
 	       schedule_answer answer
 	    )
       | Xdr.Xdr_format _
@@ -432,10 +452,8 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 	       let xid = Rpc_packer.peek_xid message in
 	       let reply = Rpc_packer.pack_accepting_reply xid
 			     ret_flav ret_data Garbage in
-	       let answer = make_immediate_answer xid "" reply in
-	       if !debug_service_log <> None then
-		 debug_servicef "Rpc_server (port %s, xid %s): Error Garbage"
-		   (mplexoptname conn.trans) (xidname answer.client_id);
+	       let answer = make_immediate_answer xid "" reply 
+		 (fun () -> "Error Garbage") in
 	       schedule_answer answer
 	    )
       | Rpc_server condition ->
@@ -443,11 +461,8 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 	    (fun () ->
 	       let xid = Rpc_packer.peek_xid message in
 	       let reply = Rpc_packer.pack_rejecting_reply xid condition in
-	       let answer = make_immediate_answer xid "" reply in
-	       if !debug_service_log <> None then
-		 debug_servicef "Rpc_server (port %s, xid %s): Error %s"
-		   (mplexoptname conn.trans) (xidname answer.client_id)
-		   (errname condition);
+	       let answer = make_immediate_answer xid "" reply 
+		 (fun () -> "Error " ^ errname condition) in
 	       schedule_answer answer
 	    )
       | Abort(_,_) as x ->
@@ -460,10 +475,8 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 	       let xid = Rpc_packer.peek_xid message in
 	       let reply = Rpc_packer.pack_accepting_reply xid
 			     ret_flav ret_data System_err in
-	       let answer = make_immediate_answer xid "" reply in
-	       if !debug_service_log <> None then
-		 debug_servicef "Rpc_server (port %s, xid %s): Error System_err"
-		   (mplexoptname conn.trans) (xidname answer.client_id);
+	       let answer = make_immediate_answer xid "" reply
+		 (fun () -> "Error System_err") in
 	       schedule_answer answer
 	    )
   in
@@ -478,11 +491,23 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 	       = Rpc_packer.unpack_call_frame_l message
 	     in
 
+	     dlogr_ptrace srv
+	       (fun () ->
+		  sprintf
+		    "Request (sock=%s,peer=%s,xid=%lu) for [0x%lx,0x%lx,0x%lx]"
+		    (Rpc_transport.string_of_sockaddr sockaddr)
+		    (Rpc_transport.string_of_sockaddr peeraddr)
+		    (Rtypes.logical_int32_of_uint4 xid)
+		    (Rtypes.logical_int32_of_uint4 prog_nr)
+		    (Rtypes.logical_int32_of_uint4 vers_nr)
+		    (Rtypes.logical_int32_of_uint4 proc_nr)
+	       );
+	     
 	     let sess_conn_id =
 	       if srv.prot = Rpc.Tcp then 
 		 conn.conn_id
 	       else 
-		 new connection_id sockaddr peeraddr_lz
+		 new connection_id sockaddr_lz peeraddr_lz
 	     in
 
 	     (* First authenticate: *)
@@ -550,9 +575,20 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 			   prog procname message frame_len in
 
 
-		       if !debug_service_log <> None then
-			 debug_servicef "Rpc_server (port %s, xid %s): Call for %s"
-			   (mplexoptname conn.trans) (xidname xid) procname;
+		       dlogr_ptrace srv
+			 (fun () ->
+			    sprintf
+			      "Invoke (sock=%s,peer=%s,xid=%lu): %s"
+			      (Rpc_transport.string_of_sockaddr sockaddr)
+			      (Rpc_transport.string_of_sockaddr peeraddr)
+			      (Rtypes.logical_int32_of_uint4 xid)
+			      (Rpc_util.string_of_request
+				 !Debug.ptrace_verbosity
+				 prog
+				 procname
+				 param
+			      )
+			 );
 
 		       begin match proc with
 			   Sync p ->
@@ -563,11 +599,15 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 					   prog p.sync_name xid
 					   ret_flav ret_data result_value in
 			     let answer = make_immediate_answer
-			       xid procname reply in
-			     if !debug_service_log <> None then
-			       debug_servicef "Rpc_server (port %s, xid %s): Reply from %s"
-				 (mplexoptname conn.trans) (xidname xid) 
-				 procname;
+			       xid procname reply 
+			       (fun () ->
+				  Rpc_util.string_of_response
+				    !Debug.ptrace_verbosity
+				    prog
+				    procname
+				    result_value
+			       )
+			     in
 			     schedule_answer answer
 			 | Async p ->
 			     let u, m = match conn.peeked_user with
@@ -578,7 +618,7 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 			       { server = conn;
 				 prog = Some prog;
 				 sess_conn_id = sess_conn_id;
-				 sockaddr = sockaddr;
+				 sockaddr = sockaddr_lz;
 				 peeraddr = peeraddr;
 				 call_id = conn.next_call_id;
 				 client_id = xid;
@@ -589,6 +629,7 @@ let process_incoming_message srv conn sockaddr peeraddr message reaction =
 				 auth_user = u;
 				 auth_ret_flav = ret_flav;
 				 auth_ret_data = ret_data;
+				 ptrace_result = "";  (* not yet known *)
 			       } in
 			     conn.next_call_id <- conn.next_call_id + 1;
 			     p.async_invoke this_session param
@@ -609,9 +650,11 @@ let terminate_any srv conn =
     | None ->
 	()
     | Some mplex ->
-	if !debug_service_log <> None then
-	  debug_servicef "Rpc_server (port %s): Closing"
-	    (mplexname mplex);
+	dlogr_ctrace srv
+	  (fun () ->
+	     sprintf "(sock=%s,peer=%s): Closing"
+	       (Rpc_transport.string_of_sockaddr mplex#getsockname)
+	       (Rpc_transport.string_of_sockaddr mplex#getpeername));
 	conn.trans <- None;
 	mplex # abort_rw();
 	( try
@@ -670,24 +713,20 @@ let rec handle_incoming_message srv conn r =
 	raise e
 
     | `Ok(pv,trans_addr) ->
-	if !debug_internals_log <> None then 
-	  debug_internalsf "Rpc_server: got message";
+	dlog srv "got message";
 
 	if conn.close_when_empty then (
-	  if !debug_internals_log <> None then 
-	    debug_internalsf "Rpc_server: ignoring msg after shutdown";
+	    dlog srv "ignoring msg after shutdown";
 	) else (
 
 	  (* First check whether the message matches the filter rule: *)
 	  let rule =
 	    match trans_addr with
 	      | `Implied -> 
-		  if !debug_internals_log <> None then 
-		    debug_internalsf "Rpc_server: No filter 1 (implied address)";
+		  dlog srv "No filter 1 (implied address)";
 		  `Accept  (* Don't have the information to process filters *)
 	      | `Sockaddr peer ->
-		  if !debug_internals_log <> None then 
-		    debug_internalsf "Rpc_server: Checking filter 1";
+		  dlog srv "Checking filter 1";
 		  let rule = 
 		    unroll_rule (get_rule conn srv peer)
 		      (Rpc_packer.length_of_packed_value pv)
@@ -697,23 +736,39 @@ let rec handle_incoming_message srv conn r =
 	  conn.rule <- None;                 (* reset rule after usage *)
 	  
 	  let peeraddr = trans_addr in
-	  
-	  let sockaddr =
+
+	  let sockaddr, trans_sockaddr =
 	    match conn.trans with
 	      | None -> assert false
 	      | Some trans ->
-		  lazy ( match trans # getsockname with
-			   | `Sockaddr a -> a
-			   | `Implied -> failwith "Address not available" ) in
-	  
+		  ( lazy ( match trans # getsockname with
+			     | `Sockaddr a -> a
+			     | `Implied -> failwith "Address not available" ),
+		    trans#getsockname
+		  ) in
+		  
 	  ( match rule with
 	      | `Accept ->
 		  process_incoming_message
 		    srv conn sockaddr peeraddr pv Execute_procedure
 	      | `Deny ->
+		  dlogr_ptrace srv
+		    (fun () ->
+		       sprintf
+			 "Request (sock=%s,peer=%s): Deny"
+			 (Rpc_transport.string_of_sockaddr trans_sockaddr)
+			 (Rpc_transport.string_of_sockaddr peeraddr)
+		    );
 		  terminate_connection srv conn
 	      | `Drop ->
 		  (* Simply forget the message *)
+		  dlogr_ptrace srv
+		    (fun () ->
+		       sprintf
+			 "Request (sock=%s,peer=%s): Drop"
+			 (Rpc_transport.string_of_sockaddr trans_sockaddr)
+			 (Rpc_transport.string_of_sockaddr peeraddr)
+		    );
 		  ()
 	      | `Reject ->
 		  process_incoming_message
@@ -725,8 +780,7 @@ let rec handle_incoming_message srv conn r =
 	)
 
     | `End_of_file ->
-	if !debug_internals_log <> None then 
-          debug_internalsf "Rpc_server: End of file";
+        dlog srv "End of file";
 	terminate_connection srv conn
 
 
@@ -744,12 +798,10 @@ and next_incoming_message' srv conn trans =
 and handle_before_record srv conn n trans_addr =
   match trans_addr with
     | `Implied ->
-	if !debug_internals_log <> None then 
-	  debug_internalsf "Rpc_server: No filter 2 (implied address)";
+	dlog srv "No filter 2 (implied address)";
 	()     (* Don't have the information to process filters *)
     | `Sockaddr peer ->
-	if !debug_internals_log <> None then 
-	  debug_internalsf "Rpc_server: Checking filter 2";
+	dlog srv "Checking filter 2";
 	( match unroll_rule (get_rule conn srv peer) n with
 	    | `Accept -> ()
 	    | `Deny   -> terminate_connection srv conn
@@ -818,11 +870,9 @@ let rec handle_outgoing_message srv conn r =
 	raise e
 
     | `Ok () ->
-	if !debug_internals_log <> None then 
-          debug_internalsf "Rpc_server: message writing finished";
+        dlog srv "message writing finished";
 	if conn.close_when_empty && Queue.is_empty conn.replies then (
-	  if !debug_internals_log <> None then 
-            debug_internalsf "Rpc_server: closing connection gracefully";
+	  dlog srv "closing connection gracefully";
 	  terminate_connection srv conn
 	)
 	else
@@ -841,8 +891,21 @@ and next_outgoing_message' srv conn trans =
 
   match reply_opt with
     | Some reply ->
-	if !debug_internals_log <> None then 
-	  debug_internalsf "Rpc_server: next reply";
+	dlogr_ptrace srv
+	  (fun () ->
+	     let sockaddr =
+	       try `Sockaddr (Lazy.force reply.sockaddr)
+	       with _ -> `Implied in
+	     sprintf
+	       "Response (sock=%s,peer=%s,cid=%d,xid=%ld): %s"
+	       (Rpc_transport.string_of_sockaddr sockaddr)
+	       (Rpc_transport.string_of_sockaddr reply.peeraddr)
+	       reply.call_id
+	       (Rtypes.logical_int32_of_uint4 reply.client_id)
+	       reply.ptrace_result
+	  );
+
+	dlog srv "next reply";
 	trans # start_writing
 	  ~when_done:(fun r ->
 			handle_outgoing_message srv conn r)
@@ -850,8 +913,7 @@ and next_outgoing_message' srv conn trans =
 	  reply.peeraddr
     | None ->
 	(* this was the last reply in the queue *)
-	if !debug_internals_log <> None then 
-	  debug_internalsf "Rpc_server: last reply"
+	dlog srv "last reply"
 ;;
 
 check_for_output := next_outgoing_message ;;
@@ -878,7 +940,9 @@ type mode2 =
 
 let create2_srv prot esys =
   let default_exception_handler ex =
-    prerr_endline ("RPC server exception handler: Exception " ^ Netexn.to_string ex ^ " caught")
+    Netlog.log
+      `Crit
+      ("Rpc_server exception handler: Exception " ^ Netexn.to_string ex)
   in
 
   let none = Hashtbl.create 3 in
@@ -898,6 +962,7 @@ let create2_srv prot esys =
     connections = [];
     master_acceptor = None;
     transport_timeout = (-1.0);
+    nolog = false
   }
 ;;
 
@@ -944,9 +1009,11 @@ let create2_multiplexer_endpoint ?fd mplex =
     (fun () ->
        (* Try to peek credentials. This can be too early, however. *)
        if conn.trans <> None then (
-	 if !debug_service_log <> None then
-	   debug_servicef "Rpc_server (port %s): Serving connection"
-	     (portoptname fd);
+	 dlogr_ctrace srv
+	   (fun () ->
+	      sprintf "(sock=%s,peer=%s): Serving connection"
+		(Rpc_transport.string_of_sockaddr mplex#getsockname)
+		(portoptname fd));
 	 if srv.transport_timeout >= 0.0 then
 	   mplex # set_timeout 
 	     ~notify:(on_trans_timeout srv conn) srv.transport_timeout;
@@ -1014,9 +1081,12 @@ let create2_socket_server ?(config = default_socket_config)
 		    ~is_done:(fun mplex ->
 				let conn = connection srv mplex in
 				conn.fd <- Some slave_fd;
-				if !debug_service_log <> None then
-				  debug_servicef "Rpc_server (port %s): Serving connection"
-				    (portname slave_fd);
+				dlogr_ctrace srv
+				  (fun () ->
+				     sprintf "(sock=%s,peer=%s): Serving connection"
+				       (Rpc_transport.string_of_sockaddr 
+					  mplex#getsockname)
+				       (portname slave_fd));
 				if srv.transport_timeout >= 0.0 then
 				  mplex # set_timeout 
 				    ~notify:(on_trans_timeout srv conn) 
@@ -1080,8 +1150,9 @@ let create2_socket_server ?(config = default_socket_config)
 		  match Unix.getsockname s with
 		    | Unix.ADDR_INET(_,port) -> port
 		    | _ -> assert false in
-		if !debug_internals_log <> None then 
-		  debug_internalsf "Rpc_server: Using anonymous port %d" port;
+		dlogr srv
+		  (fun () ->
+		     sprintf "Using anonymous port %d" port);
 		srv.portmapped <- Some port;
 		(s, true)
 	      with
@@ -1135,9 +1206,12 @@ let create2_socket_server ?(config = default_socket_config)
 	  ~is_done:(fun mplex ->
 		      let conn = connection srv mplex in
 		      conn.fd <- Some fd;
-		      if !debug_service_log <> None then
-			debug_servicef "Rpc_server (port %s): Accepting datagrams"
-			  (portname fd);
+		      dlogr_ctrace srv
+			(fun () ->
+			   sprintf "(sock=%s,peer=%s): Accepting datagrams"
+			     (Rpc_transport.string_of_sockaddr 
+				mplex#getsockname)
+			     (portname fd));
 		      if srv.transport_timeout >= 0.0 then
 			mplex # set_timeout 
 			  ~notify:(on_trans_timeout srv conn) 
@@ -1172,9 +1246,10 @@ let create2_socket_server ?(config = default_socket_config)
 	    | _ ->
 		let (fd, close_inactive_descr) = get_descriptor() in
 
-		if !debug_service_log <> None then
-		  debug_servicef "Rpc_server (port %s): Listening"
-		    (portname fd);
+		dlogr_ctrace srv
+		  (fun () ->
+		     sprintf "(sock=%s): Listening"
+		       (portname fd));
 		let backlog =
 		  match override_listen_backlog with
 		    | Some n -> n
@@ -1261,15 +1336,17 @@ let bind ?program_number ?version_number prog0 procs srv =
       ) in
 
   let pm_unset_old_port pm old_port f =
-    if !debug_internals_log <> None then 
-      debug_internalsf "Rpc_server: unregistering port: %d" old_port;
+    dlogr srv
+      (fun () ->
+	 sprintf "unregistering port: %d" old_port);
     Rpc_portmapper_clnt.PMAP.V2.pmapproc_unset'async pm (pm_mapping old_port)
       (fun get_result ->
 	 try
 	   let success = get_result() in
-	   if !debug_internals_log <> None then 
-	     debug_internalsf "Rpc_server: portmapper reports %s"
-	       (if success then "success" else "failure");
+	   dlogr srv
+	     (fun () ->
+		sprintf "portmapper reports %s"
+		  (if success then "success" else "failure"));
 	   if not success then
 	     failwith "Rpc_server.bind: Cannot unregister old port";
 	   f ()
@@ -1278,15 +1355,17 @@ let bind ?program_number ?version_number prog0 procs srv =
       ) in
 
   let pm_set_new_port pm new_port f =
-    if !debug_internals_log <> None then 
-      debug_internalsf "Rpc_server: registering port: %d" new_port;
+    dlogr srv
+      (fun () ->
+	 sprintf "registering port: %d" new_port);
     Rpc_portmapper_clnt.PMAP.V2.pmapproc_set'async pm (pm_mapping new_port)
       (fun get_result ->
 	 try
 	   let success = get_result() in
-	   if !debug_internals_log <> None then 
-	     debug_internalsf "Rpc_server: portmapper reports %s"
-	       (if success then "success" else "failure");
+	   dlogr srv
+	     (fun () ->
+		sprintf "portmapper reports %s"
+		  (if success then "success" else "failure"));
 	   if not success then
 	     failwith "Rpc_server.bind: Cannot register port";
 	   f ()
@@ -1366,15 +1445,17 @@ let unbind' ?(followup = fun () -> ())
     (try srv.exception_handler error with _ -> ()) in
 
   let pm_unset_port pm port f =
-    if !debug_internals_log <> None then 
-      debug_internalsf "Rpc_server: unregistering port: %d" port;
+    dlogr srv
+      (fun () ->
+	 sprintf "unregistering port: %d" port);
     Rpc_portmapper_clnt.PMAP.V2.pmapproc_unset'async pm (pm_mapping port)
       (fun get_result ->
 	 try
 	   let success = get_result() in
-	   if !debug_internals_log <> None then 
-	     debug_internalsf "Rpc_server: portmapper reports %s"
-	       (if success then "success" else "failure");
+	   dlogr srv
+	     (fun () ->
+		sprintf "portmapper reports %s"
+		  (if success then "success" else "failure"));
 	   if not success then
 	     failwith "Rpc_server.unbind: Cannot unregister port";
 	   f ()
@@ -1533,14 +1614,17 @@ let reply a_session result_value =
     let reply_session =
       { a_session with
 	  parameter = XV_void;
-	  result = reply
+	  result = reply;
+	  ptrace_result = (if !Debug.enable_ptrace then
+	  		     Rpc_util.string_of_response
+			       !Debug.ptrace_verbosity
+			       prog
+			       a_session.procname
+			       result_value
+			   else ""
+			  )
       }
     in
-
-    if !debug_service_log <> None then
-      debug_servicef "Rpc_server (port %s, xid %s): Reply from %s"
-	(mplexoptname conn.trans) (xidname a_session.client_id) 
-	a_session.procname;
 
     Queue.add reply_session conn.replies;
 
@@ -1571,14 +1655,14 @@ let reply_error a_session condition =
     let reply_session =
       { a_session with
 	  parameter = XV_void;
-	  result = reply
+	  result = reply;
+	  ptrace_result = (if !Debug.enable_ptrace then
+			     "Error " ^ errname condition
+			   else ""
+			  )
+
       }
     in
-
-    if !debug_service_log <> None then
-      debug_servicef "Rpc_server (port %s, xid %s): Error %s"
-	(mplexoptname conn.trans) (xidname a_session.client_id)
-	(errname condition);
 
     Queue.add reply_session conn.replies;
 
@@ -1615,9 +1699,9 @@ let set_timeout srv tmo =
   srv.transport_timeout <- tmo
 
 let stop_server ?(graceful = false) srv =
-  if !debug_internals_log <> None then 
-    debug_internalsf "Rpc_server: Stopping %s"
-      (if graceful then " gracefully" else "");
+  dlogr srv
+    (fun () ->
+       sprintf "Stopping %s" (if graceful then " gracefully" else ""));
   (* Close TCP server socket, if present: *)
   ( match srv.master_acceptor with
       | Some acc -> 
@@ -1658,11 +1742,5 @@ let stop_connection srv conn_id =
   )
 
 let verbose b =
-  if b then (
-    debug_service_log := Some prerr_endline;
-    debug_internals_log := Some prerr_endline
-  )
-  else (
-    debug_service_log := None;
-    debug_internals_log := None
-  )
+  Debug.enable := b;
+  Debug.enable_ctrace := b

@@ -322,7 +322,8 @@ val set_batch_call : t -> unit
    *)
 
 val set_exception_handler : t -> (exn -> unit) -> unit
-  (** sets an exception handler (the default prints the exception to stderr).
+  (** sets an exception handler (the default prints the exception 
+   * with [`Crit] level to the logger set in {!Netlog}).
    * Only exceptions resulting from invocations of a
    * callback function are forwarded to this handler (unless wrapped
    * by [Unbound_exception]).
@@ -489,10 +490,6 @@ val set_auth_methods : t -> auth_method list -> unit
    * The default is [ auth_none ]
    *)
 
-val verbose : bool -> unit
-  (** set whether you want debug messages or not *)
-
-
 (** This module type is what the generated "clnt" module assumes about the
     client interface
  *)
@@ -635,3 +632,28 @@ val sync_call :
    *   [unbound_sync_call] instead.
    *)
 
+val verbose : bool -> unit
+  (** set whether you want debug messages or not (same as setting
+      {!Rpc_client.Debug.enable})
+   *)
+
+
+module Debug : sig
+  val enable : bool ref
+    (** Whether debug messages are enabled. 
+        See {!Netlog.Debug} for more information.
+     *)
+
+  val enable_ptrace : bool ref
+    (** Whether the procedure trace is enabled as debug messages.
+        The procedure trace outputs for every RPC call and response
+        a debug message. [ptrace_verbosity] says how verbose.
+     *)
+
+  val ptrace_verbosity : Rpc_util.verbosity ref
+    (** How verbose the ptrace is. Defaults to [`Name_abbrev_args] *)
+
+  val disable_for_client : t -> unit
+    (** Disables all log messages for this client (internally used) *)
+
+end

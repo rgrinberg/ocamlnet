@@ -5,6 +5,7 @@
 
 open Rpc
 open Rpc_packer
+open Printf
 
 
 type 't result =
@@ -22,6 +23,17 @@ type sockaddr =
     [ `Implied
     | `Sockaddr of Unix.sockaddr
     ]
+
+let string_of_sockaddr =
+  function
+    | `Implied -> "<implied>"
+    | `Sockaddr sa ->
+	( match sa with
+	    | Unix.ADDR_INET(ip,p) ->
+		sprintf "%s:%d" (Unix.string_of_inet_addr ip) p
+	    | Unix.ADDR_UNIX p ->
+		String.escaped p
+	)
 
 exception Error of string
 

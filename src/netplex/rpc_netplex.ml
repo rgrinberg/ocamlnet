@@ -126,15 +126,6 @@ let rpc_factory
 		~close_inactive_descr:true Rpc.Tcp fd esys in
 	      Uq_engines.when_state
 		~is_done:(fun mplex ->
-			    if !debug_rpc_internals then (
-			      Rpc_server.debug_internals_log :=
-				Some(container # log `Debug)
-			    );
-			    if !debug_rpc_service then (
-			      Rpc_server.debug_service_log :=
-				Some(container # log `Debug)
-			    );
-
 			    let srv = 
 			      Rpc_server.create2 
 				(`Multiplexer_endpoint mplex) esys in

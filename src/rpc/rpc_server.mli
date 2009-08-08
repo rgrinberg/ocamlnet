@@ -328,7 +328,7 @@ val set_exception_handler : t -> (exn -> unit) -> unit
    * exceptions and any exceptions resulting from I/O problems.
    *
    * NOTES ABOUT EXCEPTIONS:
-   * - The default exception handler just prints the exception on stderr.
+   * - The default exception handler logs a [`Crit] message using {!Netlog}.
    * - I/O problems usually lead to an 'Abort' of the whole server.
    *)
 
@@ -448,13 +448,34 @@ val get_auth_method : session -> auth_method
   (** Returns the method that was used to authenticate the user. *)
 
 val verbose : bool -> unit
-  (** Set whether you want debug messages to stderr or not *)
-
-val debug_internals_log : (string -> unit) option ref
-val debug_service_log : (string -> unit) option ref
-  (** These are the two debug logging facilities. "Internals" is for debugging
-    * Rpc_server, "service" is for debugging how the user code interacts
-    * with Rpc_server.
-    *
-    * The [verbose] function simply sets these functions.
+  (** {b Deprecated.}
+      Set whether you want debug messages to stderr or not
    *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Whether debug messages of general kind are enabled. 
+        See {!Netlog.Debug} for more information.
+     *)
+
+  val enable_ctrace : bool ref
+    (** Whether debug messages are enabled that trace connection events.
+        See {!Netlog.Debug} for more information.
+
+        The "module name" for these messages is "Rpc_server.Ctrace".
+     *)
+
+  val enable_ptrace : bool ref 
+    (** Whether the procedure trace is enabled.
+        The procedure trace outputs for every RPC call and response
+        a debug message. [ptrace_verbosity] says how verbose.
+     *)
+
+  val ptrace_verbosity : Rpc_util.verbosity ref
+    (** How verbose the ptrace is. Defaults to [`Name_abbrev_args] *)
+
+  val disable_for_server : t -> unit
+    (** Disables logging for this server *)
+
+
+end

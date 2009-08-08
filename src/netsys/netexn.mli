@@ -3,7 +3,7 @@
 (** Exception registry
 
     This module allow the user to register exceptions, and to set a
-    custom exception printing function. The results in nicer exception
+    custom exception printing function. This results in nicer exception
     prints when [Netexn.to_string] is called instead of [Printexc.to_string].
 
     Generally, [Printexc.to_string] works if:

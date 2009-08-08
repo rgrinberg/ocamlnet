@@ -7,7 +7,6 @@ let start() =
   let tmo = ref (-1.0) in
   let shutdown = ref false in
   let lastquery = ref false in
-  let debug = ref false in
   Arg.parse
     [ "-host", Arg.Set_string host,
       "<hostname>  Contact the finder daemon on this host";
@@ -24,8 +23,16 @@ let start() =
       "-lastquery", Arg.Set lastquery,
       "  Show the last query";
 
-      "-debug", Arg.Set debug,
-      "  Enable (some) debug messages";
+      "-debug", Arg.String (fun s -> Netlog.Debug.enable_module s),
+      "<module>  Enable debug messages for <module>";
+
+      "-debug-all", Arg.Unit (fun () -> Netlog.Debug.enable_all()),
+      "  Enable all debug messages";
+
+      "-debug-list", Arg.Unit (fun () -> 
+				 List.iter print_endline (Netlog.Debug.names());
+				 exit 0),
+      "  Show possible modules for -debug, then exit"
     ]
     (fun s -> query := Some s)
     "usage: finder_client [options] <query>";
@@ -38,8 +45,6 @@ let start() =
 	  None
       | Some q -> 
 	  Some q in
-
-  Unixqueue_util.set_debug_mode !debug;
 
   let rpc_client =
     match !port with

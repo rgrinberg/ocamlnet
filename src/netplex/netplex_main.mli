@@ -50,6 +50,12 @@ val startup :
     *
     * The [config_parser] is by default [Netplex_config.read_config_file].
     * You can override it by whatever parser you would like to use.
+    *
+    * As side-effect, the current logger of the {!Netlog} module is set
+    * to selected Netplex logger. Note that this setting remains active
+    * even after [startup] returns to the caller. Also note that log messages
+    * submitted via {!Netlog} appear as from component "netplex.other"
+    * if they are sent from outside of a container.
    *)
 
 

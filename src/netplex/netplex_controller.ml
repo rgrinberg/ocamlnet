@@ -352,6 +352,7 @@ object(self)
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, fd_srv))
 	  controller#event_system in
+      Rpc_server.Debug.disable_for_server rpc;
       Rpc_server.set_exception_handler rpc
 	(fun err ->
 	   controller # logger # log
@@ -363,6 +364,7 @@ object(self)
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, sys_fd_srv))
 	  controller#event_system in
+      Rpc_server.Debug.disable_for_server sys_rpc;
       Rpc_server.set_exception_handler rpc
 	(fun err ->
 	   controller # logger # log

@@ -118,6 +118,24 @@ let startup ?(late_initializer = fun _ _ -> ())
 	 let controller = 
 	   Netplex_controller.create_controller par controller_config in
 
+	 (* tricky: it may happen that the logging of a message induces
+            further debug messages. This is currently handled in the
+            implementation of [Netplex_container]. In particular, logging
+            is disabled for the client transmitting log messages.
+	  *)
+
+	 Netlog.current_logger :=
+	   (fun level message ->
+	      try
+		Netplex_cenv.log level message
+	      with
+		| Netplex_cenv.Not_in_container_thread ->
+		    controller # logger # log
+		      ~component:"netplex.other"
+		      ~level
+		      ~message
+	   );
+
 	 let processors =
 	   List.map
 	     (fun (sockserv_cfg, 

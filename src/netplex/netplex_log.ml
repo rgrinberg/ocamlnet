@@ -5,33 +5,10 @@ open Printf
 type level =
     [ `Emerg | `Alert | `Crit | `Err | `Warning | `Notice | `Info | `Debug ]
 
-let level_weight =
-  function
-    | `Emerg   -> 0
-    | `Alert   -> 1
-    | `Crit    -> 2
-    | `Err     -> 3
-    | `Warning -> 4
-    | `Notice  -> 5
-    | `Info    -> 6
-    | `Debug   -> 7
-
-let level_names =
-  [| "emerg"; "alert"; "crit"; "err"; "warning"; "notice"; "info"; "debug" |]
-
-let level_of_string s =
-  let s = String.lowercase s in
-  match s with
-    | "emerg"   -> `Emerg
-    | "alert"   -> `Alert
-    | "crit"    -> `Crit
-    | "err"     -> `Err
-    | "warning" -> `Warning
-    | "notice"  -> `Notice
-    | "info"    -> `Info
-    | "debug"   -> `Debug
-    | _         -> failwith ("Unknown level: " ^ s)
-;;
+let level_weight = Netlog.level_weight
+let level_of_string = Netlog.level_of_string
+let string_of_level = Netlog.string_of_level
+let level_names = Netlog.level_names
 
 
 class type logger =
@@ -367,7 +344,7 @@ object
 	       if String.lowercase(max_level_str) = "all" then
 		 `All
 	       else
-		 level_of_string max_level_str
+		 (level_of_string max_level_str :> [level | `All] )
 	     with
 	       | _ ->
 		   failwith ("In section " ^ cf # print addr ^ ": Bad max_level parameter value: " ^ max_level_str) in

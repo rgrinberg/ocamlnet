@@ -10,6 +10,7 @@ open Rpc
 open Rpc_common
 open Rpc_packer
 open Unixqueue
+open Printf
 
 exception Message_not_processable
 
@@ -130,6 +131,7 @@ type call =
 
 and t =
       { mutable ready : bool;
+	mutable nolog : bool;
 
         mutable trans : Rpc_transport.rpc_multiplex_controller option;
 	mutable progs :  Rpc_program.t list;
@@ -194,7 +196,36 @@ end
 
 let auth_none = new auth_none
 
-let debug = ref false
+module Debug = struct
+  let enable = ref false
+  let enable_ptrace = ref false
+  let ptrace_verbosity = ref `Name_abbrev_args
+  let disable_for_client c = c.nolog <- true
+end
+
+let dlog0 = Netlog.Debug.mk_dlog "Rpc_client" Debug.enable
+let dlogr0 = Netlog.Debug.mk_dlogr "Rpc_client" Debug.enable
+
+let dlog cl msg =
+  if not cl.nolog then dlog0 msg
+
+let dlogr cl getmsg =
+  if not cl.nolog then dlogr0 getmsg
+
+let dlog0_ptrace = Netlog.Debug.mk_dlog "Rpc_client.Ptrace" Debug.enable_ptrace
+let dlogr0_ptrace = Netlog.Debug.mk_dlogr "Rpc_client.Ptrace" Debug.enable_ptrace
+
+let dlog_ptrace cl msg =
+  if not cl.nolog then dlog0_ptrace msg
+
+let dlogr_ptrace cl getmsg =
+  if not cl.nolog then dlogr0_ptrace getmsg
+
+
+let () =
+  Netlog.Debug.register_module "Rpc_client" Debug.enable;
+  Netlog.Debug.register_module "Rpc_client.Ptrace" Debug.enable_ptrace
+
 
   (*****)
 
@@ -230,21 +261,20 @@ let pass_result cl call f =
   (* pass 'f' to the call back function: *)
 
   try
-    if !debug then prerr_endline "Rpc_client: Calling back";
+    dlog cl "Calling back";
     call.get_result f;
-    if !debug then prerr_endline "Rpc_client: Returned from callback";
+    dlog cl "Returned from callback";
   with
     | Keep_call as x ->
-	if !debug then prerr_endline "Rpc_client: Keep_call";
+	dlog cl "Keep_call";
 	raise x
     | Unbound_exception x ->
-	if !debug then prerr_endline "Rpc_client: Unbound_exception";
+	dlog cl "Unbound_exception";
 	raise x
     | any ->
 	begin  (* pass the exception to the exception handler: *)
-	  if !debug then
-	    prerr_endline ("Rpc_client: Exception from callback: " ^
-			     Netexn.to_string any);
+	  dlogr cl (fun () -> 
+		      "Exception from callback: " ^ Netexn.to_string any);
 	  cl.exception_handler any
 	end
 
@@ -255,10 +285,10 @@ let pass_exception cl call x =
    *)
   if call.state <> Done then (  (* Don't call back twice *)
     try
-      if !debug then (
-	let sx = Netexn.to_string x in
-	prerr_endline ("Rpc_client: Passing exception " ^ sx)
-      );
+      dlogr cl
+	(fun () ->
+	   let sx = Netexn.to_string x in
+	   "Passing exception " ^ sx);
       pass_result cl call (fun () -> raise x)
     with
 	Keep_call -> ()          (* ignore *)
@@ -266,7 +296,7 @@ let pass_exception cl call x =
 
 let pass_exception_to_all cl x =
   (* Caution! This function does not erase the set of pending calls.  *)
-  if !debug then prerr_endline "Rpc_client: Passing exception to all";
+  dlog cl "Passing exception to all";
 
   let fn_list = ref [] in
   let add_fn xid call =
@@ -283,7 +313,7 @@ let pass_exception_to_all cl x =
 
 let close ?error ?(ondown=fun()->()) cl =
   if cl.ready then (
-    if !debug then prerr_endline "Rpc_client: Closing";
+    dlog cl "Closing";
     cl.ready <- false;
     ( match error with
 	| None -> pass_exception_to_all cl Message_lost
@@ -366,7 +396,7 @@ let remove_pending_call cl call =
 let retransmit cl call =
   if call.state = Pending || call.state = Waiting then begin
     if call.retrans_count > 0 then begin
-      if !debug then prerr_endline "Rpc_client: Retransmitting";
+      dlog cl "Retransmitting";
       (* Make the 'call' waiting again *)
       Queue.add call cl.waiting_calls;
       (* Decrease the retransmission counter *)
@@ -380,7 +410,7 @@ let retransmit cl call =
     end
     else begin
       (* still no answer after maximum number of retransmissions *)
-      if !debug then prerr_endline "Rpc_client: Call timed out!";
+      dlog cl "Call timed out!";
       remove_pending_call cl call;
       (* Note that we do not remove the call from waiting_calls for
          performance reasons. We simply skip it there if we find it.
@@ -422,7 +452,7 @@ let set_timeout cl call =
     Unixqueue.once cl.esys g call.call_timeout
       (fun () ->
 	 call.timeout_group <- None;
-	 if !debug then prerr_endline "Rpc_client: Timeout handler";
+	 dlog cl "Timeout handler";
 	 retransmit cl call;
 	 (* Maybe we have to cancel reading: *)
 	 !check_for_input cl
@@ -508,7 +538,18 @@ let unbound_async_call cl prog procname param receiver =
   (*****)
 
 
-let process_incoming_message cl message =
+type 'a threeway =
+  | Value of 'a
+  | Novalue
+  | Error of exn
+
+
+let process_incoming_message cl message peer =
+
+  let sock = 
+    match cl.trans with
+      | None -> `Implied
+      | Some t -> t#getsockname in
 
     (* Got a 'message' for which the corresponding 'call' must be searched: *)
 
@@ -548,8 +589,17 @@ let process_incoming_message cl message =
 	    call.call_auth_session # server_rejects error;
               (* may raise an exception *)
 	    remove_pending_call cl call;
+	    dlogr_ptrace cl
+	      (fun () ->
+		 sprintf
+		   "RPC <-- (sock=%s,peer=%s,xid=%d) Auth error, will repeat: %s"
+		   (Rpc_transport.string_of_sockaddr sock)
+		   (Rpc_transport.string_of_sockaddr peer)
+		   xid
+		   (Rpc.string_of_server_error error)
+	      );
 	    add_call_again cl call;
-	    None                    (* don't pass a value back to the caller *)
+	    Novalue                (* don't pass a value back to the caller *)
 	| Some Auth_too_weak ->
 	    (* Automatic retry with next auth_method *)
 	    if call.call_auth_method = cl.current_auth_method then begin
@@ -568,43 +618,88 @@ let process_incoming_message cl message =
 	    (* else: in the meantime the method has already been
 	     * switched
 	     *)
+	    dlogr_ptrace cl
+	      (fun () ->
+		 sprintf
+		   "RPC <-- (sock=%s,peer=%s,xid=%d) Auth_too_weak, will repeat"
+		   (Rpc_transport.string_of_sockaddr sock)
+		   (Rpc_transport.string_of_sockaddr peer)
+		   xid
+	      );
 	    unbound_async_call 
 	      cl call.prog call.proc call.xdr_value call.get_result;
-	    None                     (* don't pass a value back to the caller *)
+	    Novalue                (* don't pass a value back to the caller *)
 	| _ ->
 	    let (xid,verf_flavour,verf_data,response) =
 	      Rpc_packer.unpack_reply call.prog call.proc message
 		(* may raise an exception *)
             in
 	    call.call_auth_session # server_accepts verf_flavour verf_data;
-	    Some (fun () -> response)
+	    Value response
       end
     with
 	error ->
 	  (* The call_auth_session is simply dropped. *)
 	  (* Forward the exception [error] to the caller: *)
-	  Some (fun () -> raise error)
+	  Error error
     in
 
     match result_opt with
-	None ->
+      | Novalue ->
 	  (* There is no result yet *)
 	  ()
 
-      | Some result ->
+      | Value result ->
 
           (* pass result to the user *)
 
-	  try
-	    pass_result cl call result;      (* may raise Keep_call *)
-	    (* Side effect: Changes the state of [call] to [Done] *)
-	    remove_pending_call cl call;
-	    cl.unused_auth_sessions <-
-	                       call.call_auth_session ::cl.unused_auth_sessions;
-	  with
-	      Keep_call ->
-		call.state <- Pending
+	  ( try
+	      dlogr_ptrace cl
+		(fun () ->
+		   sprintf
+		     "RPC <-- (sock=%s,peer=%s,xid=%d) %s"
+		     (Rpc_transport.string_of_sockaddr sock)
+		     (Rpc_transport.string_of_sockaddr peer)
+		     xid
+		     (Rpc_util.string_of_response
+			!Debug.ptrace_verbosity
+			call.prog
+			call.proc
+			result
+		     )
+		);
+	      let f = (fun () -> result) in
+	      pass_result cl call f;      (* may raise Keep_call *)
+	      (* Side effect: Changes the state of [call] to [Done] *)
+	      remove_pending_call cl call;
+	      cl.unused_auth_sessions <-
+	        call.call_auth_session ::cl.unused_auth_sessions;
+	    with
+		Keep_call ->
+		  call.state <- Pending
+	  )
 
+      | Error error ->
+	  ( try
+	      dlogr_ptrace cl
+		(fun () ->
+		   sprintf
+		     "RPC <-- (sock=%s,peer=%s,xid=%d) Error %s"
+		     (Rpc_transport.string_of_sockaddr sock)
+		     (Rpc_transport.string_of_sockaddr peer)
+		     xid
+		     (Netexn.to_string error)
+		);
+	      let f = (fun () -> raise error) in
+	      pass_result cl call f;      (* may raise Keep_call *)
+	      (* Side effect: Changes the state of [call] to [Done] *)
+	      remove_pending_call cl call;
+	      cl.unused_auth_sessions <-
+	        call.call_auth_session ::cl.unused_auth_sessions;
+	    with
+		Keep_call ->
+		  call.state <- Pending
+	  )
 
   (*****)
 
@@ -615,24 +710,23 @@ let rec handle_incoming_message cl r =
 	close ~error:(Communication_error e) cl
 
     | `Ok(pv,addr) ->
-	if !debug then prerr_endline "Rpc_client: Message arrived";
+	dlog cl "Message arrived";
 	( try
 	    ( match addr with
 		| `Implied -> ()
 		| `Sockaddr a ->
 		    cl.last_replier <- Some a
 	    );
-	    process_incoming_message cl pv
+	    process_incoming_message cl pv addr
 	  with
 	      Message_not_processable ->
-		if !debug then
-		  prerr_endline "Rpc_client: message not processable";
+		dlog cl "message not processable";
 		()
 	);
 	(next_incoming_message cl : unit)
 
     | `End_of_file ->
-	if !debug then prerr_endline "Rpc_client: End of file";
+	dlog cl "End of file";
 	close cl
 
 and next_incoming_message cl =
@@ -649,7 +743,7 @@ and next_incoming_message' cl trans =
       ()
   )
   else
-    if !debug then prerr_endline "Rpc_client: Stopping reading";
+    dlog cl "Stopping reading";
 ;;
 
 
@@ -663,7 +757,7 @@ let rec handle_outgoing_message cl call r =
 	close ~error:(Communication_error e) cl
 
     | `Ok () ->
-	if !debug then prerr_endline "Rpc_client: message writing finished";
+	dlog cl "message writing finished";
 	if call.batch_flag || call.call_timeout = 0.0 then (
 	  try
 	    if call.batch_flag then
@@ -695,17 +789,34 @@ and next_outgoing_message' cl trans =
 
 	if call.state = Done then (
 	  (* That can happen for calls that timeout before they are sent *)
-	  if !debug then
-	    prerr_endline "Rpc_client: found call that has been done";
+	  dlog cl "found call that has been done";
 	  next_outgoing_message cl
 	)
 	else (
+	  let dest =
+	    match call.destination with
+	      | Some d -> `Sockaddr d
+	      | None -> trans#getpeername in
 	  ( match call.state with
 	      | Done -> assert false
 	      | Waiting ->
 		  cl.pending_calls <-
 		    SessionMap.add call.xid call cl.pending_calls;
 		  call.state <- Pending;
+		  dlogr_ptrace cl
+		    (fun () ->
+		       sprintf
+			 "RPC --> (sock=%s,peer=%s,xid=%d) %s"
+			 (Rpc_transport.string_of_sockaddr trans#getsockname)
+			 (Rpc_transport.string_of_sockaddr dest)
+			 call.xid
+			 (Rpc_util.string_of_request
+			    !Debug.ptrace_verbosity
+			    call.prog
+			    call.proc
+			    call.xdr_value
+			 )
+		    )
 	      | Pending ->
 		  ()
 		    (* The call is already member of [pending_calls]
@@ -718,12 +829,7 @@ and next_outgoing_message' cl trans =
 
 	  (* Send the message: *)
 
-	  let dest =
-	    match call.destination with
-	      | Some d -> `Sockaddr d
-	      | None -> trans#getpeername in
-
-	  if !debug then prerr_endline "Rpc_client: start_writing";
+	  dlog cl "start_writing";
 	  trans # start_writing
 	    ~when_done:(fun r ->
 			  handle_outgoing_message cl call r)
@@ -747,7 +853,7 @@ check_for_output := next_outgoing_message ;;
 
 
 let shutdown_connector cl mplex ondown =
-  if !debug then prerr_endline "Rpc_client: shutdown_connector";
+  dlog cl "shutdown_connector";
   mplex # abort_rw();
   ( try
       mplex # start_shutting_down
@@ -902,12 +1008,39 @@ let rec internal_create initial_xid
       | `Socket(_,_,conf) -> conf # non_blocking_connect
       | _ -> true in
 
+  let cl =
+    (* preliminary version of the client *)
+    { ready = true;
+      trans = None;
+      progs = ( match prog_opt with None -> [] | Some p -> [p] );
+      prot = Rpc.Udp;
+      esys = esys;
+      est_engine = None;
+      shutdown_connector = shutdown;
+      waiting_calls = Queue.create();
+      pending_calls = SessionMap.empty;
+      next_xid = initial_xid;
+      next_destination = None;
+      next_timeout = (-1.0);
+      next_max_retransmissions = 0;
+      next_batch_flag = false;
+      last_replier = None;
+      timeout = (-1.0);
+      max_retransmissions = 0;
+      exception_handler = (fun _ -> ());
+      auth_methods = [ ];
+      current_auth_method = auth_none;
+      unused_auth_sessions = [];
+      nolog = false;
+    }
+  in
+
   let portmapper_engine prot host prog esys = 
     (* Performs GETPORT for the program on [host]. We use 
      * Rpc_portmapper_aux but not Rpc_portmapper_clnt. The latter is
      * impossible because of a dependency cycle.
      *)
-    if !debug then prerr_endline "Rpc_client: starting portmapper query";
+    dlog cl "starting portmapper query";
     let pm_port = Rtypes.int_of_uint4 Rpc_portmapper_aux.pmap_port in
     let pm_prog = Rpc_portmapper_aux.program_PMAP'V2 in
     let pm_client = 
@@ -933,7 +1066,7 @@ let rec internal_create initial_xid
 	(fun() -> close pm_client) in
     new Uq_engines.map_engine
       ~map_done:(fun r ->
-		   if !debug then prerr_endline "Rpc_client: Portmapper GETPORT done";
+		   dlog cl "Portmapper GETPORT done";
 		   let addr =
 		     match pm_client.trans with
 		       | None -> assert false
@@ -952,7 +1085,7 @@ let rec internal_create initial_xid
 		     `Done(addr, port)
 		)
       ~map_error:(fun err ->
-		    if !debug then prerr_endline "Rpc_client: Portmapper GETPORT error";
+		    dlog cl "Portmapper GETPORT error";
 		    close_deferred();
 		    `Error err)
       (new unbound_async_call pm_client pm_prog "PMAPPROC_GETPORT" v)
@@ -991,7 +1124,9 @@ let rec internal_create initial_xid
     new Uq_engines.seq_engine
       (connect_engine addr esys)
       (fun status ->
-	  if !debug then prerr_endline ("Rpc_client: Non-blocking socket connect successful for " ^ id_s);
+	  dlogr  cl
+	    (fun () -> 
+	       "Non-blocking socket connect successful for " ^ id_s);
 	 let fd = Uq_engines.client_socket status in
 	 conf # multiplexing ~close_inactive_descr:true prot fd esys
       ) in
@@ -1002,7 +1137,9 @@ let rec internal_create initial_xid
     Unixqueue.run conn_esys;
     match c # state with
       | `Done status ->
-	  if !debug then prerr_endline ("Rpc_client: Blocking socket connect successful for " ^ id_s);
+	  dlogr cl
+	    (fun () ->
+	       "Blocking socket connect successful for " ^ id_s);
 	  let fd = Uq_engines.client_socket status in
 	  conf # multiplexing ~close_inactive_descr:true prot fd esys
       | `Error err ->
@@ -1074,38 +1211,30 @@ let rec internal_create initial_xid
 
   let timeout = if prot = Udp then 15.0 else (-.1.0) in
   let max_retransmissions = if prot = Udp then 3 else 0 in
-  let cl =
-    { ready = true;
-      trans = None;
-      progs = ( match prog_opt with None -> [] | Some p -> [p] );
-      prot = prot;
-      esys = esys;
-      est_engine = Some establish_engine;
-      shutdown_connector = shutdown;
-      waiting_calls = Queue.create();
-      pending_calls = SessionMap.empty;
-      next_xid = initial_xid;
-      next_destination = None;
-      next_timeout = timeout;
-      next_max_retransmissions = max_retransmissions;
-      next_batch_flag = false;
-      last_replier = None;
-      timeout = timeout;
-      max_retransmissions = max_retransmissions;
-      exception_handler = (fun exn -> 
-			     prerr_endline ("Rpc_client: Uncaught exception " ^ 
-					      Netexn.to_string exn)
+
+  (* update cl: *)
+  cl.prot <- prot;
+  cl.est_engine <- Some establish_engine;
+  cl.next_timeout <- timeout;
+  cl.timeout <- timeout;
+  cl.next_max_retransmissions <- max_retransmissions;
+  cl.max_retransmissions <- max_retransmissions;
+  cl.exception_handler <- (fun exn -> 
+			     if not cl.nolog then
+			       Netlog.logf `Crit
+				 "Rpc_client: Uncaught exception %s"
+				 (Netexn.to_string exn)
 			  );
-      auth_methods = [ ];
-      current_auth_method = auth_none;
-      unused_auth_sessions = []
-    }
-  in
 
   Uq_engines.when_state
     ~is_done:(fun mplex ->
-		if !debug then 
-		  prerr_endline ("Rpc_client: Fully connected for " ^ id_s);
+		dlogr cl
+		  (fun () ->
+		     sprintf 
+		       "Fully connected for %s: (sock=%s,peer=%s)" 
+		       id_s
+		       (Rpc_transport.string_of_sockaddr mplex#getsockname)
+		       (Rpc_transport.string_of_sockaddr mplex#getpeername));
 		cl.trans <- Some mplex;
 		cl.est_engine <- None;
 		(* Maybe we already have messages to send: *)
@@ -1248,7 +1377,7 @@ let get_protocol cl =
   cl.prot
 
 let verbose b =
-  debug := b
+  Debug.enable := b
 
   (*****)
 
