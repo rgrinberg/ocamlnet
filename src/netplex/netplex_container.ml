@@ -4,13 +4,32 @@ open Netplex_types
 open Netplex_ctrl_aux
 open Printf
 
-let debug_containers = Netplex_log.debug_containers
+module Debug = struct
+  let enable = ref false
+end
 
-let debug_log log s =
-  log `Debug s
+let dlog = Netlog.Debug.mk_dlog "Netplex_container" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netplex_container" Debug.enable
 
-let debug_logf log msgf =
-  Printf.kprintf (debug_log log) msgf
+let () =
+  Netlog.Debug.register_module "Netplex_container" Debug.enable
+
+let string_of_event = 
+  function
+    | `event_none -> "NONE"
+    | `event_accept ->  "ACCEPT"
+    | `event_noaccept ->  "NOACCEPT"
+    | `event_received_message msg ->
+	"RECEIVED_MESSAGE(" ^ msg.msg_name ^ ")"
+    | `event_received_admin_message msg -> 
+	"RECEIVED_ADMIN_MESSAGE(" ^ msg.msg_name ^ ")"
+    | `event_shutdown -> "SHUTDOWN"
+    | `event_system_shutdown -> "SYSTEM_SHUTDOWN"
+
+let string_of_sys_id =
+  function
+    | `Thread id -> "thread " ^ string_of_int id
+    | `Process id -> "process " ^ string_of_int id
 
 
 class std_container ?(esys = Unixqueue.create_unix_event_system()) 
@@ -32,10 +51,10 @@ object(self)
   method ptype = ptype
 
   method start fd_clnt sys_fd_clnt =
+    (* note that logging is first possible when sys_rpc is initialized! *)
     if rpc <> None then
       failwith "#start: already started";
-    if !debug_containers then
-      debug_logf self#log "Container %d: Starting (start)" (Oo.id self);
+    let sys_id = Netplex_cenv.current_sys_id() in
     ( match ptype with
 	| `Multi_processing ->
 	    ( match sockserv # socket_service_config # change_user_to with
@@ -75,10 +94,14 @@ object(self)
      *)
     Rpc_client.Debug.disable_for_client sys_rpc_cl;
     sys_rpc <- Some sys_rpc_cl;
-    if !debug_containers then
-      debug_logf self#log "Container %d: Starting (post_start)" (Oo.id self);
+    dlogr 
+      (fun () -> 
+	 sprintf "Container %d: Starting (start) in %s" 
+	   (Oo.id self) (string_of_sys_id sys_id));
     self # protect "post_start_hook"
-      (sockserv # processor # post_start_hook) (self : #container :> container);
+      (sockserv # processor # post_start_hook)
+      (self : #container :> container);
+
     self # setup_polling();
     self # protect_run();
     (* protect_run returns when all events are handled. This must include
@@ -86,27 +109,34 @@ object(self)
      *)
     assert(rpc = None);
 
-    if !debug_containers then
-      debug_logf self#log "Container %d: Finishing (pre_finish)" (Oo.id self);
     self # protect "pre_finish_hook"
-      (sockserv # processor # pre_finish_hook) (self : #container :> container);
+      (sockserv # processor # pre_finish_hook)
+      (self : #container :> container);
     rpc <- None;
-    if !debug_containers then
-      debug_logf self#log "Container %d: Finishing (finish)" (Oo.id self)
+    dlogr
+      (fun () -> sprintf "Container %d: Finishing (finish)" (Oo.id self))
 
 
   method private protect : 's. string -> ('s -> unit) -> 's -> unit =
     fun label f arg ->
-      try
-	f arg 
-      with
-	| error ->
-	    ( match rpc with
-		| None -> ()  (* no way to report this error *)
-		| Some r ->
-		    self # log `Crit (label ^ ": Exception " ^ 
-				       Netexn.to_string error)
-	    )
+      ( try
+	  dlogr
+	    (fun () -> 
+	       sprintf "Container %d: calling hook %s" (Oo.id self) label);
+	  f arg 
+	with
+	  | error ->
+	      ( match rpc with
+		  | None -> ()  (* no way to report this error *)
+		  | Some r ->
+		      self # log `Crit (label ^ ": Exception " ^ 
+					  Netexn.to_string error)
+	      )
+      );
+       dlogr
+	 (fun () -> 
+	    sprintf "Container %d: back from hook %s" (Oo.id self) label)
+
 
   method private protect_run () =
     try 
@@ -122,13 +152,18 @@ object(self)
     match rpc with
       | None -> ()  (* Already shut down ! *)
       | Some r ->
-(* prerr_endline ("poll " ^ string_of_int(Oo.id self)); *)
+	  dlogr
+	    (fun () -> 
+	       sprintf "Container %d: Polling" (Oo.id self));
 	  Netplex_ctrl_clnt.Control.V1.poll'async r nr_conns
 	    (fun getreply ->
-(* prerr_endline ("poll reply " ^ string_of_int(Oo.id self)); *)
 	       let continue =
 		 ( try
 		     let reply = getreply() in
+		     dlogr
+		       (fun () -> 
+			  sprintf "Container %d: Got event from polling: %s"
+			    (Oo.id self) (string_of_event reply));
 		     ( match reply with
 			 | `event_none ->
 			     (* When [setup_calling] is called twice, the
@@ -154,12 +189,7 @@ object(self)
 			       msg.msg_arguments;
 			     true
 			 | `event_received_admin_message msg ->
-			     self # protect
-			       "receive_admin_message"
-			       (sockserv # processor # receive_admin_message
-				  (self : #container :> container)
-				  msg.msg_name)
-			       msg.msg_arguments;
+			     self # receive_admin_message msg;
 			     true
 			 | `event_shutdown ->
 			     self # disable_accepting();
@@ -200,7 +230,6 @@ object(self)
                           *)
 			 false
 		     | error ->
-(* prerr_endline ("Exn " ^ Netexn.to_string error); *)
 			 self # log `Crit ("poll: Exception " ^ 
 					    Netexn.to_string error);
 			 true
@@ -215,6 +244,11 @@ object(self)
 	(fun (proto, fd_array) ->
 	   Array.iter
 	     (fun fd ->
+		dlogr
+		  (fun () ->
+		     sprintf "Container %d: Accepting on fd %Ld"
+		       (Oo.id self)
+		       (Netsys.int64_of_file_descr fd));
 		let acc = new Uq_engines.direct_socket_acceptor fd esys in
 		let e = acc # accept() in
 		Uq_engines.when_state
@@ -228,6 +262,11 @@ object(self)
                                * accepts in one step so intermediate states
                                * are impossible.
                                *)
+			      dlogr
+				(fun () ->
+				   sprintf "Container %d: Accepted as fd %Ld"
+				     (Oo.id self)
+				     (Netsys.int64_of_file_descr fd_slave));
 			      self # disable_accepting();
 			      self # accepted fd_slave proto
 			   )
@@ -245,6 +284,9 @@ object(self)
     )
 
   method private disable_accepting() =
+    dlogr
+      (fun () ->
+	 sprintf "Container %d: No longer accepting" (Oo.id self));
     List.iter (fun e -> e # abort()) engines;
     engines <- [];
 
@@ -258,8 +300,15 @@ object(self)
 	    (fun _ ->
 	       nr_conns <- nr_conns + 1;
 	       let when_done_called = ref false in
-	       if !debug_containers then
-		 debug_logf self#log "Container %d: Accepted connection (total: %d)" (Oo.id self) nr_conns;
+	       dlogr
+		 (fun () -> 
+		    sprintf
+		      "Container %d: processing connection on fd %Ld \
+                       (total conns: %d)" 
+		      (Oo.id self) 
+		      (Netsys.int64_of_file_descr fd_slave)
+		      nr_conns
+		 );
 	       self # protect
 		 "process"
 		 (sockserv # processor # process
@@ -268,9 +317,14 @@ object(self)
 				    nr_conns <- nr_conns - 1;
 				    when_done_called := true;
 				    self # setup_polling();
-				    if !debug_containers then
-				      debug_logf self#log "Container %d: Done with connection (total %d)" (Oo.id self) nr_conns;
-				    
+				    dlogr
+				      (fun () ->
+					 sprintf "Container %d: \
+                                               Done with connection on fd %Ld \
+                                                  (total conns %d)"
+					   (Oo.id self) 
+					   (Netsys.int64_of_file_descr fd_slave)
+					   nr_conns);
 				  )
 			       )
 		    (self : #container :> container)
@@ -287,6 +341,10 @@ object(self)
       | Some r -> r
 
   method shutdown() =
+    dlogr
+      (fun () -> 
+	 sprintf
+	   "Container %d: shutdown" (Oo.id self));
     ( try
 	Netplex_cenv.cancel_all_timers()
       with
@@ -343,6 +401,10 @@ object(self)
 	  Netplex_ctrl_clnt.System.V1.lookup r (service,protocol)
 
   method send_message pat msg_name msg_arguments =
+    dlogr
+      (fun () -> 
+	 sprintf
+	   "Container %d: send_message %s to %s" (Oo.id self) msg_name pat);
     match sys_rpc with
       | None -> failwith "#send_message: No RPC client available"
       | Some r ->
@@ -359,6 +421,11 @@ object(self)
     Hashtbl.replace vars name value
 
   method call_plugin p proc_name arg =
+    dlogr
+      (fun () ->
+	 sprintf
+	   "Container %d: call_plugin id=%d procname=%s" 
+	   (Oo.id self) (Oo.id p) proc_name);
     match sys_rpc with
       | None -> failwith "#call_plugin: No RPC client available"
       | Some r ->
@@ -375,6 +442,43 @@ object(self)
 	  let res = Xdr.unpack_xdr_value ~fast:true res_str res_ty [] in
 	  res
 	    
+  method private receive_admin_message msg =
+    match msg.msg_name with
+      | "netplex.debug.enable" ->
+	  ( try
+	      let m = 
+		match msg.msg_arguments with
+		  | [| m |] -> m
+		  | [| |] -> failwith "Missing argument"
+		  | _  -> failwith "Too many arguments" in
+	      Netlog.Debug.enable_module m
+	    with
+	      | Failure s ->
+		  self # log 
+		    `Err
+		    ("netplex.debug.enable: " ^ s)
+	  )
+      | "netplex.debug.disable" ->
+	  ( try
+	      let m = 
+		match msg.msg_arguments with
+		  | [| m |] -> m
+		  | [| |] -> failwith "Missing argument"
+		  | _  -> failwith "Too many arguments" in
+	      Netlog.Debug.disable_module m
+	    with
+	      | Failure s ->
+		  self # log 
+		    `Err
+		    ("netplex.debug.disable: " ^ s)
+	  )
+      | _ ->
+	  self # protect
+	    "receive_admin_message"
+	    (sockserv # processor # receive_admin_message
+	       (self : #container :> container)
+	       msg.msg_name)
+	    msg.msg_arguments;
 end
 
 

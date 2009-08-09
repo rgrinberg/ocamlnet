@@ -217,9 +217,12 @@ by a number of other libraries of Ocamlnet to parallelize network code
 {!modules:
    Equeue
    Unixqueue
-   Unixqueue_mt
+   Unixqueue_pollset
+   Unixqueue_select
    Uq_engines
-   Uq_socks5}
+   Uq_socks5
+   Uq_resolver
+}
 
 {3:equeue_intro Guides}
 
@@ -270,8 +273,7 @@ into [equeue].
 {!modules:
     Shell
     Shell_sys
-    Shell_uq
-    Shell_mt}
+    Shell_uq}
 
 {3:shell_intro Guides}
 
@@ -298,7 +300,18 @@ The [netsys] library contains a number of low-level functions used by
 other Ocamlnet libraries.
 
 {!modules:
-    Netsys}
+    Netexn
+    Netlog
+    Netsys
+    Netsys_posix
+    Netsys_oothr
+    Netsys_pollset
+    Netsys_pollset_generic
+    Netsys_pollset_posix
+    Netsys_pollset_win32
+    Netsys_win32
+    Netsys_util
+}
 
 {2 Index}
 

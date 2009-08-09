@@ -788,6 +788,24 @@ way is to send all messages to stderr:
 
 Further types of logging are documented in the {!Netplex_log} module.
 
+{2 Debug logging}
+
+There are various built-in debug logging streams:
+  - {!Netplex_container.Debug.enable}: Logs the perspective of the
+    container. Logged events are e.g. when connections are accepted,
+    and when user-defined hook functions are invoked. These messages
+    are quite interesting for debugging user programs.
+  - {!Netplex_controller.Debug.enable}: Logs the perspective of the
+    controller. The events are e.g. state changes, when containers
+    are started, and scheduling decisions. This is less interesting
+    to users, but might nevertheless worth activating it.
+  - {!Netplex_workload.Debug.enable}: Outputs messages from the
+    workload manager.
+
+For these messages, the mechanism of {!Netlog.Debug} is used - which has
+the advantage that messages can also be generated when no Netplex logger
+is available.
+
 {1:rpc_netplex Netplex RPC systems}
 
 A short description how to build systems of RPC services is given

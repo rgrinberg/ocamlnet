@@ -1,17 +1,17 @@
 (* $Id$ *)
 
 open Netplex_types
+open Printf
 
-let debug_log logger_lz s =
-  (Lazy.force logger_lz) # log 
-    ~component:"netplex.controller"
-    ~level:`Debug
-    ~message:s
+module Debug = struct
+  let enable = ref false
+end
 
-let debug_logf logger_lz msgf =
-  Printf.kprintf (debug_log logger_lz) msgf
+let dlog = Netlog.Debug.mk_dlog "Netplex_workload" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netplex_workload" Debug.enable
 
-
+let () =
+  Netlog.Debug.register_module "Netplex_workload" Debug.enable
 
 class constant_workload_manager num_threads : workload_manager =
 object(self)
@@ -190,12 +190,14 @@ object(self)
 	  (* Free capacity: *)
 	  let free_cap = total_cap - used_cap in
 
-	  if !Netplex_log.debug_scheduling then (
-	    debug_logf logger
-	      "Dyn workload mng %s: total_threads=%d avail_threads=%d total_cap=%d used_cap=%d"
-	      sockserv#name all_threads active_threads
-	      total_cap used_cap
-	  );
+	  dlogr
+	    (fun () ->
+	       sprintf
+		 "Service %s: \
+                  total_threads=%d avail_threads=%d total_cap=%d used_cap=%d"
+		 sockserv#name all_threads active_threads
+		 total_cap used_cap
+	    );
 
 	  (* Now decide... *)
 	  if free_cap < config#min_free_job_capacity then (
@@ -289,11 +291,12 @@ object(self)
       (fun cid ->
 	 inactivated_conts <- ContMap.remove cid inactivated_conts)
       !l;
-    if !Netplex_log.debug_scheduling && !l <> [] then (
-      debug_logf logger
-	"Dyn workload mng %s: Reclaiming %d inactivated containers"
-	sockserv#name (List.length !l)
-    );
+    if !l <> [] then
+      dlogr
+	(fun () ->
+	   sprintf
+	     "Service %s: Reclaiming %d inactivated containers"
+	     sockserv#name (List.length !l));
     (* Second pass: If needed, start further containers: *)
     let started_ocap = ref 0 in
     if !n > 0 then (
@@ -345,11 +348,13 @@ object(self)
 	(fun cid ->
 	   inactivated_conts <- ContMap.remove cid inactivated_conts)
 	!l;
-      if !Netplex_log.debug_scheduling && !l <> [] then (
-	debug_logf logger
-	  "Dyn workload mng %s: Reclaiming %d inactivated but overloaded containers"
-	  sockserv#name (List.length !l)
-      );
+      if !l <> [] then
+	dlogr
+	  (fun () ->
+	     sprintf "Service %s: \
+                     Reclaiming %d inactivated but overloaded containers"
+	       sockserv#name (List.length !l)
+	  );
     );
     (* Check whether we reach the capacity limit. *)
     let limit_reached =
@@ -397,11 +402,11 @@ object(self)
     inactivated_conts <- ContMap.add cid None inactivated_conts;
     limit_alert <- false;
 
-    if !Netplex_log.debug_scheduling then (
-      debug_logf logger
-	"Dyn workload mng %s: Inactivating 1 container"
-	sockserv#name
-    );
+    dlogr
+      (fun () ->
+	 sprintf "Service %s: Inactivating 1 container"
+	   sockserv#name
+      )
 
 
   method private inactivation_check sockserv sockctrl =
@@ -422,11 +427,11 @@ object(self)
             *)
 	   match (g_opt, s) with
 	     | None, `Accepting(0,_) ->
-		 if !Netplex_log.debug_scheduling then (
-		   debug_logf logger
-		     "Dyn workload mng %s: Inactivated container becomes idle"
-		     sockserv#name
-		 );
+		 dlogr
+		   (fun () ->
+		      sprintf "Service %s: Inactivated container becomes idle"
+			sockserv#name
+		   );
 		 let esys = Lazy.force esys in
 		 let g = Unixqueue.new_group esys in
 		 Unixqueue.once

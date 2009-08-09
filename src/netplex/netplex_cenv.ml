@@ -43,9 +43,9 @@ let unregister_cont cont thread =
 ;;
 
 
-exception Found of container
+exception Found of container * parallelizer
 
-let self_cont() =
+let self_cont_par() =
   (* We do not know the parallelizer, so simply try them one after the other *)
   try
     Hashtbl.iter
@@ -55,7 +55,7 @@ let self_cont() =
 	 try
 	   let cont = Hashtbl.find m my_sys_id in
 	   unlock();
-	   raise(Found cont)
+	   raise(Found(cont, par))
 	 with
 	   | Not_found ->
 	       unlock();
@@ -63,8 +63,17 @@ let self_cont() =
       cont_of_thread;
     raise Not_in_container_thread
   with
-    | Found cont -> cont
+    | Found(cont,par) -> (cont,par)
 ;;
+
+let self_cont() =
+  fst(self_cont_par())
+
+let self_par() =
+  snd(self_cont_par())
+
+let current_sys_id() =
+  (self_par()) # current_sys_id
 
 
 let log level msg =

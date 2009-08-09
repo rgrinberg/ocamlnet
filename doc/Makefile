@@ -18,7 +18,7 @@ html-doc:
 		[ "$$p" != "equeue-gtk2" ] || continue; \
 		echo "-load ../src/$$p/ocamldoc.dump" >>loadopts.tmp; \
 	done
-	$(OCAMLDOC) -d html-main -stars -t "Ocamlnet 2 Reference Manual" \
+	$(OCAMLDOC) -d html-main -stars -t "Ocamlnet 3 Reference Manual" \
 		-html -css-style style.css \
 		-intro intro.txt \
 		`cat loadopts.tmp`
@@ -28,7 +28,7 @@ html-doc:
 html-doc-netcgi1:
 	rm -rf html-main/netcgi1
 	mkdir -p html-main/netcgi1
-	$(OCAMLDOC) -d html-main/netcgi1 -stars -t "Ocamlnet 2 Reference Manual (netcgi1 add-on)" \
+	$(OCAMLDOC) -d html-main/netcgi1 -stars -t "Ocamlnet 3 Reference Manual (netcgi1 add-on)" \
 		-html -css-style style.css \
 		-load ../src/netcgi1/ocamldoc.dump \
 		-intro netcgi1_intro.txt

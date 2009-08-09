@@ -5,8 +5,15 @@ open Netplex_ctrl_aux
 open Printf
 
 
-let debug_scheduling = Netplex_log.debug_scheduling
-let debug_containers = Netplex_log.debug_containers
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Netplex_controller" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netplex_controller" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Netplex_controller" Debug.enable
 
 let ast_re = Pcre.regexp "[*]";;
 
@@ -83,16 +90,6 @@ let cap_gt cap1 cap2 =
 	    | `Normal_quality n2 -> n1 > n2
 	)
 ;;
-
-
-let debug_log controller s =
-  controller # logger # log 
-    ~component:"netplex.controller"
-    ~level:`Debug
-    ~message:s
-
-let debug_logf controller msgf =
-  Printf.kprintf (debug_log controller) msgf
 
 
 let create_pipe_pair() =
@@ -189,10 +186,11 @@ object(self)
 
 
   method enable() =
+    dlogr (fun () -> sprintf "Service %s: enable" name);
     match state with
       | `Disabled ->
-	  if !debug_scheduling then
-	    debug_logf controller "Service %s: Enabling" name;
+	  dlogr 
+	    (fun () -> sprintf "Service %s: setting state to `Enabled" name);
 	  n_failures <- 0;
 	  state <- `Enabled;
 	  self # schedule()
@@ -201,21 +199,23 @@ object(self)
       | `Restarting true ->
 	  ()
       | `Restarting false ->
-	  if !debug_scheduling then
-	    debug_logf controller "Service %s: Will enable after restart is complete" name;
+	  dlogr 
+	    (fun () -> 
+	       sprintf "Service %s: setting state to `Restarting" name);
 	  state <- `Restarting true
       | _ ->
 	  failwith "#enable: service is already down"
 
   method disable() =
+    dlogr (fun () -> sprintf "Service %s: disable" name);
     if no_disable then
       failwith "#disable: not allowed for this service";
     match state with
       | `Disabled ->
 	  ()
       | `Enabled ->
-	  if !debug_scheduling then
-	    debug_logf controller "Service %s: Disabling" name;
+	  dlogr 
+	    (fun () -> sprintf "Service %s: setting state to `Disabled" name);
 	  state <- `Disabled;
 	  ( match action with
 	      | `None
@@ -228,8 +228,9 @@ object(self)
 		  ()
 	  )
       | `Restarting true ->
-	  if !debug_scheduling then
-	    debug_logf controller "Service %s: Will disable after restart is complete" name;
+	  dlogr 
+	    (fun () -> 
+	       sprintf "Service %s: setting state to `Restarting" name);
 	  state <- `Restarting false
       | `Restarting false ->
 	  ()
@@ -237,8 +238,9 @@ object(self)
 	  ()
 
   method restart() =
-    if !debug_scheduling then
-      debug_logf controller "Service %s: Restarting" name;
+    dlogr 
+      (fun () -> 
+	 sprintf "Service %s: restart / setting state to `Restarting" name);
     let flag =
       match state with
 	| `Disabled -> false
@@ -253,15 +255,17 @@ object(self)
     (* We never close the master sockets or remove socket files. That would
      * make it impossible to restart the service later.
      *)
-    if !debug_scheduling then
-      debug_logf controller "Service %s: Shutdown" name;
+    dlogr 
+      (fun () -> 
+	 sprintf "Service %s: shutdown / setting state to `Down" name);
     state <- `Down;
     Unixqueue.clear esys group;
     self # stop_all_containers();
 
   method start_containers n =
-    if !debug_scheduling then
-      debug_logf controller "Service %s: Starting %d new containers" name n;
+    dlogr 
+      (fun () -> 
+	 sprintf "Service %s: Starting %d new containers" name n);
     let threads = ref [] in
     let j = ref 0 in
     for k = 1 to n do
@@ -272,10 +276,12 @@ object(self)
 	| None ->
 	    ()   (* error - already handled *)
     done;
-    if !debug_scheduling then
-      debug_logf controller "Service %s: Started %s" 
-	name 
-	(String.concat "," (List.map (fun p -> p#info_string) !threads));
+    dlogr 
+      (fun () -> 
+	 sprintf 
+	   "Service %s: Started %s" 
+	   name 
+	   (String.concat "," (List.map (fun p -> p#info_string) !threads)));
     !j
 
 
@@ -312,13 +318,18 @@ object(self)
 	else
 	  [] in
       let container = sockserv # create_container par#ptype sockserv in
-      if !debug_containers then
-	debug_logf controller "Service %s: Container %d: Starting (pre_start)"
-	  name (Oo.id container);
+      dlogr
+	(fun () ->
+	   sprintf "Service %s: Container %d: pre_start"
+	     name (Oo.id container));
       sockserv # processor # pre_start_hook 
 	sockserv
 	(controller :> controller)
 	(container :> container_id);
+      dlogr
+	(fun () ->
+	   sprintf "Service %s: Container %d: done pre_start"
+	     name (Oo.id container));
       let par_thread =
 	par # start_thread
 	  (fun par_thread ->
@@ -389,6 +400,10 @@ object(self)
       clist <- c :: clist;
       Rpc_server.set_onclose_action rpc 
 	(fun _ ->
+	   dlogr
+	     (fun () ->
+		sprintf "Service %s: Container %d: closing"
+		  name (Oo.id container));
 	   par_thread # watch_shutdown controller#event_system;
 	   self # onclose_action c container
 	);
@@ -437,9 +452,10 @@ object(self)
     if is_starting then
       n_failures <- n_failures + 1;
     clist <- List.filter (fun c' -> c' != c) clist;
-    if !debug_containers then
-      debug_logf controller "Service %s: Container %d: Finishing (post_finish)"
-	name (Oo.id container);
+    dlogr
+      (fun () ->
+	 sprintf "Service %s: Container %d: post_finish"
+	   name (Oo.id container));
     ( try
 	sockserv # processor # post_finish_hook 
 	  sockserv
@@ -453,6 +469,10 @@ object(self)
 	      ~message:("post_finish_hook: Exception " ^ 
 			  Netexn.to_string error)
     );
+    dlogr
+      (fun () ->
+	 sprintf "Service %s: Container %d: done post_finish"
+	   name (Oo.id container));
     controller # plugin_container_finished 
       (container :> container_id) (clist = []);
     (* Maybe we have to start new containers: *)
@@ -481,9 +501,17 @@ object(self)
       match state with
 	| `Restarting flag ->
 	    (* Set to [`Disabled] and re-enable: *)
+	    dlogr
+	      (fun () ->
+		 sprintf "Service %s: last container exited; about to restart"
+		   name);
 	    state <- `Disabled;
 	    if flag then self # enable()
 	| `Down ->
+	    dlogr
+	      (fun () ->
+		 sprintf "Service %s: last container exited; finishing service"
+		   name);
 	    rm_service 
 	      (self : #extended_socket_controller
 	       :> extended_socket_controller);
@@ -496,9 +524,10 @@ object(self)
     List.iter
       (fun c ->
 	 if List.mem (c.container :> container_id) l then (
-	   if !debug_scheduling then
-	     debug_logf controller "Service %s: Stopping container %s" 
-	       name c.par_thread#info_string;
+	   dlogr
+	     (fun () ->
+		sprintf "Service %s: Stopping container %d"
+		  name (Oo.id c.container));
 	   c.shutting_down <- true;
 	   c.cont_state <- `Shutting_down;
 	   ( match action with
@@ -515,9 +544,10 @@ object(self)
     action <- `None;
     List.iter
       (fun c ->
-	 if !debug_scheduling then
-	   debug_logf controller "Service %s: Stopping container %s" 
-	     name c.par_thread#info_string;
+	 dlogr
+	   (fun () ->
+	      sprintf "Service %s: Stopping container %d"
+		name (Oo.id c.container));
 	 c.shutting_down <- true;
 	 c.cont_state <- `Shutting_down;
 	 self # check_for_poll_reply c
@@ -537,8 +567,7 @@ object(self)
     )
     else (
       try
-	if !debug_scheduling then
-	  debug_logf controller "Service %s: Adjusting workload" name;
+	dlogr (fun () -> sprintf "Service %s: Adjusting workload" name);
 	wrkmng # adjust 
 	  sockserv (self : #socket_controller :> socket_controller)
       with
@@ -583,8 +612,7 @@ object(self)
 	clist;
       ( match !best with
 	  | None, _ -> 
-	      if !debug_scheduling then
-		debug_logf controller "Service %s: All containers busy" name;
+	      dlogr (fun () -> sprintf "Service %s: All containers busy" name);
 	      ()   (* All containers are busy! *)
 	  | Some c, best_cap ->
 	      (* If there are starting processes that are younger than 1 sec,
@@ -597,14 +625,19 @@ object(self)
 		match best_cap with `Low_quality _ -> true | _ -> false in
 
 	      if !have_young_starters && bad_best_cap then (
-		if !debug_scheduling then
-		  debug_logf controller "Service %s: Not selecting any container because of temporary overload"
-		    name;
+		dlogr
+		  (fun () -> 
+		     sprintf "Service %s: Not selecting any container \
+                              because of temporary overload"
+		       name);
 	      )
 	      else (
-		if !debug_scheduling then
-		  debug_logf controller "Service %s: Selecting %s (bad=%b)"
-		    name c.par_thread#info_string bad_best_cap;
+		dlogr
+		  (fun () ->
+		     sprintf 
+		       "Service %s: Selecting container %d in %s (bad=%b)"
+		       name (Oo.id c.container)
+		       c.par_thread#info_string bad_best_cap);
 		action <- `Selected c;
 		self # check_for_poll_reply c
 	      )
@@ -630,15 +663,15 @@ object(self)
     ( match c.poll_call with
 	| None -> ()
 	| Some (last_sess, last_reply) ->
-	    if !debug_scheduling then
-	      debug_logf controller "Service %s: %s <- Event_none"
-		name c.par_thread#info_string;
+	    dlogr 
+	      (fun () -> sprintf "Service %s, cont %d: %s <- Event_none"
+		 name (Oo.id c.container) c.par_thread#info_string);
 	    last_reply `event_none
     );
 
-    if !debug_scheduling then
-      debug_logf controller "Service %s: %s -> poll(%d)"
-	name c.par_thread#info_string n;
+    dlogr 
+      (fun () -> sprintf "Service %s, cont %d: %s -> poll(%d)"
+	 name (Oo.id c.container) c.par_thread#info_string n);
 
     let is_starting =
       match c.cont_state with `Starting _ -> true | _ -> false in
@@ -663,14 +696,18 @@ object(self)
     match c.poll_call with
       | None -> ()
       | Some (sess, reply) ->
+	  let reply ev =
+	    dlogr 
+	      (fun () -> sprintf "Service %s, cont %d: %s <- poll returns %s"
+		 name (Oo.id c.container) c.par_thread#info_string
+		 (Netplex_container.string_of_event ev)
+	      );
+	    reply ev
+	  in
 	  let sd_done =
 	    match c.shutting_down_system with
 	      | `None -> false
 	      | `Notify f ->
-		  if !debug_scheduling then
-		    debug_logf controller
-		      "Service %s: %s <- Event_system_shutdown"
-		      name c.par_thread#info_string;
 		  c.shutting_down_system <- `Notified f;
 		  reply `event_system_shutdown;
 		  c.poll_call <- None;
@@ -684,24 +721,15 @@ object(self)
 	    ()
 	  else if not (Queue.is_empty c.messages) then (
 	    let msg = Queue.take c.messages in
-	    if !debug_scheduling then
-	      debug_logf controller "Service %s: %s <- Event_received_message"
-		name c.par_thread#info_string;
 	    reply (`event_received_message msg);
 	    c.poll_call <- None
 	  )
 	  else if not (Queue.is_empty c.admin_messages) then (
 	    let msg = Queue.take c.admin_messages in
-	    if !debug_scheduling then
-	      debug_logf controller "Service %s: %s <- Event_received_admin_message"
-		name c.par_thread#info_string;
 	    reply (`event_received_admin_message msg);
 	    c.poll_call <- None
 	  )
 	  else if c.shutting_down then (
-	    if !debug_scheduling then
-	      debug_logf controller "Service %s: %s <- Event_shutdown"
-		name c.par_thread#info_string;
 	    reply `event_shutdown;
 	    c.poll_call <- None;
 	    ( match action with
@@ -719,9 +747,6 @@ object(self)
 	  else 
 	    ( match action with
 		| `Selected c' when c' == c ->
-		    if !debug_scheduling then
-		      debug_logf controller "Service %s: %s <- Event_accept"
-			name c.par_thread#info_string;
 		    reply `event_accept;
 		    c.poll_call <- None;
 		    action <- `Notified c;
@@ -730,9 +755,6 @@ object(self)
                      * number of connections is not yet updated.
                      *)
 		| `Deselected c' when c' == c ->
-		    if !debug_scheduling then
-		      debug_logf controller "Service %s: %s <- Event_noaccept"
-			name c.par_thread#info_string;
 		    reply `event_noaccept;
 		    c.poll_call <- None;
 		    action <- `None;
@@ -742,9 +764,9 @@ object(self)
 	    )
 	      
   method private accepted c sess arg reply =
-    if !debug_scheduling then
-      debug_logf controller "Service %s: %s -> accepted() (won't be replied)"
-	name c.par_thread#info_string;
+    dlogr 
+      (fun () -> sprintf "Service %s, cont %d: %s -> accepted() NOREPLY"
+	 name (Oo.id c.container) c.par_thread#info_string);
     match action with
       | `Notified c' when c' == c ->
 	  c.t_accept <- Unix.gettimeofday();
@@ -817,41 +839,36 @@ object(self)
 		    ~level:`Err
 		    ~message:("netplex.logger.set_max_level: " ^ s)
 	  )
-      | "netplex.debug_scheduling"
-	  when sockserv#name = "netplex.controller" ->
+      | "netplex.debug.enable" when sockserv#name = "netplex.controller" ->
 	  ( try
-	      let s_switch = 
+	      let m = 
 		match msg.msg_arguments with
-		  | [| s |] -> s
+		  | [| m |] -> m
 		  | [| |] -> failwith "Missing argument"
 		  | _  -> failwith "Too many arguments" in
-	      let switch = bool_of_string s_switch in
-	      Netplex_log.debug_scheduling := switch
+	      Netlog.Debug.enable_module m
 	    with
 	      | Failure s ->
 		  controller # logger # log 
 		    ~component:sockserv#name
 		    ~level:`Err
-		    ~message:("netplex.debug_scheduling: " ^ s)
+		    ~message:("netplex.debug.enable: " ^ s)
 	  )
-      | "netplex.debug_containers"
-	  when sockserv#name = "netplex.controller" ->
+      | "netplex.debug.disable" when sockserv#name = "netplex.controller" ->
 	  ( try
-	      let s_switch = 
+	      let m = 
 		match msg.msg_arguments with
-		  | [| s |] -> s
+		  | [| m |] -> m
 		  | [| |] -> failwith "Missing argument"
 		  | _  -> failwith "Too many arguments" in
-	      let switch = bool_of_string s_switch in
-	      Netplex_log.debug_containers := switch
+	      Netlog.Debug.disable_module m
 	    with
 	      | Failure s ->
 		  controller # logger # log 
 		    ~component:sockserv#name
 		    ~level:`Err
-		    ~message:("netplex.debug_containers: " ^ s)
+		    ~message:("netplex.debug.disable: " ^ s)
 	  )
-
       | _ ->
 	  List.iter
 	    (fun c ->

@@ -91,14 +91,3 @@ val multi_file_logger_factory : logger_factory
 
 val logger_factories :  logger_factory list
   (** All built-in logger factories *)
-
-
-val debug_scheduling : bool ref
-  (** If set to true, the controller and a few other components output
-    * a lot of debug messages, mostly scheduling-related.
-   *)
-
-val debug_containers : bool ref
-  (** If set to true, the containers output when they are started and
-    * stopped, and when new connections are accepted.
-   *)

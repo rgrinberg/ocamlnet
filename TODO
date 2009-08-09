@@ -14,6 +14,8 @@ Plan for Ocamlnet 3
   - Rpc_client DONE
   - Rpc_server DONE
   - netplex: redirect DONE
+  - Netplex_log.debug_* DONE
+  - netplex debug messages DONE
 
   - Equeue
   - Unixqueue_select
@@ -25,7 +27,6 @@ Plan for Ocamlnet 3
   - netcgi2 Netcgi_scgi
   - netclient
   - nethttpd_engine
-  - Netplex_log.debug_*
 
 
 - Focus Win32:

@@ -142,6 +142,13 @@ val system_restart : unit -> unit
 val self_cont : unit -> container
   (** Returns the container running the code of the caller *)
 
+val current_sys_id : unit -> [ `Thread of int | `Process of int ]
+  (** Returns the system-dependent thread identifier of the caller
+      (which must be in container context - this function does not
+      work for arbitrary threads/processes)
+   *)
+
+
 val admin_connector : unit -> Rpc_client.mode2
   (** Determines the admin socket of the controller, and returns an RPC
       client connector suitable for connecting with the admin interface
