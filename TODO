@@ -10,6 +10,9 @@ Plan for Ocamlnet 3
   * Fix: `Accept_limit_length for Rpc_server. Add filters to clients, too
     (see msg by rafaelsen on ocamlnet-devel)
 
+- Bug Paolo Donadeo on ocamlnet-devel:
+  `Redirect_response not working
+
 - Netlog:
 
   Modules to look through:
