@@ -7,6 +7,7 @@ Plan for Ocamlnet 3
     (self-watching)
   * Annotations
   * Doc: Tutorial for Rpc_proxy. Upgrade one example.
+  * Fix: `Accept_limit_length for Rpc_server. Add filters to clients, too
 
 - Netlog:
 
