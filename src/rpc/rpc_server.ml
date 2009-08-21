@@ -147,7 +147,7 @@ type t =
 	mutable exception_handler : exn -> unit;
 	mutable unmap_port : (unit -> unit);
 	mutable onclose : (connection_id -> unit) list;
-	mutable filter : (Unix.sockaddr -> connection_id -> rule);
+	mutable filter : (Rpc_transport.sockaddr -> connection_id -> rule);
 	mutable auth_methods : (string, t pre_auth_method) Hashtbl.t;
 	mutable auth_peekers : (auth_peeker * t pre_auth_method) list;
 	mutable connections : connection list;
@@ -687,21 +687,13 @@ let terminate_connection srv conn =
 
   (*****)
 
-let get_rule conn srv peer =
-  match conn.rule with
-      None ->
-	let r = srv.filter peer conn.conn_id in
-	conn.rule <- Some r;
-	  r
-    | Some r -> r
-;;
-
 
 let rec unroll_rule r length =
   match r with
-      `Accept_limit_length(limit,r') ->
+    | `Accept_limit_length(limit,r') ->
 	if length > limit then unroll_rule r' length else `Accept
-    | _ -> r
+    | (`Drop | `Reject | `Deny | `Accept as other) -> 
+	other
 ;;
 
 
@@ -712,7 +704,7 @@ let rec handle_incoming_message srv conn r =
 	terminate_connection srv conn;
 	raise e
 
-    | `Ok(pv,trans_addr) ->
+    | `Ok(in_rec,trans_addr) ->
 	dlog srv "got message";
 
 	if conn.close_when_empty then (
@@ -720,20 +712,6 @@ let rec handle_incoming_message srv conn r =
 	) else (
 
 	  (* First check whether the message matches the filter rule: *)
-	  let rule =
-	    match trans_addr with
-	      | `Implied -> 
-		  dlog srv "No filter 1 (implied address)";
-		  `Accept  (* Don't have the information to process filters *)
-	      | `Sockaddr peer ->
-		  dlog srv "Checking filter 1";
-		  let rule = 
-		    unroll_rule (get_rule conn srv peer)
-		      (Rpc_packer.length_of_packed_value pv)
-		  in
-		  rule
-	  in
-	  conn.rule <- None;                 (* reset rule after usage *)
 	  
 	  let peeraddr = trans_addr in
 
@@ -747,10 +725,7 @@ let rec handle_incoming_message srv conn r =
 		    trans#getsockname
 		  ) in
 		  
-	  ( match rule with
-	      | `Accept ->
-		  process_incoming_message
-		    srv conn sockaddr peeraddr pv Execute_procedure
+	  ( match in_rec with
 	      | `Deny ->
 		  dlogr_ptrace srv
 		    (fun () ->
@@ -759,7 +734,7 @@ let rec handle_incoming_message srv conn r =
 			 (Rpc_transport.string_of_sockaddr trans_sockaddr)
 			 (Rpc_transport.string_of_sockaddr peeraddr)
 		    );
-		  terminate_connection srv conn
+		  terminate_connection srv conn (* for safety *)
 	      | `Drop ->
 		  (* Simply forget the message *)
 		  dlogr_ptrace srv
@@ -770,11 +745,13 @@ let rec handle_incoming_message srv conn r =
 			 (Rpc_transport.string_of_sockaddr peeraddr)
 		    );
 		  ()
-	      | `Reject ->
+	      | `Accept pv ->
+		  process_incoming_message
+		    srv conn sockaddr peeraddr pv Execute_procedure
+	      | `Reject pv ->
 		  process_incoming_message
 		    srv conn sockaddr peeraddr pv
-		    (Reject_procedure Auth_too_weak)
-	      | `Accept_limit_length(_,_) -> assert false
+		    (Reject_procedure System_err)
 	  );
 	  next_incoming_message srv conn  (* if still connected *)
 	)
@@ -790,31 +767,29 @@ and next_incoming_message srv conn =
     | Some trans -> next_incoming_message' srv conn trans
 
 and next_incoming_message' srv conn trans =
+  let filter_var = ref None in
   trans # start_reading
     ~peek:(fun () -> peek_credentials srv conn)
+    ~before_record:(handle_before_record srv conn filter_var)
     ~when_done:(fun r -> handle_incoming_message srv conn r)
     ()
 
-and handle_before_record srv conn n trans_addr =
-  match trans_addr with
-    | `Implied ->
-	dlog srv "No filter 2 (implied address)";
-	()     (* Don't have the information to process filters *)
-    | `Sockaddr peer ->
-	dlog srv "Checking filter 2";
-	( match unroll_rule (get_rule conn srv peer) n with
-	    | `Accept -> ()
-	    | `Deny   -> terminate_connection srv conn
-	    | `Drop   -> 
-		( match conn.trans with
-		    | None -> ()
-		    | Some trans ->
-			conn.rule <- None;
-			trans # skip_message()
-		)
-	    | `Reject -> ()
-	    | `Accept_limit_length(_,_) -> assert false
-	)
+and handle_before_record srv conn filter_var n trans_addr =
+  dlog srv "Checking filter before_record";
+  let filter = 
+    match !filter_var with
+      | Some filter -> 
+	  filter
+      | None ->
+	  let filter = srv.filter trans_addr conn.conn_id in
+	  filter_var := Some filter;
+	  filter in
+  ( match unroll_rule filter n with
+      | `Accept -> `Accept
+      | `Deny   -> terminate_connection srv conn; `Deny
+      | `Drop   -> `Drop
+      | `Reject -> `Reject
+  )
 
 and peek_credentials srv conn =
   if not conn.peeked && srv.prot = Tcp && srv.auth_peekers <> [] then begin

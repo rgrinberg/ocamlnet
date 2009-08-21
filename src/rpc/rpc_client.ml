@@ -15,23 +15,11 @@ open Printf
 exception Message_not_processable
 
 
-(* The following exceptions are delivered to the callback function: *)
-
 exception Message_lost
-  (* got EOF when some procedure calls were not replied or not even sent *)
-
 exception Message_timeout
-  (* After all retransmissions, there was still no reply *)
-
+exception Response_dropped
 exception Communication_error of exn
-  (* an I/O error happened *)
-
 exception Client_is_down
-  (* The RPC call cannot be performed because the client has been shut down
-   * in the meantime. You can get this exception if you begin a new call,
-   * but the connection is closed now.
-   *)
-
 exception Keep_call
 exception Unbound_exception of exn
 
@@ -154,6 +142,7 @@ and t =
 	mutable next_max_retransmissions : int;
 	mutable next_destination : Unix.sockaddr option;
 	mutable next_batch_flag : bool;
+	mutable max_resp_length : int option;
 
 	(* authentication: *)
 	mutable auth_methods : t pre_auth_method list;     (* methods to try *)
@@ -701,6 +690,44 @@ let process_incoming_message cl message peer =
 		  call.state <- Pending
 	  )
 
+
+let drop_response cl message peer =
+  let sock = 
+    match cl.trans with
+      | None -> `Implied
+      | Some t -> t#getsockname in
+  let xid =
+    try
+      int_of_uint4 (Rpc_packer.peek_xid message)
+    with
+	_ -> raise Message_not_processable in
+  let call =
+    try
+      SessionMap.find xid cl.pending_calls
+    with
+	Not_found ->
+	  raise Message_not_processable in
+  assert(call.state = Pending);
+
+  dlogr_ptrace cl
+    (fun () ->
+       sprintf
+	 "RPC <-- (sock=%s,peer=%s) Dropping response"
+	 (Rpc_transport.string_of_sockaddr sock)
+	 (Rpc_transport.string_of_sockaddr peer)
+    );
+  
+  try
+    let f = (fun () -> raise Response_dropped) in
+    pass_result cl call f;      (* may raise Keep_call *)
+    (* Side effect: Changes the state of [call] to [Done] *)
+    remove_pending_call cl call;
+    cl.unused_auth_sessions <-
+      call.call_auth_session :: cl.unused_auth_sessions;
+  with
+      Keep_call ->
+	call.state <- Pending
+
   (*****)
 
 let rec handle_incoming_message cl r =
@@ -709,7 +736,7 @@ let rec handle_incoming_message cl r =
     | `Error e ->
 	close ~error:(Communication_error e) cl
 
-    | `Ok(pv,addr) ->
+    | `Ok(msg,addr) ->
 	dlog cl "Message arrived";
 	( try
 	    ( match addr with
@@ -717,7 +744,14 @@ let rec handle_incoming_message cl r =
 		| `Sockaddr a ->
 		    cl.last_replier <- Some a
 	    );
-	    process_incoming_message cl pv addr
+	    ( match msg with
+		| `Accept pv ->
+		    process_incoming_message cl pv addr
+		| `Reject pv ->
+		    drop_response cl pv addr
+		| _ ->
+		    assert false
+	    )
 	  with
 	      Message_not_processable ->
 		dlog cl "message not processable";
@@ -738,6 +772,11 @@ and next_incoming_message' cl trans =
   trans # cancel_rd_polling();
   if cl.pending_calls <> SessionMap.empty && not trans#reading then (
     trans # start_reading
+      ~before_record:(fun n _ ->
+			match cl.max_resp_length with
+			  | None -> `Accept
+			  | Some m -> if n > m then `Reject else `Accept
+		     )
       ~when_done:(fun r ->
 		    handle_incoming_message cl r)
       ()
@@ -1024,6 +1063,7 @@ let rec internal_create initial_xid
       next_timeout = (-1.0);
       next_max_retransmissions = 0;
       next_batch_flag = false;
+      max_resp_length = None;
       last_replier = None;
       timeout = (-1.0);
       max_retransmissions = 0;
@@ -1296,6 +1336,9 @@ let set_exception_handler cl xh =
 
 let set_batch_call cl =
   cl.next_batch_flag <- true
+
+let set_max_response_length cl n =
+  cl.max_resp_length <- Some n
 
 
 let gen_shutdown cl is_running run ondown =

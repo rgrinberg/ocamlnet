@@ -58,6 +58,9 @@ exception Message_lost
 exception Message_timeout
   (** After all retransmissions, there was still no reply *)
 
+exception Response_dropped
+  (** Drop reason: The response exceeded the configured maximum message size *)
+
 exception Communication_error of exn
   (** an I/O error happened *)
 
@@ -315,10 +318,17 @@ val set_batch_call : t -> unit
       response of a batch call. Instead, the client immediately fakes the
       response of a "void" return value.
 
-      It is required that the next call has a "void" return type. Otherwise,
+      It is required that the batch call has a "void" return type. Otherwise,
       the client raises an exception, and ignores the call.
 
       This setting only affects the next call.
+   *)
+
+val set_max_response_length : t -> int -> unit
+  (** Sets the maximum length of responses. By default, there is only the
+      implicit maximum of [Sys.max_string_length].
+
+      If the maximum is exceeded, the exception [Response_dropped] is raised.
    *)
 
 val set_exception_handler : t -> (exn -> unit) -> unit
@@ -382,7 +392,7 @@ class unbound_async_call :
       exception.
 
       One can [abort] the engine, but one caveat: This does not stop
-      the transmission of the current message (the underlying RPC client
+      the transmission of the current message (the underlying RPC transporter
       doing this is not aborted). Aborting can only prevent that a
       message is sent before it is sent, and it can remove the call from the
       housekeeping data structures before the response arrives. Of course,
@@ -637,6 +647,8 @@ val verbose : bool -> unit
       {!Rpc_client.Debug.enable})
    *)
 
+
+(** {2 Debugging} *)
 
 module Debug : sig
   val enable : bool ref

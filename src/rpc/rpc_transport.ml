@@ -37,6 +37,20 @@ let string_of_sockaddr =
 
 exception Error of string
 
+type in_rule =
+    [ `Deny
+    | `Drop
+    | `Reject
+    | `Accept
+    ]
+
+type in_record =
+    [ `Deny
+    | `Drop
+    | `Reject of packed_value
+    | `Accept of packed_value
+    ]
+
 class type rpc_multiplex_controller =
 object
   method alive : bool
@@ -49,11 +63,10 @@ object
   method read_eof : bool
   method start_reading : 
     ?peek: (unit -> unit) ->
-    ?before_record:( int -> sockaddr -> unit ) ->
-    when_done:( (packed_value * sockaddr) result_eof -> unit) -> unit -> unit
+    ?before_record:( int -> sockaddr -> in_rule ) ->
+    when_done:( (in_record * sockaddr) result_eof -> unit) -> unit -> unit
   method cancel_rd_polling : unit -> unit
   method abort_rw : unit -> unit
-  method skip_message : unit -> unit
   method writing : bool
   method start_writing :
     when_done:(unit result -> unit) -> packed_value -> sockaddr -> unit
@@ -89,9 +102,10 @@ object(self)
   method writing = mplex # writing
 
   val mutable aborted = false
-  val mutable skip_message = false
 
-  method start_reading ?peek ?before_record ~when_done () =
+  method start_reading ?peek 
+                       ?(before_record = fun _ _ -> `Accept)
+                       ~when_done () =
     mplex # start_reading
       ?peek
       ~when_done:(fun exn_opt n ->
@@ -99,27 +113,27 @@ object(self)
 		    match exn_opt with
 		      | None ->
 			  let peer = `Sockaddr (mplex # received_from) in
-			  if not skip_message then (
-			    match before_record with
-			      | None -> ()
-			      | Some f -> 
-				  f n peer
-				    (* It can happen that reading is
-                                     * aborted in the meantime!
-                                     *)
-			  );
+			  let in_rule = before_record n peer in
 			  if not aborted then (
-			    if skip_message then
-			      skip_message <- false
-			    else
-			      let pv = 
-				packed_value_of_string 
-				  (String.sub rd_buffer 0 n) in
-			      when_done (`Ok(pv, peer))
+			    let r =
+			      match in_rule with
+				| `Deny -> `Deny
+				| `Drop -> `Drop
+				| `Reject -> 
+				    let pv = 
+				      packed_value_of_string 
+					(String.sub rd_buffer 0 n) in
+				    `Reject pv
+				| `Accept -> 
+				    let pv = 
+				      packed_value_of_string 
+					(String.sub rd_buffer 0 n) in
+				    `Accept pv in
+ 			    when_done (`Ok(r, peer))
 			  )
 		      | Some End_of_file ->
 			  assert false
-		      | Some Uq_engines.Cancelled ->
+		      | Some Uq_engines.Cancelled ->  (* abort case *)
 			  ()   (* Ignore *)
 		      | Some error ->
 			  when_done (`Error error)
@@ -159,9 +173,6 @@ object(self)
   method cancel_rd_polling () =
     if mplex#reading then
       mplex # cancel_reading()
-
-  method skip_message () =
-    skip_message <- true
 
   method abort_rw () =
     aborted <- true;
@@ -287,9 +298,10 @@ object(self)
   method writing = mplex # writing
 
   val mutable aborted = false
-  val mutable skip_message = false
 
-  method start_reading ?peek ?(before_record = fun _ _ -> ()) ~when_done () =
+  method start_reading ?peek
+                       ?(before_record = fun _ _ -> `Accept) 
+                       ~when_done () =
     let rec est_reading() =
       rd_continuation <- None;
       mplex # start_reading
@@ -298,7 +310,7 @@ object(self)
 		      self # timer_event `Stop `R;
 		      match exn_opt with
 			| None ->
-			    process 0 n
+			    process 0 n `Accept
 			| Some End_of_file ->
 			    if rd_mode = `RM && rd_fragment_len = 0 then
 			      return_eof()   (* EOF between messages *)
@@ -314,7 +326,7 @@ object(self)
 	(String.length rd_buffer);
       self # timer_event `Start `R
 
-    and process pos len =
+    and process pos len in_rule =
       if len > 0 then (
 	match rd_mode with
 	  | `RM ->
@@ -333,17 +345,31 @@ object(self)
 			 (rm_0,rm_buffer.[1],rm_buffer.[2],rm_buffer.[3]));
 		    if rm > Sys.max_string_length then
 		      raise(Rtypes.Cannot_represent "");
-		    if rd_queue_len + rm > Sys.max_string_length then
+		    if rd_queue_len > Sys.max_string_length - rm then
 		      raise(Rtypes.Cannot_represent "");
 		    true
 		  with
 		    | Rtypes.Cannot_represent _ -> false in
-		rd_mode <- `Payload;
-		rd_fragment <- String.create rm;
-		rd_fragment_len <- 0;
 		if ok then (
-		  before_record (rd_queue_len + rm) `Implied;
-		  process (pos+m) (len-m)
+		  let in_rule' =
+		    match in_rule with
+		      | `Accept ->
+			  before_record (rd_queue_len + rm) peername
+		      | _ ->
+			  in_rule in
+		  rd_mode <- `Payload;
+		  rd_fragment_len <- 0;
+		  rd_fragment <- 
+		    (match in_rule' with
+		       | `Accept -> 
+			   String.create rm
+		       | `Reject -> 
+			   String.create
+			     (min rm (max 0 (4 - rd_queue_len)))
+		       | _ -> 
+			   ""
+		    );
+		  process (pos+m) (len-m) in_rule'
 		)
 		else
 		  return_error (Error "Record too large")
@@ -354,11 +380,13 @@ object(self)
 	  | `Payload ->
 	      (* Read payload data *)
 	      let m = min (rm - rd_fragment_len) len in
-	      String.blit rd_buffer pos rd_fragment rd_fragment_len m;
+	      let m1 = 
+		min m (max 0 (String.length rd_fragment - rd_fragment_len)) in
+	      String.blit rd_buffer pos rd_fragment rd_fragment_len m1;
 	      rd_fragment_len <- rd_fragment_len + m;
 	      if rd_fragment_len = rm then (
 		let last = rm_last in
-		if not skip_message then
+		if in_rule = `Accept || in_rule = `Reject then
 		  Queue.push rd_fragment rd_queue;
 		rd_queue_len <- rd_queue_len + rd_fragment_len;
 		rd_fragment <- "";
@@ -366,27 +394,31 @@ object(self)
 		rm_buffer_len <- 0;
 		rd_mode <- `RM;
 		if last then (
-		  if skip_message then (
-		    skip_message <- false;
-		    process (pos+m) (len-m)
-		  )
-		  else (
-		    let msg = String.create rd_queue_len in
-		    let p = ref 0 in
-		    Queue.iter
-		      (fun s ->
-			 String.blit s 0 msg !p (String.length s);
-			 p := !p + String.length s)
-		      rd_queue;
-		    Queue.clear rd_queue;
-		    rd_queue_len <- 0;
-		    rd_continuation <- 
-		      Some (fun () -> process (pos+m) (len-m));
-		    return_msg msg
-		  )
+		  let r =
+		    match in_rule with
+		      | (`Accept | `Reject as ar) ->
+			  let msg = String.create rd_queue_len in
+			  let p = ref 0 in
+			  Queue.iter
+			    (fun s ->
+			       String.blit s 0 msg !p (String.length s);
+			       p := !p + String.length s)
+			    rd_queue;
+			  let pv = packed_value_of_string msg in
+			  ( match ar with
+			      | `Accept -> `Accept pv
+			      | `Reject -> `Reject pv
+			  ) 
+		      | (`Deny | `Drop as dd) ->
+			  dd in
+		  Queue.clear rd_queue;
+		  rd_queue_len <- 0;
+		  rd_continuation <- 
+		    Some (fun () -> process (pos+m) (len-m) `Accept);
+		  return_msg r
 		)
 		else
-		  process (pos+m) (len-m)
+		  process (pos+m) (len-m) in_rule
 	      )
 	      else
 		est_reading()
@@ -395,10 +427,8 @@ object(self)
 	est_reading()
 
     and return_msg msg =
-      if not aborted then (
-	let pv = packed_value_of_string msg in
-	when_done (`Ok(pv, peername))
-      )
+      if not aborted then
+	when_done (`Ok(msg, peername))
 
     and return_error e =
       rd_continuation <- None;
@@ -464,11 +494,6 @@ object(self)
   method cancel_rd_polling () =
     if mplex#reading then
       mplex # cancel_reading()
-
-  method skip_message () =
-    Queue.clear rd_queue;
-    rd_queue_len <- 0;
-    skip_message <- true
 
   method abort_rw () =
     aborted <- true;

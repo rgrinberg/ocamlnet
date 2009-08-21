@@ -7,6 +7,7 @@ let start() =
   let tmo = ref (-1.0) in
   let shutdown = ref false in
   let lastquery = ref false in
+  let max_resp_length = ref None in
   Arg.parse
     [ "-host", Arg.Set_string host,
       "<hostname>  Contact the finder daemon on this host";
@@ -22,6 +23,9 @@ let start() =
 
       "-lastquery", Arg.Set lastquery,
       "  Show the last query";
+
+      "-max-resp-length", Arg.Int (fun n -> max_resp_length := Some n),
+      "<n>  Set the max allowed byte length of responses to n";
 
       "-debug", Arg.String (fun s -> Netlog.Debug.enable_module s),
       "<module>  Enable debug messages for <module>";
@@ -56,6 +60,10 @@ let start() =
 	    (Rpc_client.Inet(!host,p)) Rpc.Tcp
   in
   Rpc_client.configure rpc_client 0 !tmo;
+  ( match !max_resp_length with
+      | None -> ()
+      | Some n -> Rpc_client.set_max_response_length rpc_client n
+  );
 
   try
     if !lastquery then (
@@ -81,6 +89,8 @@ let start() =
 	prerr_endline ("RPC: I/O error: " ^ Printexc.to_string exn)
     | Rpc_client.Message_lost ->
 	prerr_endline "RPC: Message lost"
+    | Rpc_client.Response_dropped ->
+	prerr_endline "RPC: Response dropped"
     | Rpc.Rpc_server Rpc.Unavailable_program ->
 	prerr_endline "RPC: Unavailable program"
     | Rpc.Rpc_server (Rpc.Unavailable_version(_,_)) ->

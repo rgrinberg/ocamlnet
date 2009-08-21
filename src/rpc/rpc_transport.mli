@@ -36,6 +36,19 @@ exception Error of string
   * One should close the connection and open a new one.
  *)
 
+type in_rule =
+    [ `Deny
+    | `Drop
+    | `Reject
+    | `Accept
+    ]
+
+type in_record =
+    [ `Deny
+    | `Drop
+    | `Reject of packed_value  (* only the beginning of the message! *)
+    | `Accept of packed_value  (* the full message *)
+    ]
 
 class type rpc_multiplex_controller =
 object
@@ -69,29 +82,39 @@ object
 
   method start_reading : 
     ?peek:( unit -> unit) ->
-    ?before_record:( int -> sockaddr -> unit ) ->
-    when_done:( (packed_value * sockaddr) result_eof -> unit) -> unit -> unit
+    ?before_record:( int -> sockaddr -> in_rule ) ->
+    when_done:( (in_record * sockaddr) result_eof -> unit) -> unit -> unit
     (** Start reading from the connection. When a whole message has been
-      * received, the [when_done] callback is invoked. 
+      * received, the [when_done] callback is invoked. The [in_record]
+      * passed to [when_done] is usually [`Accept m] when [m] is the
+      * undecoded message string. For other types of [in_record] see
+      * the comments to [before_record] below.
       *
       * This starts one-time read job only, i.e. it is not restarted
       * after [when_done] has been invoked.
       *
-      * It is an error to start reading several times.
+      * It is an error to start reading several times at once.
       *
       * [peek]: This function is called immediately before a data chunk is
       * read from the underlying data connection.
       *
       * [before_record]: If passed, this function is called back whenever
-      * a record of data is started. The integer is the estimated size of the
+      * a fragment of data is started. The integer is the so-far known
+      * size of the
       * message in bytes. It is guaranteed that the function is
-      * invoked at least once before [when_done].
+      * invoked once for every message fragment as long as the previous
+      * fragments were accepted, and in total at least once
+      * before [when_done]. The result of the last [before_record] call
+      * determines what is returned as [in_record], e.g. a [`Deny] rule
+      * causes that a [`Deny] result is passed to [when_done].
+      * Also, for [`Deny] and [`Drop] no message buffer is
+      * allocated (i.e. no memory consumption). For [`Reject], only
+      * a very small buffer is allocated that only provides space for
+      * the session identifier (xid).
+      * When there is no [before_record] function, [`Accept] is passed
+      * to [when_done].
+      * 
      *)
-
-  method skip_message : unit -> unit
-    (** Skips the current/next received message, i.e. the [when_done] callback
-      * will not be invoked for it.
-      *)
 
   method writing : bool
    (** True iff there is a writer *)
@@ -104,7 +127,7 @@ object
       * This starts one-time write job only, i.e. it is not restarted
       * after [when_done] has been invoked.
       *
-      * It is an error to start writing several times.
+      * It is an error to start writing several times at once.
      *)
 
   method cancel_rd_polling : unit -> unit

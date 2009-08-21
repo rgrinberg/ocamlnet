@@ -265,8 +265,9 @@ type rule =
     | `Accept
     | `Accept_limit_length of (int * rule)
     ]
+  (* similar to Rpc_transport.in_rule *)
 
-val set_session_filter : t -> (Unix.sockaddr -> rule) -> unit
+val set_session_filter : t -> (Rpc_transport.sockaddr -> rule) -> unit
   (** If set, the filter function is invoked every time the beginning of a new
    * RPC call is received, and the result of the filter function determines
    * what to do with the call:
@@ -298,7 +299,7 @@ val set_session_filter : t -> (Unix.sockaddr -> rule) -> unit
    * attacks.
    *)
 
-val set_session_filter_2 : t -> (Unix.sockaddr -> connection_id -> rule) -> unit
+val set_session_filter_2 : t -> (Rpc_transport.sockaddr -> connection_id -> rule) -> unit
   (** Same as [set_session_filter], but the filter gets as second argument the
     * connection ID.
    *)

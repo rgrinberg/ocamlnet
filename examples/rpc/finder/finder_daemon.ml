@@ -95,12 +95,17 @@ let configure cf addr =
 
 
 let setup srv root_dir =
+  (* Bind the RPC's: *)
   Finder_service_srv.Finder.V1.bind 
     ~proc_ping:(fun () -> ())
     ~proc_find:(proc_find root_dir)
     ~proc_lastquery:(proc_lastquery)
     ~proc_shutdown:Netplex_cenv.system_shutdown
+    srv;
+  (* Limit client queries to 1000 bytes: *)
+  Rpc_server.set_session_filter 
     srv
+    (fun _ -> `Accept_limit_length(1000, `Reject))
 ;;
 
 
