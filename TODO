@@ -7,11 +7,6 @@ Plan for Ocamlnet 3
     (self-watching)
   * Annotations
   * Doc: Tutorial for Rpc_proxy. Upgrade one example.
-  * Fix: `Accept_limit_length for Rpc_server. Add filters to clients, too
-    (see msg by rafaelsen on ocamlnet-devel)
-
-- Bug Paolo Donadeo on ocamlnet-devel:
-  `Redirect_response not working
 
 - Netlog:
 
@@ -108,6 +103,10 @@ Plan for Ocamlnet 3
   * Rpc_proxy: layer on top of Rpc_client w/ automatic connection handling
   * Generate proxies
   * Rpc trace
+  * Fix: `Accept_limit_length for Rpc_server. Add filters to clients, too
+    (see msg by rafaelsen on ocamlnet-devel)
+  * Bug Paolo Donadeo on ocamlnet-devel:
+    `Redirect_response not working
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0

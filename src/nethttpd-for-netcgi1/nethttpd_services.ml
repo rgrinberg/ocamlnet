@@ -480,6 +480,68 @@ let std_activation tag =
 	   ~operating_type:Netcgi1_compat.Netcgi.tempfile_transactional_optype
 	   ())
 
+
+class dynamic_out_channel enabled out_ch : Netchannels.out_obj_channel =
+  (* if enabled is set to false, output is suppressed *)
+object(self)
+  method output s p len =
+    if !enabled then
+      out_ch # output s p len
+    else
+      len
+  method flush() =
+    if !enabled then
+      out_ch # flush()
+  method close_out() =
+    if !enabled then
+      out_ch # close_out()
+  method pos_out =
+    out_ch # pos_out
+  method really_output s p len =
+    if !enabled then
+      out_ch # really_output s p len
+  method output_char c =
+    if !enabled then
+      out_ch # output_char c
+  method output_string s =
+    if !enabled then
+      out_ch # output_string s
+  method output_byte b =
+    if !enabled then
+      out_ch # output_byte b
+  method output_buffer b =
+    if !enabled then
+      out_ch # output_buffer b
+  method output_channel ?len ch =
+    if !enabled then
+      out_ch # output_channel ?len ch
+end
+
+
+class dynamic_env_wrapper (env:extended_environment) properties =
+  let in_channel = env#input_ch in
+  let out_enabled = ref true in
+  let out_channel = new dynamic_out_channel out_enabled env#output_ch in
+object(self)
+  inherit redirected_environment ~in_channel ~properties env as super
+
+  method send_output_header() =
+    (* Check for CGI-type redirection. In this case we have to suppress 
+       any output. (see also below)
+     *)
+    ( try
+	let loc = self # output_header_field "Location" in (* or Not_found *)
+	if loc = "" || loc.[0] <> '/' then raise Not_found;
+	out_enabled := false;  (* suppress output *)
+      with
+	  Not_found ->
+	    super # send_output_header()
+    )
+
+  method output_ch = out_channel
+end
+
+
 let dynamic_service_impl spec =
 object(self)
   method name = "dynamic_service"
@@ -527,7 +589,7 @@ object(self)
 
   method process_body env =
     (* Set PATH_INFO and PATH_TRANSLATED: *)
-    let env =
+    let props =
       match spec.dyn_uri with
 	| Some dyn_uri ->
 	    let req_path_esc = env#cgi_script_name in
@@ -551,14 +613,10 @@ object(self)
 		]
 		env#cgi_properties in
 
-	    new redirected_environment
-	      ~properties
-	      ~in_channel:(env # input_ch)
-	      env
-	    
-	| None -> env
-    in
-
+	    properties
+	| None -> 
+	    env#cgi_properties in
+    let env = new dynamic_env_wrapper env props in
     let cgi = spec.dyn_activation env in
     activation <- Some cgi;
     fixed_env <- Some env;
@@ -569,17 +627,20 @@ object(self)
     match (activation, fixed_env) with
       | (Some cgi, Some env) ->
 	  spec.dyn_handler env cgi;
-	  (* Check for CGI-type redirection: *)
+	  (* Check for CGI-type redirection. In this case we have to do
+             the actual redirection (see also dynamic_env_wrapper)
+	   *)
 	  ( try
-	      let loc = env # output_header_field "Location" in (* or Not_found *)
-	      if loc <> "" && loc.[0] = '/' then (
-		env # output_header # set_fields [];  (* Reset output *)
-		raise(Redirect_response(loc, env # input_header));
-	      )
+	      let loc = 
+		env # output_header_field "Location" in (* or Not_found *)
+	      if loc = "" || loc.[0] <> '/' then raise Not_found;
+	      env # output_header # set_fields [];  (* Reset output *)
+	      raise(Redirect_response(loc, env # input_header))
 	    with
 		Not_found ->
-		  ()  (* no redirection *)
+		  ()
 	  )
+
       | _ ->
 	  failwith "Activation object is missing"
 end
