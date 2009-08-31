@@ -206,16 +206,16 @@ object(self)
       RID_Table.clear new_res
     end;
 
-    debug_print (lazy (
-		   let reslst =
-		     RID_Table.fold
-		       (fun op (g, tout, tlast) acc ->
-			  (sprintf "%s => group %d, timeout %f, lastevent %f"
-			     (string_of_op op) (Oo.id g) tout !tlast) :: acc)
-		       res
-		       [] in
-		   sprintf "setup <resources: %s>"
-		     (String.concat "; " reslst)));
+    dlogr (fun () ->
+	     let reslst =
+	       RID_Table.fold
+		 (fun op (g, tout, tlast) acc ->
+		    (sprintf "%s => group %d, timeout %f, lastevent %f"
+		       (string_of_op op) (Oo.id g) tout !tlast) :: acc)
+		 res
+		 [] in
+	     sprintf "setup <resources: %s>"
+	       (String.concat "; " reslst));
 
     (* When we only have weak resources, or nothing, we return the empty set *)
     if RID_Table.length strong_res <> 0 then begin
@@ -398,8 +398,8 @@ object(self)
       (* Find out which system events are interesting now: *)
       let (infiles, outfiles, oobfiles, time) = self#setup() in
 
-      debug_print
-	(lazy
+      dlogr
+	(fun() ->
 	   ( sprintf "setup result <infiles=%s; outfiles=%s; oobfiles=%s; timeout=%f>"
 	       (String.concat "," (List.map string_of_fd infiles))
 	       (String.concat "," (List.map string_of_fd outfiles))
@@ -515,7 +515,7 @@ object(self)
     self # add_resource_1 g (op,t) false
 
   method private add_resource_1 g (op,t) is_strong =
-    debug_print (lazy (sprintf "add_resource <group %d, %s, timeout %f>"
+    dlogr (fun () -> (sprintf "add_resource <group %d, %s, timeout %f>"
 			 (Oo.id g) (string_of_op op) t));
     if g # is_terminating then
       invalid_arg "Unixqueue.add_resource: the group is terminated";
@@ -525,7 +525,7 @@ object(self)
 	   (* CHECK: Maybe we should fail if g is a different group than
 	    * the already existing group
 	    *)
-	   debug_print (lazy "add_resouce <resource exists already>");
+	   dlogr (fun () -> "add_resouce <resource exists already>");
 	   ()
 	 )
 	 else begin
@@ -573,7 +573,7 @@ object(self)
       ()
 
   method private remove_resource_nolock g op =
-    debug_print (lazy (sprintf "remove_resource <group %d, %s>"
+    dlogr (fun () -> (sprintf "remove_resource <group %d, %s>"
 			 (Oo.id g) (string_of_op op)));
     if g # is_terminating then
       invalid_arg "Unixqueue.remove_resource: the group is terminated";
@@ -603,7 +603,7 @@ object(self)
 		Some a -> 
 		  (* any open resource? *)
       		  if not (self#exists_descriptor_nolock d) then begin
-		    debug_print (lazy (sprintf "remove_resource <running close action for fd %s>"
+		    dlogr (fun () -> (sprintf "remove_resource <running close action for fd %s>"
 					 (string_of_fd d)));
 		    Hashtbl.remove close_tab d;
       		    a d;
@@ -631,7 +631,7 @@ object(self)
      *)
 
     let terminate_handler_nolock g h =
-      debug_print (lazy (sprintf "uq_handler <terminating handler group %d>" 
+      dlogr (fun () -> (sprintf "uq_handler <terminating handler group %d>" 
 			   (Oo.id g)));
       let hlist =
 	try Hashtbl.find handlers g with Not_found -> [] in
@@ -745,7 +745,7 @@ object(self)
    *)
 
   method private add_handler_nolock g h =
-    debug_print (lazy (sprintf "add_handler <group %d>" (Oo.id g)));
+    dlogr (fun () -> (sprintf "add_handler <group %d>" (Oo.id g)));
     
     if g # is_terminating then
       invalid_arg "Unixqueue.add_handler: the group is terminated";
@@ -766,7 +766,7 @@ object(self)
     self#protect (self#add_handler_nolock g)
 
   method private clear_nolock g = 
-    debug_print (lazy (sprintf "clear <group %d>" (Oo.id g)));
+    dlogr (fun () -> (sprintf "clear <group %d>" (Oo.id g)));
     
     (* Set that g is terminating now: *)
     g # terminate();
@@ -821,13 +821,13 @@ object(self)
     (* Note: If g has been terminated, the abort action is removed. So
      * we will never find here one.
      *)
-    debug_print (lazy (sprintf "abort <group %d, exception %s>"
+    dlogr (fun () -> (sprintf "abort <group %d, exception %s>"
 			 (Oo.id g) (Netexn.to_string ex)));
     let action = try Some (List.assoc g abort_tab) with Not_found -> None in
     match action with
 	Some a ->
 	  begin
-	    debug_print (lazy "abort <running abort action>");
+	    dlogr (fun () -> "abort <running abort action>");
             aborting <- true;
 	    let mistake = ref None in
 	    begin try
@@ -841,7 +841,7 @@ object(self)
 	    match !mistake with
 		None -> ()
 	      | Some m -> 
-		  debug_print (lazy (sprintf "abort <propagating exception %s>"
+		  dlogr (fun () -> (sprintf "abort <propagating exception %s>"
 				       (Netexn.to_string m)));
 		  raise m
 	  end

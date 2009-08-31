@@ -160,7 +160,7 @@ object(self)
     let tmin = try min_key ops_of_tmo with Not_found -> (-1.0) in
     let delta = if tmin < 0.0 then (-1.0) else max (tmin -. t0) 0.0 in
 
-    debug_print (lazy (
+    dlogr (fun () -> (
 		   sprintf "t0 = %f" t0));
 
     let nothing_to_do =
@@ -170,11 +170,11 @@ object(self)
     let pset_events, have_eintr = 
       try
 	if nothing_to_do then (
-	  debug_print (lazy "nothing_to_do");
+	  dlogr (fun () -> "nothing_to_do");
 	  ([], false)
 	)
 	else (
-	  debug_print (lazy (
+	  dlogr (fun () -> (
 			 let ops = 
 			   Hashtbl.fold (fun op _ l -> op::l) tmo_of_op [] in
 			 let op_str = 
@@ -194,7 +194,7 @@ object(self)
 	)
       with
 	| Unix.Unix_error(Unix.EINTR,_,_) ->
-	    debug_print (lazy "wait signals EINTR");
+	    dlogr (fun () -> "wait signals EINTR");
 	    ([], true) 
 	| e ->   
 	    (* Usually from [wait], but one never knows... *)
@@ -209,12 +209,12 @@ object(self)
     try  
       (* Catch exceptions and unlock *)
 
-      debug_print (lazy (
+      dlogr (fun () -> (
 		     sprintf "wait returns <%d pset events>" 
 		       (List.length pset_events)));
 		   
       let t1 = Unix.gettimeofday() in
-      debug_print (lazy (sprintf "t1 = %f" t1));
+      dlogr (fun () -> (sprintf "t1 = %f" t1));
       (* t1 is the reference for determining the timeouts *)
 
       (* while waiting somebody might have removed resouces, so ... *)
@@ -268,23 +268,23 @@ object(self)
 	     )
 	     ops_timed_out) in
       
-      debug_print(lazy (sprintf "delivering <%s>"
-			  (String.concat ";" 
-			     (List.map 
-				string_of_event
-				(events @ timeout_events)))));
+      dlogr(fun() -> (sprintf "delivering <%s>"
+			(String.concat ";" 
+			   (List.map 
+			      string_of_event
+			      (events @ timeout_events)))));
 
       (* deliver events *)
       List.iter (Equeue.add_event _sys) events;
       List.iter (Equeue.add_event _sys) timeout_events;
       if have_eintr then (
-	debug_print (lazy "delivering Signal");
+	dlogr (fun () -> "delivering Signal");
 	Equeue.add_event _sys Unixqueue.Signal
       )
       else
 	if events = [] && timeout_events = [] && not nothing_to_do then (
           (* Ensure we always add an event to keep the event loop running: *)
-	  debug_print (lazy "delivering Keep_alive");
+	  dlogr (fun () -> "delivering Keep_alive");
 	  Equeue.add_event _sys (Unixqueue.Extra Keep_alive)
 	);
     
@@ -356,7 +356,7 @@ object(self)
   method private sched_remove_wl op =
     try
       let tmo, t1, g = Hashtbl.find tmo_of_op op in  (* or Not_found *)
-      debug_print(lazy (sprintf "sched_remove %s" (string_of_op op)));
+      dlogr(fun () -> (sprintf "sched_remove %s" (string_of_op op)));
       Hashtbl.remove tmo_of_op op;
       Hashtbl.remove strong_op op;
       let l_ops =
@@ -389,8 +389,8 @@ object(self)
 	    
 
   method private sched_add_wl g op tmo t1 is_strong =
-    debug_print(lazy (sprintf "sched_add %s tmo=%f t1=%f is_strong=%b"
-			(string_of_op op) tmo t1 is_strong));
+    dlogr(fun () -> (sprintf "sched_add %s tmo=%f t1=%f is_strong=%b"
+		       (string_of_op op) tmo t1 is_strong));
     Hashtbl.add tmo_of_op op (tmo, t1, g);
     if is_strong then
       Hashtbl.add strong_op op ();
@@ -498,7 +498,7 @@ object(self)
                           This shouldn't be done before [wait] returns.
                         *)
                        if not (self#exists_descriptor_wl fd) then (
-			 debug_print (lazy (sprintf "remove_resource <running close action for fd %s>"
+			 dlogr (fun () -> (sprintf "remove_resource <running close action for fd %s>"
                                               (string_of_fd fd)));
 			 Hashtbl.remove close_tab fd;
 			 escape_lock mutex (fun () -> a fd);
@@ -563,8 +563,8 @@ object(self)
      *)
 
     let terminate_handler_wl g h =
-      debug_print 
-	(lazy 
+      dlogr
+	(fun() -> 
 	   (sprintf "uq_handler <terminating handler group %d, handler %d>"
               (Oo.id g) (Oo.id h)));
       let hlist =
@@ -575,7 +575,7 @@ object(self)
         Hashtbl.remove handlers g;
         handled_groups <- handled_groups - 1;
         if handled_groups = 0 then (
-	  debug_print (lazy "uq_handler <self-terminating>");
+	  dlogr (fun () -> "uq_handler <self-terminating>");
           raise Equeue.Terminate  (* delete uq_handler from esys *)
 	)
       ) else (
@@ -587,19 +587,19 @@ object(self)
       (* The caller does not have the lock when this fn is called! *)
       match hlist with
           [] ->
-	    debug_print (lazy "uq_handler <empty list>");
+	    dlogr (fun () -> "uq_handler <empty list>");
             raise Equeue.Reject
         | h :: hlist' ->
             ( try
                 (* Note: ues _must not_ be locked now *)
-		debug_print
-		  (lazy 
+		dlogr
+		  (fun () -> 
 		     (sprintf 
 			"uq_handler <invoke handler group %d, handler %d>"
 			(Oo.id g) (Oo.id h)));
                 h#run (self :> event_system) esys ev;
-		debug_print
-		  (lazy 
+		dlogr
+		  (fun () -> 
 		     (sprintf 
 			"uq_handler <invoke_success handler group %d, handler %d>"
 			(Oo.id g) (Oo.id h)));
@@ -618,8 +618,8 @@ object(self)
 
     let forward_event g =
       (* The caller does not have the lock when this fn is called! *)
-      debug_print
-	(lazy
+      dlogr
+	(fun () ->
 	   (sprintf "uq_handler <forward_event group %d>" (Oo.id g)));
       let hlist =
         while_locked mutex
@@ -650,8 +650,8 @@ object(self)
           Exit_loop -> ()
     in
 
-    debug_print
-      (lazy
+    dlogr
+      (fun () ->
 	 (sprintf "uq_handler <event %s>"
 	    (string_of_event ev)));
 
@@ -661,13 +661,13 @@ object(self)
 	  while_locked mutex
 	    (fun () ->
                if Hashtbl.mem handlers g then (
-		 debug_print 
-		   (lazy
+		 dlogr
+		   (fun () ->
 		      (sprintf "uq_handler <terminating group %d>" (Oo.id g)));
 		 Hashtbl.remove handlers g;
 		 handled_groups <- handled_groups - 1;
 		 if handled_groups = 0 then (
-		   debug_print (lazy "uq_handler <self-terminating>");
+		   dlogr (fun () -> "uq_handler <self-terminating>");
 		   raise Equeue.Terminate  (* delete uq_handler from esys *)
 		 )
                )
@@ -704,8 +704,8 @@ object(self)
     while_locked mutex
       (fun () ->
 	 let oh = new ohandler h in
-	 debug_print 
-	   (lazy
+	 dlogr
+	   (fun () ->
 	      (sprintf
 		 "add_handler <group %d, handler %d>" (Oo.id g) (Oo.id oh)));
 	 
@@ -731,7 +731,7 @@ object(self)
 
 
   method private clear_wl g =
-    debug_print (lazy (sprintf "clear <group %d>" (Oo.id g)));
+    dlogr (fun () -> (sprintf "clear <group %d>" (Oo.id g)));
     
     (* Set that g is terminating now: *)
     g # terminate();
@@ -776,7 +776,7 @@ object(self)
     (* Note: If g has been terminated, the abort action is removed. So
      * we will never find here one.
      *)
-    debug_print (lazy (sprintf "abort <group %d, exception %s>"
+    dlogr (fun () -> (sprintf "abort <group %d, exception %s>"
                          (Oo.id g) (Netexn.to_string ex)));
     let action =
       while_locked mutex
@@ -785,7 +785,7 @@ object(self)
     match action with
       | Some a ->
           begin
-            debug_print (lazy "abort <running abort action>");
+            dlogr (fun () -> "abort <running abort action>");
             let mistake = ref None in
 	    while_locked mutex 
 	      (fun () -> aborting <- true);
@@ -803,7 +803,7 @@ object(self)
             match !mistake with
               | None -> ()
               | Some m ->
-                  debug_print (lazy (sprintf "abort <propagating exception %s>"
+                  dlogr (fun () -> (sprintf "abort <propagating exception %s>"
                                        (Netexn.to_string m)));
                   raise m
           end

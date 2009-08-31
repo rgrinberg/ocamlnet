@@ -109,6 +109,23 @@ type capacity =
     * - [`Unavailable]: No capacity free
    *)
 
+type extended_address =
+    [ `Socket of Unix.sockaddr
+    | `Socket_file of string
+    | `W32_pipe of string
+    | `W32_pipe_file of string
+    ]
+  (** Possible addresses:
+       - [`Socket s]: The socket at this socket address
+       - [`Socket_file f]: The file [f] contains the (anonymous) port number
+         of a socket bound to [127.0.0.1] (This is meant as substitute for
+         Unix Domain sockets on Win32.)
+       - [`W32_pipe name]: The Win32 pipe with this [name] which must
+         be of the form "\\.\pipe\<pname>"
+       - [`W32_pipe_file f]: The file [f] contains the (random) name of a 
+         Win32 pipe
+   *)
+
 class type controller = 
 object
   method ptype : parallelization_type
@@ -262,7 +279,7 @@ object
     (** The protocol name is an arbitrary string identifying groups of
       * sockets serving the same protocol for a [socket_service].
      *)
-  method addresses : Unix.sockaddr array
+  method addresses : extended_address array
     (** The addresses of the master sockets. (The socket type is always
       * SOCK_STREAM.) The list must be non-empty.
      *)

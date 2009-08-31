@@ -7,13 +7,13 @@
 #include <stdio.h>
 #include <assert.h>
 
+static int debug = 0;
+
 #ifdef _WIN32
 
 #include "unixsupport_w32.c"
 #include <wincrypt.h>
 #include <stdarg.h>
-
-static int debug = 1;
 
 
 static void dprintf(const char *fmt, ...) {
@@ -26,10 +26,15 @@ static void dprintf(const char *fmt, ...) {
     }
 }
 
-
 static HCRYPTPROV crypt_provider;
 static int        crypt_provider_init = 0;
 #endif
+
+
+CAMLprim value netsys_win32_set_debug (value flag) {
+    debug = Bool_val(flag);
+    return Val_unit;
+}
 
 
 CAMLprim value netsys_fill_random (value s) {
@@ -74,6 +79,10 @@ static struct custom_operations event_ops = {
 struct event {
     HANDLE ev;
     int    mask;
+    HANDLE ev_proxy;    /* A copy of ev, to be used for the proxy descriptor */
+    int    auto_close;  /* Whether to auto-close ev_proxy. ev is always 
+			   auto-closed 
+			*/
 };
 
 
@@ -83,24 +92,49 @@ struct event {
 #endif
 
 
+static value alloc_event(HANDLE e) {
+    value r;
+    struct event *e0;
+    int flag;
+    HANDLE e_proxy;
+
+    flag = DuplicateHandle(GetCurrentProcess(),
+			   e, 
+			   GetCurrentProcess(),
+			   &e_proxy, 
+			   0,
+			   FALSE,
+			   DUPLICATE_SAME_ACCESS);
+    if (!flag) {
+	win32_maperr(GetLastError());
+	uerror("DuplicateHandle", Nothing);
+    };
+
+    r = caml_alloc_custom(&event_ops, sizeof(struct event), 1, 0);
+    e0 = event_val(r);
+
+    e0->ev = e;
+    e0->mask = 0;
+    e0->ev_proxy = e_proxy;
+    e0->auto_close = 1;
+
+    return r;
+}
+
 CAMLprim value netsys_create_event(value dummy) {
 #ifdef _WIN32
-    HANDLE e;
+    HANDLE e, e_proxy;
     value r;
-    struct event e0;
+    struct event *e0;
+    int flag;
 
     e = CreateEvent(NULL, 1, 0, NULL);
     if (e == NULL) {
 	win32_maperr(GetLastError());
 	uerror("CreateEvent", Nothing);
-    }
-    e0.ev = e;
-    e0.mask = 0;
+    };
 
-    r = caml_alloc_custom(&event_ops, sizeof(struct event), 1, 0);
-    *(event_val(r)) = e0;
-
-    return r;
+    return alloc_event(e);
 #else
     invalid_argument("netsys_create_event");
 #endif
@@ -108,12 +142,19 @@ CAMLprim value netsys_create_event(value dummy) {
 
 CAMLprim value netsys_close_event(value ev) {
 #ifdef _WIN32
-    struct event e;
+    struct event *e;
 
-    e = *(event_val(ev));
-    if (!CloseHandle(e.ev)) {
-	/* ignore errors - this is a finaliser! */
-    }
+    e = event_val(ev);
+
+    dprintf("EVENT netsys_close_event handle=%u proxy=%u auto_close=%d\n", 
+	    e->ev,
+	    e->ev_proxy,
+	    e->auto_close);
+
+    CloseHandle(e->ev);  /* ignore errors - this is a finaliser! */
+    if (e->auto_close) {
+	CloseHandle(e->ev_proxy);  /* ignore errors - this is a finaliser! */
+    };
 
     return Val_unit;
 #else
@@ -122,12 +163,25 @@ CAMLprim value netsys_close_event(value ev) {
 }
 
 
+CAMLprim value netsys_set_auto_close_event_proxy(value ev, value flag) {
+#ifdef _WIN32
+    struct event *e;
+
+    e = event_val(ev);
+    e->auto_close = Bool_val(flag);
+    return Val_unit;
+#else
+    invalid_argument("netsys_set_auto_close_event_proxy");
+#endif
+}
+
+
 CAMLprim value netsys_set_event(value ev) {
 #ifdef _WIN32
-    struct event e;
+    struct event *e;
 
-    e = *(event_val(ev));
-    if (!SetEvent(e.ev)) {
+    e = event_val(ev);
+    if (!SetEvent(e->ev)) {
 	win32_maperr(GetLastError());
 	uerror("SetEvent", Nothing);
     }
@@ -140,10 +194,10 @@ CAMLprim value netsys_set_event(value ev) {
 
 CAMLprim value netsys_reset_event(value ev) {
 #ifdef _WIN32
-    struct event e;
+    struct event *e;
 
-    e = *(event_val(ev));
-    if (!ResetEvent(e.ev)) {
+    e = event_val(ev);
+    if (!ResetEvent(e->ev)) {
 	win32_maperr(GetLastError());
 	uerror("ResetEvent", Nothing);
     }
@@ -157,12 +211,12 @@ CAMLprim value netsys_reset_event(value ev) {
 
 CAMLprim value netsys_test_event(value ev) {
 #ifdef _WIN32
-    struct event e;
+    struct event *e;
     DWORD n;
     int signaled;
 
-    e = *(event_val(ev));
-    n = WaitForSingleObject(e.ev, 0);
+    e = event_val(ev);
+    n = WaitForSingleObject(e->ev, 0);
     if (n == WAIT_FAILED) {
 	win32_maperr(GetLastError());
 	uerror("WaitForSingleObject", Nothing);
@@ -177,7 +231,7 @@ CAMLprim value netsys_test_event(value ev) {
 
 CAMLprim value netsys_event_wait(value ev, value tmo) {
 #ifdef _WIN32
-    struct event e;
+    struct event *e;
     DWORD n;
     DWORD wtmo;  /* unsigned! */
     int signaled;
@@ -187,8 +241,10 @@ CAMLprim value netsys_event_wait(value ev, value tmo) {
 	wtmo = Long_val(tmo);
     };
 
-    e = *(event_val(ev));
-    n = WaitForSingleObject(e.ev, wtmo);
+    e = event_val(ev);
+    enter_blocking_section();
+    n = WaitForSingleObject(e->ev, wtmo);
+    leave_blocking_section();
     if (n == WAIT_FAILED) {
 	win32_maperr(GetLastError());
 	uerror("WaitForSingleObject", Nothing);
@@ -203,35 +259,34 @@ CAMLprim value netsys_event_wait(value ev, value tmo) {
 
 CAMLprim value netsys_event_descr(value ev) {
 #ifdef _WIN32
-    struct event e;
-    e = *(event_val(ev));
-    return netsysw32_win_alloc_handle(e.ev);
+    struct event *e;
+    e = event_val(ev);
+    return netsysw32_win_alloc_handle(e->ev_proxy);
 #else
-    invalid_argument("netsys_pipe_descr");
+    invalid_argument("netsys_event_descr");
 #endif
 }
 
 
 CAMLprim value netsys_wsa_event_select(value ev, value fdv, value evmaskv) {
 #ifdef _WIN32
-    struct event e;
+    struct event *e;
     SOCKET s;
     int m;
     long m_win32;
 
-    e = *(event_val(ev));
+    e = event_val(ev);
     s = Socket_val(fdv);
     m = Int_val(evmaskv);
 
-    e.mask = m & (CONST_POLLIN | CONST_POLLOUT | CONST_POLLPRI);
-    *(event_val(ev)) = e;
+    e->mask = m & (CONST_POLLIN | CONST_POLLOUT | CONST_POLLPRI);
 
     m_win32 = 0;
     if ((m & CONST_POLLIN) != 0)  m_win32 |= FD_READ | FD_ACCEPT | FD_CLOSE;
     if ((m & CONST_POLLOUT) != 0) m_win32 |= FD_WRITE | FD_CONNECT | FD_CLOSE;
     if ((m & CONST_POLLPRI) != 0) m_win32 |= FD_OOB;
 
-    if (WSAEventSelect(s, e.ev, m_win32) != 0) {
+    if (WSAEventSelect(s, e->ev, m_win32) != 0) {
 	win32_maperr(WSAGetLastError());
 	uerror("WSAEventSelect", Nothing);
     }
@@ -253,7 +308,7 @@ CAMLprim value netsys_wsa_maximum_wait_events(value dummy) {
 CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 #ifdef _WIN32
     WSAEVENT earray[WSA_MAXIMUM_WAIT_EVENTS];
-    struct event e;
+    struct event *e;
     long  tmo0;
     DWORD tmo;   /* note: DWORD is unsigned */
     int k,n;
@@ -265,10 +320,16 @@ CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 
     dprintf("WSAWaitForMultipleEvents prep n=%d tmo=%d\n", n, tmo0);
 
+    if (n > WSA_MAXIMUM_WAIT_EVENTS) {
+	win32_maperr(EINVAL);
+	uerror("netsys_wsa_wait_for_multiple_events", Nothing);
+    };
+
     for (k=0; k < n; k++) {
-	e = *(event_val(Field(fdarray,k)));
-	earray[k] = e.ev;
-	dprintf("WSAWaitForMultipleEvents prep ev=%u\n", e.ev);
+	e = event_val(Field(fdarray,k));
+	earray[k] = e->ev;
+	dprintf("WSAWaitForMultipleEvents prep evhandle=%u evproxy=%u\n", 
+		e->ev, e->ev_proxy);
     }
 
     if (n == 0) {
@@ -292,14 +353,20 @@ CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 	    tmo = tmo0;
 	else
 	    tmo = INFINITE;
-	dprintf("WSAWaitForMultipleEvents start tmo=%u\n", n, tmo);
+	dprintf("WSAWaitForMultipleEvents start tmo=%u\n", tmo);
 	enter_blocking_section();
 	r = WSAWaitForMultipleEvents(n, earray, 0, tmo, 1);
 	leave_blocking_section();
 	dprintf("WSAWaitForMultipleEvents end code=%u\n", r);
     
 	if (r == WSA_WAIT_FAILED) {
-	    win32_maperr(WSAGetLastError());
+	    DWORD err;
+	    err = WSAGetLastError();
+	    dprintf("WSAWaitForMultipleEvents error=%u\n", err);
+	    /* Sometimes we get err==0. Handle it like timeout: */
+	    if (err == 0) 
+		return Val_int(0);
+	    win32_maperr(err);
 	    uerror("WSAWaitForMultipleEvents", Nothing);
 	}
 	
@@ -307,6 +374,7 @@ CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 	    return Val_int(0);    /* None */
 	
 	if (r == WSA_WAIT_IO_COMPLETION) {
+	    dprintf("WSAWaitForMultipleEvents error=EINTR\n");
 	    win32_maperr(EINTR);
 	    uerror("WSAWaitForMultipleEvents", Nothing);
 	}
@@ -326,15 +394,15 @@ CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 
 CAMLprim value netsys_wsa_enum_network_events(value fdv, value ev) {
 #ifdef _WIN32
-    struct event e;
+    struct event *e;
     SOCKET s;
     WSANETWORKEVENTS ne;
     int r;
 
-    e = *(event_val(ev));
+    e = event_val(ev);
     s = Socket_val(fdv);
 
-    if (WSAEnumNetworkEvents(s, e.ev, &ne) != 0) {
+    if (WSAEnumNetworkEvents(s, e->ev, &ne) != 0) {
 	win32_maperr(WSAGetLastError());
 	uerror("WSAEnumNetworkEvents", Nothing);
     }
@@ -374,7 +442,7 @@ CAMLprim value netsys_wsa_enum_network_events(value fdv, value ev) {
 
     /* printf("r=%d\n", r); */
 
-    r &= (e.mask | CONST_POLLHUP | CONST_POLLERR);
+    r &= (e->mask | CONST_POLLHUP | CONST_POLLERR);
 
     /* printf("e.mask=%d\n", e.mask); fflush(stdout); */
 
@@ -408,8 +476,10 @@ struct pipe_helper {
     int    pipe_mode_wr;          /* write allowed */
     HANDLE pipe_rd_ev;
     HANDLE pipe_wr_ev;
+    HANDLE pipe_cn_ev;
     LPOVERLAPPED pipe_rd_ovrlp; /* overlappped structure for reads */
-    LPOVERLAPPED pipe_wr_ovrlp; /* overlappped structure for writes/connects */
+    LPOVERLAPPED pipe_wr_ovrlp; /* overlappped structure for writes */
+    LPOVERLAPPED pipe_cn_ovrlp; /* overlappped structure for connects */
     int    pipe_rd_ovrlp_started; /* an overlapping read has been started */
     int    pipe_wr_ovrlp_started; /* an overlapping write has been started */
     int    pipe_cn_ovrlp_started; /* an overlapping connect has been started */
@@ -419,6 +489,7 @@ struct pipe_helper {
     char   pipe_wr_buf[PIPE_HELPER_BUF_SIZE];
     int    pipe_wr_buf_size;
     HANDLE pipe_descr;
+    int    pipe_descr_auto_close;
     HANDLE pipe_signal;
 };
 
@@ -434,13 +505,16 @@ static struct custom_operations pipe_helper_ops = {
 };
 
 
-static struct pipe_helper * alloc_pipe_helper (HANDLE h) {
+/* It is allowed to pass INVALID_HANDLE_VALUE for cn_ev */
+
+static struct pipe_helper * alloc_pipe_helper (HANDLE h, HANDLE cn_ev) {
     struct pipe_helper *ph;
     HANDLE rd_ev;
     HANDLE wr_ev;
     HANDLE pd;
     OVERLAPPED *rd_ovrlp;
     OVERLAPPED *wr_ovrlp;
+    OVERLAPPED *cn_ovrlp;
 
     /* CHECK: error handling */
 
@@ -470,6 +544,11 @@ static struct pipe_helper * alloc_pipe_helper (HANDLE h) {
     ZeroMemory(wr_ovrlp, sizeof(OVERLAPPED));
     wr_ovrlp->hEvent = wr_ev;
 
+    cn_ovrlp = stat_alloc(sizeof(OVERLAPPED));
+    ZeroMemory(cn_ovrlp, sizeof(OVERLAPPED));
+    if (cn_ev != INVALID_HANDLE_VALUE)
+	cn_ovrlp->hEvent = cn_ev;
+
     ph = stat_alloc(sizeof(struct pipe_helper));
     ph->pipe_handle = h;
     ph->pipe_is_open = 1;
@@ -481,8 +560,10 @@ static struct pipe_helper * alloc_pipe_helper (HANDLE h) {
     ph->pipe_mode_wr = 0;
     ph->pipe_rd_ev = rd_ev;
     ph->pipe_wr_ev = wr_ev;
+    ph->pipe_cn_ev = cn_ev;
     ph->pipe_rd_ovrlp = rd_ovrlp;
     ph->pipe_wr_ovrlp = wr_ovrlp;
+    ph->pipe_cn_ovrlp = cn_ovrlp;
     ph->pipe_rd_ovrlp_started = 0;
     ph->pipe_wr_ovrlp_started = 0;
     ph->pipe_cn_ovrlp_started = 0;
@@ -491,20 +572,27 @@ static struct pipe_helper * alloc_pipe_helper (HANDLE h) {
     ph->pipe_wr_buf_size = 0;
     ph->pipe_signal = NULL;
     ph->pipe_descr = pd;
+    ph->pipe_descr_auto_close = 1;
 
     return ph;
 }
 
 
 static void free_pipe_helper(struct pipe_helper *ph) {
+    dprintf("PIPE free_pipe_helper auto_close=%d\n",
+	    ph->pipe_descr_auto_close);
     if (ph->pipe_is_open)
 	CloseHandle(ph->pipe_handle);
+    if (ph->pipe_descr_auto_close)
+	CloseHandle(ph->pipe_descr);
     CloseHandle(ph->pipe_rd_ev);
     CloseHandle(ph->pipe_wr_ev);
-    CloseHandle(ph->pipe_descr);
+    if (ph->pipe_cn_ev != INVALID_HANDLE_VALUE)
+	CloseHandle(ph->pipe_cn_ev);
     /* do nothing about pipe_signal */
     stat_free(ph->pipe_rd_ovrlp);
     stat_free(ph->pipe_wr_ovrlp);
+    stat_free(ph->pipe_cn_ovrlp);
     stat_free(ph);
 }
 
@@ -626,7 +714,7 @@ static void check_for_pending_operations(struct pipe_helper *ph) {
 	    }
 	}
     };
-    if (ph->pipe_wr_ovrlp_started || ph->pipe_cn_ovrlp_started) {
+    if (ph->pipe_wr_ovrlp_started) {
 	flag = GetOverlappedResult(ph->pipe_handle,
 				   ph->pipe_wr_ovrlp,
 				   &n,
@@ -635,28 +723,15 @@ static void check_for_pending_operations(struct pipe_helper *ph) {
 	    /* operation is done */
 	    dprintf("PIPE check_for_pending %u wr success n=%u\n",
 		    ph->pipe_handle, n);
-	    if (ph->pipe_wr_ovrlp_started) {
-		/* We assume that always the whole buffer is written! */
-		ph->pipe_wr_buf_size = 0;
-	    };
-	    if (ph->pipe_cn_ovrlp_started) {
-		ph->pipe_conn_state = PIPE_CONNECTED;
-		if (ph->pipe_mode_rd)
-		    start_reading(ph);
-		SetEvent(ph->pipe_wr_ev);
-	    };
+	    /* We assume that always the whole buffer is written! */
+	    ph->pipe_wr_buf_size = 0;
 	    ph->pipe_wr_ovrlp_started = 0;
-	    ph->pipe_cn_ovrlp_started = 0;
 	}
 	else {
 	    err = GetLastError();
 	    if (err != ERROR_IO_INCOMPLETE) {
 		ph->pipe_error_wr = err;  /* is reported by next pipe_write */
-		if (ph->pipe_cn_ovrlp_started) {
-		    ph->pipe_error_rd = err;  /* also report via pipe_read */
-		}
 		ph->pipe_wr_ovrlp_started = 0;
-		ph->pipe_cn_ovrlp_started = 0;
 		dprintf("PIPE check_for_pending %u wr error code=%u\n",
 			ph->pipe_handle, err);
 	    } else {
@@ -665,19 +740,95 @@ static void check_for_pending_operations(struct pipe_helper *ph) {
 	    }
 	}
     };
+    if (ph->pipe_cn_ovrlp_started) {
+	flag = GetOverlappedResult(ph->pipe_handle,
+				   ph->pipe_cn_ovrlp,
+				   &n,
+				   0);
+	if (flag) {
+	    /* operation is done */
+	    dprintf("PIPE check_for_pending %u cn success n=%u\n",
+		    ph->pipe_handle, n);
+	    ph->pipe_conn_state = PIPE_CONNECTED;
+	    if (ph->pipe_mode_rd)
+		start_reading(ph);
+	    if (ph->pipe_mode_wr)
+		SetEvent(ph->pipe_wr_ev);
+	    ph->pipe_cn_ovrlp_started = 0;
+	}
+	else {
+	    err = GetLastError();
+	    if (err != ERROR_IO_INCOMPLETE) {
+		ph->pipe_error_wr = err;  /* is reported by next pipe_write */
+		ph->pipe_error_rd = err;  /* also report via pipe_read */
+		ph->pipe_cn_ovrlp_started = 0;
+		dprintf("PIPE check_for_pending %u cn error code=%u\n",
+			ph->pipe_handle, err);
+		/* Also an error counts as "connected"... */
+		ph->pipe_conn_state = PIPE_CONNECTED;
+		if (ph->pipe_mode_rd)
+		    SetEvent(ph->pipe_rd_ev);
+		if (ph->pipe_mode_wr)
+		    SetEvent(ph->pipe_wr_ev);
+	    } else {
+		dprintf("PIPE check_for_pending %u cn pending\n",
+			ph->pipe_handle);
+	    }
+	}
+    };
 }
 #endif
 
 
-CAMLprim value netsys_create_local_named_pipe(value name, value mode, value nv)
+#ifdef _WIN32
+static PSID world_sid = NULL;   /* all logged-in users */
+static PSID network_sid = NULL; /* all accesses coming over the network */
+
+
+void setup_sid(void) {
+    SID_IDENTIFIER_AUTHORITY world_sid_auth = {SECURITY_WORLD_SID_AUTHORITY};
+    SID_IDENTIFIER_AUTHORITY nt_sid_auth = {SECURITY_NT_AUTHORITY};
+    BOOL e;
+
+    // set up network_sid and world_sid:
+    if (world_sid == NULL) {
+	e = AllocateAndInitializeSid(&world_sid_auth, 1,
+				     SECURITY_WORLD_RID,
+				     0, 0, 0, 0, 0, 0, 0,
+				     &world_sid);
+	if (e == 0) {
+	    win32_maperr(GetLastError());
+	    uerror("AllocateAndInitializeSid", Nothing);
+	};
+    };
+
+    if (network_sid == NULL) {
+	e = AllocateAndInitializeSid(&nt_sid_auth, 1,
+				     SECURITY_NETWORK_RID,
+				     0, 0, 0, 0, 0, 0, 0,
+				     &network_sid);
+	if (e == 0) {
+	    win32_maperr(GetLastError());
+	    uerror("AllocateAndInitializeSid", Nothing);
+	};
+    }
+}
+#endif
+
+
+CAMLprim value netsys_create_local_named_pipe(value name, value mode, 
+					      value nv, value cn_ev_v,
+					      value firstv
+					      )
 {
 #ifdef _WIN32
     HANDLE h;
     DWORD omode;
-    int mode_rd, mode_wr;
+    int mode_rd, mode_wr, first;
     DWORD n;
     struct pipe_helper *ph;
     value r;
+    HANDLE cn_ev;
 
     omode = 0;
     mode_rd = 0;
@@ -693,9 +844,14 @@ CAMLprim value netsys_create_local_named_pipe(value name, value mode, value nv)
 
     n = Int_val(nv);
     if (n <=0 || n > PIPE_UNLIMITED_INSTANCES) n = PIPE_UNLIMITED_INSTANCES;
+
+    cn_ev = event_val(cn_ev_v)->ev;
+    first = Bool_val(firstv);
+    setup_sid();
     
     h = CreateNamedPipe(String_val(name),
-			omode | FILE_FLAG_OVERLAPPED,
+			omode | WRITE_DAC | FILE_FLAG_OVERLAPPED | 
+			  (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
 			PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
 			n,
 			PIPE_HELPER_BUF_SIZE,
@@ -707,16 +863,74 @@ CAMLprim value netsys_create_local_named_pipe(value name, value mode, value nv)
 	uerror("CreateNamedPipe", Nothing);
     }
 
-    /* TODO: set up security vector
-       see
-       http://msdn.microsoft.com/en-us/library/aa446595(VS.85).aspx
-       AllocateAndInitializeSid(SECURITY_NT_AUTHORITY,
-                                1, 
-			        SECURITY_NETWORK_RID, 0, 0, 0, 0, 0, 0, 0,
-			        &psid);
-    */
+    // ACE's must be added to pipe's DACL for:
+    // - remote clients are rejected.
+    // - client processes running under low-privilege accounts are also
+    //   able to change state of client end of this pipe to Non-Blocking
+    //    and Message-Mode.
 
-    ph = alloc_pipe_helper(h);
+    PACL pACL = NULL;
+    PACL pNewACL = NULL;
+    EXPLICIT_ACCESS explicit_access_list[2];
+    TRUSTEE trustee[2];
+    DWORD e;
+
+    // reject remote clients:
+    trustee[0].TrusteeForm = TRUSTEE_IS_SID;
+    trustee[0].TrusteeType = TRUSTEE_IS_GROUP;
+    trustee[0].ptstrName = (LPTSTR) network_sid;
+    trustee[0].MultipleTrusteeOperation = NO_MULTIPLE_TRUSTEE;
+    trustee[0].pMultipleTrustee = NULL;
+
+    ZeroMemory(&explicit_access_list[0], sizeof(EXPLICIT_ACCESS));
+    explicit_access_list[0].grfAccessMode = SET_ACCESS;
+    explicit_access_list[0].grfAccessPermissions = 0;
+    explicit_access_list[0].grfInheritance = NO_INHERITANCE;
+    explicit_access_list[0].Trustee = trustee[0];
+
+    // allow all local users to connect:
+    trustee[1].TrusteeForm = TRUSTEE_IS_SID;
+    trustee[1].TrusteeType = TRUSTEE_IS_GROUP;
+    trustee[1].ptstrName = (LPTSTR) world_sid;;
+    trustee[1].MultipleTrusteeOperation = NO_MULTIPLE_TRUSTEE;
+    trustee[1].pMultipleTrustee = NULL;
+
+    ZeroMemory(&explicit_access_list[1], sizeof(EXPLICIT_ACCESS));
+    explicit_access_list[1].grfAccessMode = GRANT_ACCESS;
+    explicit_access_list[1].grfAccessPermissions = FILE_WRITE_ATTRIBUTES;
+    explicit_access_list[1].grfInheritance = NO_INHERITANCE;
+    explicit_access_list[1].Trustee = trustee[1];
+
+    e = GetSecurityInfo(h, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, 
+			NULL, NULL,
+			&pACL, NULL, NULL);
+    if (e != ERROR_SUCCESS) {
+	win32_maperr(GetLastError());
+	CloseHandle(h);
+	uerror("GetSecurityInfo", Nothing);
+    };
+
+    e = SetEntriesInAcl(2, explicit_access_list, pACL, &pNewACL);
+    if (e != ERROR_SUCCESS) {
+	win32_maperr(GetLastError());
+	CloseHandle(h);
+	uerror("SetEntriesinAcl", Nothing);
+    };
+
+    e = SetSecurityInfo(h, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, 
+			NULL, NULL, pNewACL, NULL);
+    if (e != ERROR_SUCCESS) {
+	win32_maperr(GetLastError());
+	LocalFree(pNewACL);
+	CloseHandle(h);
+	uerror("SetSecurityInfo", Nothing);
+    };
+
+    LocalFree(pNewACL);
+
+    /* - done with setting up security - */
+
+    ph = alloc_pipe_helper(h, cn_ev);
     ph->pipe_is_server = 1;
     ph->pipe_mode_rd = mode_rd;
     ph->pipe_mode_wr = mode_wr;
@@ -736,7 +950,7 @@ CAMLprim value netsys_create_local_named_pipe(value name, value mode, value nv)
 CAMLprim value netsys_pipe_listen(value phv) {
 #ifdef _WIN32
     struct pipe_helper *ph;
-    int flag;
+    int flag, set_cn_ev;
     DWORD err;
 
     ph = *(pipe_helper_ptr_val(phv));
@@ -770,12 +984,29 @@ CAMLprim value netsys_pipe_listen(value phv) {
     dprintf("PIPE listen %u connecting\n",
 	    ph->pipe_handle);
 
+    /* ConnectNamedPipe resets pipe_cn_ev. Because pipe_cn_ev may be
+       shared by several pipes, this behavior is in the way. We have to
+       fix that by setting pipe_cn_ev again after ConnectNamedPipe if it
+       was set before.
+    */
+    set_cn_ev = 0;
+    if (ph->pipe_cn_ev != INVALID_HANDLE_VALUE) {
+	DWORD n;
+	n = WaitForSingleObject(ph->pipe_cn_ev, 0);
+	if (n == WAIT_FAILED) {
+	    win32_maperr(GetLastError());
+	    uerror("WaitForSingleObject", Nothing);
+	};
+	if (n == WAIT_OBJECT_0)
+	    set_cn_ev = 1;
+    };
+
     flag = ConnectNamedPipe(ph->pipe_handle,
-			    ph->pipe_wr_ovrlp);
+			    ph->pipe_cn_ovrlp);
     if (flag) {
 	/* immediate success */
 	ph->pipe_conn_state = PIPE_CONNECTED;
-	SetEvent(ph->pipe_wr_ev);
+	set_cn_ev = 1;
 	dprintf("PIPE listen %u connected 1\n",
 		ph->pipe_handle);
 	
@@ -785,7 +1016,7 @@ CAMLprim value netsys_pipe_listen(value phv) {
 	case ERROR_PIPE_CONNECTED:
 	    /* also immediate success */
 	    ph->pipe_conn_state = PIPE_CONNECTED; 
-	    SetEvent(ph->pipe_wr_ev);
+	    set_cn_ev = 1;
 	    dprintf("PIPE listen %u connected 2\n",
 		    ph->pipe_handle);
 	    break;
@@ -801,8 +1032,11 @@ CAMLprim value netsys_pipe_listen(value phv) {
 		    ph->pipe_handle, err);
 	    win32_maperr(err);
 	    uerror("ConnectNamedPipe", Nothing);
-	}
+	};
     };
+
+    if (set_cn_ev && ph->pipe_cn_ev != INVALID_HANDLE_VALUE)
+	SetEvent(ph->pipe_cn_ev);
 
     return Val_unit;
 #else
@@ -872,6 +1106,8 @@ CAMLprim value netsys_pipe_deafen(value phv) {
 
     ResetEvent(ph->pipe_rd_ev);
     ResetEvent(ph->pipe_wr_ev);
+    if (ph->pipe_cn_ev != INVALID_HANDLE_VALUE)
+	ResetEvent(ph->pipe_cn_ev);
 
     return Val_unit;
 
@@ -902,12 +1138,22 @@ CAMLprim value netsys_pipe_connect(value name, value mode) {
 	omode = GENERIC_READ | GENERIC_WRITE; mode_rd = 1; mode_wr = 1; break;
     };
 
+    /* SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS: This prevents that the
+       pipe server can impersonate as the calling user. If this is not
+       excluded, the server has access to the caller's security context, and
+       can run code in this context.
+
+       For remote named pipes, these flags are ignored! For that reason,
+       we have to restrict this function to local named pipes only (this is
+       done in Ocaml).
+    */
     h = CreateFile(String_val(name),
 		   omode,
 		   0,
 		   NULL,
 		   OPEN_EXISTING,
-		   FILE_FLAG_OVERLAPPED,
+		   FILE_FLAG_OVERLAPPED | 
+		     SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
 		   NULL);
     if ( h == INVALID_HANDLE_VALUE ) {
 	err = GetLastError();
@@ -918,7 +1164,7 @@ CAMLprim value netsys_pipe_connect(value name, value mode) {
 	uerror("CreateFile", Nothing);
     };
 
-    ph = alloc_pipe_helper(h);
+    ph = alloc_pipe_helper(h, INVALID_HANDLE_VALUE);
     ph->pipe_conn_state = PIPE_CONNECTED;
     ph->pipe_mode_rd = mode_rd;
     ph->pipe_mode_wr = mode_wr;
@@ -1096,6 +1342,8 @@ CAMLprim value netsys_pipe_shutdown(value phv) {
 	    SetEvent(ph->pipe_signal);
 	ResetEvent(ph->pipe_rd_ev);
 	ResetEvent(ph->pipe_wr_ev);
+	if (ph->pipe_cn_ev != INVALID_HANDLE_VALUE)
+	    ResetEvent(ph->pipe_cn_ev);
     }
 
     return Val_unit;
@@ -1125,6 +1373,10 @@ CAMLprim value netsys_pipe_conn_state(value phv) {
     struct pipe_helper *ph;
 
     ph = *(pipe_helper_ptr_val(phv));
+
+    if (ph->pipe_is_open)
+	check_for_pending_operations(ph);
+
     return Val_int(ph->pipe_conn_state);
 #else
     invalid_argument("netsys_pipe_conn_state");
@@ -1134,9 +1386,7 @@ CAMLprim value netsys_pipe_conn_state(value phv) {
 
 CAMLprim value netsys_pipe_rd_event(value phv) {
 #ifdef _WIN32
-    value r;
     struct pipe_helper *ph;
-    struct event e0;
 
     ph = *(pipe_helper_ptr_val(phv));
 
@@ -1145,13 +1395,7 @@ CAMLprim value netsys_pipe_rd_event(value phv) {
 	uerror("netsys_pipe_rd_event", Nothing);
     };
 
-    e0.ev = ph->pipe_rd_ev;
-    e0.mask = 0;
-
-    r = caml_alloc_custom(&event_ops, sizeof(struct event), 1, 0);
-    *(event_val(r)) = e0;
-
-    return r;
+    return alloc_event(ph->pipe_rd_ev);
 #else
     invalid_argument("netsys_pipe_rd_event");
 #endif
@@ -1161,8 +1405,6 @@ CAMLprim value netsys_pipe_rd_event(value phv) {
 CAMLprim value netsys_pipe_wr_event(value phv) {
 #ifdef _WIN32
     struct pipe_helper *ph;
-    struct event e0;
-    value r;
 
     ph = *(pipe_helper_ptr_val(phv));
 
@@ -1171,13 +1413,7 @@ CAMLprim value netsys_pipe_wr_event(value phv) {
 	uerror("netsys_pipe_wr_event", Nothing);
     };
 
-    e0.ev = ph->pipe_wr_ev;
-    e0.mask = 0;
-
-    r = caml_alloc_custom(&event_ops, sizeof(struct event), 1, 0);
-    *(event_val(r)) = e0;
-
-    return r;
+    return alloc_event(ph->pipe_wr_ev);
 #else
     invalid_argument("netsys_pipe_wr_event");
 #endif
@@ -1196,6 +1432,19 @@ CAMLprim value netsys_pipe_descr(value phv) {
 #endif
 }
 
+CAMLprim value netsys_set_auto_close_pipe_proxy(value phv, value flag) {
+#ifdef _WIN32
+    struct pipe_helper *ph;
+
+    ph = *(pipe_helper_ptr_val(phv));
+    ph->pipe_descr_auto_close = Bool_val(flag);
+    return Val_unit;
+#else
+    invalid_argument("netsys_set_auto_close_pipe_proxy");
+#endif
+}
+
+
 CAMLprim value netsys_pipe_signal(value phv, value ev) {
 #ifdef _WIN32
     struct pipe_helper *ph;
@@ -1211,7 +1460,111 @@ CAMLprim value netsys_pipe_signal(value phv, value ev) {
 #endif
 }
 
+/***********************************************************************/
+/*                                                                     */
+/*                           Objective Caml                            */
+/*                                                                     */
+/*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         */
+/*                                                                     */
+/*  Copyright 1996 Institut National de Recherche en Informatique et   */
+/*  en Automatique.  All rights reserved.  This file is distributed    */
+/*  under the terms of the GNU Library General Public License, with    */
+/*  the special exception on linking described in file ../../LICENSE.  */
+/*                                                                     */
+/***********************************************************************/
 
+/* The simple and probably bug-free version of [Unix.select] shipped
+   with O'Caml 3.10
+*/
 
+#ifdef _WIN32
+static void fdlist_to_fdset(value fdlist, fd_set *fdset)
+{
+  value l;
+  FD_ZERO(fdset);
+  for (l = fdlist; l != Val_int(0); l = Field(l, 1)) {
+    FD_SET(Socket_val(Field(l, 0)), fdset);
+  }
+}
+#endif
 
+#ifdef _WIN32
+static value fdset_to_fdlist(value fdlist, fd_set *fdset)
+{
+  value res = Val_int(0);
+  value s = Val_int(0);
+  Begin_roots3(fdlist, res, s)
+    for (/*nothing*/; fdlist != Val_int(0); fdlist = Field(fdlist, 1)) {
+      s = Field(fdlist, 0);
+      if (FD_ISSET(Socket_val(s), fdset)) {
+        value newres = alloc_small(2, 0);
+        Field(newres, 0) = s;
+        Field(newres, 1) = res;
+        res = newres;
+      }
+    }
+  End_roots();
+  return res;
+}
+#endif
 
+CAMLprim value netsys_real_select(value readfds, value writefds, 
+				  value exceptfds, 
+				  value timeout)
+{
+#ifdef _WIN32
+  fd_set read, write, except;
+  double tm;
+  struct timeval tv;
+  struct timeval * tvp;
+  int retcode;
+  value res;
+  value read_list = Val_unit, write_list = Val_unit, except_list = Val_unit;
+  DWORD err = 0;
+
+  Begin_roots3 (readfds, writefds, exceptfds)
+  Begin_roots3 (read_list, write_list, except_list)
+    tm = Double_val(timeout);
+    if (readfds == Val_int(0)
+	&& writefds == Val_int(0)
+	&& exceptfds == Val_int(0)) {
+      if ( tm > 0.0 ) {
+	enter_blocking_section();
+	Sleep( (int)(tm * 1000));
+	leave_blocking_section();
+      }
+      read_list = write_list = except_list = Val_int(0);
+    } else {      
+      fdlist_to_fdset(readfds, &read);
+      fdlist_to_fdset(writefds, &write);
+      fdlist_to_fdset(exceptfds, &except);
+      if (tm < 0.0)
+	tvp = (struct timeval *) NULL;
+      else {
+	tv.tv_sec = (int) tm;
+	tv.tv_usec = (int) (1e6 * (tm - (int) tm));
+	tvp = &tv;
+      }
+      enter_blocking_section();
+      if (select(FD_SETSIZE, &read, &write, &except, tvp) == -1)
+        err = WSAGetLastError();
+      leave_blocking_section();
+      if (err) {
+	win32_maperr(err);
+	uerror("select", Nothing);
+      }
+      read_list = fdset_to_fdlist(readfds, &read);
+      write_list = fdset_to_fdlist(writefds, &write);
+      except_list = fdset_to_fdlist(exceptfds, &except);
+    }
+    res = alloc_small(3, 0);
+    Field(res, 0) = read_list;
+    Field(res, 1) = write_list;
+    Field(res, 2) = except_list;
+  End_roots();
+  End_roots();
+  return res;
+#else
+    invalid_argument("netsys_real_select");
+#endif
+}

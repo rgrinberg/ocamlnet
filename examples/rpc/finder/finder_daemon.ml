@@ -127,7 +127,11 @@ let start() =
       "-debug-list", Arg.Unit (fun () -> 
 				 List.iter print_endline (Netlog.Debug.names());
 				 exit 0),
-      "  Show possible modules for -debug, then exit"
+      "  Show possible modules for -debug, then exit";
+
+      "-debug-win32", Arg.Unit (fun () -> 
+				  Netsys_win32.Debug.debug_c_wrapper true),
+      "  Special debug log of Win32 wrapper"
    ] @ opt_list in
 
   Arg.parse

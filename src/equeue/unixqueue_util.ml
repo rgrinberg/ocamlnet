@@ -6,23 +6,25 @@
 
 open Printf
 
+module Debug = struct
+  let enable = ref false
+  let target = ref `Any
+  let set_debug_mode flag = enable := flag
+  let set_debug_target t = target := t
+end
 
-let debug_mode = ref `None;;
+let dlog0 = Netlog.Debug.mk_dlog "Unixqueue" Debug.enable
+let dlogr0 = Netlog.Debug.mk_dlogr "Unixqueue" Debug.enable
 
-let debug_print s =
-  if Equeue.test_debug_target !debug_mode then
-    prerr_endline("Unixqueue debug msg: " ^ Lazy.force s)
-;;
+let dlog m =
+  if Equeue.Debug.test_debug_target !Debug.target then dlog0 m
 
+let dlogr gm =
+  if Equeue.Debug.test_debug_target !Debug.target then dlogr0 gm
 
-let set_debug_target t = 
-  debug_mode := t;
-  Equeue.set_debug_target t
+let () =
+  Netlog.Debug.register_module "Unixqueue" Debug.enable
 
-
-let set_debug_mode b =
-  set_debug_target (if b then `Any else `None)
-;;
 
 
 (* [group] and [wait_id] are now objects. The structural equality
@@ -40,7 +42,7 @@ object(self)
       (* Whether the group is terminating *)
   method is_terminating = terminating
   method terminate() = 
-    debug_print (lazy (sprintf "group_terminate <group %d>" (Oo.id self)));
+    dlogr (fun () -> (sprintf "group_terminate <group %d>" (Oo.id self)));
     (* eprintf "group_terminate <group %d>\n%!" (Oo.id self); *)
     terminating <- true
 end
@@ -163,8 +165,8 @@ let once_int is_weak (esys:event_system) g duration f =
 
   let handler _ ev e =
     if !called_back then (
-      debug_print 
-	(lazy
+      dlogr
+	(fun () ->
 	   (sprintf
 	      "once handler <unexpected terminate group %d>" (Oo.id g)));
       raise Equeue.Terminate
@@ -172,8 +174,8 @@ let once_int is_weak (esys:event_system) g duration f =
     else
       let e_ref = Timeout(g,op) in
       if e = e_ref then begin
-	debug_print 
-	  (lazy
+	dlogr
+	  (fun () ->
 	     (sprintf
 		"once handler <regular timeout group %d>" (Oo.id g)));
         esys#remove_resource g op;  (* delete the resource *)
@@ -182,8 +184,8 @@ let once_int is_weak (esys:event_system) g duration f =
         raise Equeue.Terminate      (* delete the handler *)
       end
       else (
-	debug_print 
-	  (lazy
+	dlogr
+	  (fun () ->
 	     (sprintf
 		"once handler <rejected timeout group %d, got %s but expected %s >"
 		(Oo.id g) (string_of_event e) (string_of_event e_ref)));
@@ -204,6 +206,7 @@ let once = once_int false
 let weak_once = once_int true
 
 
+(*
 let debug_log esys ?label msg =
   if Equeue.test_debug_target !debug_mode then
     prerr_endline("Unixqueue debug log: " ^
@@ -221,6 +224,7 @@ let exn_log esys ?(suppressed = false) ?(to_string = Netexn.to_string)
       else
         "Exn " ^ to_string e in
     debug_log esys ?label msg
+ *)
 
 
 let () =

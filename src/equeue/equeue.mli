@@ -124,17 +124,23 @@ val run : 'a t -> unit
 val is_running : 'a t -> bool
   (** Returns whether the event loop is active *)
 
-type debug_target = [ `Any | `Process of int | `Thread of int | `None ]
 
-val set_debug_mode : bool -> unit
-  (** Enables or disables debug mode. Output goes to stderr. 
-      Identical to set_debug_target (if flag then `Any else `None)
-   *)
+module Debug : sig
+  type debug_target = [ `Any | `Process of int | `Thread of int ]
 
-val set_debug_target : debug_target -> unit
-  (** Enables debug mode for this target *)
+  val enable : bool ref
+    (** Enable {!Netlog} debugging *)
 
-(**/**)
+  val set_debug_mode : bool -> unit
+    (** Sets [enable].
+     *)
 
-val test_debug_target : debug_target -> bool
-  (* internal: returns whether Equeue would output a message *)
+  val set_debug_target : debug_target -> unit
+    (** Restricts debugging to this target.
+     *)
+
+  (**/**)
+
+  val test_debug_target : debug_target -> bool
+    (* internal: returns whether Equeue would output a message *)
+end

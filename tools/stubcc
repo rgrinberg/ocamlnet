@@ -5,8 +5,6 @@
 
 set -e
 
-system=`ocamlc -config | grep system | sed -e 's/system: //'`
-
 # Look at the arguments:
 ccopt=""
 file=""
@@ -26,19 +24,26 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+system=`$ocamlc -config | grep system | sed -e 's/system: //'`
+version=`$ocamlc -version`
 
-
-case "$system" in
-	mingw*)
-		bfile=`basename "$file" .c`
-		dfile=`dirname "$file"`
-		$ocamlc -verbose -c -ccopt "$ccopt" -ccopt -DCAML_DLL "$file"
-		mv "$dfile/$bfile.o" "$dfile/$bfile.d.o"
-		$ocamlc -verbose -c -ccopt "$ccopt" "$file"
+case "$version" in
+        3.09|3.09.*|3.10|3.10.*)
+		case "$system" in
+			mingw*)
+				bfile=`basename "$file" .c`
+				dfile=`dirname "$file"`
+				$ocamlc -verbose -c -ccopt "$ccopt" -ccopt -DCAML_DLL "$file"
+				mv "$dfile/$bfile.o" "$dfile/$bfile.d.o"
+				$ocamlc -verbose -c -ccopt "$ccopt" "$file"
+				;;
+			*)
+				$ocamlc -verbose -c -ccopt "$ccopt" "$file" 
+				;;
+		esac
 		;;
-		
 	*)
-		$ocamlc -verbose -c -ccopt "$ccopt" "$file" 
+		$ocamlc -verbose -c -ccopt "$ccopt" "$file"
 		;;
 esac
 

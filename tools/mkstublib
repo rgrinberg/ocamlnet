@@ -1,6 +1,7 @@
 #! /bin/sh
 
-# usage: like ocamlmklib
+# usage: like ocamlmklib. This is only to be used until O'Caml 3.10.
+# O'Caml 3.11 supports ocamlmklib on mingw!
 
 mingw_mklib () {
 	libname=""
@@ -48,7 +49,7 @@ mingw_mklib () {
 			-l*)
 				libopts="$libopts $1"; shift ;;
 			*)
-				shift ;;
+				: ;;
 		esac
 	done
 
@@ -84,14 +85,14 @@ mingw_mklib () {
 		set -x
 		ocamlc -a -o "$libname.cma" $cmo -dllib "-l$clibname" \
 			-cclib "-l$clibname" -ccopt "$ccopts" \
-			-cclib "$libopts"
+			-cclib "$cclibs"
 		set +x
 	fi
 	if [ -n "$cmx" ]; then
 		set -x
 		ocamlopt -a -o "$libname.cmxa" $cmx \
 			-cclib "-l$clibname" -ccopt "$ccopts" \
-			-cclib "$libopts"
+			-cclib "$cclibs"
 		set +x
 	fi
 }
@@ -102,13 +103,21 @@ mingw_mklib () {
 
 set -e
 system=`ocamlc -config | grep system | sed -e 's/system: //'`
+version=`ocamlc -version`
 
-case "$system" in
-	mingw*)
-		mingw_mklib "$@" ;;
-
+case "$version" in
+	3.09|3.09.*|3.10|3.10.*)
+		case "$system" in
+			mingw*)
+				mingw_mklib "$@" ;;
+			*)
+				set +x
+				ocamlmklib "$@" ;;
+		esac
+		;;
 	*)
 		set +x
-		ocamlmklib "$@" ;;
+		ocamlmklib "$@"
+		;;
 esac
 

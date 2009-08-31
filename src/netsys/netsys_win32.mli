@@ -30,8 +30,10 @@ val event_wait : w32_event -> float -> bool
    *)
 
 val event_descr : w32_event -> Unix.file_descr
-  (** Creates a proxy descriptor for the event. See [lookup] below for
-      more on proxy descriptors.
+  (** Returns the proxy descriptor for the event. See [lookup] below for
+      more on proxy descriptors. This function always returns the same
+      descriptor. The user has to close this descriptor if this function
+      is called.
    *)
 
 
@@ -66,17 +68,31 @@ val wsa_enum_network_events :
     (** Checks whether an event has been recorded *)
 
 
+val real_select : 
+      Unix.file_descr list -> 
+         Unix.file_descr list -> 
+         Unix.file_descr list -> 
+         float ->
+           (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list)
+    (** Up to Ocaml 3.10, this function is identical to [Unix.select]. In
+        3.11, the latter was changed to a smart implementation that promises
+        to handle other types of handles in addition to sockets. As we do
+        the same in [Netsys], this would be a duplication of work. Also,
+        the older implementation is more mature.
+     *)
+
 (** {1 Support for named pipes} *)
 
-(** Win32 named pipes do not allow to check whether an operation would block
+(** Win32 named pipes work very much like Unix Domain sockets, only
+    that the Win32 interface is different. This wrapper, however,
+    mimicks socket behaviour as far as possible (and we also use
+    an socket-like API with [listen] and [accept]). There is a 
+    [w32_pipe_server] representing pipe servers. An individual pipe
+    is wrapped into a [w32_pipe].
+
+    Win32 named pipes do not allow to check whether an operation would block
     before starting the operation. There is so-called overlapped I/O,
     but it works differently than Unix-style multiplexing.
-
-    Note that anonymous pipes (as returned by Unix.pipe) do not support
-    overlapped I/O. The following is restricted to named pipes!
-    Also note that Win32 named pipes work a lot like Unix domain sockets,
-    i.e. there can be several independent connections to a single server.
-    We only support byte stream pipes.
 
     The following functions add a layer to the Win32 primitives that
     helps using pipes in a way similar to multiplexing. We allocate
@@ -84,36 +100,48 @@ val wsa_enum_network_events :
     [pipe_write] access these buffers in the first place. When reading,
     but the read buffer is empty, we start an  overlapped read operation  
     from the pipe handle. The arriving data refills the read buffer, and
-    a w32_event is signaled to wake up any pending event loop.
+    a [w32_event] is signaled to wake up any pending event loop.
     During the pending read from the pipe handle, the read buffer is
-    locked, and [pipe_read] will return EWOULDBLOCK.
+    locked, and [pipe_read] will return [EWOULDBLOCK].
 
     Writing is slightly more difficult. The first [pipe_write] puts
     the data into the write buffer, and immediately starts an overlapped
     I/O operation to write the data to the pipe handle. During this
     operation the write buffer is locked, and cannot be further used
     to accumulate data, even if there is space. So [pipe_write] will
-    return EWOULDBLOCK while the operation takes place. A w32_event is
+    return [EWOULDBLOCK] while the operation takes place. A [w32_event] is
     signaled when the write operation is over.
+
+    The only downside of this approach is that the caller has to use
+    [pipe_read] and [pipe_write] to access pipes, instead of
+    [Unix.read] and [Unix.write]. If generic r/w functions are
+    required that work for numerous kinds of descriptors, there are
+    {!Netsys.gread} and {!Netsys.gwrite} which support named
+    pipes.
  *)
 
-type w32_pipe_helper
+type w32_pipe_server
+  (** A pipe server. Note that there is no such thing in the Win32 API.
+      Actually, a [w32_pipe_server] contains the server endpoints of 
+      a number of pipes, and a few helper objects.
+   *)
+
+type w32_pipe
+  (** A pipe endpoint *)
 
 type pipe_mode = Pipe_in | Pipe_out | Pipe_duplex
 
-type pipe_conn_state = Pipe_deaf | Pipe_listening | Pipe_connected | Pipe_down
+val rev_mode : pipe_mode -> pipe_mode
+  (** Reverses the direction *)
 
-val create_local_named_pipe : string -> pipe_mode -> int -> w32_pipe_helper
-  (** [create_local_named_pipe name mode n]: Create an instance of a 
-      named pipe. The [name] must have the format "\\.\pipe\<name>".
-      In [n] the maximum number of instances is passed. The pipe is
+
+val create_local_pipe_server : string -> pipe_mode -> int -> w32_pipe_server
+
+  (** [create_local_named_pipe name mode n]: Create a pipe server.
+      The [name] must have the format "\\.\pipe\<name>".
+      In [n] the maximum number of instances is passed. The server is
       set up with a security descriptor so only clients on the same system
-      can connect. The pipe handles are not inheritable to child processes.
-
-      This function is called by the pipe server. It can be called up to
-      [n] times with the same name.
-
-      The returned pipe is in the connection state [Pipe_deaf].
+      can connect.
    *)
 
 (** In the following, a terminology has been chosen that is similar to
@@ -121,58 +149,42 @@ val create_local_named_pipe : string -> pipe_mode -> int -> w32_pipe_helper
     prefers, however.
  *)
 
-val pipe_listen : w32_pipe_helper -> unit
-  (** Triggers that new connections are accepted by a pipe server. When
-      the connection is established the pipe becomes writable (even
-      for read-only pipes). In this case:
-       - [pipe_write] with a length of 0 will simply check for the 
-         error code
-       - [pipe_write] with a length > 0 is also possible. If a connect
-         error occurred the error code is immediately returned.
-       - [pipe_read] is also possible (length of 0 only checks the error
-         code, and length > 0 tries to read). Note, however, that the
-         pipe never becomes readable after the connection is 
-         established - even if there is data to read. The reason is that the 
-         Win32 API permits to signal the completion of an I/O operation
-         by one event object only, and not by two objects. After the
-         first [pipe_read] or [pipe_write] it is then correctly signaled
-         which kind of I/O is possible.
+val pipe_listen : w32_pipe_server -> int -> unit
+  (** Creates the backlog queue with [n] prepared server endpoints.
 
-      This function causes that the connection state transitions from
-      [Pipe_deaf] to [Pipe_listening]. When the connection is established,
-      the state transitions further to [Pipe_connected].
+      One can check for new client connections by looking at the
+      [pipe_connect_event].
    *)
 
-val pipe_deafen : w32_pipe_helper -> unit
-  (** The pipe server forces the client to disconnect. The pipe handle can
-      be reused for further [pipe_listen] calls.
-
-      See the comments on shutting down pipes below.
-
-      This function causes that the connection state transitions from
-      [Pipe_listening] or [Pipe_connected] to [Pipe_deaf].
+val pipe_accept : w32_pipe_server -> w32_pipe
+  (** Waits until the connect event is signaled (usually meaning that
+      a new client connection is available), and returns the new
+      pipe.
    *)
 
-val pipe_connect : string -> pipe_mode -> w32_pipe_helper
+val pipe_connect : string -> pipe_mode -> w32_pipe
   (** [pipe_connect name mode]: Creates a client pipe handle, and tries
       to connect to the pipe server [name]. The function fails with the
       Unix error [EAGAIN] if there are currently no listening instances of the
       pipe at the server.
 
-      Note that there is no other way to wait asynchronously for the
-      availability of the pipe than busy waiting.
+      The name must be of the form "\\.\pipe\<name>" (excluding connects
+      to pipes on remote systems). This function allows only connects to
+      local pipe servers, and enforces anonymous impersonation.
 
-      The pipe is in state [Pipe_connected].
+      Note that you also can connect to named pipes using [open_in] and
+      [Unix.openfile], and that these functions do not protect against
+      malicious servers that impersonate as the caller.
    *)
 
-val pipe_pair : pipe_mode -> (w32_pipe_helper * w32_pipe_helper)
+val pipe_pair : pipe_mode -> (w32_pipe * w32_pipe)
   (** Returns a pair of connected pipes (using automatically generated
       names). The left pipe is in the passed [pipe_mode], and the
       right pipe is in the matching complementaty mode.
    *)
 
 
-val pipe_read : w32_pipe_helper -> string -> int -> int -> int
+val pipe_read : w32_pipe -> string -> int -> int -> int
   (** [pipe_read p s pos len]: Tries to read data from the pipe. If data
       is available, it is put into the [len] bytes at position [pos] of
       the string [s], and the actual number of read bytes is returned.
@@ -183,7 +195,7 @@ val pipe_read : w32_pipe_helper -> string -> int -> int -> int
       If the end of the pipe is reached, the function returns 0.
    *)
 
-val pipe_write : w32_pipe_helper -> string -> int -> int -> int
+val pipe_write : w32_pipe -> string -> int -> int -> int
   (** [pipe_write p s pos len]: Tries to write data to the pipe. If space
       is available, the data is taken from the [len] bytes at position [pos] of
       the string [s], and the actual number of written bytes is returned.
@@ -192,24 +204,28 @@ val pipe_write : w32_pipe_helper -> string -> int -> int -> int
       [EAGAIN].
    *)
 
-val pipe_shutdown : w32_pipe_helper -> unit
+val pipe_shutdown : w32_pipe -> unit
   (** Cancels all pending I/O operations and closes the pipe handle.
 
       Note that there is no way to close only one direction of bidirectional
       pipes.
 
       See the comments on closing pipes below.
-
-      It is an error to call this function after [pipe_deaf]. Just forget
-      about the pipe helper in this case. This function causes that the
-      connection state transitions from [Pipe_connected] to [Pipe_down].
    *)
 
-val pipe_conn_state : w32_pipe_helper -> pipe_conn_state
-  (** Return the connection state *)
+val pipe_shutdown_server : w32_pipe_server -> unit
+  (** Closes the pipe server: All endpoints in the backlog queue are
+      shutdown. Note that this can result in crashed connections -
+      if the kernel establishes a connection but it is not yet
+      [pipe_accept]ed, it is simply destroyed by this function.
+   *)
 
-val pipe_rd_event : w32_pipe_helper -> w32_event
-val pipe_wr_event : w32_pipe_helper -> w32_event
+val pipe_connect_event : w32_pipe_server -> w32_event
+  (** The event object signals when a new client connection is available
+   *)
+
+val pipe_rd_event : w32_pipe -> w32_event
+val pipe_wr_event : w32_pipe -> w32_event
   (** The event objects signaling that read and write operations are possible.
       The read event is in signaled state when the read buffer is non-empty
       (even for write-only pipes). The write event is in signaled state when
@@ -217,73 +233,170 @@ val pipe_wr_event : w32_pipe_helper -> w32_event
       read-only pipes).
    *)
 
-val pipe_wait_rd : w32_pipe_helper -> float -> bool
-val pipe_wait_wr : w32_pipe_helper -> float -> bool
+val pipe_wait_connect : w32_pipe_server -> float -> bool
+  (** Wait until a client connects to this server. The float argument
+      is the timeout in seconds. The function returns whether there is
+      data to read or write. If not, a timeout has occurred.
+   *)
+
+val pipe_wait_rd : w32_pipe -> float -> bool
+val pipe_wait_wr : w32_pipe -> float -> bool
   (** Wait until the pipe becomes readable or writable. The float argument
       is the timeout in seconds. The function returns whether there is
       data to read or write. If not, a timeout has occurred.
    *)
 
-val pipe_signal : w32_pipe_helper -> w32_event -> unit
-  (** Associates the pipe with an event object. The event is signaled
-      when the pipe changes its connection state to Pipe_deaf or
-      Pipe_down. The event must be manually reset by the caller.
+(* val pipe_signal : w32_pipe_helper -> w32_event -> unit *)
+  (* Associates the pipe with an event object. The event is signaled
+     when the pipe changes its connection state to Pipe_deaf or
+     Pipe_down. The event must be manually reset by the caller.
    *)
 
 
-val pipe_descr : w32_pipe_helper -> Unix.file_descr
-  (** [pipe_descr] returns a file descriptor that can be used as proxy in
-      all interfaces that use file descriptors to identify system objects.
-      Subsequent calls of [pipe_descr] return the same descriptor.
-      See the docs on [lookup] below.
+val pipe_server_descr : w32_pipe_server -> Unix.file_descr
+  (** Returns the proxy descriptor for the pipe server. See [lookup] below for
+      more on proxy descriptors. This function always returns the same
+      descriptor. The user has to close this descriptor if this function
+      is called.
    *)
 
+val pipe_descr : w32_pipe -> Unix.file_descr
+  (** Returns the proxy descriptor for the pipe. See [lookup] below for
+      more on proxy descriptors. This function always returns the same
+      descriptor. The user has to close this descriptor if this function
+      is called.
+   *)
+
+val pipe_name : w32_pipe -> string
+val pipe_server_name : w32_pipe_server -> string
+  (** Returns the name of the pipe *)
+
+val pipe_mode : w32_pipe -> pipe_mode
+val pipe_server_mode : w32_pipe_server -> pipe_mode
+  (** Returns the pipe/server mode *)
+
+val unpredictable_pipe_name : unit -> string
+  (** Returns a valid pipe name that can practically not be predicted *)
 
 (** {b Shutting down pipes.} The suggested model is that the client shuts
     down the pipe first. A pipe client ensures that all data are transmitted
     by waiting until the pipe becomes writable again, and then calling
     [pipe_shutdown]. The server then sees EOF when reading from the pipe,
-    or gets an [EPIPE] error when writing to the pipe. The server can
-    react on this by reusing the pipe instance for another client
-    ([pipe_deaf] followed by [pipe_listen]), or by getting rid of the instance
-    ([pipe_shutdown]).
+    or gets an [EPIPE] error when writing to the pipe. The server should
+    then also [pipe_shutdown] the endpoint.
 
     When servers start the closure of connections, there is no clean way
     of ensuring that all written data are transmitted. There is the
     [FlushFileBuffers] Win32 function, but it is blocking.
  *)
 
+(** {1 I/O threads} *)
+
+(** I/O threads can be used to do read/write-based I/O in an asynchronous
+    way for file handles that do not support asynchronous I/O by themselves,
+    e.g. anonymous pipes .
+
+    I/O threads are only available if the application is compiled as
+    multi-threaded program.
+ *)
+
+(*
+type w32_input_thread
+type w32_output_thread
+
+val create_input_thread : Unix.file_descr -> w32_input_thread
+  (** Creates the input thread for this file descriptor. Data is being
+     pumped from this handle to an internal buffer, and can be read from
+     there by [input_thread_read].
+
+     The thread continues to run until cancelled ([cancel_input_thread]).
+     It is an error to close the file descriptor before the thread
+     is cancelled.
+   *)
+
+val input_thread_event : w32_input_thread -> w32_event
+  (** This event is signaled when there is data to read, or the EOF
+     is reached, or there is an error condition 
+   *)
+
+val input_thread_read : w32_input_thread -> string -> int -> int -> int
+  (** [input_thread_read t s pos len]: Tries to read data from the handle. 
+      If data
+      is available, it is put into the [len] bytes at position [pos] of
+      the string [s], and the actual number of read bytes is returned.
+
+      If no data is available, the function fails with a Unix error of
+      [EAGAIN] (non-blocking).
+
+      If the end of the data is reached, the function returns 0.
+   *)
+
+val cancel_input_thread : w32_input_thread -> unit
+  (** Stops the input thread. No more data will be pumped from the handle
+      to the internal buffer.
+
+      Impl. note: Calls [CancelSynchronousIo]
+   *)
+
+val input_thread_proxy : w32_input_thread -> Unix.file_descr
+  (** Returns the proxy descriptor *)
+ *)
+
+
+
 
 (** {1 Proxy Descriptors} *)
 
-(** For a number of objects ([w32_event], [w32_pipe_helper]) it is possible
+(** For a number of objects ([w32_event], [w32_pipe], and [w32_pipe_server]) 
+    it is possible
     to obtain proxy descriptors. These have type [Unix.file_descr] and they
     contain a real file handle. The purpose of these descriptors is to
     be used as proxy objects that can be passed to functions expecting
     file descriptors as input. However, you cannot do anything with the
-    proxies except looking the corresponding real objects up. This feature
-    is used by Ocamlnet to emulate POSIX behavior for Win32 kernel objects
-    lacking it.
+    proxies except looking the corresponding real objects up. Proxy
+    descriptors are used in interfaces that only allow to pass
+    [Unix.file_descr] values in and out.
 
-    Note that you can call functions like [Unix.close] or [Unix.dup] on
-    the proxies, but they are meaningless, and can even cause malfunction
-    (especially [close]).
-
-    Proxy descriptors are automatically closed.
+    Proxy descriptors have to be closed by the caller once they have
+    been handed out to the caller. Closing the proxy descriptor does not
+    make the descriptor unusable (lookups still work), and the referenced 
+    object is also 
+    unaffected. It is up to the user when [Unix.close] is best called -
+    it is even allowed to do it immediately after requesting the proxy
+    descriptor, e.g. via [pipe_descr]. After closing the proxy, however,
+    it is possible that the system generates another file descriptor
+    that looks equal to the closed proxy. It is often best to close first
+    when one is really done with the proxy.
  *)
 
 type w32_object =
     | W32_event of w32_event
-    | W32_pipe_helper of w32_pipe_helper
+    | W32_pipe of w32_pipe
+    | W32_pipe_server of w32_pipe_server
+  (* | W32_input_thread of w32_input_thread *)
 
 val lookup : Unix.file_descr -> w32_object
   (** Returns the real object behind a proxy descriptor, or raises
-      [Not_found]
+      [Not_found]. Note that the returned object needs not to be physically
+      identical to the original object. It behaves, however, exactly the
+      same way.
    *)
 
 val lookup_event : Unix.file_descr -> w32_event
-val lookup_pipe_helper : Unix.file_descr -> w32_pipe_helper
+val lookup_pipe : Unix.file_descr -> w32_pipe
+val lookup_pipe_server : Unix.file_descr -> w32_pipe_server
   (** Returns the real object. If not found, or if the object is of unexpected
       type, [Failure] is raised.
    *)
 
+(* lookup_input_thread : Unix.file_descr -> w32_input_thread *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of the Ocaml wrapper *)
+
+  val debug_c_wrapper : bool -> unit
+    (** Sets whether to debug the C wrapper part. The debug messages are
+        simply written to stderr
+     *)
+end

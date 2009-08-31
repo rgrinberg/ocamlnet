@@ -368,8 +368,9 @@ object(self)
 	       ( match !first_error with
 		   | None -> first_error := Some e
 		   | Some _ ->
-		       Unixqueue.exn_log esys ~suppressed:true 
-			 ~label:"Uq_ssl hidden exception" e
+		       Netlog.logf `Crit
+			 "Uq_ssl hidden exception: %s"
+			 (Netexn.to_string e)
 			 
 	       )
       )

@@ -1,5 +1,5 @@
 description = "Ocamlnet - Equeue SSL encapsulation"
-requires = "unix equeue ssl"
+requires = "unix equeue ssl netsys"
 version = "@VERSION@"
 archive(byte) = "equeue_ssl.cma"
 archive(native) = "equeue_ssl.cmxa"

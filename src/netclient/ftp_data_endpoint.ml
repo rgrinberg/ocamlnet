@@ -1067,9 +1067,9 @@ object(self)
 			     Unix.shutdown descr Unix.SHUTDOWN_SEND;
 			     `Done ()
 			   with error ->
-			     Unixqueue.exn_log
-			       esys ~label:"Ftp_data_endpoint.ftp_data_sender"
-			       error;
+			     Netlog.logf `Err
+			       "Ftp_data_endpoint.ftp_data_sender: %s"
+			       (Netexn.to_string error);
 			     `Error error
 			 )
 		     | _ ->

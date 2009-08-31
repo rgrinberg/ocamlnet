@@ -19,8 +19,8 @@ exception Socks_error of string;;
 
 class proxy_client : connect_address ->
 object
-  inherit Uq_engines.client_socket_connector
-  inherit Uq_engines.server_socket_listener
+  inherit Uq_engines.client_endpoint_connector
+  inherit Uq_engines.server_endpoint_listener
   inherit Uq_engines.datagram_socket_provider
 end ;;
   (** The object created by [new proxy_client addr] can be passed as [proxy] 

@@ -160,7 +160,7 @@ and connector =
     Inet of (string * int)                        (* Hostname, port *)
   | Internet of (Unix.inet_addr * int)
   | Unix of string                                (* path to unix dom sock *)
-  | Pipe of string
+  | W32_pipe of string
   | Descriptor of Unix.file_descr
   | Dynamic_descriptor of (unit -> Unix.file_descr)
   | Portmapped of string
@@ -935,7 +935,7 @@ object
       if close_inactive_descr then 
 	try
 	  match Netsys_win32.lookup fd with
-	    | Netsys_win32.W32_pipe_helper ph ->
+	    | Netsys_win32.W32_pipe ph ->
 		Netsys_win32.pipe_shutdown ph
 	    | _ -> 
 		()
@@ -1024,8 +1024,8 @@ let rec internal_create initial_xid
 		  "inet/" ^ Unix.string_of_inet_addr ip ^ ":" ^ string_of_int p
 	      | Unix p ->
 		  "unix/" ^ p
-	      | Pipe p ->
-		  "pipe/" ^ p
+	      | W32_pipe p ->
+		  "w32_pipe/" ^ p
 	      | Descriptor fd ->
 		  "fd/" ^ string_of_file_descr fd
 	      | Dynamic_descriptor f ->
@@ -1156,9 +1156,8 @@ let rec internal_create initial_xid
 		    )
 	  )
 
-      | #Uq_engines.sockspec as addr ->
-	  let opts = Uq_engines.default_connect_options in
-	  Uq_engines.connector (`Socket(addr,opts)) esys in
+      | #Uq_engines.connect_address as addr ->
+	  Uq_engines.connector addr esys in
 
   let open_socket_non_blocking addr prot conf =
     new Uq_engines.seq_engine
@@ -1167,7 +1166,7 @@ let rec internal_create initial_xid
 	  dlogr  cl
 	    (fun () -> 
 	       "Non-blocking socket connect successful for " ^ id_s);
-	 let fd = Uq_engines.client_socket status in
+	 let fd = Uq_engines.client_endpoint status in
 	 conf # multiplexing ~close_inactive_descr:true prot fd esys
       ) in
 
@@ -1180,7 +1179,7 @@ let rec internal_create initial_xid
 	  dlogr cl
 	    (fun () ->
 	       "Blocking socket connect successful for " ^ id_s);
-	  let fd = Uq_engines.client_socket status in
+	  let fd = Uq_engines.client_endpoint status in
 	  conf # multiplexing ~close_inactive_descr:true prot fd esys
       | `Error err ->
 	  raise err
@@ -1210,30 +1209,26 @@ let rec internal_create initial_xid
 	     match prot with Tcp -> Unix.SOCK_STREAM | Udp -> Unix.SOCK_DGRAM in
 	   (match conn with
 	      | Inet (host,port) ->
-		  let addr = `Sock_inet_byname(stype, host, port) in
+		  let saddr = `Sock_inet_byname(stype, host, port) in
+		  let addr = 
+		    `Socket(saddr, Uq_engines.default_connect_options) in
 		  (prot, open_socket addr prot conf)
 	      | Internet (host,port) ->
-		  let addr = `Sock_inet(stype, host, port) in
+		  let saddr = `Sock_inet(stype, host, port) in
+		  let addr = 
+		    `Socket(saddr, Uq_engines.default_connect_options) in
 		  (prot, open_socket addr prot conf)
 	      | Unix path ->
-		  ( match Sys.os_type with
-		      | "Win32" ->
-			  let f = open_in path in
-			  let port = int_of_string (input_line f) in
-			  close_in f;
-			  let addr = `Sock_inet(stype, 
-						Unix.inet_addr_loopback,
-						port) in
-			  (prot, open_socket addr prot conf)
-		      | _ ->
-			  let addr = `Sock_unix(stype, path) in
-			  (prot, open_socket addr prot conf)
-		  )
-	      | Pipe path ->
+		  let saddr = `Sock_unix(stype, path) in
+		  let addr = 
+		    `Socket(saddr, 
+			    Uq_engines.default_connect_options) in
+		  (prot, open_socket addr prot conf)
+	      | W32_pipe path ->
 		  if prot <> Rpc.Tcp then
 		    failwith "Rpc_client.create2: \
                               Pipe only supported for Rpc.Tcp protocol type";
-		  let addr = `Pipe(Netsys_win32.Pipe_duplex, path) in
+		  let addr = `W32_pipe(Netsys_win32.Pipe_duplex, path) in
 		  (prot, open_socket addr prot conf)
 	      |	Descriptor fd -> 
 		  let m = 

@@ -402,15 +402,31 @@ val weak_once : event_system -> group -> float -> (unit -> unit) -> unit
 
 (** {1 Debugging} *)
 
+
+module Debug : sig
+  (** This module controls debugging of all [Unixqueue_*] modules *)
+
+  val enable : bool ref
+    (** Enable {!Netlog} debugging *)
+
+  val set_debug_mode : bool -> unit
+    (** Sets [enable].
+     *)
+
+  val set_debug_target : Equeue.Debug.debug_target -> unit
+    (** Restricts debugging to this target. 
+     *)
+end
+
 (** The status of the following functions is currently a bit unclear.
     When a Ocamlnet-wide logging concept is introduced, these functions
     probably disappear. They are used by other Ocamlnet modules to
     implement debug logging.
  *)
 
-val exn_log : event_system ->
+(* val exn_log : event_system ->
               ?suppressed:bool -> ?to_string:(exn -> string) -> 
-              ?label:string -> exn -> unit
+              ?label:string -> exn -> unit *)
   (** Exceptions log: In event-based programming, it is sometimes not
    * possible to handle exceptions appropriately. It is also bad not
    * to handle them at all. For these cases, the exceptions log might
@@ -447,14 +463,14 @@ val exn_log : event_system ->
    *   useful to describe where the log message is generated.
    *)
 
-val debug_log : event_system -> ?label:string -> string -> unit
+(* val debug_log : event_system -> ?label:string -> string -> unit*)
   (** Outputs a message in the debug log (when enabled).
    *
    * @param label The label is included in the log output. This is
    *   useful to describe where the log message is generated.
    *)
 
-val set_debug_mode : bool -> unit
+(* val set_debug_mode : bool -> unit *)
   (** Whether to output debug messages. Output goes to stderr.
    * Setting the debug mode implies setting Equeue's debug mode.
    *
@@ -463,5 +479,5 @@ val set_debug_mode : bool -> unit
    * is required to interpret debug protocols.
    *)
 
-val set_debug_target : Equeue.debug_target -> unit
+(* val set_debug_target : Equeue.debug_target -> unit *)
   (** More fine-grained debug control *)

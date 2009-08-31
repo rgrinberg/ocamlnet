@@ -108,7 +108,7 @@ let close_pipe fd =
     | "Win32" ->
 	( try
 	    match Netsys_win32.lookup fd with
-	      | Netsys_win32.W32_pipe_helper ph ->
+	      | Netsys_win32.W32_pipe ph ->
 		  Netsys_win32.pipe_shutdown ph
 	      | _ ->
 		  assert false
@@ -795,7 +795,11 @@ object(self)
 		  Array.iter
 		    (fun addr ->
 		       match addr with
-			 | Unix.ADDR_UNIX p -> 
+			 | `Socket (Unix.ADDR_UNIX p) -> 
+			     path := Some p
+			 | `Socket_file p ->
+			     path := Some p
+			 | `W32_pipe_file p ->
 			     path := Some p
 			 | _ -> ()
 		    )
@@ -1175,13 +1179,19 @@ class controller_sockserv setup controller : socket_service =
   let socket_name = Filename.concat dir' "admin" in
   let () = try_mkdir dir in
   let () = try_mkdir dir' in
+  let addr =
+    match Sys.os_type with
+      | "Win32" ->
+	  `W32_pipe_file socket_name
+      | _ ->
+	  `Socket(Unix.ADDR_UNIX socket_name) in
   let config : socket_service_config = 
     ( object
 	method name = "netplex.controller"
 	method protocols =
 	  [ object
 	      method name = "admin"
-	      method addresses = [| Unix.ADDR_UNIX socket_name |]
+	      method addresses = [| addr |]
 	      method lstn_backlog = 50
 	      method lstn_reuseaddr = true
 	      method so_keepalive = true

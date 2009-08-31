@@ -18,6 +18,11 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <errno.h>
+#include <aclapi.h>
+
+#ifndef FILE_FLAG_FIRST_PIPE_INSTANCE
+#define FILE_FLAG_FIRST_PIPE_INSTANCE 0x00080000
+#endif
 
 #else
 

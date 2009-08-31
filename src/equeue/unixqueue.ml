@@ -119,6 +119,9 @@ let once ues =
 let weak_once ues =
   Unixqueue_util.weak_once ues
 
+module Debug = Unixqueue_util.Debug
+
+(*
 let exn_log ues =
   Unixqueue_util.exn_log ues
 
@@ -130,3 +133,4 @@ let set_debug_mode =
 
 let set_debug_target = 
   Unixqueue_util.set_debug_target
+ *)

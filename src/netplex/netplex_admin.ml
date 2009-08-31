@@ -56,9 +56,12 @@ let main() =
   let socket =
     Filename.concat !sockdir "netplex.controller/admin" in
 
+  let conn =
+    Netplex_sockserv.any_file_client_connector socket in
+
   let client =
     Netplex_ctrl_clnt.Admin.V2.create_client 
-      (Rpc_client.Unix socket)
+      conn
       Rpc.Tcp in
 
   let exit_code = ref 0 in
@@ -135,7 +138,7 @@ let main() =
 			 match port with
 			   | `pf_unknown -> "unknown"
 			   | `pf_unix path ->
-			       "unix:" ^ path
+			       "local:" ^ path
 			   | `pf_inet inet ->
 			       "inet:" ^ 
 				 inet.inet_addr ^ ":" ^ 

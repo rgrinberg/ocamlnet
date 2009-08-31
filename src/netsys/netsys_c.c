@@ -996,7 +996,7 @@ CAMLprim value netsys_mcast_set_loop(value fd, value flag) {
         r = setsockopt(Int_val(fd), 
                        IPPROTO_IP, 
                        IP_MULTICAST_LOOP, 
-                       &f, sizeof(f));
+                       (void *) &f, sizeof(f));
         break;
 #endif
 #ifdef HAS_IPV6
@@ -1005,7 +1005,7 @@ CAMLprim value netsys_mcast_set_loop(value fd, value flag) {
         r = setsockopt(Int_val(fd), 
                        IPPROTO_IPV6, 
                        IPV6_MULTICAST_LOOP, 
-                       &f, sizeof(f));
+                       (void *) &f, sizeof(f));
         break;
 #endif
 #endif
@@ -1042,7 +1042,7 @@ CAMLprim value netsys_mcast_set_ttl(value fd, value ttl) {
         r = setsockopt(fd_sock, 
                        IPPROTO_IP, 
                        IP_MULTICAST_TTL, 
-                       &v, sizeof(v));
+                       (void *) &v, sizeof(v));
         break;
 #endif
 #ifdef HAS_IPV6
@@ -1051,7 +1051,7 @@ CAMLprim value netsys_mcast_set_ttl(value fd, value ttl) {
         r = setsockopt(fd_sock, 
                        IPPROTO_IPV6, 
                        IPV6_MULTICAST_HOPS, 
-                       &v, sizeof(v));
+                       (void *) &v, sizeof(v));
         break;
 #endif
 #endif
@@ -1098,7 +1098,7 @@ CAMLprim value netsys_mcast_add_membership(value fd,
         r = setsockopt(fd_sock, 
                        IPPROTO_IP, 
                        IP_ADD_MEMBERSHIP, 
-                       &mreq, sizeof(mreq));
+                       (void *) &mreq, sizeof(mreq));
         break;
     }
 #endif
@@ -1117,7 +1117,7 @@ CAMLprim value netsys_mcast_add_membership(value fd,
         r = setsockopt(fd_sock, 
                        IPPROTO_IPV6, 
                        IPV6_ADD_MEMBERSHIP, 
-                       &mreq, sizeof(mreq));
+                       (void *) &mreq, sizeof(mreq));
         break;
     }
 #endif
@@ -1164,7 +1164,7 @@ CAMLprim value netsys_mcast_drop_membership(value fd,
         r = setsockopt(fd_sock,
                        IPPROTO_IP, 
                        IP_DROP_MEMBERSHIP, 
-                       &mreq, sizeof(mreq));
+                       (void *) &mreq, sizeof(mreq));
         break;
     }
 #endif

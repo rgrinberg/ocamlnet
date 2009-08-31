@@ -665,7 +665,7 @@ object(self)
     new seq_engine
       proxy_conn_eng
       (fun conn_stat ->
-	 let socks_socket = client_socket conn_stat in
+	 let socks_socket = client_endpoint conn_stat in
 	 let udp_socket = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
 	 Unix.set_nonblock udp_socket;
 	 Unix.set_close_on_exec udp_socket;
@@ -737,7 +737,7 @@ object(self)
 	  new seq_engine
 	    proxy_conn_eng
 	    (fun conn_stat ->
-	       let socks_socket = client_socket conn_stat in
+	       let socks_socket = client_endpoint conn_stat in
 	       let eng =
 		 new socks5_connect_automaton socks_socket sockspec ues in
 	       when_state
@@ -756,7 +756,7 @@ end
 
 class socks5_accept_automaton notify socks_socket ues =
 object(self)
-  inherit [Unix.file_descr * sockspec] automaton socks_socket ues
+  inherit [Unix.file_descr * inetspec option] automaton socks_socket ues
 
   initializer
     let socks_in = Lazy.force socks_in in
@@ -768,7 +768,7 @@ object(self)
 
     and got_accept_reply client_spec =
       notify socks_socket;
-      Finish(socks_socket, client_spec)
+      Finish(socks_socket, Some client_spec)
 
     in
     socks_state <- continue();
@@ -790,7 +790,8 @@ object(self)
 
   val mutable responsible_for_socks_socket = true
 
-  method server_address = actual_bind_spec
+  method server_address = `Socket(actual_bind_spec,
+				  Uq_engines.default_connect_options)
 
   method multiple_connections = false
 
@@ -872,7 +873,7 @@ object(self)
 	  new seq_engine
 	    proxy_conn_eng
 	    (fun conn_stat ->
-	       let socks_socket = client_socket conn_stat in
+	       let socks_socket = client_endpoint conn_stat in
 	       let eng = new socks5_listen_automaton socks_socket sockspec ues
 	       in
 	       when_state

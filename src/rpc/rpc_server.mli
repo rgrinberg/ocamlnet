@@ -72,7 +72,7 @@ type connector =
          * Note Win32: Unix domain sockets are emulated by writing the
          * inet4 port number into a one-line file.
 	 *)
-  | Pipe of string
+  | W32_pipe of string
       (** The service is installed for a named pipe. (Only for Win32.) *)
   | Descriptor of Unix.file_descr
 	(** The service listens on the given file descriptor. *)
@@ -184,6 +184,9 @@ type mode2 =
     *   according to [conn]. [proto] determines the 
     *   encapsulation; should be [Tcp] for stream sockets and [Udp] for
     *   datagram sockets. [config] specifies configuration details.
+    *
+    * Despite their names, [`Socket_endpoint] and [`Socket] also support
+    * Win32 named pipes.
    *)
 
 val create2 : 
@@ -233,13 +236,15 @@ val get_xid : session -> Rtypes.uint4
 val get_socket_name : session -> Unix.sockaddr
 val get_peer_name : session -> Unix.sockaddr
   (** Return the address of the socket serving the session, and the client
-   * socket, resp.
+   * socket, resp. These functions fail if the server is not running on
+   * a socket.
    *)
 
 val get_conn_socket_name : connection_id -> Unix.sockaddr
 val get_conn_peer_name : connection_id -> Unix.sockaddr
   (** Return the address of the socket serving the connection, and the client
-   * socket, resp.
+   * socket, resp. These functions fail if the server is not running on
+   * a socket.
    *)
 
 val get_server : session -> t

@@ -135,6 +135,11 @@ let startup ?(late_initializer = fun _ _ -> ())
 		      ~level
 		      ~message
 	   );
+	 (* hmmm, Netlog.Debug cannot be handled by netplex *)
+	 Netlog.Debug.current_dlogger := 
+	   (fun mname msg ->
+	      Netlog.channel_logger stderr `Debug `Debug (mname ^ ": " ^ msg)
+	   );
 
 	 let processors =
 	   List.map

@@ -692,11 +692,14 @@ class copier : copy_task ->
  *)
 
 
-type sockspec =
-  [ `Sock_unix of (Unix.socket_type * string)
-  | `Sock_inet of (Unix.socket_type * Unix.inet_addr * int)
+type inetspec =
+  [ `Sock_inet of (Unix.socket_type * Unix.inet_addr * int)
   | `Sock_inet_byname of (Unix.socket_type * string * int)
-  | `Pipe of (Netsys_win32.pipe_mode * string)
+  ]
+
+type sockspec =
+  [ inetspec
+  | `Sock_unix of (Unix.socket_type * string)
   ]
   (** Extended names for socket addresses. Currently, these naming schemes
    * are supported:
@@ -717,7 +720,6 @@ type sockspec =
    *   used. If the [name] cannot be resolved, no socket is meant; this
    *   is usually an error. [stype] is interpreted as for [`Sock_inet].
    *   If [port = 0], the name is to be considered as incomplete.
-   * - [`Pipe name]: A Win32 named pipe
    *
    * It is currently not possible to name IP sockets that are bound to
    * several IP addresses but not all IP addresses of the host. 
@@ -728,6 +730,7 @@ type sockspec =
 type connect_address =
     [ `Socket of sockspec * connect_options
     | `Command of string * (int -> Unixqueue.event_system -> unit)
+    | `W32_pipe of Netsys_win32.pipe_mode * string
     ]
   (** Specifies the service to connect to:
    * 
@@ -749,6 +752,7 @@ type connect_address =
    *   [handler] is invoked with the process ID and the event system
    *   to give the caller a chance to arrange that the process will be
    *   waited for.}
+   * {- [`W32_pipe(mode,name)]: A Win32 named pipe}
    * }
    *)
 
@@ -757,7 +761,6 @@ and connect_options =
     { conn_bind : sockspec option;
         (** Bind the connecting socket to this address (same family as the
 	 * connected socket required). [None]: Use an anonymous port.
-         * For Win32 named pipes, only [None] is supported.
 	 *)
     }
 ;;
@@ -772,6 +775,7 @@ val default_connect_options : connect_options;;
 type connect_status =
     [ `Socket of Unix.file_descr * sockspec
     | `Command of Unix.file_descr * int
+    | `W32_pipe of Unix.file_descr
     ]
   (** This type corresponds with {!Uq_engines.connect_address}: An engine
    * connecting with an address `X will return a status of `X.
@@ -781,16 +785,24 @@ type connect_status =
    *   used by the server to reach the client.
    * - [`Command(fd, pid)]: [fd] is the Unix domain socket connected with
    *   the running command. [pid] is the process ID.
+   * - [`W32_pipe fd]: [fd] is the proxy descriptor of the connected
+   *   Win32 named pipe endpoint. See {!Netsys_win32} how to get the
+   *   [w32_pipe] object to access the pipe. The proxy descriptor {b cannot}
+   *   be used for I/O.
    *)
 ;;
 
 
+val client_endpoint : connect_status -> Unix.file_descr ;;
+  (** Returns the client endpoint contained in the [connect_status] *)
+
 val client_socket : connect_status -> Unix.file_descr ;;
-  (** Returns the client socket contained in the [connect_status] *)
+  (** For backward compatibility. {b Deprecated name} for [client_endpoint] *)
 
 
 type listen_address =
     [ `Socket of sockspec * listen_options
+    | `W32_pipe of Netsys_win32.pipe_mode * string * listen_options
 (* ---
  * `Command: Does not work, as the command has no way to tell us when
  * a new connection is accepted. (It should output something for that
@@ -821,18 +833,19 @@ type listen_address =
   (** Specifies the resource to listen on:
    * 
    * - [`Socket(addr,opts)]: It is listened on a socket with address [addr]
+   * - [`W32_pipe(mode,name,opts)]: It is listened on a pipe server with
+   *   [name] which accepts pipe connections in [mode].
    *)
 
 
 and listen_options =
     { lstn_backlog : int;    (** The length of the queue of not yet accepted
 			      * connections.
-                              * Win32 named pipes: This param is currently
-                              * interpreted as the total maximum of connections.
 			      *)
       lstn_reuseaddr : bool; (** Whether to allow that the address can be
 			      * immediately reused after the previous listener
-			      * has its socket shut down
+			      * has its socket shut down. (Only for Internet
+                              * sockets.)
 			      *)
     }
 ;;
@@ -845,24 +858,29 @@ val default_listen_options : listen_options;;
 (** This class type provides engines to connect to a service. In order
  * to get and activate such an engine, call [connect].
  *)
-class type client_socket_connector = object
+class type client_endpoint_connector = object
   method connect : connect_address -> 
                    Unixqueue.event_system ->
 		     connect_status engine
-    (** Instantiates an engine that connects to the socket given by the
+    (** Instantiates an engine that connects to the endpoint given by the
      * [connect_address] argument. If successful, the state of the engine
      * changes to [`Done(status)] where [status] contains the socket 
      * details. The connection is established in the background.
      *
-     * If the connect address is [`Socket], the returned status will be
-     * [`Socket];
-     * If the address is [`Command], the returned status will be [`Command].
+     * The type of status will correspond to the type of connect address
+     * (e.g. a [`Socket] address will return a [`Socket] status).
      *
      * The close-on-exec flag of the created socket descriptor is always set.
      * The socket descriptor is always in non-blocking mode.
      *)
 end
 ;;
+
+
+class type client_socket_connector = client_endpoint_connector
+  (** For backward compatibility. {b Deprecated name} for 
+      [client_endpoint_connector]
+   *)
 
 
 (** This class type is for service providers that listen for connections.
@@ -875,9 +893,9 @@ end
  * (multiplexing), and it is allowed to call [accept] again after
  * the previous accept engine was successful.
  *)
-class type server_socket_acceptor = object
+class type server_endpoint_acceptor = object
 
-  method server_address : sockspec
+  method server_address : connect_address
     (** The contact address under which the clients can establish new
      * connections with this server.
      *)
@@ -885,17 +903,20 @@ class type server_socket_acceptor = object
   method multiple_connections : bool
     (** Whether it is possible to accept multiple connections *)
 
-  method accept : unit -> (Unix.file_descr * sockspec) engine
+  method accept : unit -> (Unix.file_descr * inetspec option) engine
     (** Instantiates an engine that accepts connections on the listening
-     * socket. 
+     * endpoint. 
      *
      * If the connection is successfully established, the state of the engine
      * changes to [`Done(fd,addr)] where [fd] is the connected file descriptor,
-     * and where [addr] is the socket address of the connecting client
-     * (from the server's perspective).
+     * and where [addr] (if not-[None]) is the endpoint address of the 
+     * connecting client (from the server's perspective). Such addresses are
+     * only supported for Internet endpoints. If a proxy is used to accept
+     * the connections, the returned address is that from the proxy's 
+     * view, and usually different from what [Unix.getpeername] returns.
      *
-     * The close-on-exec flag of the created socket descriptor is always set.
-     * The socket descriptor is always in non-blocking mode.
+     * The close-on-exec flag of the created endpoint descriptor is always set.
+     * The endpoint descriptor is always in non-blocking mode.
      * 
      * It is allowed to shut down [fd] for sending, and it is required to
      * close [fd] after all data transfers have been performed.
@@ -908,7 +929,7 @@ class type server_socket_acceptor = object
      *)
 
   method shut_down : unit -> unit
-    (** The server socket is shut down such that no further connections
+    (** The server endpoint is shut down such that no further connections
      * are possible. It is required to call this method even for acceptors
      * that do not support multiple connections. It is also required to
      * call this method when an [accept] was not successful.
@@ -919,26 +940,34 @@ end
 ;;
 
 
-class direct_socket_acceptor : 
+class type server_socket_acceptor = server_endpoint_acceptor
+  (** For backward compatibility. {b Deprecated name} for 
+      [server_endpoint_acceptor] 
+   *)
+
+
+class direct_acceptor : 
         Unix.file_descr -> Unixqueue.event_system -> 
-          server_socket_acceptor
-(** An implementation of [server_socket_acceptor] for sockets.
-    This class cannot be used for Win32 named pipes.
+          server_endpoint_acceptor
+(** An implementation of [server_endpoint_acceptor] for sockets and Win32
+    named pipes. For sockets, the passed descriptor must be the master
+    socket. For Win32 named pipes, the passed descriptor must be the
+    proxy descriptor of the pipe server..
  *)
    
-class pipe_acceptor : 
-        Netsys_win32.pipe_mode -> string -> int -> Unixqueue.event_system -> 
-          server_socket_acceptor
-(** An implementation of [server_socket_acceptor] for Win32 named pipes *)
+class direct_socket_acceptor :
+        Unix.file_descr -> Unixqueue.event_system -> 
+          server_endpoint_acceptor
+  (** For backward compatibility. {b Deprecated name} for [direct_acceptor] *)
 
 
 
 (** This class type represents factories for service providers *)
-class type server_socket_listener = object
+class type server_endpoint_listener = object
 
   method listen : listen_address ->
                   Unixqueue.event_system ->
-		    server_socket_acceptor engine
+		    server_endpoint_acceptor engine
     (** Instantiates an engine that listens for connections on the socket given
      * by the [listen_address] argument. If successful, the state of the engine
      * changes to [`Done(acc)] where [acc] is the acceptor object guiding
@@ -947,6 +976,12 @@ class type server_socket_listener = object
 
 end
 ;;
+
+class type server_socket_listener = server_endpoint_listener
+  (** For backward compatibility. {b Deprecated name} for
+      [server_endpoint_listener] 
+   *)
+
 
 
 val connector : ?proxy:#client_socket_connector ->

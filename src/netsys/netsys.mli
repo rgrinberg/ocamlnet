@@ -63,6 +63,7 @@ type fd_style =
     | `Recv_send_implied
     | `Recvfrom_sendto
     | `W32_pipe
+    | `W32_pipe_server
     | `W32_event
     ]
   (** Some information what kind of operations are reasonable for descriptors:
@@ -80,6 +81,8 @@ type fd_style =
         [getsockname] or [getpeername].
       - [`W32_pipe]: The descriptor is a Win32 named pipe as returned by
         {!Netsys_win32.pipe_descr}. 
+      - [`W32_pipe_server]: The descriptor is a Win32 pipe server as returned by
+        {!Netsys_win32.pipe_server_descr}. 
       - [`W32_event]: The descriptor is a Win32 event as returned by
         {!Netsys_win32.create_event}. It is not possible to read/write
         with these descriptors.

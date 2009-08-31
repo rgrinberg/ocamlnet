@@ -214,7 +214,7 @@ and connector =
     | Portmapped
     | Internet of (Unix.inet_addr * int)   (* addr, port *)
     | Unix of string                       (* path to unix dom sock *)
-    | Pipe of string
+    | W32_pipe of string
     | Descriptor of Unix.file_descr
     | Dynamic_descriptor of (unit -> Unix.file_descr)
 
@@ -1109,6 +1109,11 @@ let create2_socket_server ?(config = default_socket_config)
     bind_to_internet (Unix.inet_addr_of_string "127.0.0.1") port
   in
 
+  let bind_to_w32_pipe name mode =
+    let psrv = Netsys_win32.create_local_pipe_server name mode max_int in
+    Netsys_win32.pipe_server_descr psrv
+  in
+
   let get_descriptor() =
     let (fd, close_inactive_descr) =
       match conn with
@@ -1161,15 +1166,20 @@ let create2_socket_server ?(config = default_socket_config)
 			any -> Unix.close s; raise any
 		    end
 	    )
-	| Pipe path ->
-	    failwith "Pipe not supported in this case"
+	| W32_pipe path ->
+	    let s = bind_to_w32_pipe path Netsys_win32.Pipe_duplex in
+	    (s, true)
 	| Descriptor s -> 
 	    (s, false)
 	| Dynamic_descriptor f -> 
 	    let s = f() in
 	    (s, true)
     in
-    srv.main_socket_name <- `Sockaddr (Unix.getsockname fd);
+    srv.main_socket_name <- ( try
+				`Sockaddr (Unix.getsockname fd)
+			      with _ -> 
+				`Implied 
+			    );
     (fd, close_inactive_descr)
   in
 
@@ -1204,37 +1214,27 @@ let create2_socket_server ?(config = default_socket_config)
 	srv
 
     | Tcp ->
+	let (fd, close_inactive_descr) = get_descriptor() in
+
+	dlogr_ctrace srv
+	  (fun () ->
+	     sprintf "(sock=%s): Listening"
+	       (portname fd));
+	let backlog =
+	  match override_listen_backlog with
+	    | Some n -> n
+	    | None -> config#listen_options.lstn_backlog in
 	( match conn with
-	    | Pipe path ->
-		let backlog =
-		  match override_listen_backlog with
-		    | Some n -> n
-		    | None -> config#listen_options.lstn_backlog in
-		let acc = 
-		  new pipe_acceptor 
-		    Netsys_win32.Pipe_duplex path backlog esys in
-		srv.master_acceptor <- Some acc;
-		srv.main_socket_name <- `Implied;
-		accept_connections acc;
-		srv
-
+	    | W32_pipe _ ->
+		let psrv = Netsys_win32.lookup_pipe_server fd in
+		Netsys_win32.pipe_listen psrv backlog
 	    | _ ->
-		let (fd, close_inactive_descr) = get_descriptor() in
-
-		dlogr_ctrace srv
-		  (fun () ->
-		     sprintf "(sock=%s): Listening"
-		       (portname fd));
-		let backlog =
-		  match override_listen_backlog with
-		    | Some n -> n
-		    | None -> config#listen_options.lstn_backlog in
-		Unix.listen fd backlog;
-		let acc = new direct_socket_acceptor fd esys in
-		srv.master_acceptor <- Some acc;
-		accept_connections acc;
-		srv
-	)
+		Unix.listen fd backlog
+	);
+	let acc = new Uq_engines.direct_acceptor fd esys in
+	srv.master_acceptor <- Some acc;
+	accept_connections acc;
+	srv
 ;;
 
 
@@ -1244,7 +1244,8 @@ let create2 mode esys =
 	create2_socket_endpoint prot fd esys
     | `Multiplexer_endpoint mplex ->
 	if mplex#event_system != esys then
-	  failwith "Rpc_server.create2: Multiplexer is attached to the wrong event system";
+	  failwith "Rpc_server.create2: Multiplexer is attached \
+                    to the wrong event system";
 	create2_multiplexer_endpoint mplex 
     | `Socket(prot,conn,config) ->
 	create2_socket_server ~config prot conn esys

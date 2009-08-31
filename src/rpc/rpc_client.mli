@@ -97,10 +97,9 @@ type connector =
   | Internet of (Unix.inet_addr * int)
       (** The address plus port *)
   | Unix of string
-      (** Path to unix dom sock. On Win32, this is a normal file containing
-          the local inet4 port number (as emulation).
+      (** Path to unix dom sock. Not supported on Win32.
        *)
-  | Pipe of string
+  | W32_pipe of string
       (** Path to named pipe (only Win32) *)
   | Descriptor of Unix.file_descr
       (** Pass an already open socket descriptor. The descriptor will not

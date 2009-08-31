@@ -41,6 +41,7 @@ type fd_style =
     | `Recv_send_implied
     | `Recvfrom_sendto
     | `W32_pipe
+    | `W32_pipe_server
     | `W32_event
     ]
 
@@ -49,8 +50,10 @@ let get_fd_style fd =
     try Some(Netsys_win32.lookup fd)
     with Not_found -> None in
   match w32_obj_opt with
-    | Some (Netsys_win32.W32_pipe_helper _) ->
+    | Some (Netsys_win32.W32_pipe _) ->
 	`W32_pipe
+    | Some (Netsys_win32.W32_pipe_server _) ->
+	`W32_pipe_server
     | Some (Netsys_win32.W32_event _) ->
 	`W32_event
     | None ->
@@ -97,8 +100,11 @@ let wait_until_readable fd_style fd tmo =
       | `Read_write when is_win32 ->  (* effectively not supported! *)
 	  true
       | `W32_pipe ->
-	  let ph = Netsys_win32.lookup_pipe_helper fd in
+	  let ph = Netsys_win32.lookup_pipe fd in
 	  Netsys_win32.pipe_wait_rd ph tmo
+      | `W32_pipe_server ->
+	  let ph = Netsys_win32.lookup_pipe_server fd in
+	  Netsys_win32.pipe_wait_connect ph tmo
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
@@ -115,8 +121,11 @@ let wait_until_writable fd_style fd tmo =
       | `Read_write when is_win32 ->  (* effectively not supported! *)
 	  true
       | `W32_pipe ->
-	  let ph = Netsys_win32.lookup_pipe_helper fd in
+	  let ph = Netsys_win32.lookup_pipe fd in
 	  Netsys_win32.pipe_wait_wr ph tmo
+      | `W32_pipe_server ->
+	  let ph = Netsys_win32.lookup_pipe_server fd in
+	  Netsys_win32.pipe_wait_connect ph tmo
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
@@ -134,6 +143,9 @@ let wait_until_prird fd_style fd tmo =
 	  true
       | `W32_pipe ->
 	  false
+      | `W32_pipe_server ->
+	  let ph = Netsys_win32.lookup_pipe_server fd in
+	  Netsys_win32.pipe_wait_connect ph tmo
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
@@ -157,8 +169,10 @@ let gwrite fd_style fd s pos len =
     | `Recvfrom_sendto ->
 	failwith "Netsys.gwrite: the socket is unconnected"
     | `W32_pipe ->
-	let ph = Netsys_win32.lookup_pipe_helper fd in
+	let ph = Netsys_win32.lookup_pipe fd in
 	Netsys_win32.pipe_write ph s pos len
+    | `W32_pipe_server ->
+	failwith "Netsys.gwrite: cannot write to pipe servers"
     | `W32_event ->
 	failwith "Netsys.gwrite: cannot write to event descriptor"
 
@@ -166,7 +180,8 @@ let gwrite fd_style fd s pos len =
 let rec really_gwrite fd_style fd s pos len =
   try
     let n = gwrite fd_style fd s pos len in
-    really_gwrite fd_style fd s (pos+n) (len-n)
+    if n > 0 then
+      really_gwrite fd_style fd s (pos+n) (len-n)
   with
     | Unix.Unix_error(Unix.EINTR, _, _) ->
 	really_gwrite fd_style fd s pos len
@@ -185,8 +200,10 @@ let gread fd_style fd s pos len =
     | `Recvfrom_sendto ->
 	failwith "Netsys.gread: the socket is unconnected"
     | `W32_pipe ->
-	let ph = Netsys_win32.lookup_pipe_helper fd in
+	let ph = Netsys_win32.lookup_pipe fd in
 	Netsys_win32.pipe_read ph s pos len
+    | `W32_pipe_server ->
+	failwith "Netsys.gwrite: cannot read from pipe servers"
     | `W32_event ->
 	failwith "Netsys.gread: cannot read from event descriptor"
 
@@ -219,7 +236,7 @@ let really_gread fd_style fd s pos len =
 
 
 let wait_until_connected fd tmo =
-  if is_win32 then
+  if is_win32 then (* FIXME: That works only for sockets *)
     let l1,_,l2 = Unix.select [] [fd] [fd] tmo in
     l1 <> [] || l2 <> []
   else

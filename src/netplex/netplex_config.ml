@@ -326,18 +326,44 @@ let extract_address cf addraddr =
     with
       | Not_found ->
 	  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".type") in
+  let get_path() =
+    try
+      cf # string_param
+	(cf # resolve_parameter addraddr "path") 
+    with
+      | Not_found ->
+	  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".path") in
   ( match typ with
       | "local" ->
 	  cf # restrict_subsections addraddr [];
 	  cf # restrict_parameters addraddr [ "type"; "path" ];
-	  let path =
-	    try
-	      cf # string_param
-		(cf # resolve_parameter addraddr "path") 
-	    with
-	      | Not_found ->
-		  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".path") in
-	  [ Unix.ADDR_UNIX path ]
+	  let path = get_path() in
+	  ( match Sys.os_type with
+	      | "Win32" ->
+		  [ `W32_pipe_file path ]
+	      | _ ->
+		  [ `Socket (Unix.ADDR_UNIX path) ]
+	  )
+      | "unixdomain" ->
+	  cf # restrict_subsections addraddr [];
+	  cf # restrict_parameters addraddr [ "type"; "path" ];
+	  let path = get_path() in
+	  [ `Socket (Unix.ADDR_UNIX path) ]
+      | "socket_file" ->
+	  cf # restrict_subsections addraddr [];
+	  cf # restrict_parameters addraddr [ "type"; "path" ];
+	  let path = get_path() in
+	  [ `Socket_file path ]
+      | "w32_pipe" ->
+	  cf # restrict_subsections addraddr [];
+	  cf # restrict_parameters addraddr [ "type"; "path" ];
+	  let path = get_path() in
+	  [ `W32_pipe path ]
+      | "w32_pipe_file" ->
+	  cf # restrict_subsections addraddr [];
+	  cf # restrict_parameters addraddr [ "type"; "path" ];
+	  let path = get_path() in
+	  [ `W32_pipe_file path ]
       | "internet" ->
 	  cf # restrict_subsections addraddr [];
 	  cf # restrict_parameters addraddr [ "type"; "bind" ];
@@ -357,7 +383,7 @@ let extract_address cf addraddr =
 		      let p =
 			int_of_string
 			  (Netstring_pcre.matched_group m 2 bind) in
-		      [ Unix.ADDR_INET(a,p) ]
+		      [ `Socket (Unix.ADDR_INET(a,p)) ]
 		    with
 		      | _ ->
 			  failwith ("Cannot parse " ^ cf#print addraddr ^ 
@@ -373,7 +399,7 @@ let extract_address cf addraddr =
 			      let p =
 				int_of_string
 				  (Netstring_pcre.matched_group m 2 bind) in
-			      [ Unix.ADDR_INET(a,p) ]
+			      [ `Socket (Unix.ADDR_INET(a,p)) ]
 			    with
 			      | _ ->
 				  failwith ("Cannot parse " ^ cf#print addraddr ^ 
@@ -395,7 +421,7 @@ let extract_address cf addraddr =
 					  entry.Unix.h_addr_list in
 				      List.map
 					(fun a ->
-					   Unix.ADDR_INET(a,p)
+					   `Socket(Unix.ADDR_INET(a,p))
 					)
 					al
 				    with

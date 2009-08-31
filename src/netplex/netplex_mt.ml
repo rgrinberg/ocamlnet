@@ -43,17 +43,25 @@ object(self)
 	  end
 	) in
       let m = oothr # create_mutex() in
-      m # lock();
+      let c = oothr # create_condition() in
       let t = 
 	oothr # create_thread 
 	  (fun () ->
-	     let o = throbj (oothr # self) in
-	     close_list l_close;
-	     m # unlock();
-	     f o
+	     try
+	       let o = throbj (oothr # self) in
+	       close_list l_close;
+	       c # signal();
+	       f o
+	     with
+	       | e ->
+		   (* cannot do much better here: *)
+		   prerr_endline
+		     ("Killed thread " ^ string_of_int oothr#self#id ^ 
+			" on exception: "  ^ Netexn.to_string e)
 	  ) 
 	  () in
       m # lock();
+      c # wait m;
       m # unlock();
       throbj t
 end

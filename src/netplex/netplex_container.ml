@@ -249,7 +249,7 @@ object(self)
 		     sprintf "Container %d: Accepting on fd %Ld"
 		       (Oo.id self)
 		       (Netsys.int64_of_file_descr fd));
-		let acc = new Uq_engines.direct_socket_acceptor fd esys in
+		let acc = new Uq_engines.direct_acceptor fd esys in
 		let e = acc # accept() in
 		Uq_engines.when_state
 		  ~is_done:(fun (fd_slave,_) ->
@@ -258,7 +258,7 @@ object(self)
                                * for being accepted at this time. By disabling
                                * accepting, we ensure that these engines
                                * are aborted and the events are ignored.
-                               * It is essential that the direct_socket_acceptor
+                               * It is essential that the direct_endpoint_acceptor
                                * accepts in one step so intermediate states
                                * are impossible.
                                *)
@@ -488,7 +488,7 @@ let close_pipe fd =
     | "Win32" ->
 	( try
 	    match Netsys_win32.lookup fd with
-	      | Netsys_win32.W32_pipe_helper ph ->
+	      | Netsys_win32.W32_pipe ph ->
 		  Netsys_win32.pipe_shutdown ph
 	      | _ ->
 		  assert false

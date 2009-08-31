@@ -10,7 +10,7 @@ val pollset : unit -> pollset
   (** This is a pollset implementation that works for 
        - sockets, and
        - named pipes as provided by {!Netsys_win32} (add the descriptors
-         returned by [pipe_descr] to the pollset)
+         returned by [pipe_descr] or [pipe_server_descr] to the pollset)
 
       The number of descriptors that can be added to the pollset
       has a quite low limit (usually 63 sockets or 31 pipes).
@@ -26,3 +26,8 @@ val threaded_pollset : unit -> pollset
       to the set. It is, however, only available for multi-threaded
       programs, because it uses helper threads.
    *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of this module  *)
+end

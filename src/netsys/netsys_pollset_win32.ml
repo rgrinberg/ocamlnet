@@ -2,8 +2,20 @@
 
 open Netsys_pollset
 open Netsys_win32
+open Printf
 
 exception Too_many_descriptors
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Netsys_pollset_win32" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netsys_pollset_win32" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Netsys_pollset_win32" Debug.enable
+
 
 let wait_for_multiple_events evobj tmo =
   Netsys_impl_util.slice_time_ms
@@ -36,22 +48,31 @@ let list_of_socket_sets ht in_set out_set pri_set =
     []
 
 
+let bitset_of_w32 evobj_rd evobj_wr evobj_pri w_rd w_wr w_pri =
+  let m_in = w_rd && test_event evobj_rd in
+  let m_out = w_wr && test_event evobj_wr in
+  let m_pri = w_pri && test_event evobj_pri in
+  (if m_in then Netsys_posix.const_rd_event else 0) lor
+    (if m_out then Netsys_posix.const_wr_event else 0) lor
+    (if m_pri then Netsys_posix.const_pri_event else 0)
+  
+
+
 let list_of_w32_objects ht =
   Hashtbl.fold
     (fun fd (ev, detail) l ->
-       let (w_rd, w_wr, _) = Netsys_posix.poll_req_triple ev in
+       let (w_rd, w_wr, w_pri) = Netsys_posix.poll_req_triple ev in
        let x =
 	 match detail with
-	   | Netsys_win32.W32_pipe_helper ph ->
+	   | Netsys_win32.W32_pipe ph ->
 	       let evobj_rd = Netsys_win32.pipe_rd_event ph in
 	       let evobj_wr = Netsys_win32.pipe_wr_event ph in
-	       let m_in = w_rd && test_event evobj_rd in
-	       let m_out = w_wr && test_event evobj_wr in
-	       (if m_in then Netsys_posix.const_rd_event else 0) lor
-		 (if m_out then Netsys_posix.const_wr_event else 0)
+	       bitset_of_w32 evobj_rd evobj_wr evobj_wr w_rd w_wr false
+	   | Netsys_win32.W32_pipe_server psrv ->
+	       let evobj = Netsys_win32.pipe_connect_event psrv in
+	       bitset_of_w32 evobj evobj evobj w_rd w_wr w_pri
 	   | Netsys_win32.W32_event evobj ->
-	       let m_in = w_rd && test_event evobj in
-	       if m_in then Netsys_posix.const_rd_event else 0
+	       bitset_of_w32 evobj evobj evobj w_rd w_wr w_pri
        in
        if x <> 0 then
 	 (fd, ev, Netsys_posix.act_events_of_int x) :: l
@@ -62,7 +83,16 @@ let list_of_w32_objects ht =
     []
 
 
-let string_of_list l =
+let string_of_fd_list l =
+  String.concat ","
+    (List.map
+       (fun fd ->
+	  Int64.to_string (Netsys.int64_of_file_descr fd))
+       l
+    )
+
+
+let string_of_wait_list l =
   String.concat ","
     (List.map
        (fun (fd, _, x) ->
@@ -82,7 +112,8 @@ let string_of_list l =
 let w32_count =
   function
     | Netsys_win32.W32_event _ -> 1
-    | Netsys_win32.W32_pipe_helper _ -> 2
+    | Netsys_win32.W32_pipe _ -> 2
+    | Netsys_win32.W32_pipe_server _ -> 1
 
 
 let pollset () : pollset =
@@ -170,25 +201,32 @@ object(self)
 	)
 	sockets
 	([], [], []) in
-    (* First stop any pending event recording, and restart it with the
-       events we are looking for.
-     *)
-    Hashtbl.iter
-      (fun fd (ev, evobj) ->
-	 (* ignore(wsa_enum_network_events fd evobj); *)
-	 reset_event evobj;
-	 wsa_event_select evobj fd ev
-      )
-      sockets;
+    dlogr 
+      (fun () ->
+	 sprintf "wait[0] tmo=%f in_set=%s out_set=%s pri_set=%s"
+	   tmo
+	   (string_of_fd_list in_set)
+	   (string_of_fd_list out_set)
+	   (string_of_fd_list pri_set)
+      );
     (* CHECK: it is unclear whether this test is needed *)
     let (in_set', out_set', pri_set') =
-      Unix.select in_set out_set pri_set 0.0 in
+      Netsys_win32.real_select in_set out_set pri_set 0.0 in
+    dlogr 
+      (fun () ->
+	 sprintf "wait[1] in_set'=%s out_set'=%s pri_set'=%s"
+	   (string_of_fd_list in_set')
+	   (string_of_fd_list out_set')
+	   (string_of_fd_list pri_set')
+      );
     if in_set' <> [] || out_set' <> [] || pri_set'<> [] then (
       (* Ok, we are immediately ready. *)
       let l = 
 	list_of_socket_sets sockets in_set' out_set' pri_set' 
 	@ list_of_w32_objects w32_objects in
-      prerr_endline ("WAIT CASE1 " ^ string_of_list l);
+      dlogr
+	(fun () ->
+	   sprintf "wait[2] returning %s" (string_of_wait_list l));
       l
     )
     else (
@@ -199,7 +237,10 @@ object(self)
       let fdobjs = Array.make count Unix.stdin in
       let k = ref 1 in
       Hashtbl.iter
-	(fun fd (_, evobj) ->
+	(fun fd (ev, evobj) ->
+	   reset_event evobj;
+	   (* associates the socket fd with the event evobj *)
+	   wsa_event_select evobj fd ev;
 	   evobjs.( !k ) <- evobj;
 	   fdobjs.( !k ) <- fd;
 	   incr k
@@ -207,9 +248,9 @@ object(self)
 	sockets;
       Hashtbl.iter
 	(fun fd (ev, detail) ->
-	   let (w_rd, w_wr, _) = Netsys_posix.poll_req_triple ev in
+	   let (w_rd, w_wr, w_pri) = Netsys_posix.poll_req_triple ev in
 	   match detail with
-	     | Netsys_win32.W32_pipe_helper ph ->
+	     | Netsys_win32.W32_pipe ph ->
 		 let evobj_rd = Netsys_win32.pipe_rd_event ph in
 		 let evobj_wr = Netsys_win32.pipe_wr_event ph in
 		 if w_rd then (
@@ -221,8 +262,14 @@ object(self)
 		   fdobjs.( !k + 1 ) <- fd;
 		 );
 		 k := !k + 2
+	     | Netsys_win32.W32_pipe_server psrv ->
+		 if w_rd || w_wr || w_pri then (
+		   evobjs.( !k ) <- Netsys_win32.pipe_connect_event psrv;
+		   fdobjs.( !k ) <- fd;
+		 );
+		 incr k
 	     | Netsys_win32.W32_event evobj ->
-		 if w_rd then (
+		 if w_rd || w_wr || w_pri then (
 		   evobjs.( !k ) <- evobj;
 		   fdobjs.( !k ) <- fd;
 		 );
@@ -233,31 +280,36 @@ object(self)
 	  let _w_opt = wait_for_multiple_events evobjs tmo in
 	  ( match _w_opt with
 	      | None ->
-		  prerr_endline "WAIT TMO"
+		  dlogr (fun () -> "wait[3] timeout")
 	      | Some n ->
-		  prerr_endline ("WAIT SIGNAL " ^ 
-				   Int64.to_string
-				   (Netsys.int64_of_file_descr
-				      (fdobjs.(n))));
+		  dlogr
+		    (fun () -> 
+		       sprintf "wait[4] event %Ld"
+			 (Netsys.int64_of_file_descr fdobjs.(n))
+		    )
 	  );
 	  ()
-(*
-	  match w_opt with
-	    | None -> prerr_endline "None"
-	    | Some i -> prerr_endline ("Some " ^ string_of_int i)
- *)
 	with
 	  | error ->
 	      reset_event evobj_cancel; (* always reset this guy *)
 	      raise error
       );
+      let null_ev = Netsys_posix.poll_req_events false false false in
+      Hashtbl.iter
+	(fun fd (_, evobj) ->
+	   (* release the association between fd and evobj: *)
+	   wsa_event_select evobj fd null_ev;
+	)
+	sockets;
       (* Check again for pending events *)
       let (in_set'', out_set'', pri_set'') =
-	Unix.select in_set out_set pri_set 0.0 in
+	Netsys_win32.real_select in_set out_set pri_set 0.0 in
       let l =
 	list_of_socket_sets sockets in_set'' out_set'' pri_set'' 
         @ list_of_w32_objects w32_objects in
-      prerr_endline ("WAIT CASE2 " ^ string_of_list l);
+      dlogr
+	(fun () ->
+	   sprintf "wait[5] returning %s" (string_of_wait_list l));
       l
     )
 
@@ -266,6 +318,7 @@ object(self)
     ()
 
   method cancel_wait cb =
+    dlogr (fun () -> sprintf "cancel_wait %b" cb);
     if cb then
       set_event evobj_cancel
     else

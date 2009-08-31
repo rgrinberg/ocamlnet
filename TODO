@@ -16,10 +16,10 @@ Plan for Ocamlnet 3
   - netplex: redirect DONE
   - Netplex_log.debug_* DONE
   - netplex debug messages DONE
+  - Equeue DONE
+  - Unixqueue_select DONE
+  - Unixqueue_util DONE
 
-  - Equeue
-  - Unixqueue_select
-  - Unixqueue_util
   - Uq_gtk
   - Uq_tcl
   - netcgi2 Netcgi_ajp
@@ -31,13 +31,15 @@ Plan for Ocamlnet 3
 
 - Focus Win32:
 
-  * Redesign named pipe support. Interface resembles socket API.
-  * Fully integrate named pipes into Unixqueue and Netplex
-  * Security aspects of named pipes
   * Limited support for anonymous pipes using helper threads
+    (Netsys_win32: I/O threads; also support these whereever reasonable)
   * Support for something similar to Netsys_posix.spawn
   * Integrate win32 spawn into Shell
   * Documentation: What is supported on Win32?
+
+  Bugs:
+  - examples/rpc/finder: Neither netplex-admin -shutdown or -restart
+    works, nor finder_client -shutdown
 
 - Shell_uq/Shell_sys: Drop Shell_sys.wait implementation. Replace with
   engine. The system_handler is replaced by something like
@@ -90,6 +92,9 @@ Plan for Ocamlnet 3
   * "syslog": Just calls syslog()
   * "syslog_emulation": The syslog protocol itself
 
+- fd leaks / double close:
+  * do something about this
+
 - Other
   * Nethttpd: configurable error response
   * Nethttpd: suppress "broken pipe"
@@ -107,6 +112,9 @@ Plan for Ocamlnet 3
     (see msg by rafaelsen on ocamlnet-devel)
   * Bug Paolo Donadeo on ocamlnet-devel:
     `Redirect_response not working
+  * Redesign Win32 named pipe support. Interface resembles socket API.
+  * Security aspects of Win32 named pipes
+  * Fully integrate named pipes into Unixqueue and Netplex
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0
