@@ -89,8 +89,6 @@ struct event {
 
 #define event_val(v) ((struct event *) (Data_custom_val(v)))
 
-#endif
-
 
 static value alloc_event(HANDLE e) {
     value r;
@@ -120,6 +118,8 @@ static value alloc_event(HANDLE e) {
 
     return r;
 }
+#endif
+
 
 CAMLprim value netsys_create_event(value dummy) {
 #ifdef _WIN32
