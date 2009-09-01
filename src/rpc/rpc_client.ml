@@ -897,7 +897,14 @@ let shutdown_connector cl mplex ondown =
   ( try
       mplex # start_shutting_down
 	~when_done:(fun exn_opt ->
-		      (* CHECK: Print exception? *)
+		      ( match exn_opt with 
+			  | `Ok _ -> ()
+			  | `Error exn ->
+			      dlogr cl
+				(fun () -> 
+				   sprintf "start_shutting_down: exception %s"
+				     (Netexn.to_string exn))
+		      );
 		      mplex # inactivate();
 		      ondown()
 		   )
@@ -936,7 +943,8 @@ object
 	try
 	  match Netsys_win32.lookup fd with
 	    | Netsys_win32.W32_pipe ph ->
-		Netsys_win32.pipe_shutdown ph
+		Netsys_win32.pipe_shutdown ph;
+		Unix.close fd
 	    | _ -> 
 		()
 	with Not_found ->

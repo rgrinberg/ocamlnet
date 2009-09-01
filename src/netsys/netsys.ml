@@ -243,6 +243,79 @@ let wait_until_connected fd tmo =
     wait_until_writable `Recv_send fd tmo
 
 
+let catch_exn label getdetail f arg =
+  try
+    f arg
+  with
+    | error ->
+	let detail = getdetail arg in
+	( try  (* be careful here, logging might not work *)
+	    Netlog.logf `Crit
+	      "%s (%s): Exception %s"
+	      label detail (Netexn.to_string error)
+	  with
+	    | _ -> ()
+	)
+
+external int64_of_file_descr : Unix.file_descr -> int64
+  = "netsys_int64_of_file_descr"
+  (* Also occurs in netsys_win32.ml! *)
+
+let gclose fd_style fd =
+  let fd_detail fd =
+    Printf.sprintf "fd %Ld" (int64_of_file_descr fd) in
+  let pipe_detail (fd,p) =
+    Printf.sprintf "fd %Ld as pipe %s" 
+      (int64_of_file_descr fd)
+      (Netsys_win32.pipe_name p) in
+  let psrv_detail (fd,p) =
+    Printf.sprintf "fd %Ld as pipe server %s" 
+      (int64_of_file_descr fd)
+      (Netsys_win32.pipe_server_name p) in
+  match fd_style with
+    | `Read_write 
+    | `Recvfrom_sendto ->
+	catch_exn
+	  "Unix.close" fd_detail
+	  Unix.close fd
+    | `Recv_send _
+    | `Recv_send_implied ->
+	catch_exn
+	  "Unix.shutdown" fd_detail
+	  (fun fd ->
+	     try
+	       Unix.shutdown fd Unix.SHUTDOWN_ALL
+	     with
+	       | Unix.Unix_error(Unix.ENOTCONN, _, _) -> ()
+	  )
+	  fd;
+	catch_exn
+	  "Unix.close" fd_detail
+	  Unix.close fd
+    | `W32_pipe ->
+	let p = Netsys_win32.lookup_pipe fd in
+	catch_exn
+	  "Netsys_win32.pipe_shutdown" pipe_detail
+	  (fun (fd,p) -> Netsys_win32.pipe_shutdown p)
+	  (fd,p);
+	catch_exn
+	  "Unix.close" fd_detail
+	  Unix.close fd
+    | `W32_pipe_server ->
+	let p = Netsys_win32.lookup_pipe_server fd in
+	catch_exn
+	  "Netsys_win32.pipe_server_shutdown" psrv_detail
+	  (fun (fd,p) -> Netsys_win32.pipe_shutdown_server p);
+	catch_exn
+	  "Unix.close" fd_detail
+	  Unix.close fd
+    | `W32_event ->
+	(* Events are automatically closed *)
+	catch_exn
+	  "Unix.close" fd_detail
+	  Unix.close fd
+
+
 external unix_error_of_code : int -> Unix.error = "netsys_unix_error_of_code"
 
 
@@ -260,10 +333,6 @@ let connect_check fd =
 
 let domain_of_inet_addr addr =
   Unix.domain_of_sockaddr(Unix.ADDR_INET(addr,0))
-
-external int64_of_file_descr : Unix.file_descr -> int64
-  = "netsys_int64_of_file_descr"
-  (* Also occurs in netsys_win32.ml! *)
 
 external _exit : int -> unit = "netsys__exit";;
 

@@ -174,3 +174,17 @@ let start() =
 
 Netsys_signal.init();
 start();;
+
+let () =  (* debugging: check that all resources are freed *)
+  Gc.full_major();
+  Gc.full_major();
+  Gc.full_major();
+  Gc.full_major();
+  Gc.full_major();
+  Gc.full_major();
+  Gc.full_major();
+  Gc.full_major();
+  Gc.full_major();
+  ignore(Netsys_win32.create_event())
+;;
+

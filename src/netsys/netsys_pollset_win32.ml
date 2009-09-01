@@ -343,7 +343,9 @@ object(self)
 
   initializer (
     let t = oothr#create_thread self#loop () in
-    sep_thread <- Some t
+    sep_thread <- Some t;
+    dlogr (fun () -> sprintf "threaded_pollset: started helper thread %d"
+	     t#id);
   )
     
 
@@ -362,14 +364,29 @@ object(self)
     cmd_mutex # unlock();
     ( match next_cmd with
 	| `Start_waiting(tmo,done_fun) ->
+	    dlog "threaded_pollset: exec cmd Start_waiting";
 	    self # do_start_waiting tmo done_fun;
 	    self # loop()
 	| `Exit_thread ->
+	    dlog "threaded_pollset: exec cmd Exit_thread";
 	    ()
     )
 
   method private do_start_waiting tmo done_fun =
-    let r = pset # wait tmo in
+    let r = 
+      try
+	pset # wait tmo
+      with
+	| error ->  (* don't know what to do here: *)
+	    dlogr
+	      (fun () ->
+		 sprintf "threaded_pollset: wait throws exn: %s"
+		   (Netexn.to_string error)
+	      );
+	    [] in
+    dlogr (fun () ->
+	     sprintf "threaded_pollset: wait reports %d events"
+	       (List.length r));
     done_fun();
     result_mutex # lock();
     result <- Some r;
@@ -390,6 +407,7 @@ object(self)
    *)
 
   method start_waiting tmo done_fun =
+    dlog "threaded_pollset: start_waiting";
     pset # cancel_wait false;
     cmd_mutex # lock();
     cmd <- Some(`Start_waiting(tmo,done_fun));
@@ -398,6 +416,7 @@ object(self)
 
   method stop_waiting () =
     (* Now wait until the result is available: *)
+    dlog "threaded_pollset: stop_waiting";
     result_mutex # lock();
     while result = None do
       pset # cancel_wait true;   (* Can be invoked from a different thread *)
@@ -412,6 +431,7 @@ object(self)
     r
 
   method join_thread() =
+    dlog "threaded_pollset: join_thread";
     cmd_mutex # lock();
     cmd <- Some `Exit_thread;
     cmd_cond # signal();
@@ -432,6 +452,11 @@ object(self)
   val mutable ht = Hashtbl.create 10
     (* Maps descriptors to pollsets *)
 
+  initializer (
+    (* pollset_list must not be empty *)
+    pollset_list <- [ pollset(), ref None ]
+  )
+
   method find fd =
     let pset = Hashtbl.find ht fd in
     pset # find fd
@@ -448,8 +473,7 @@ object(self)
     match l with
       | [] ->
 	  let pset = pollset() in
-	  let pset_helper = pollset_helper pset oothr in
-	  pollset_list <- (pset, pset_helper) :: pollset_list;
+	  pollset_list <- (pset, ref None) :: pollset_list;
 	  pset # add fd ev; 
 	  Hashtbl.replace ht fd pset
 
@@ -477,6 +501,10 @@ object(self)
   val mutable cancel_bit = false
 
   method wait tmo =
+    dlog "threaded_pollset: wait";
+
+    (* TODO: as optimization, if tmo=0.0 we should better wait sequentially *)
+
     d_mutex # lock();
     d <- cancel_bit;
     d_mutex # unlock();
@@ -488,11 +516,35 @@ object(self)
       d_mutex # unlock()
     in
 
+    dlogr (fun () -> 
+	     sprintf "threaded_pollset: wait/checking for %d helpers"
+	       (List.length pollset_list));
+
     List.iter
-      (fun (_, pset_helper) ->
-	 pset_helper # start_waiting tmo when_done
+      (fun (pset,pset_helper_opt) ->
+	 match !pset_helper_opt with
+	   | None ->
+	       let pset_helper = pollset_helper pset oothr in
+	       pset_helper_opt := Some pset_helper
+	   | Some _ ->
+	       ()
       )
       pollset_list;
+
+    dlogr (fun () -> 
+	     sprintf "threaded_pollset: wait/start_waiting %d helpers"
+	       (List.length pollset_list));
+
+    List.iter
+      (fun (_, pset_helper_opt) ->
+	 match !pset_helper_opt with
+	   | None -> assert false
+	   | Some pset_helper ->
+	       pset_helper # start_waiting tmo when_done
+      )
+      pollset_list;
+
+    dlog "threaded_pollset: wait/waiting for result";
 
     d_mutex # lock();
     while not d do
@@ -500,16 +552,26 @@ object(self)
     done;
     d_mutex # unlock();
 
+    dlog "threaded_pollset: wait/stop_waiting";
+
     let r = ref [] in
     List.iter
-      (fun (_, pset_helper) ->
-	 r := (pset_helper # stop_waiting()) @ !r
+      (fun (_, pset_helper_opt) ->
+	 match !pset_helper_opt with
+	   | None -> assert false
+	   | Some pset_helper ->
+	       r := (pset_helper # stop_waiting()) @ !r
       )
       pollset_list;
+
+    dlogr (fun () ->
+	     sprintf "threaded_pollset: wait/returning %d events in total"
+	       (List.length !r));
 
     !r
 
   method cancel_wait cb =
+    dlogr (fun () -> sprintf "threaded_pollset: cancel_wait %b" cb);
     d_mutex # lock();
     d <- d || cb;
     cancel_bit <- cb;
@@ -518,11 +580,14 @@ object(self)
 
 
   method dispose() =
+    dlog "threaded_pollset: dispose";
     List.iter
-      (fun (_, pset_helper) ->
-	 pset_helper # join_thread()
+      (fun (_, pset_helper_opt) ->
+	 match !pset_helper_opt with
+	   | None -> ()
+	   | Some pset_helper ->
+	       pset_helper # join_thread();
+	       pset_helper_opt := None
       )
-      pollset_list;
-    pollset_list <- [];
-    Hashtbl.clear ht
+      pollset_list
 end

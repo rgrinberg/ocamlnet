@@ -97,26 +97,13 @@ let create_pipe_pair() =
     | "Win32" ->
 	let (ph2, ph1) = Netsys_win32.pipe_pair Netsys_win32.Pipe_duplex in
 	(Netsys_win32.pipe_descr ph1,
-	 Netsys_win32.pipe_descr ph2)
-    | _ ->
-	Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0
-
-
-let close_pipe fd =
-  (* TODO: Dup in netplex_container.ml *)
-  match Sys.os_type with
-    | "Win32" ->
-	( try
-	    match Netsys_win32.lookup fd with
-	      | Netsys_win32.W32_pipe ph ->
-		  Netsys_win32.pipe_shutdown ph
-	      | _ ->
-		  assert false
-	  with Not_found -> 
-	    assert false
+	 Netsys_win32.pipe_descr ph2,
+	 `W32_pipe
 	)
     | _ ->
-	Unix.close fd
+	let (fd1,fd2) =
+	  Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+	(fd1,fd2,`Read_write)
 
 
 (* TODO: represent clist as [Set] *)
@@ -289,22 +276,32 @@ object(self)
     let onerror = ref [] in
     try
       let fd_clnt_closed = ref false in
-      let (fd_clnt, fd_srv) = create_pipe_pair() in
+      let fd_srv_closed = ref false in
+      let (fd_clnt, fd_srv, fd_style) = create_pipe_pair() in
       onerror := (fun () -> 
 		    if not !fd_clnt_closed then (
 		      fd_clnt_closed := true;
-		      close_pipe fd_clnt
+		      Netsys.gclose fd_style fd_clnt
+		    );
+		    if not !fd_srv_closed then (
+		      fd_srv_closed := true;
+		      Netsys.gclose fd_style fd_srv
 		    )
 		 ) :: !onerror;
       let sys_fd_clnt_closed = ref false in
-      let (sys_fd_clnt, sys_fd_srv) = create_pipe_pair() in
+      let sys_fd_srv_closed = ref false in
+      let (sys_fd_clnt, sys_fd_srv, sys_fd_style) = create_pipe_pair() in
       onerror := (fun () -> 
 		    if not !sys_fd_clnt_closed then (
 		      sys_fd_clnt_closed := true;
-		      close_pipe sys_fd_clnt
+		      Netsys.gclose sys_fd_style sys_fd_clnt
+		    );
+		    if not !sys_fd_srv_closed then (
+		      sys_fd_srv_closed := true;
+		      Netsys.gclose sys_fd_style sys_fd_srv
 		    )
 		 ) :: !onerror;
-      let fd_share =
+      let fd_share =   (* descriptors to share between controller and cont *)
 	fd_clnt :: sys_fd_clnt ::
 	  (List.flatten
 	     (List.map
@@ -312,7 +309,7 @@ object(self)
 		sockserv # sockets
 	     )
 	  ) in
-      let fd_close =
+      let fd_close =   (* descriptors to close in the container *)
 	if par # ptype = `Multi_processing then
 	  [ fd_srv; sys_fd_srv] 
 	else
@@ -339,7 +336,8 @@ object(self)
 	       with 
 		 | error ->
 		     (* It is difficult to get this error written to a log file *)
-		     prerr_endline ("Netplex Catastrophic Error in " ^ name ^ ": " ^ Netexn.to_string error);
+		     prerr_endline ("Netplex Catastrophic Error in " ^ name ^
+				      ": " ^ Netexn.to_string error);
 		     ()
 	     );
 	     (* We return when the container is done. For the admin container
@@ -347,8 +345,9 @@ object(self)
 	      *)
 	     if par # ptype <> `Controller_attached then (
 	       Netplex_cenv.unregister_cont container par_thread;
-	       close_pipe fd_clnt;  (* indicates successful termination *)
-	       close_pipe sys_fd_clnt 
+	       (* indicates successful termination: *)
+	       Netsys.gclose fd_style fd_clnt;
+	       Netsys.gclose sys_fd_style sys_fd_clnt
 	     )
 	  )
 	  fd_close
@@ -356,9 +355,19 @@ object(self)
 	  sockserv#name
 	  controller#logger in
       if par # ptype = `Multi_processing then (
-	close_pipe fd_clnt;       fd_clnt_closed := true;
-	close_pipe sys_fd_clnt;   sys_fd_clnt_closed := true;
+	(* In the multi processing case, the client descriptors are no longer
+           needed in the master process (dups of them will still play a role
+           in the forked children, of course)
+	 *)
+	Netsys.gclose fd_style fd_clnt;
+	Netsys.gclose sys_fd_style sys_fd_clnt;
       );
+      (* From now on it does not make sense to close the client descriptors
+         in case of errors. Either they are already closed (multi processing),
+         or a thread is started which will take care of closing.
+       *)
+      fd_clnt_closed := true;
+      sys_fd_clnt_closed := true;
       let rpc =
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, fd_srv))
@@ -376,7 +385,7 @@ object(self)
 	  (`Socket_endpoint(Rpc.Tcp, sys_fd_srv))
 	  controller#event_system in
       Rpc_server.Debug.disable_for_server sys_rpc;
-      Rpc_server.set_exception_handler rpc
+      Rpc_server.set_exception_handler sys_rpc
 	(fun err ->
 	   controller # logger # log
 	     ~component:sockserv#name
@@ -396,8 +405,14 @@ object(self)
 	  shutting_down = false;
 	  t_accept = 0.0;
 	} in
-      self # bind_server rpc sys_rpc c;
       clist <- c :: clist;
+      (* Now that the server descriptors are handed off to the rpc servers
+         and are implicitly included in c, we can forget about closing them
+         here in case of errors:
+       *)
+      fd_srv_closed := true;
+      sys_fd_srv_closed := true;
+      self # bind_server rpc sys_rpc c;
       Rpc_server.set_onclose_action rpc 
 	(fun _ ->
 	   dlogr
@@ -1321,18 +1336,22 @@ object(self)
   method restart() =
     if shutting_down then
       failwith "#restart: controller is shutting down";
+    dlog "Beginning full restart sequence";
     List.iter
       (fun (_, ctrl, _) ->
 	 ctrl # restart()
       )
-      services
+      services;
+    dlog "Restart Initiated"
 
 
   method shutdown() =
+    dlog "Beginning full shutdown sequence";
     shutting_down <- true;
     let real_shutdown() =
       Unixqueue.once esys eps_group 0.0
 	(fun () ->
+	   dlog "Shutting services down";
 	   List.iter
 	     (fun (_, ctrl, wrkmng) ->
 		ctrl # shutdown();
@@ -1341,6 +1360,7 @@ object(self)
 	     services
 	)
     in
+    dlog "Sending system_shutdown notification to services";
     let n = ref 0 in
     List.iter
       (fun (_, ctrl, _) ->

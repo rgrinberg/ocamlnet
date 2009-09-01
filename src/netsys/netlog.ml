@@ -51,7 +51,7 @@ let channel_logger ch max_lev lev msg =
     let t = Unix.localtime(Unix.gettimeofday()) in
     let s =   (* Netdate is unavailable here *)
       sprintf
-	"[%s %s %2d %02d:%02d:%02d %4d] [%s] %s\n"
+	"[%s %s %2d %02d:%02d:%02d %4d] [%s] %s%s\n"
 	weekday.(t.Unix.tm_wday)
 	month.(t.Unix.tm_mon)
 	t.Unix.tm_mday
@@ -60,6 +60,13 @@ let channel_logger ch max_lev lev msg =
 	t.Unix.tm_sec
 	(1900 + t.Unix.tm_year)
 	(string_of_level lev)
+	( match lev with
+	    | `Debug ->
+		sprintf "[%d:%d] " 
+		  (Unix.getpid())
+		  (!Netsys_oothr.provider # self # id)
+	    | _ -> ""
+	)
 	msg in
     output_string ch s;
     flush ch

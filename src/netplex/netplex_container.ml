@@ -80,7 +80,7 @@ object(self)
        special log messages for this purpose). Also sys_rpc_cl below also
        disables logging
      *)
-    Rpc_client.Debug.disable_for_client rpc_cl;
+    (* Rpc_client.Debug.disable_for_client rpc_cl; (* leave on for now *) *)
     rpc <- Some rpc_cl;
     let sys_rpc_cl =
       Netplex_ctrl_clnt.System.V1.create_client
@@ -482,24 +482,6 @@ object(self)
 end
 
 
-let close_pipe fd =
-  (* TODO: Dup in netplex_controller.ml *)
-  match Sys.os_type with
-    | "Win32" ->
-	( try
-	    match Netsys_win32.lookup fd with
-	      | Netsys_win32.W32_pipe ph ->
-		  Netsys_win32.pipe_shutdown ph
-	      | _ ->
-		  assert false
-	  with Not_found -> 
-	    assert false
-	)
-    | _ ->
-	Unix.close fd
-
-
-
 (* The admin container is special because the esys is shared with the
    system-wide controller
  *)
@@ -545,11 +527,17 @@ object(self)
     );
     ( match c_fd_clnt with
 	| None -> ()
-	| Some fd -> close_pipe fd; c_fd_clnt <- None
+	| Some fd -> 
+	    let fd_style = Netsys.get_fd_style fd in
+	    Netsys.gclose fd_style fd;
+	    c_fd_clnt <- None
     );
     ( match c_sys_fd_clnt with
 	| None -> ()
-	| Some fd -> close_pipe fd; c_sys_fd_clnt <- None
+	| Some fd -> 
+	    let fd_style = Netsys.get_fd_style fd in
+	    Netsys.gclose fd_style fd;
+	    c_sys_fd_clnt <- None
     )
 end
 

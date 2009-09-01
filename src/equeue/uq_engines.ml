@@ -1859,12 +1859,9 @@ object(self)
       disconnecting <- None;
       have_handler <- false;
       Unixqueue.clear esys group;
-      if close_inactive_descr then (
-	match fd_style with
-	  | `W32_pipe -> Netsys_win32.pipe_shutdown (get_ph())
-	  | _ -> Unix.close fd
-      )
-	(* It is important that Unix.close (or substitute) is the very
+      if close_inactive_descr then
+	Netsys.gclose fd_style fd
+ 	(* It is important that Unix.close (or substitute) is the very
            last action. From here on, a thread running in parallel can
            allocate this descriptor again, so it is essential that there
            are no references anymore to it when the old descriptor is closed.
@@ -2291,9 +2288,9 @@ let getpeerspec stype s =
 let getinetpeerspec stype s =
   match Netsys.getpeername s with
       Unix.ADDR_UNIX path ->
-	assert false
+	None
     | Unix.ADDR_INET(addr, port) ->
-	`Sock_inet(stype, addr, port)
+	Some(`Sock_inet(stype, addr, port))
 ;;
 
 
@@ -2782,7 +2779,7 @@ object(self)
 			       Unix.close fd';
 			       raise e in
 		       acc_engine <- None;
-		       `Done(fd', Some ps)
+		       `Done(fd', ps)
 		     with
 		       | Unix.Unix_error( (Unix.EAGAIN | Unix.EINTR | 
 					       Unix.ENOTCONN), _, _) ->

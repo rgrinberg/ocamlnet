@@ -204,6 +204,17 @@ val wait_until_prird : fd_style -> Unix.file_descr -> float -> bool
       the operation.
    *)
 
+val gclose : fd_style -> Unix.file_descr -> unit
+  (** Shuts down the system object referenced by the descriptor so far
+      possible, and closes the descriptor.
+
+      Errors are logged to {!Netlog} as [`Crit] events, and usually
+      do not generate exceptions.
+
+      Win32: [gclose] can be called for proxy descriptors, and the
+      proxy as well as the underlying system objects are all closed.
+   *)
+
 
 (** {1 Functions for sockets} *)
 

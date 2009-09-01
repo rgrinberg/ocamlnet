@@ -38,8 +38,8 @@ Plan for Ocamlnet 3
   * Documentation: What is supported on Win32?
 
   Bugs:
-  - examples/rpc/finder: Neither netplex-admin -shutdown or -restart
-    works, nor finder_client -shutdown
+  - examples/rpc/finder: Investigate why not all handles are closed
+    ("register_proxy: keeping 20/43 entries in proxy tbl")
 
 - Shell_uq/Shell_sys: Drop Shell_sys.wait implementation. Replace with
   engine. The system_handler is replaced by something like
