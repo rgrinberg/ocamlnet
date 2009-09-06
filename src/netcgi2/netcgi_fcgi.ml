@@ -739,11 +739,11 @@ let rec handle_connection fd ~max_conns ~external_server ~config
 
   match fd_cmd' with
     | `Conn_close ->
-	Unix.shutdown fd Unix.SHUTDOWN_ALL;
+        (try Unix.shutdown fd Unix.SHUTDOWN_ALL with _ -> ());
 	Unix.close fd
     | `Conn_close_linger ->
 	Unix.setsockopt_optint fd Unix.SO_LINGER (Some 15);
-	Unix.shutdown fd Unix.SHUTDOWN_ALL;
+        (try Unix.shutdown fd Unix.SHUTDOWN_ALL with _ -> ());
 	Unix.close fd
     | `Conn_keep_alive ->
 	(* The server is supposed to take care of closing [fd].  (Tail
@@ -752,7 +752,7 @@ let rec handle_connection fd ~max_conns ~external_server ~config
 	handle_connection fd ~external_server ~max_conns
 	  ~config output_type arg_store exn_handler f
     | `Conn_error e ->
-	Unix.shutdown fd Unix.SHUTDOWN_ALL;
+        (try Unix.shutdown fd Unix.SHUTDOWN_ALL with _ -> ());
 	Unix.close fd;
 	raise e
 
