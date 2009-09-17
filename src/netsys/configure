@@ -5,6 +5,27 @@ have_posix_shm=0
 have_posix_fadvise=0
 have_posix_fallocate=0
 have_posix_pthread=0
+have_printexc_register_printer=0
+have_printexc_register_printer_bool=false
+code_printexc_register_printer='()'
+
+######################################################################
+
+printf "Checking whether Ocaml has Printexc.register_printer... "
+if ( cd configtests; ocamlc -c printexc_register_printer.ml ) \
+     >>configtests/printexc_register_printer.err 2>&1
+then
+    have_printexc_register_printer=1
+    have_printexc_register_printer_bool=true
+    code_printexc_register_printer = 'Printexc.register_printer f'
+fi
+
+if [ $have_printexc_register_printer -gt 0 ]; then
+    echo "found"
+else
+    echo "not found"
+fi
+
 
 ######################################################################
 
@@ -149,6 +170,16 @@ cat <<EOF >config.h
 $def_have_posix_shm
 $def_have_posix_fadvise
 $def_have_posix_fallocate
+EOF
+
+cat <<EOF >netsys_conf.ml
+(* This file is written by netsys/configure *)
+
+let have_printexc_register_printer = $have_printexc_register_printer_bool
+
+let printexc_register_printer f =
+  $code_printexc_register_printer
+
 EOF
 
 exit 0

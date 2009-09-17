@@ -1,5 +1,11 @@
 (* $Id$ *)
 
+(* Since Ocaml 3.11.2 there is also Printexc.register_printer allowing
+   the user to register a printer directly with the Ocaml stdlib.
+   Of course, we register our printer there, too, but we have to be
+   careful to avoid recursion
+ *)
+
 type printer = exn -> string
 
 let registry = 
@@ -20,19 +26,44 @@ let register_printer e f =
   
   Hashtbl.replace registry name alist'
 
+(* to_string_opt: This is the function registered at Printexc.
+   It must not call Printexc.
+ *)
 
-let to_string e =
+let to_string_opt (e : exn) : string option =
   let anchor = Obj.field (Obj.repr e) 0 in
   let name = (Obj.obj (Obj.field anchor 0) : string) in
 
-  let f =
+  let f_opt =
     try
       let alist = Hashtbl.find registry name in
-      List.assq anchor alist
+      Some(List.assq anchor alist)
     with
       | Not_found ->
-	  Printexc.to_string in
-  f e
+	  None in
+  match f_opt with
+    | None -> None
+    | Some f -> Some(f e)
+
+(* to_string: This is the function called by users. If there is
+   Printexc.register_printer, we simply call Printexc.to_string
+   - our printers are also registered with Printexc. If Ocaml does
+   not provide this feature, we can only use our own registry
+ *)
+
+let to_string e =
+  if Netsys_conf.have_printexc_register_printer then
+    Printexc.to_string e
+  else
+    match to_string_opt e with
+      | None -> Printexc.to_string e
+      | Some s -> s
+
+(* If supported, register our registry: *)
+
+let () =
+  if Netsys_conf.have_printexc_register_printer then
+    Netsys_conf.printexc_register_printer to_string_opt
 
 
 (* Add printers for the core exceptions: *)
@@ -124,9 +155,33 @@ let string_of_unix_error e =
 	assert false
 
 
+let rec string_contains_at s1 s2 k =
+  let l1 = String.length s1 in
+  let l2 = String.length s2 in
+  k + l2 <= l1 && (
+    String.sub s1 k l2 = s2 ||
+      string_contains_at s1 s2 (k+1)
+  )
+    
+let string_contains s1 s2 =
+  (* Is s2 a substring of s1? *)
+  string_contains_at s1 s2 0
+
+
+let have_nice_unix_error =
+  (* maybe somebody enhances Printexc at some time so it can already
+     print nice Unix errors. Test for this.
+   *)
+  let s =
+    Printexc.to_string (Unix.Unix_error(Unix.ENOENT,"","")) in
+  string_contains s "ENOENT"
+
+
 let () =
-  register_printer
-    (Unix.Unix_error(Unix.ENOENT,"",""))
-    string_of_unix_error
+  if not have_nice_unix_error then (
+    register_printer
+      (Unix.Unix_error(Unix.ENOENT,"",""))
+      string_of_unix_error
+  )
 
      

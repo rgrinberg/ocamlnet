@@ -305,7 +305,8 @@ let gclose fd_style fd =
 	let p = Netsys_win32.lookup_pipe_server fd in
 	catch_exn
 	  "Netsys_win32.pipe_server_shutdown" psrv_detail
-	  (fun (fd,p) -> Netsys_win32.pipe_shutdown_server p);
+	  (fun (fd,p) -> Netsys_win32.pipe_shutdown_server p)
+	  (fd,p);
 	catch_exn
 	  "Unix.close" fd_detail
 	  Unix.close fd
