@@ -144,13 +144,18 @@ Implementation improvements after Ocamlnet 3.0
 - Name_resulution_error
 - Configurable async name resolution
 
-- Message bus
+- Cluster Message bus
 
 - Netdate: support for newer RFC date formats
 
 - Fix netplex + nethttpd + async API: netcgi cannot be used right now
 
 - Netclient: Support for CONNECT
+
+- access to good random number generator on all platforms
+  (for cryptogrpahy)
+
+- CHECK: GSSAPI, krb5 for rpc
 
 ----------------------------------------------------------------------
 Old stuff, check first
