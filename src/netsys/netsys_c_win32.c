@@ -46,7 +46,7 @@ CAMLprim value netsys_fill_random (value s) {
 				 PROV_RSA_FULL,
 				 CRYPT_VERIFYCONTEXT)) {
 	    win32_maperr(GetLastError());
-	    uerror("CryptAcquireContext", Nothing);
+	    uerror("netsys_fill_random/CryptAcquireContext", Nothing);
 	};
 	crypt_provider_init = 1;
     }
@@ -54,7 +54,7 @@ CAMLprim value netsys_fill_random (value s) {
 		       string_length(s),
 		       String_val(s))) {
 	win32_maperr(GetLastError());
-	uerror("CryptGenRandom", Nothing);
+	uerror("netsys_fill_random/CryptGenRandom", Nothing);
     };
     return Val_unit;
 #else
@@ -105,7 +105,7 @@ static value alloc_event(HANDLE e) {
 			   DUPLICATE_SAME_ACCESS);
     if (!flag) {
 	win32_maperr(GetLastError());
-	uerror("DuplicateHandle", Nothing);
+	uerror("alloc_event/DuplicateHandle", Nothing);
     };
 
     r = caml_alloc_custom(&event_ops, sizeof(struct event), 1, 0);
@@ -131,7 +131,7 @@ CAMLprim value netsys_create_event(value dummy) {
     e = CreateEvent(NULL, 1, 0, NULL);
     if (e == NULL) {
 	win32_maperr(GetLastError());
-	uerror("CreateEvent", Nothing);
+	uerror("netsys_create_event/CreateEvent", Nothing);
     };
 
     return alloc_event(e);
@@ -183,7 +183,7 @@ CAMLprim value netsys_set_event(value ev) {
     e = event_val(ev);
     if (!SetEvent(e->ev)) {
 	win32_maperr(GetLastError());
-	uerror("SetEvent", Nothing);
+	uerror("netsys_set_event/SetEvent", Nothing);
     }
 
     return Val_unit;
@@ -199,7 +199,7 @@ CAMLprim value netsys_reset_event(value ev) {
     e = event_val(ev);
     if (!ResetEvent(e->ev)) {
 	win32_maperr(GetLastError());
-	uerror("ResetEvent", Nothing);
+	uerror(" netsys_reset_event/ResetEvent", Nothing);
     }
 
     return Val_unit;
@@ -219,7 +219,7 @@ CAMLprim value netsys_test_event(value ev) {
     n = WaitForSingleObject(e->ev, 0);
     if (n == WAIT_FAILED) {
 	win32_maperr(GetLastError());
-	uerror("WaitForSingleObject", Nothing);
+	uerror("netsys_test_event/WaitForSingleObject", Nothing);
     };
 
     return Val_bool(n == WAIT_OBJECT_0);
@@ -247,7 +247,7 @@ CAMLprim value netsys_event_wait(value ev, value tmo) {
     leave_blocking_section();
     if (n == WAIT_FAILED) {
 	win32_maperr(GetLastError());
-	uerror("WaitForSingleObject", Nothing);
+	uerror("netsys_event_wait/WaitForSingleObject", Nothing);
     };
 
     return Val_bool(n == WAIT_OBJECT_0);
@@ -288,7 +288,7 @@ CAMLprim value netsys_wsa_event_select(value ev, value fdv, value evmaskv) {
 
     if (WSAEventSelect(s, e->ev, m_win32) != 0) {
 	win32_maperr(WSAGetLastError());
-	uerror("WSAEventSelect", Nothing);
+	uerror("netsys_wsa_event_select/WSAEventSelect", Nothing);
     }
 
     return Val_unit;
@@ -343,7 +343,7 @@ CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 	
 	if (r == WAIT_IO_COMPLETION) {
 	    win32_maperr(EINTR);
-	    uerror("SleepEx", Nothing);
+	    uerror("netsys_wsa_wait_for_multiple_events/SleepEx", Nothing);
 	}
 
 	return Val_int(0);    /* None */
@@ -367,7 +367,7 @@ CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 	    if (err == 0) 
 		return Val_int(0);
 	    win32_maperr(err);
-	    uerror("WSAWaitForMultipleEvents", Nothing);
+	    uerror("netsys_wsa_wait_for_multiple_events/WSAWaitForMultipleEvents", Nothing);
 	}
 	
 	if (r == WSA_WAIT_TIMEOUT)
@@ -376,7 +376,7 @@ CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 	if (r == WSA_WAIT_IO_COMPLETION) {
 	    dprintf("WSAWaitForMultipleEvents error=EINTR\n");
 	    win32_maperr(EINTR);
-	    uerror("WSAWaitForMultipleEvents", Nothing);
+	    uerror("netsys_wsa_wait_for_multiple_events/WSAWaitForMultipleEvents", Nothing);
 	}
 	
 	if (r >= WSA_WAIT_EVENT_0 && r < WSA_WAIT_EVENT_0 + n) {
@@ -404,7 +404,7 @@ CAMLprim value netsys_wsa_enum_network_events(value fdv, value ev) {
 
     if (WSAEnumNetworkEvents(s, e->ev, &ne) != 0) {
 	win32_maperr(WSAGetLastError());
-	uerror("WSAEnumNetworkEvents", Nothing);
+	uerror("netsys_wsa_enum_network_events/WSAEnumNetworkEvents", Nothing);
     }
 
     /* printf("NetworkEvents=%ld\n", ne.lNetworkEvents); */
@@ -521,19 +521,19 @@ static struct pipe_helper * alloc_pipe_helper (HANDLE h, HANDLE cn_ev) {
     rd_ev = CreateEvent(NULL, 1, 0, NULL);
     if (rd_ev == NULL) {
 	win32_maperr(GetLastError());
-	uerror("CreateEvent", Nothing);
+	uerror("alloc_pipe_helper/CreateEvent", Nothing);
     };
 
     wr_ev = CreateEvent(NULL, 1, 0, NULL);
     if (wr_ev == NULL) {
 	win32_maperr(GetLastError());
-	uerror("CreateEvent", Nothing);
+	uerror("alloc_pipe_helper/CreateEvent", Nothing);
     };
 
     pd = CreateEvent(NULL, 1, 0, NULL);
     if (pd == NULL) {
 	win32_maperr(GetLastError());
-	uerror("CreateEvent", Nothing);
+	uerror("alloc_pipe_helper/CreateEvent", Nothing);
     };
 
     rd_ovrlp = stat_alloc(sizeof(OVERLAPPED));
@@ -798,7 +798,7 @@ void setup_sid(void) {
 				     &world_sid);
 	if (e == 0) {
 	    win32_maperr(GetLastError());
-	    uerror("AllocateAndInitializeSid", Nothing);
+	    uerror("setup_sid/AllocateAndInitializeSid", Nothing);
 	};
     };
 
@@ -809,7 +809,7 @@ void setup_sid(void) {
 				     &network_sid);
 	if (e == 0) {
 	    win32_maperr(GetLastError());
-	    uerror("AllocateAndInitializeSid", Nothing);
+	    uerror("setup_sid/AllocateAndInitializeSid", Nothing);
 	};
     }
 }
@@ -860,7 +860,7 @@ CAMLprim value netsys_create_local_named_pipe(value name, value mode,
 			NULL);
     if ( h == INVALID_HANDLE_VALUE ) {
 	win32_maperr(GetLastError());
-	uerror("CreateNamedPipe", Nothing);
+	uerror("netsys_create_local_named_pipe/CreateNamedPipe", Nothing);
     }
 
     // ACE's must be added to pipe's DACL for:
@@ -907,14 +907,14 @@ CAMLprim value netsys_create_local_named_pipe(value name, value mode,
     if (e != ERROR_SUCCESS) {
 	win32_maperr(GetLastError());
 	CloseHandle(h);
-	uerror("GetSecurityInfo", Nothing);
+	uerror("netsys_create_local_named_pipe/GetSecurityInfo", Nothing);
     };
 
     e = SetEntriesInAcl(2, explicit_access_list, pACL, &pNewACL);
     if (e != ERROR_SUCCESS) {
 	win32_maperr(GetLastError());
 	CloseHandle(h);
-	uerror("SetEntriesinAcl", Nothing);
+	uerror("netsys_create_local_named_pipe/SetEntriesinAcl", Nothing);
     };
 
     e = SetSecurityInfo(h, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, 
@@ -923,7 +923,7 @@ CAMLprim value netsys_create_local_named_pipe(value name, value mode,
 	win32_maperr(GetLastError());
 	LocalFree(pNewACL);
 	CloseHandle(h);
-	uerror("SetSecurityInfo", Nothing);
+	uerror("netsys_create_local_named_pipe/SetSecurityInfo", Nothing);
     };
 
     LocalFree(pNewACL);
@@ -995,7 +995,7 @@ CAMLprim value netsys_pipe_listen(value phv) {
 	n = WaitForSingleObject(ph->pipe_cn_ev, 0);
 	if (n == WAIT_FAILED) {
 	    win32_maperr(GetLastError());
-	    uerror("WaitForSingleObject", Nothing);
+	    uerror("netsys_pipe_listen/WaitForSingleObject", Nothing);
 	};
 	if (n == WAIT_OBJECT_0)
 	    set_cn_ev = 1;
@@ -1031,7 +1031,7 @@ CAMLprim value netsys_pipe_listen(value phv) {
 	    dprintf("PIPE listen %u error err=%u\n",
 		    ph->pipe_handle, err);
 	    win32_maperr(err);
-	    uerror("ConnectNamedPipe", Nothing);
+	    uerror("netsys_pipe_listen/ConnectNamedPipe", Nothing);
 	};
     };
 
@@ -1079,7 +1079,7 @@ CAMLprim value netsys_pipe_deafen(value phv) {
     flag = DisconnectNamedPipe(ph->pipe_handle);
     if (!flag) {
 	win32_maperr(GetLastError());
-	uerror("DisconnectNamedPipe", Nothing);
+	uerror("netsys_pipe_deafen/DisconnectNamedPipe", Nothing);
     }
 
     /* Check whether the overlapped ops are done: */
@@ -1161,7 +1161,7 @@ CAMLprim value netsys_pipe_connect(value name, value mode) {
 	    errno = EAGAIN;
 	else
 	    win32_maperr(err);
-	uerror("CreateFile", Nothing);
+	uerror("netsys_pipe_connect/CreateFile", Nothing);
     };
 
     ph = alloc_pipe_helper(h, INVALID_HANDLE_VALUE);
@@ -1334,7 +1334,7 @@ CAMLprim value netsys_pipe_shutdown(value phv) {
 	flag = CloseHandle(ph->pipe_handle);
 	if (!flag) {
 	    win32_maperr(GetLastError());
-	    uerror("CloseHandle", Nothing);
+	    uerror("netsys_pipe_shutdown/CloseHandle", Nothing);
 	};
 	ph->pipe_is_open = 0;
 	ph->pipe_conn_state = PIPE_DOWN;
@@ -1459,6 +1459,713 @@ CAMLprim value netsys_pipe_signal(value phv, value ev) {
     invalid_argument("netsys_pipe_signal");
 #endif
 }
+
+
+#ifdef _WIN32
+struct process {
+    HANDLE proc;        /* INVALID_HANDLE_VALUE if already closed */
+    HANDLE proc_proxy;  /* the proxy descriptor */
+    int    auto_close;
+    DWORD  win_pid;
+};
+
+#define process_val(v) ((struct process *) (Data_custom_val(v)))
+
+static struct custom_operations process_ops = {
+    "",
+    custom_finalize_default,
+    custom_compare_default,
+    custom_hash_default,
+    custom_serialize_default,
+    custom_deserialize_default
+};
+
+static value alloc_process(HANDLE proc, DWORD win_pid) {
+    value r;
+    struct process *p0;
+    int flag;
+    HANDLE e_proxy;
+
+    r = caml_alloc_custom(&process_ops, sizeof(struct process), 1, 0);
+    p0 = process_val(r);
+
+    e_proxy = CreateEvent(NULL, 1, 0, NULL);
+    if (e_proxy == NULL) {
+	win32_maperr(GetLastError());
+	uerror("alloc_process/CreateEvent", Nothing);
+    };
+
+    p0->proc = proc;
+    p0->proc_proxy = e_proxy;
+    p0->auto_close = 1;
+    p0->win_pid = win_pid;
+
+    return r;
+}
+#endif
+
+
+static int has_console(void) {
+    HANDLE h;
+
+    h = CreateFile("CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, NULL,
+		   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) {
+	return 0;
+    } else {
+	CloseHandle(h);
+	return 1;
+    }
+}
+
+
+#ifndef CAML_OSDEPS_H
+extern char * caml_search_exe_in_path(char * name);
+#endif
+
+CAMLprim value netsys_create_process(value cmd,
+				     value cmdline,
+				     value opts) {
+#ifdef _WIN32
+  value opts_hd;
+  PROCESS_INFORMATION pi;
+  STARTUPINFO si;
+  char *chdir;
+  char *envp;
+  char *exefile;
+  int flags;
+  int pass_std_handles;
+  int console_flags;
+  int env_flags;
+  int pg_flags;
+  int code;
+
+  chdir = NULL;
+  envp = NULL;
+  GetStartupInfo(&si);
+  si.dwFlags &= ~STARTF_USESTDHANDLES;
+  flags = 0;
+  pass_std_handles = 0;
+  console_flags = 0;
+  env_flags = 0;
+  pg_flags = 0;
+  
+  /* Iterate over opts: */
+  opts_hd = opts;
+  while (opts_hd != Val_int(0)) {
+      if (Is_block(opts_hd)) {
+	  switch(Tag_val(opts_hd)) {
+	  case 0: /* CP_change_directory */
+	      chdir = String_val(Field(opts_hd,0));
+	      break;
+	  case 1: /* CP_set_env */
+	      envp = String_val(Field(opts_hd,0));
+	      break;
+	  case 2: /* CP_std_handles */
+	      si.hStdInput = Handle_val(Field(opts_hd,0));
+	      si.hStdOutput = Handle_val(Field(opts_hd,1));
+	      si.hStdError = Handle_val(Field(opts_hd,2));
+	      pass_std_handles = 1;
+	      break;
+	  default:
+	      invalid_argument("netsys_create_process [1]");
+	  }
+      }
+      else {
+	  switch (Int_val(opts_hd)) {
+	  case 0: /* CP_create_console */
+	      console_flags = CREATE_NEW_CONSOLE;
+	      break;
+	  case 1: /* CP_detached_console */
+	      console_flags = DETACHED_PROCESS;
+	      break;
+	  case 2: /* CP_inherit_console */
+	      if (!has_console()) 
+		  console_flags = DETACHED_PROCESS;
+	      break;
+	  case 3: /* CP_inherit_or_create_console */
+	      if (!has_console()) 
+		  console_flags = CREATE_NEW_CONSOLE;
+	  case 4: /* CP_unicode_environment */
+	      env_flags = CREATE_UNICODE_ENVIRONMENT;
+	      break;
+	  case 5: /* CP_ansi_environment */
+	      env_flags = 0;
+	      break;
+	  case 6: /* CP_new_process_group */
+	      pg_flags = CREATE_NEW_PROCESS_GROUP;
+	      break;
+	  case 7: /* CP_inherit_process_group */
+	      pg_flags = 0;
+	      break;
+	  default:
+	      invalid_argument("netsys_create_process [2]");
+	  }
+      };
+      opts_hd = Field(opts_hd,1);
+  }
+
+  exefile = caml_search_exe_in_path(String_val(cmd));
+  
+  if (pass_std_handles) 
+      si.dwFlags |= STARTF_USESTDHANDLES;
+  flags |= console_flags | env_flags | pg_flags;
+
+  code = CreateProcess(exefile,
+		       String_val(cmdline),
+		       NULL,
+		       NULL,
+		       TRUE,
+		       flags,
+		       envp,
+		       chdir,
+		       &si,
+		       &pi);
+  if (!code) {
+      win32_maperr(GetLastError());
+      uerror("create_process/CreateProcess", cmd);
+  };
+  CloseHandle(pi.hThread);
+  return alloc_process(pi.hProcess, pi.dwProcessId);
+#else
+    invalid_argument("netsys_create_process");
+#endif
+}
+
+
+CAMLprim value netsys_process_descr(value pv) {
+#ifdef _WIN32
+    struct process *p0;
+    p0 = process_val(pv);
+    return netsysw32_win_alloc_handle(p0->proc_proxy);
+#else
+    invalid_argument("netsys_process_descr");
+#endif
+}
+
+
+CAMLprim value netsys_set_auto_close_process_proxy(value pv, value flag) {
+#ifdef _WIN32
+    struct process *p0;
+    p0 = process_val(pv);
+    p0->auto_close = Bool_val(flag);
+    return Val_unit;
+#else
+    invalid_argument("netsys_set_auto_close_process_proxy");
+#endif
+}
+
+
+CAMLprim value netsys_close_process(value pv) {
+#ifdef _WIN32
+    struct process *p0;
+    p0 = process_val(pv);
+    if (p0->proc != INVALID_HANDLE_VALUE) {
+	CloseHandle(p0->proc);
+	p0->proc = INVALID_HANDLE_VALUE;
+    };
+    return Val_unit;
+#else
+    invalid_argument("netsys_close_process");
+#endif
+}
+
+CAMLprim value netsys_process_free(value pv) {
+#ifdef _WIN32
+    struct process *p0;
+    p0 = process_val(pv);
+    if (p0->proc != INVALID_HANDLE_VALUE)
+	CloseHandle(p0->proc);
+    if (p0->auto_close)
+	CloseHandle(p0->proc_proxy);
+    stat_free(p0);
+    return Val_unit;
+#else
+    invalid_argument("netsys_close_process");
+#endif
+}
+
+
+CAMLprim value netsys_get_process_status(value pv) {
+#ifdef _WIN32
+    struct process *p0;
+    DWORD code, status;
+
+    p0 = process_val(pv);
+    /* First test whether the process is still running: */
+    code = WaitForSingleObject(p0->proc, 0);
+    if (code == WAIT_TIMEOUT) {
+	caml_raise_not_found();
+    };
+    if (code == WAIT_FAILED) {
+	win32_maperr(GetLastError());
+	uerror("netsys_get_process_status/WaitForSingleObject", Nothing);
+    };
+    if (code != WAIT_OBJECT_0) {
+	invalid_argument("netsys_get_process_status [1]");
+    };
+    /* Now get the status: */
+    code = GetExitCodeProcess(p0->proc, &status);
+    if (!code) {
+	win32_maperr(GetLastError());
+	uerror("netsys_get_process_status/getExitCodeProcess", Nothing);
+    }
+    
+    return Val_int(status);
+
+#else
+    invalid_argument("netsys_get_process_status");
+#endif
+}
+
+
+CAMLprim value netsys_as_process_event(value pv) {
+#ifdef _WIN32
+    struct process *p0;
+    p0 = process_val(pv);
+    return alloc_event(p0->proc);
+#else
+    invalid_argument("netsys_as_process_event");
+#endif
+}
+
+
+CAMLprim value netsys_emulated_pid(value pv) {
+#ifdef _WIN32
+    struct process *p0;
+    HANDLE d;
+    p0 = process_val(pv);
+    if(!DuplicateHandle(GetCurrentProcess(),
+			p0->proc, 
+			GetCurrentProcess(),
+			&d, 
+			0,
+			FALSE,
+			DUPLICATE_SAME_ACCESS)) {
+	win32_maperr(GetLastError());
+	uerror("netsys_emulated_pid/DuplicateHandle", Nothing);
+    };
+    return Val_int(d);
+#else
+    invalid_argument("netsys_emulated_pid");
+#endif
+}
+
+
+CAMLprim value netsys_win_pid(value pv) {
+#ifdef _WIN32
+    struct process *p0;
+    p0 = process_val(pv);
+    return Val_int(p0->win_pid);
+#else
+    invalid_argument("netsys_win_pid");
+#endif
+}
+
+
+CAMLprim value netsys_has_console(value dummy) {
+#ifdef _WIN32
+    return Val_bool(has_console());
+#else
+    invalid_argument("netsys_has_console");
+#endif
+}
+
+
+CAMLprim value netsys_is_console(value fd) {
+#ifdef _WIN32
+    DWORD mode;
+
+    if (!GetConsoleMode(Handle_val(fd), &mode))
+	/* CHECK: which error is typical here? */
+	return Val_bool(0);
+    else
+	return Val_bool(1);
+#else
+    invalid_argument("netsys_is_console");
+#endif
+}
+
+CAMLprim value netsys_alloc_console(value dummy) {
+#ifdef _WIN32
+    if (!AllocConsole()) {
+	win32_maperr(GetLastError());
+	uerror("netsys_alloc_console/AllocConsole", Nothing);
+    }
+    return Val_unit;
+#else
+    invalid_argument("netsys_alloc_console");
+#endif
+}
+
+CAMLprim value netsys_get_console_attr(value dummy) {
+#ifdef _WIN32
+    HANDLE conout;
+    CONSOLE_CURSOR_INFO cci;
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    value r;
+
+    conout = CreateFile("CONOUT$", GENERIC_READ | GENERIC_WRITE, 
+			FILE_SHARE_WRITE, NULL,
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (conout == INVALID_HANDLE_VALUE) {
+	win32_maperr(GetLastError());
+	uerror("netsys_get_console_attr/CreateFile", Nothing);
+    }
+    if (!GetConsoleCursorInfo(conout, &cci)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_get_console_attr/GetConsoleCursorInfo", Nothing);
+    }
+    if (!GetConsoleScreenBufferInfo(conout, &csbi)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_get_console_attr/GetConsoleScreenBufferInfo", Nothing);
+    }
+    CloseHandle(conout);
+
+    r = caml_alloc_tuple(5);
+    Field(r,0) = Val_int(csbi.dwCursorPosition.X - csbi.srWindow.Left);
+    Field(r,1) = Val_int(csbi.dwCursorPosition.Y - csbi.srWindow.Top );
+    Field(r,2) = Val_int(cci.dwSize);
+    Field(r,3) = Val_bool(cci.bVisible);
+    Field(r,4) = Val_int(csbi.wAttributes);
+
+    return r;
+#else
+    invalid_argument("netsys_get_console_attr");
+#endif
+}
+
+
+CAMLprim value netsys_set_console_attr(value av) {
+#ifdef _WIN32
+    HANDLE conout;
+    COORD pos;
+    CONSOLE_CURSOR_INFO cci;
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    int cx, cy, csize, cvisible, tattr;
+
+    cx = Int_val(Field(av, 0));
+    cy = Int_val(Field(av, 1));
+    csize = Int_val(Field(av, 2));
+    cvisible = Bool_val(Field(av, 3));
+    tattr = Int_val(Field(av, 4));
+
+    conout = CreateFile("CONOUT$", GENERIC_READ | GENERIC_WRITE, 
+			FILE_SHARE_WRITE, NULL,
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (conout == INVALID_HANDLE_VALUE) {
+	win32_maperr(GetLastError());
+	uerror("netsys_set_console_attr/CreateFile", Nothing);
+    }
+    
+    cci.dwSize = csize;
+    cci.bVisible = cvisible;
+    if (!SetConsoleCursorInfo(conout, &cci)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_set_console_attr/SetConsoleCursorInfo", Nothing);
+    }
+  
+    if (!GetConsoleScreenBufferInfo(conout, &csbi)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_set_console_attr/GetConsoleScreenBufferInfo", Nothing);
+    }
+
+    pos.X = cx + csbi.srWindow.Left;
+    pos.Y = cy + csbi.srWindow.Top;
+    if (!SetConsoleCursorPosition(conout, pos)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_set_console_attr/SetConsoleCursorPosition", Nothing);
+    }
+
+    if (!SetConsoleTextAttribute(conout, tattr)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_set_console_attr/SetConsoleTextAttributes", Nothing);
+    }
+
+    CloseHandle(conout);
+  
+    return Val_unit;
+#else
+    invalid_argument("netsys_set_console_attr");
+#endif
+}
+
+
+CAMLprim value netsys_get_console_info(value dummy) {
+#ifdef _WIN32
+    HANDLE conout;
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    value r;
+
+    conout = CreateFile("CONOUT$", GENERIC_READ | GENERIC_WRITE, 
+			FILE_SHARE_WRITE, NULL,
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (conout == INVALID_HANDLE_VALUE) {
+	win32_maperr(GetLastError());
+	uerror("netsys_get_console_info/CreateFile", Nothing);
+    }
+    
+    if (!GetConsoleScreenBufferInfo(conout, &csbi)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_get_console_info/GetConsoleScreenBufferInfo", Nothing);
+    }
+    CloseHandle(conout);
+
+    r = caml_alloc_tuple(2);
+    Field(r,0) = Val_int(csbi.srWindow.Right - csbi.srWindow.Left + 1);
+    Field(r,1) = Val_int(csbi.srWindow.Bottom - csbi.srWindow.Top + 1);
+
+    return r;
+#else
+    invalid_argument("netsys_get_console_info");
+#endif
+}
+
+
+CAMLprim value netsys_get_console_mode(value dummy) {
+#ifdef _WIN32
+    HANDLE conin, conout;
+    DWORD modein, modeout;
+    value r;
+
+    conin = CreateFile("CONIN$", GENERIC_READ | GENERIC_WRITE, 
+		       FILE_SHARE_READ, NULL,
+		       OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (conin == INVALID_HANDLE_VALUE) {
+	win32_maperr(GetLastError());
+	uerror("netsys_get_console_mode/CreateFile", Nothing);
+    }
+    
+    if (!GetConsoleMode(conin, &modein)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conin);
+	uerror("netsys_get_console_mode/GetConsoleMode", Nothing);
+    }
+
+    CloseHandle(conin);
+
+    conout = CreateFile("CONOUT$", GENERIC_READ | GENERIC_WRITE, 
+			FILE_SHARE_WRITE, NULL,
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (conout == INVALID_HANDLE_VALUE) {
+	win32_maperr(GetLastError());
+	uerror("netsys_get_console_mode/CreateFile", Nothing);
+    }
+    
+    if (!GetConsoleMode(conout, &modeout)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_get_console_mode/GetConsoleMode", Nothing);
+    }
+
+    CloseHandle(conout),
+    
+    r = caml_alloc_tuple(7);
+    Field(r,0) = Val_bool(modein & ENABLE_ECHO_INPUT);
+    Field(r,1) = Val_bool(modein & ENABLE_INSERT_MODE);
+    Field(r,2) = Val_bool(modein & ENABLE_LINE_INPUT);
+    Field(r,3) = Val_bool(modein & ENABLE_PROCESSED_INPUT);
+    Field(r,4) = Val_bool(modein & ENABLE_QUICK_EDIT_MODE);
+    Field(r,5) = Val_bool(modeout & ENABLE_PROCESSED_OUTPUT);
+    Field(r,6) = Val_bool(modeout & ENABLE_WRAP_AT_EOL_OUTPUT);
+
+    return r;
+#else
+    invalid_argument("netsys_get_console_mode");
+#endif
+}
+
+
+CAMLprim value netsys_set_console_mode(value mv) {
+#ifdef _WIN32
+    HANDLE conin, conout;
+    DWORD modein, modeout;
+    value r;
+
+    conin = CreateFile("CONIN$", GENERIC_READ | GENERIC_WRITE, 
+		       FILE_SHARE_READ, NULL,
+		       OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (conin == INVALID_HANDLE_VALUE) {
+	win32_maperr(GetLastError());
+	uerror("netsys_set_console_mode/CreateFile", Nothing);
+    }
+    
+    if (!GetConsoleMode(conin, &modein)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conin);
+	uerror("netsys_set_console_mode/GetConsoleMode", Nothing);
+    }
+
+    modein &= ~ENABLE_ECHO_INPUT & ~ENABLE_INSERT_MODE & ~ENABLE_LINE_INPUT &
+	~ENABLE_PROCESSED_INPUT & ~ENABLE_QUICK_EDIT_MODE;
+    
+    if (Bool_val(Field(mv, 0))) modein |= ENABLE_ECHO_INPUT;
+    if (Bool_val(Field(mv, 1))) modein |= ENABLE_INSERT_MODE;
+    if (Bool_val(Field(mv, 2))) modein |= ENABLE_LINE_INPUT;
+    if (Bool_val(Field(mv, 3))) modein |= ENABLE_PROCESSED_INPUT;
+    if (Bool_val(Field(mv, 4))) modein |= ENABLE_QUICK_EDIT_MODE;
+    
+    if (!SetConsoleMode(conin, modein)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conin);
+	uerror("netsys_set_console_mode/SetConsoleMode", Nothing);
+    };
+
+    CloseHandle(conin);
+
+    conout = CreateFile("CONOUT$", GENERIC_READ | GENERIC_WRITE, 
+			FILE_SHARE_WRITE, NULL,
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (conout == INVALID_HANDLE_VALUE) {
+	win32_maperr(GetLastError());
+	uerror("netsys_set_console_mode/CreateFile", Nothing);
+    }
+    
+    if (!GetConsoleMode(conout, &modeout)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_set_console_mode/GetConsoleMode", Nothing);
+    }
+
+    modeout &= ~ENABLE_PROCESSED_OUTPUT & ~ENABLE_WRAP_AT_EOL_OUTPUT;
+    if (Bool_val(Field(mv, 5))) modeout |= ENABLE_PROCESSED_OUTPUT;
+    if (Bool_val(Field(mv, 6))) modeout |= ENABLE_WRAP_AT_EOL_OUTPUT;
+    
+    if (!SetConsoleMode(conout, modeout)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_set_console_mode/SetConsoleMode", Nothing);
+    };
+
+    CloseHandle(conout);
+    return Val_unit;
+#else
+    invalid_argument("netsys_set_console_mode");
+#endif
+}
+
+
+CAMLprim value netsys_init_console_codepage(value dummy) {
+#ifdef _WIN32
+    int cp;
+    cp = GetACP();
+    if (!SetConsoleCP(cp)) {
+	win32_maperr(GetLastError());
+	uerror("netsys_init_console_codepage/SetConsoleCP", Nothing);
+    }
+    if (!SetConsoleOutputCP(cp)) {
+	win32_maperr(GetLastError());
+	uerror("netsys_init_console_codepage/SetConsoleOutputCP", Nothing);
+    }
+    return Val_unit;
+#else
+    invalid_argument("netsys_init_console_codepage");
+#endif
+}
+
+
+static void clear_eol(HANDLE conout, COORD p, DWORD right, int attr) {
+    DWORD n, nact;
+
+    n = right - p.X + 1;
+    if (!FillConsoleOutputCharacter(conout, 32, n, 
+				    p, &nact)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_clear_console/FillConsoleOutputCharacter", Nothing);
+    }
+    if (!FillConsoleOutputAttribute(conout, attr, n, 
+				    p, &nact)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_clear_console/FillConsoleOutputAttribute", Nothing);
+    }
+}
+
+
+CAMLprim value netsys_clear_console(value mode) {
+#ifdef _WIN32
+    HANDLE conout;
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    COORD p;
+    int width, height;
+    SMALL_RECT new_win;
+
+    conout = CreateFile("CONOUT$", GENERIC_READ | GENERIC_WRITE, 
+			FILE_SHARE_WRITE, NULL,
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (conout == INVALID_HANDLE_VALUE) {
+	win32_maperr(GetLastError());
+	uerror("netsys_clear_console/CreateFile", Nothing);
+    }
+
+    if (!GetConsoleScreenBufferInfo(conout, &csbi)) {
+	win32_maperr(GetLastError());
+	CloseHandle(conout);
+	uerror("netsys_clear_console/GetConsoleScreenBufferInfo", Nothing);
+    }
+
+    switch (Int_val(mode)) {
+    case 0:  /* EOL */
+	clear_eol(conout, csbi.dwCursorPosition, csbi.srWindow.Right,
+		  csbi.wAttributes);
+	break;
+    case 1:  /* EOS */
+	p = csbi.dwCursorPosition;
+	clear_eol(conout, csbi.dwCursorPosition, csbi.srWindow.Right,
+		  csbi.wAttributes);
+	while (p.Y < csbi.srWindow.Bottom) {
+	    p.Y ++;
+	    p.X = csbi.srWindow.Left;
+	    clear_eol(conout, p, csbi.srWindow.Right, csbi.wAttributes);
+	}
+	break;
+    default: /* All */
+	p.X = 0;
+	p.Y = 0;
+	while (p.Y <= csbi.dwSize.Y) {
+	    clear_eol(conout, p, csbi.dwSize.X - 1, csbi.wAttributes);
+	    p.Y ++;
+	};
+	p.X = 0;
+	p.Y = 0;
+	if (!SetConsoleCursorPosition(conout, p)) {
+	    win32_maperr(GetLastError());
+	    CloseHandle(conout);
+	    uerror("netsys_clear_console/SetConsoleCursorPosition", Nothing);
+	};
+	width = csbi.srWindow.Right - csbi.srWindow.Left  + 1;
+	height = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+	new_win.Left = 0;
+	new_win.Right = width-1;
+	new_win.Top = 0;
+	new_win.Bottom = height-1;
+	if (!SetConsoleWindowInfo(conout, TRUE, &new_win)) {
+	    win32_maperr(GetLastError());
+	    CloseHandle(conout);
+	    uerror("netsys_clear_console/SetConsoleWindowInfo", Nothing);
+	}
+	break;
+    };
+
+    CloseHandle(conout);
+
+    return Val_unit;
+#else
+    invalid_argument("netsys_clear_console");
+#endif
+}
+
+
+
+
 
 /***********************************************************************/
 /*                                                                     */

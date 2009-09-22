@@ -59,15 +59,40 @@ type w32_pipe_server = i_pipe_server * Unix.file_descr
 
 type pipe_conn_state = Pipe_deaf | Pipe_listening | Pipe_connected | Pipe_down
 
+type c_process
+type i_process = c_process
+
+type w32_process = i_process * Unix.file_descr
+    (* The descriptor is the proxy descriptor *)
+
+
 type i_object =
   | I_event of i_event
   | I_pipe of i_pipe
   | I_pipe_server of i_pipe_server
+  | I_process of i_process
 
 type w32_object =
   | W32_event of w32_event
   | W32_pipe of w32_pipe
   | W32_pipe_server of w32_pipe_server
+  | W32_process of w32_process
+
+      
+
+type create_process_option =
+  | CP_change_directory of string
+  | CP_set_env of string
+  | CP_std_handles of Unix.file_descr * Unix.file_descr * Unix.file_descr
+  | CP_create_console
+  | CP_detached_console
+  | CP_inherit_console
+  | CP_inherit_or_create_console
+  | CP_unicode_environment
+  | CP_ansi_environment
+  | CP_new_process_group
+  | CP_inherit_process_group
+
 
 
 module Int64Map = Map.Make(Int64)
@@ -199,6 +224,8 @@ let lookup fd =
 		     W32_pipe(i_pipe, fd)
 		 | I_pipe_server i_psrv ->
 		     W32_pipe_server(i_psrv, fd)
+		 | I_process i_proc ->
+		     W32_process(i_proc, fd)
 	     )
     )
     ()
@@ -227,6 +254,14 @@ let lookup_event fd =
       | _ -> raise Not_found
   with Not_found ->
     failwith "Netsys_win32.lookup_event: not found"
+
+let lookup_process fd =
+  try
+    match lookup fd with
+      | W32_process e -> e
+      | _ -> raise Not_found
+  with Not_found ->
+    failwith "Netsys_win32.lookup_process: not found"
 
 
 
@@ -766,4 +801,153 @@ let pipe_pair mode =
       pipe_shutdown rph; 
       raise e
   )
-      
+
+
+external netsys_create_process : string -> string -> 
+  create_process_option list -> c_process 
+  = "netsys_create_process"
+
+external netsys_close_process : c_process -> unit
+  = "netsys_close_process"
+
+external netsys_get_process_status : c_process -> int
+  = "netsys_get_process_status"
+
+external netsys_as_process_event : c_process -> c_event
+  = "netsys_as_process_event"
+
+external netsys_emulated_pid : c_process -> int
+  = "netsys_emulated_pid"
+
+external netsys_win_pid : c_process -> int
+  = "netsys_win_pid"
+
+external netsys_process_free : c_process -> unit
+  = "netsys_process_free"
+
+external netsys_process_descr : c_process -> Unix.file_descr
+  = "netsys_process_descr"
+
+external netsys_set_auto_close_process_proxy : c_process -> bool -> unit
+  = "netsys_set_auto_close_process_proxy"
+
+let create_process cmd cmdline opts =
+  let c_proc = netsys_create_process cmd cmdline opts in
+  let proxy = netsys_process_descr c_proc in
+  register_proxy proxy (I_process c_proc);
+  Gc.finalise netsys_process_free c_proc;
+  (c_proc, proxy)
+
+let close_process (c_proc, _) =
+  netsys_process_free c_proc
+
+let get_process_status (c_proc,_) =
+  try
+    let code = netsys_get_process_status c_proc in
+    Some(Unix.WEXITED code)
+  with
+    | Not_found -> None
+
+let as_process_event (c_proc,_) =
+  let ev = netsys_as_process_event c_proc in
+  decorate_event ev
+
+let emulated_pid (c_proc,_) =
+  netsys_emulated_pid c_proc
+
+let win_pid (c_proc, _) =
+  netsys_win_pid c_proc
+
+let process_descr (c_proc, fd) =
+  netsys_set_auto_close_process_proxy c_proc false;
+  fd
+
+let cp_set_env env =
+  CP_set_env(String.concat "\000" (Array.to_list env) ^ "\000")
+    (* another null byte is implicitly added by the ocaml runtime! *)
+
+
+type w32_console_attr =
+    { mutable cursor_x : int;
+      mutable cursor_y : int;
+      mutable cursor_size : int;
+      mutable cursor_visible : bool;
+      mutable text_attr : int;
+    }
+
+type w32_console_info =
+    {
+      mutable width : int;
+      mutable height : int;
+    }
+
+type w32_console_mode = 
+    { mutable enable_echo_input : bool;
+      mutable enable_insert_mode : bool;
+      mutable enable_line_input : bool;
+      mutable enable_processed_input : bool;
+      mutable enable_quick_edit_mode : bool;
+      mutable enable_processed_output : bool;
+      mutable enable_wrap_at_eol_output : bool;
+    }
+
+external has_console : unit -> bool
+  = "netsys_has_console"
+
+external is_console : Unix.file_descr -> bool
+  = "netsys_is_console"
+
+external alloc_console : unit -> unit
+  = "netsys_alloc_console"
+
+let get_console_input() =
+  if not(has_console()) then
+    alloc_console();
+  Unix.openfile "CONIN$" [Unix.O_RDWR] 0
+    (* O_RDONLY is insufficient for certain console ops *)
+
+
+let get_console_output() =
+  if not(has_console()) then
+    alloc_console();
+  Unix.openfile "CONOUT$" [Unix.O_RDWR] 0
+    (* O_WRONLY is insufficient for certain console ops *)
+
+external get_console_attr : unit -> w32_console_attr
+  = "netsys_get_console_attr"
+
+external set_console_attr : w32_console_attr -> unit
+  = "netsys_set_console_attr"
+
+external get_console_info : unit -> w32_console_info
+  = "netsys_get_console_info"
+
+let fg_blue = 1
+let fg_green = 2
+let fg_red = 4
+let fg_intensity = 8
+let bg_blue = 16
+let bg_green = 32
+let bg_red = 64
+let bg_intensity = 128
+
+external get_console_mode : unit -> w32_console_mode
+  = "netsys_get_console_mode"
+
+external set_console_mode : w32_console_mode -> unit
+  = "netsys_set_console_mode"
+
+external init_console_codepage : unit -> unit
+  = "netsys_init_console_codepage"
+
+type clear_mode =
+  | EOL | EOS | All
+
+external clear_console : clear_mode -> unit
+  = "netsys_clear_console"
+
+let clear_until_end_of_line() = clear_console EOL
+
+let clear_until_end_of_screen() = clear_console EOS
+
+let clear_console() = clear_console All

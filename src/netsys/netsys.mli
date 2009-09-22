@@ -65,6 +65,7 @@ type fd_style =
     | `W32_pipe
     | `W32_pipe_server
     | `W32_event
+    | `W32_process
     ]
   (** Some information what kind of operations are reasonable for descriptors:
       - [`Read_write]: The descriptor is neither a socket not one of the
@@ -85,6 +86,9 @@ type fd_style =
         {!Netsys_win32.pipe_server_descr}. 
       - [`W32_event]: The descriptor is a Win32 event as returned by
         {!Netsys_win32.create_event}. It is not possible to read/write
+        with these descriptors.
+      - [`W32_process]: The descriptor is a Win32 process as returned by
+        {!Netsys_win32.create_process}. It is not possible to read/write
         with these descriptors.
    *)
 

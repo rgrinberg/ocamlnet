@@ -294,7 +294,7 @@ val unpredictable_pipe_name : unit -> string
 
 (** I/O threads can be used to do read/write-based I/O in an asynchronous
     way for file handles that do not support asynchronous I/O by themselves,
-    e.g. anonymous pipes .
+    e.g. anonymous pipes.
 
     I/O threads are only available if the application is compiled as
     multi-threaded program.
@@ -338,9 +338,228 @@ val cancel_input_thread : w32_input_thread -> unit
       Impl. note: Calls [CancelSynchronousIo]
    *)
 
-val input_thread_proxy : w32_input_thread -> Unix.file_descr
+val input_thread_proxy_descr : w32_input_thread -> Unix.file_descr
   (** Returns the proxy descriptor *)
  *)
+
+
+
+(** {1 Processes} *)
+
+type create_process_option =
+  | CP_change_directory of string
+      (** The initial working directory is set to this path. By default
+          the new process starts with the current working directory of
+          the caller.
+       *)
+  | CP_set_env of string
+      (** The process environment is set to this encoded array of environment
+          variables. By default the current environment is passed down
+          to the new process.
+
+          The string is created from an array of "name=value" settings
+          by separating all elements by null bytes, and by putting two
+          null bytes at the end.
+       *)
+  | CP_std_handles of Unix.file_descr * Unix.file_descr * Unix.file_descr
+      (** Sets the standard handles. *)
+  | CP_create_console
+      (** Creates a new console window. Unless [CP_std_handles] is specified,
+          the standard handles are connected with the new console.
+       *)
+  | CP_detached_console
+      (** The new process starts with detached console, even if it is
+          a console application. Unless [CP_std_handles] is specified,
+          the new process will initially not have standard handles!
+       *)
+  | CP_inherit_console
+      (** The new process inherits the console from the caller, if present.
+          Otherwise this is the same as [CP_detached_console]. This mode
+          works when a console app starts either a console app
+          or a GUI app, but also when a GUI app starts another GUI app.
+       *)
+  | CP_inherit_or_create_console
+      (** If present, the console is inherited by the caller. If not
+          present, a new console is created. This mode is the default
+          and works always. However, when a GUI app is started, one might end
+          up with an additional console window.
+       *)
+  | CP_unicode_environment
+      (** Indicates that the environment is a Unicode environment *)
+  | CP_ansi_environment
+      (** Indicates that the environment is an ANSI environment. This
+          is the default.
+       *)
+  | CP_new_process_group
+      (** The new process is run in a new process group *)
+  | CP_inherit_process_group
+      (** The new process is run in the same process group as the caller.
+          This is the default
+       *)
+
+val cp_set_env : string array -> create_process_option
+  (** Returns the [CP_set_env] option for this array of environment
+      variables (in the [Unix.environment] format)
+   *)
+
+type w32_process
+  (** A handle to spawned processes *)
+
+val create_process :
+      string -> string -> create_process_option list -> 
+        w32_process
+  (** [create_process cmd cmdline options]: Spawns a new process that runs
+      concurrently with the calling process. [cmd] is the command
+      to execute. [cmdline] is the full command-line.
+
+      If the exit code of the new process does not play any role, it is
+      ok to just ignore the returned process handle (which will be
+      automatically closed by a GC finalizer). 
+   *)
+
+val close_process : w32_process -> unit
+  (** Closes the handle in the [w32_process] value, if it is still open *)
+
+val get_process_status: w32_process -> Unix.process_status option
+  (** Returns the process result if the process is finished, and [None]
+      otherwise
+   *)
+
+val as_process_event : w32_process -> w32_event
+  (** Casts the process handle to an event handle. The process handle
+      is in signaled state as soon as the spawned process is terminated.
+      The event handle can be used in [event_wait] (above) and 
+      [wsa_wait_for_multiple_events] to wait for the termination of the
+      process.
+   *)
+
+val emulated_pid : w32_process -> int
+  (** Returns the MSVCRT.DLL notion of the process identifier (pid).
+      This kind of pid is used in the [Unix] library to refer to
+      processes, especially in [waitpid]. Note that the pid is actually
+      a handle, and it must be closed by calling [Unix.waitpid].
+
+      Each call of [emulated_pid] returns a new handle.
+   *)
+
+val win_pid : w32_process -> int
+  (** Returns the Windows notion of the process identifier (pid) *)
+
+val process_descr : w32_process -> Unix.file_descr
+  (** Returns the proxy descriptor of the process *)
+
+
+
+
+(** {1 Consoles} *)
+
+val has_console : unit -> bool
+  (** True if there is a console *)
+
+val is_console : Unix.file_descr -> bool
+  (** Tests whether the descriptor is the input or the output stream of the
+      console.
+   *)
+
+val get_console_input : unit -> Unix.file_descr
+  (** Get the input stream of the console. If there is no console yet,
+      a new one is opened.
+
+      The returned descriptor needs to be closed by the caller when done
+      with it.
+   *)
+
+val get_console_output : unit -> Unix.file_descr
+  (** Get the output stream of the console. If there is no console yet,
+      a new one is opened
+
+      The returned descriptor needs to be closed by the caller when done
+      with it.
+   *)
+
+
+(** We use a simplified model of the console where only the visible part
+    of the buffer is represented. All coordinates are relative to the
+    visible part of the buffer.
+ *)
+
+type w32_console_attr =
+    { mutable cursor_x : int; (** from 0 (leftmost) to [width-1] (rightmost) *)
+      mutable cursor_y : int; (** from 0 (topmost) to [height-1] (bottommost) *)
+      mutable cursor_size : int;    (** from 1 to 100 *)
+      mutable cursor_visible : bool;
+      mutable text_attr : int;
+    }
+
+type w32_console_info =
+    {
+      mutable width : int;    (** screen width of the console in chars *)
+      mutable height : int;   (** screen height in lines *)
+    }
+
+
+val get_console_attr : unit -> w32_console_attr
+val set_console_attr : w32_console_attr -> unit
+  (** Get/set console attributes. If there is no console yet,
+      a new one is opened
+   *)
+
+val get_console_info : unit -> w32_console_info
+  (** Get r/o console info. If there is no console yet,
+      a new one is opened
+   *)
+
+val fg_blue : int
+val fg_green : int
+val fg_red : int
+val fg_intensity : int
+val bg_blue : int
+val bg_green : int
+val bg_red : int
+val bg_intensity : int  
+  (** Bits of [text_attr] *)
+
+
+type w32_console_mode = 
+    { mutable enable_echo_input : bool;
+      mutable enable_insert_mode : bool;
+      mutable enable_line_input : bool;
+      mutable enable_processed_input : bool;
+      mutable enable_quick_edit_mode : bool;
+      mutable enable_processed_output : bool;
+      mutable enable_wrap_at_eol_output : bool;
+    }
+  (** See the msdn docs for GetConsoleMode for details *)
+
+val get_console_mode : unit -> w32_console_mode
+val set_console_mode : w32_console_mode -> unit
+  (** Get/set the console mode. If there is no console yet,
+      a new one is opened
+   *)
+
+val init_console_codepage : unit -> unit
+  (** Sets the code page of the console to the ANSI code page of the
+      system. Unfortunately, the console uses the OEM code page by default
+      (e.g. code page 437 instead of 1252). This function changes the
+      code page back to the ANSI version.
+
+      Note, however, that the docs say: "If the current font is a
+      raster font, SetConsoleOutputCP does not affect how extended characters
+      are displayed." (grrmmpf)
+   *)
+
+val clear_until_end_of_line : unit -> unit
+  (** Writes a space character from the current cursor position ot the
+      end of the line
+   *)
+
+val clear_until_end_of_screen : unit -> unit
+  (** Writes a space character from the current cursor position ot the
+      end of the screen
+   *)
+
+val clear_console : unit -> unit
+  (** Clears the screen and the buffer, and sets the cursor to (0,0). *)
 
 
 
@@ -365,14 +584,15 @@ val input_thread_proxy : w32_input_thread -> Unix.file_descr
     it is even allowed to do it immediately after requesting the proxy
     descriptor, e.g. via [pipe_descr]. After closing the proxy, however,
     it is possible that the system generates another file descriptor
-    that looks equal to the closed proxy. It is often best to close first
-    when one is really done with the proxy.
+    that looks equal to the closed proxy. It is often best to close at the
+    moment when one is really done with the proxy.
  *)
 
 type w32_object =
     | W32_event of w32_event
     | W32_pipe of w32_pipe
     | W32_pipe_server of w32_pipe_server
+    | W32_process of w32_process
   (* | W32_input_thread of w32_input_thread *)
 
 val lookup : Unix.file_descr -> w32_object
@@ -385,6 +605,7 @@ val lookup : Unix.file_descr -> w32_object
 val lookup_event : Unix.file_descr -> w32_event
 val lookup_pipe : Unix.file_descr -> w32_pipe
 val lookup_pipe_server : Unix.file_descr -> w32_pipe_server
+val lookup_process : Unix.file_descr -> w32_process
   (** Returns the real object. If not found, or if the object is of unexpected
       type, [Failure] is raised.
    *)

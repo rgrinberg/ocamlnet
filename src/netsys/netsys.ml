@@ -43,6 +43,7 @@ type fd_style =
     | `W32_pipe
     | `W32_pipe_server
     | `W32_event
+    | `W32_process
     ]
 
 let get_fd_style fd =
@@ -56,6 +57,8 @@ let get_fd_style fd =
 	`W32_pipe_server
     | Some (Netsys_win32.W32_event _) ->
 	`W32_event
+    | Some (Netsys_win32.W32_process _) ->
+	`W32_process
     | None ->
 	(* Check whether we have a socket or not: *)
 	try
@@ -108,6 +111,8 @@ let wait_until_readable fd_style fd tmo =
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
+      | `W32_process ->
+	  invalid_arg "Netsys.wait_until_readable"
       | _ ->
 	  let l,_,_ = restart_tmo (Unix.select [fd] [] []) tmo in
 	  l <> []
@@ -129,6 +134,8 @@ let wait_until_writable fd_style fd tmo =
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
+      | `W32_process ->
+	  invalid_arg "Netsys.wait_until_writable"
       | _ ->
 	  let _,l,_ = restart_tmo (Unix.select [] [fd] []) tmo in
 	  l <> []
@@ -149,6 +156,8 @@ let wait_until_prird fd_style fd tmo =
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
+      | `W32_process ->
+	  invalid_arg "Netsys.wait_until_prird"
       | _ ->
 	  let _,_,l = restart_tmo (Unix.select [] [] [fd]) tmo in
 	  l <> []
@@ -175,6 +184,8 @@ let gwrite fd_style fd s pos len =
 	failwith "Netsys.gwrite: cannot write to pipe servers"
     | `W32_event ->
 	failwith "Netsys.gwrite: cannot write to event descriptor"
+    | `W32_process ->
+	failwith "Netsys.gwrite: cannot write to process descriptor"
 
 
 let rec really_gwrite fd_style fd s pos len =
@@ -206,6 +217,8 @@ let gread fd_style fd s pos len =
 	failwith "Netsys.gwrite: cannot read from pipe servers"
     | `W32_event ->
 	failwith "Netsys.gread: cannot read from event descriptor"
+    | `W32_process ->
+	failwith "Netsys.gread: cannot read from process descriptor"
 
 
 let blocking_gread fd_style fd s pos len =
@@ -310,11 +323,12 @@ let gclose fd_style fd =
 	catch_exn
 	  "Unix.close" fd_detail
 	  Unix.close fd
-    | `W32_event ->
+    | `W32_event | `W32_process ->
 	(* Events are automatically closed *)
 	catch_exn
 	  "Unix.close" fd_detail
 	  Unix.close fd
+	
 
 
 external unix_error_of_code : int -> Unix.error = "netsys_unix_error_of_code"

@@ -73,6 +73,8 @@ let list_of_w32_objects ht =
 	       bitset_of_w32 evobj evobj evobj w_rd w_wr w_pri
 	   | Netsys_win32.W32_event evobj ->
 	       bitset_of_w32 evobj evobj evobj w_rd w_wr w_pri
+	   | Netsys_win32.W32_process pobj ->
+	       0
        in
        if x <> 0 then
 	 (fd, ev, Netsys_posix.act_events_of_int x) :: l
@@ -114,6 +116,7 @@ let w32_count =
     | Netsys_win32.W32_event _ -> 1
     | Netsys_win32.W32_pipe _ -> 2
     | Netsys_win32.W32_pipe_server _ -> 1
+    | Netsys_win32.W32_process _ -> 0
 
 
 let pollset () : pollset =
@@ -274,6 +277,8 @@ object(self)
 		   fdobjs.( !k ) <- fd;
 		 );
 		 incr k
+	     | Netsys_win32.W32_process _ ->
+		 ()
 	)
 	w32_objects;
       ( try 
