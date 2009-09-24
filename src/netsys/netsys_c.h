@@ -11,6 +11,7 @@
 #ifdef _WIN32
 #include "config_win32.h"
 
+#define _WIN32_WINNT 0x0502
 #define WIN32_LEAN_AND_MEAN
 #include <wtypes.h>
 #include <winbase.h>

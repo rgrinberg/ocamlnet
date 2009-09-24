@@ -1539,6 +1539,7 @@ CAMLprim value netsys_create_process(value cmd,
   int env_flags;
   int pg_flags;
   int code;
+  value v;
 
   chdir = NULL;
   envp = NULL;
@@ -1553,18 +1554,19 @@ CAMLprim value netsys_create_process(value cmd,
   /* Iterate over opts: */
   opts_hd = opts;
   while (opts_hd != Val_int(0)) {
-      if (Is_block(opts_hd)) {
-	  switch(Tag_val(opts_hd)) {
+      v = Field(opts_hd,0);
+      if (Is_block(v)) {
+	  switch(Tag_val(v)) {
 	  case 0: /* CP_change_directory */
-	      chdir = String_val(Field(opts_hd,0));
+	      chdir = String_val(Field(v,0));
 	      break;
 	  case 1: /* CP_set_env */
-	      envp = String_val(Field(opts_hd,0));
+	      envp = String_val(Field(v,0));
 	      break;
 	  case 2: /* CP_std_handles */
-	      si.hStdInput = Handle_val(Field(opts_hd,0));
-	      si.hStdOutput = Handle_val(Field(opts_hd,1));
-	      si.hStdError = Handle_val(Field(opts_hd,2));
+	      si.hStdInput = Handle_val(Field(v,0));
+	      si.hStdOutput = Handle_val(Field(v,1));
+	      si.hStdError = Handle_val(Field(v,2));
 	      pass_std_handles = 1;
 	      break;
 	  default:
@@ -1572,20 +1574,18 @@ CAMLprim value netsys_create_process(value cmd,
 	  }
       }
       else {
-	  switch (Int_val(opts_hd)) {
+	  switch (Int_val(v)) {
 	  case 0: /* CP_create_console */
 	      console_flags = CREATE_NEW_CONSOLE;
 	      break;
-	  case 1: /* CP_detached_console */
+	  case 1: /* CP_detach_from_console */
 	      console_flags = DETACHED_PROCESS;
 	      break;
 	  case 2: /* CP_inherit_console */
-	      if (!has_console()) 
-		  console_flags = DETACHED_PROCESS;
+	      console_flags = 0;
 	      break;
 	  case 3: /* CP_inherit_or_create_console */
-	      if (!has_console()) 
-		  console_flags = CREATE_NEW_CONSOLE;
+	      console_flags = has_console() ? 0 : CREATE_NEW_CONSOLE;
 	  case 4: /* CP_unicode_environment */
 	      env_flags = CREATE_UNICODE_ENVIRONMENT;
 	      break;
@@ -1623,8 +1623,10 @@ CAMLprim value netsys_create_process(value cmd,
 		       &pi);
   if (!code) {
       win32_maperr(GetLastError());
+      stat_free(exefile);
       uerror("create_process/CreateProcess", cmd);
   };
+  stat_free(exefile);
   CloseHandle(pi.hThread);
   return alloc_process(pi.hProcess, pi.dwProcessId);
 #else
@@ -2160,6 +2162,61 @@ CAMLprim value netsys_clear_console(value mode) {
     return Val_unit;
 #else
     invalid_argument("netsys_clear_console");
+#endif
+}
+
+
+CAMLprim value netsys_get_current_thread_id(value dummy) {
+#ifdef _WIN32
+    return caml_copy_int32(GetCurrentThreadId());
+#else
+    invalid_argument("netsys_get_current_thread_id");
+#endif
+}
+
+
+
+/* CancelSynchronousIo is first available in Vista */
+typedef BOOL (WINAPI *cancel_io_func_t)(HANDLE);
+static cancel_io_func_t cancel_io_func = NULL;
+static int cancel_checked = FALSE;
+
+
+CAMLprim value netsys_cancel_synchronous_io(value thread_id_val) {
+#ifdef _WIN32
+    DWORD thread_id;
+    HANDLE thread;
+    int code;
+
+    if (!cancel_checked) {
+	cancel_io_func = (cancel_io_func_t)
+	    GetProcAddress(GetModuleHandle("kernel32"), "CancelSynchronousIo");
+	cancel_checked = 1;
+    };
+
+    if (cancel_io_func != NULL) {
+	thread_id = Int32_val(thread_id_val);
+	thread = OpenThread(THREAD_TERMINATE,FALSE,thread_id);
+	if (thread == NULL) {
+	    win32_maperr(GetLastError());
+	    uerror("netsys_cancel_synchronous_io/OpenThread", Nothing);
+	}
+	code = cancel_io_func(thread);
+	if (!code) {
+	    code = GetLastError();   
+	    if (code != ERROR_NOT_FOUND) {  /* hide ERROR_NOT_FOUND */
+		CloseHandle(thread);
+		win32_maperr(GetLastError());
+		uerror("netsys_cancel_synchronous_io/CancelSynchronousIo",
+		       Nothing);
+	    }
+	};
+	CloseHandle(thread);
+    };
+
+    return Val_unit;
+#else
+    invalid_argument("netsys_cancel_synchronous_io");
 #endif
 }
 

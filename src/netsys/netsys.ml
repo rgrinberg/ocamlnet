@@ -44,6 +44,7 @@ type fd_style =
     | `W32_pipe_server
     | `W32_event
     | `W32_process
+    | `W32_input_thread
     ]
 
 let get_fd_style fd =
@@ -59,6 +60,8 @@ let get_fd_style fd =
 	`W32_event
     | Some (Netsys_win32.W32_process _) ->
 	`W32_process
+    | Some (Netsys_win32.W32_input_thread _) ->
+	`W32_input_thread
     | None ->
 	(* Check whether we have a socket or not: *)
 	try
@@ -111,8 +114,12 @@ let wait_until_readable fd_style fd tmo =
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
+      | `W32_input_thread ->
+	  let ithr = Netsys_win32.lookup_input_thread fd in
+	  let eo = Netsys_win32.input_thread_event ithr in
+	  Netsys_win32.event_wait eo tmo
       | `W32_process ->
-	  invalid_arg "Netsys.wait_until_readable"
+	  sleep tmo; false (* never *)
       | _ ->
 	  let l,_,_ = restart_tmo (Unix.select [fd] [] []) tmo in
 	  l <> []
@@ -134,8 +141,10 @@ let wait_until_writable fd_style fd tmo =
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
+      | `W32_input_thread ->
+	  sleep tmo; false (* never *)
       | `W32_process ->
-	  invalid_arg "Netsys.wait_until_writable"
+	  sleep tmo; false (* never *)
       | _ ->
 	  let _,l,_ = restart_tmo (Unix.select [] [fd] []) tmo in
 	  l <> []
@@ -149,15 +158,17 @@ let wait_until_prird fd_style fd tmo =
       | `Read_write when is_win32 ->  (* effectively not supported! *)
 	  true
       | `W32_pipe ->
-	  false
+	  sleep tmo; false (* never *)
       | `W32_pipe_server ->
 	  let ph = Netsys_win32.lookup_pipe_server fd in
 	  Netsys_win32.pipe_wait_connect ph tmo
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
+      | `W32_input_thread ->
+	  sleep tmo; false (* never *)
       | `W32_process ->
-	  invalid_arg "Netsys.wait_until_prird"
+	  sleep tmo; false (* never *)
       | _ ->
 	  let _,_,l = restart_tmo (Unix.select [] [] [fd]) tmo in
 	  l <> []
@@ -186,6 +197,8 @@ let gwrite fd_style fd s pos len =
 	failwith "Netsys.gwrite: cannot write to event descriptor"
     | `W32_process ->
 	failwith "Netsys.gwrite: cannot write to process descriptor"
+    | `W32_input_thread ->
+	failwith "Netsys.gwrite: cannot write to input thread"
 
 
 let rec really_gwrite fd_style fd s pos len =
@@ -219,7 +232,9 @@ let gread fd_style fd s pos len =
 	failwith "Netsys.gread: cannot read from event descriptor"
     | `W32_process ->
 	failwith "Netsys.gread: cannot read from process descriptor"
-
+    | `W32_input_thread ->
+	let ithr = Netsys_win32.lookup_input_thread fd in
+	Netsys_win32.input_thread_read ithr s pos len
 
 let blocking_gread fd_style fd s pos len =
   let rec loop pos len p =
@@ -328,7 +343,9 @@ let gclose fd_style fd =
 	catch_exn
 	  "Unix.close" fd_detail
 	  Unix.close fd
-	
+    | `W32_input_thread ->
+	let ithr = Netsys_win32.lookup_input_thread fd in
+	Netsys_win32.cancel_input_thread ithr
 
 
 external unix_error_of_code : int -> Unix.error = "netsys_unix_error_of_code"

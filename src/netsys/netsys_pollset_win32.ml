@@ -75,6 +75,9 @@ let list_of_w32_objects ht =
 	       bitset_of_w32 evobj evobj evobj w_rd w_wr w_pri
 	   | Netsys_win32.W32_process pobj ->
 	       0
+	   | Netsys_win32.W32_input_thread ithr ->
+	       let evobj_rd = Netsys_win32.input_thread_event ithr in
+	       bitset_of_w32 evobj_rd evobj_rd evobj_rd w_rd false false
        in
        if x <> 0 then
 	 (fd, ev, Netsys_posix.act_events_of_int x) :: l
@@ -117,6 +120,7 @@ let w32_count =
     | Netsys_win32.W32_pipe _ -> 2
     | Netsys_win32.W32_pipe_server _ -> 1
     | Netsys_win32.W32_process _ -> 0
+    | Netsys_win32.W32_input_thread _ -> 1
 
 
 let pollset () : pollset =
@@ -279,6 +283,13 @@ object(self)
 		 incr k
 	     | Netsys_win32.W32_process _ ->
 		 ()
+	     | Netsys_win32.W32_input_thread ithr ->
+		 let evobj_rd = Netsys_win32.input_thread_event ithr in
+		 if w_rd then (
+		   evobjs.( !k ) <- evobj_rd;
+		   fdobjs.( !k ) <- fd;
+		 );
+		 incr k
 	)
 	w32_objects;
       ( try 

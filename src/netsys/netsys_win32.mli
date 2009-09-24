@@ -300,18 +300,19 @@ val unpredictable_pipe_name : unit -> string
     multi-threaded program.
  *)
 
-(*
 type w32_input_thread
-type w32_output_thread
 
 val create_input_thread : Unix.file_descr -> w32_input_thread
   (** Creates the input thread for this file descriptor. Data is being
      pumped from this handle to an internal buffer, and can be read from
      there by [input_thread_read].
 
-     The thread continues to run until cancelled ([cancel_input_thread]).
-     It is an error to close the file descriptor before the thread
-     is cancelled.
+     The thread continues to run until EOF is reached, an I/O error
+     occurs, or until the
+     thread is cancelled ([cancel_input_thread]).
+
+     After starting the input thread, the file descriptor must not
+     be used anymore. It is now owned by the input thread.
    *)
 
 val input_thread_event : w32_input_thread -> w32_event
@@ -329,22 +330,58 @@ val input_thread_read : w32_input_thread -> string -> int -> int -> int
       [EAGAIN] (non-blocking).
 
       If the end of the data is reached, the function returns 0.
+
+      For cancelled requests, the function raises [EPERM].
    *)
 
 val cancel_input_thread : w32_input_thread -> unit
   (** Stops the input thread. No more data will be pumped from the handle
-      to the internal buffer.
+      to the internal buffer. It is no error to cancel a thread that is
+      already cancelled. There is no way to restart the thread later.
 
-      Impl. note: Calls [CancelSynchronousIo]
+      The thread is automatically cancelled by the GC finaliser. However,
+      users are encouraged to call [cancel_input_thread] as soon as
+      the thread is no longer needed, because a thread is an expensive
+      resource.
+
+      Implementation note: Actually, cancellation is only implemented
+      on Vista. 
    *)
 
 val input_thread_proxy_descr : w32_input_thread -> Unix.file_descr
   (** Returns the proxy descriptor *)
- *)
-
 
 
 (** {1 Processes} *)
+
+(** Keep in mind that Win32 distinguishes between two kinds of
+    executables: console applications, and GUI applications. The kind
+    is set at link time, and stored in the executable file. 
+    Years ago, these kinds meant different worlds,
+    and a GUI application could not act like a console application,
+    and vice versa. Nowaways, however, the distinction is mostly gone,
+    and the application kind only affects defaults at program startup:
+     
+    - Console: A GUI application starts without console. However, it is 
+      possible to allocate a console later. A console application always
+      starts with a console which is created by the OS if missing.
+    - Standard handles: For a GUI application, stdin/stdout/stderr are
+      initially set to the invalid file handle. Nevertheless, this
+      feature of standard handles exists, and one can set these handles
+      later. Also, the handles can be inherited by the parent process.
+      For console applications, the standard handles are normally set
+      to the console, and applications can redirect them.
+    - Main program: Of course, there is also the difference which C
+      function is called at program startup - hey, but this is O'Caml!
+    - Waiting for completion: It is uncommon to wait for the completion
+      of GUI applications. The command interpreter seems to implement
+      a magic so that it is not waited until the program is finished
+      when a GUI application is started. For console applications this
+      is of course done. (Note that this feature is the main reason
+      why programmers still have to link applications as console
+      applications, and cannot simply get the same effect from a
+      application that is linked as GUI and then opens a console.)
+ *)
 
 type create_process_option =
   | CP_change_directory of string
@@ -362,27 +399,41 @@ type create_process_option =
           null bytes at the end.
        *)
   | CP_std_handles of Unix.file_descr * Unix.file_descr * Unix.file_descr
-      (** Sets the standard handles. *)
-  | CP_create_console
-      (** Creates a new console window. Unless [CP_std_handles] is specified,
-          the standard handles are connected with the new console.
+      (** Sets the standard handles of the new console process.
        *)
-  | CP_detached_console
-      (** The new process starts with detached console, even if it is
+  | CP_create_console
+      (** Creates a new console window. The standard handles of the new
+          process may also be modified - however, the exact effect is not
+          well documented by Microsoft. I have the impression that the logic
+          is this: handles pointing to the parent console are replaced by
+          handles pointing to the new console. Also, invalid handles
+          are replaced by handles of the new console. It does not matter how
+          the standard handles are passed down - either implicitly or by
+          [CP_std_handles]. So you cannot create a new console, and
+          keep standard handles that are connected to the old console.
+          Best practice is to avoid the combination of [CP_std_handles] and
+          [CP_create_console] when there is already a console.
+
+          This flag does not have any effect when the started app is
+          a GUI app.
+       *)
+  | CP_detach_from_console
+      (** The new process detaches from the console at startup, even if it is
           a console application. Unless [CP_std_handles] is specified,
-          the new process will initially not have standard handles!
+          the new process will initially not have standard handles (i.e.
+          the standard handles are invalid handles)!
+          GUI apps detach from the console anyway.
        *)
   | CP_inherit_console
-      (** The new process inherits the console from the caller, if present.
-          Otherwise this is the same as [CP_detached_console]. This mode
-          works when a console app starts either a console app
-          or a GUI app, but also when a GUI app starts another GUI app.
+      (** The new console process inherits the console from the caller, if
+          present. Otherwise the new console process starts without console.
+          For GUI apps there is not any effect: They do not have a console
+          anyway.
        *)
   | CP_inherit_or_create_console
-      (** If present, the console is inherited by the caller. If not
-          present, a new console is created. This mode is the default
-          and works always. However, when a GUI app is started, one might end
-          up with an additional console window.
+      (** If present, the console is inherited from the caller. If not
+          present, a new console is created for console applications. 
+          This mode is the default.
        *)
   | CP_unicode_environment
       (** Indicates that the environment is a Unicode environment *)
@@ -500,14 +551,10 @@ type w32_console_info =
 
 val get_console_attr : unit -> w32_console_attr
 val set_console_attr : w32_console_attr -> unit
-  (** Get/set console attributes. If there is no console yet,
-      a new one is opened
-   *)
+  (** Get/set console attributes. *)
 
 val get_console_info : unit -> w32_console_info
-  (** Get r/o console info. If there is no console yet,
-      a new one is opened
-   *)
+  (** Get r/o console info. *)
 
 val fg_blue : int
 val fg_green : int
@@ -533,9 +580,7 @@ type w32_console_mode =
 
 val get_console_mode : unit -> w32_console_mode
 val set_console_mode : w32_console_mode -> unit
-  (** Get/set the console mode. If there is no console yet,
-      a new one is opened
-   *)
+  (** Get/set the console mode. *)
 
 val init_console_codepage : unit -> unit
   (** Sets the code page of the console to the ANSI code page of the
@@ -545,16 +590,29 @@ val init_console_codepage : unit -> unit
 
       Note, however, that the docs say: "If the current font is a
       raster font, SetConsoleOutputCP does not affect how extended characters
-      are displayed." (grrmmpf)
+      are displayed." (grrmmpf) So you should also switch to a different
+      font - otherwise you get input in the ANSI code page, and do output
+      in the OEM code page.
+
+      For Windows novices: Historically, there were two types of 8 bit
+      character sets. The older type is an IBM code page, and predates
+      the ISO-8859 series of character sets. This code page was used
+      at MS-DOS times.  Microsoft calls this code page the "OEM" code
+      page. Later, when ISO-8859 was created, Microsoft switched to
+      code pages that are similar to this standard, but also do not
+      fully match them. These newer code pages have names like
+      "Windows-1252", and are now called ANSI code pages by Microsoft.
+      The 8-bit versions of the Win32 calls (which are used by the
+      Ocaml runtime)normally use the ANSI code page.
    *)
 
 val clear_until_end_of_line : unit -> unit
-  (** Writes a space character from the current cursor position ot the
+  (** Writes a space character from the current cursor position to the
       end of the line
    *)
 
 val clear_until_end_of_screen : unit -> unit
-  (** Writes a space character from the current cursor position ot the
+  (** Writes a space character from the current cursor position to the
       end of the screen
    *)
 
@@ -593,7 +651,7 @@ type w32_object =
     | W32_pipe of w32_pipe
     | W32_pipe_server of w32_pipe_server
     | W32_process of w32_process
-  (* | W32_input_thread of w32_input_thread *)
+    | W32_input_thread of w32_input_thread
 
 val lookup : Unix.file_descr -> w32_object
   (** Returns the real object behind a proxy descriptor, or raises
@@ -606,11 +664,14 @@ val lookup_event : Unix.file_descr -> w32_event
 val lookup_pipe : Unix.file_descr -> w32_pipe
 val lookup_pipe_server : Unix.file_descr -> w32_pipe_server
 val lookup_process : Unix.file_descr -> w32_process
+val lookup_input_thread : Unix.file_descr -> w32_input_thread
   (** Returns the real object. If not found, or if the object is of unexpected
       type, [Failure] is raised.
    *)
 
-(* lookup_input_thread : Unix.file_descr -> w32_input_thread *)
+val gc_proxy : unit -> unit
+  (* testing only *)
+
 
 module Debug : sig
   val enable : bool ref

@@ -65,18 +65,41 @@ type i_process = c_process
 type w32_process = i_process * Unix.file_descr
     (* The descriptor is the proxy descriptor *)
 
+type i_input_thread =
+  { ithr_descr : Unix.file_descr;
+    ithr_cmd_cond : Netsys_oothr.condition;
+    ithr_cmd_mutex : Netsys_oothr.mutex;
+    mutable ithr_cmd : [ `Read | `Cancel ] option;
+    mutable ithr_cancel_cmd : bool; 
+    ithr_event : w32_event;
+    ithr_buffer : string;
+    mutable ithr_buffer_start : int;
+    mutable ithr_buffer_len : int;
+    mutable ithr_buffer_cond : [ `Cancelled | `EOF | `Exception of exn | `Data ];
+    mutable ithr_thread : int32;   (* The Win32 thread ID *)
+    ithr_read_mutex : Netsys_oothr.mutex;
+    mutable ithr_running : bool;
+    ithr_proxy_handle : c_event;
+  }
+
+
+type w32_input_thread = i_input_thread * Unix.file_descr * < >
+    (* The descriptor is the proxy descriptor *)
+
 
 type i_object =
   | I_event of i_event
   | I_pipe of i_pipe
   | I_pipe_server of i_pipe_server
   | I_process of i_process
+  | I_input_thread of i_input_thread * < >
 
 type w32_object =
   | W32_event of w32_event
   | W32_pipe of w32_pipe
   | W32_pipe_server of w32_pipe_server
   | W32_process of w32_process
+  | W32_input_thread of w32_input_thread
 
       
 
@@ -85,7 +108,7 @@ type create_process_option =
   | CP_set_env of string
   | CP_std_handles of Unix.file_descr * Unix.file_descr * Unix.file_descr
   | CP_create_console
-  | CP_detached_console
+  | CP_detach_from_console
   | CP_inherit_console
   | CP_inherit_or_create_console
   | CP_unicode_environment
@@ -155,6 +178,46 @@ let unregister_proxy cell _ =
   cell := None
 
 
+let gc_proxy() =
+  let proxies' = H.create 41 in
+  let l = H.length !proxies in
+  H.iter
+    (fun fd_num entry ->
+       let (_, cell) = entry in
+       if !cell <> None then
+	 H.add proxies' fd_num entry
+    )
+    !proxies;
+  proxies := proxies';
+  proxies_unreg_count := 0;
+  proxies_gc_flag := false;
+  dlogr
+    (fun () ->
+       sprintf "register_proxy: keeping %d/%d entries in proxy tbl"
+	 (H.length proxies') l;
+    );
+  dlogr
+    (fun () ->
+       let b = Buffer.create 500 in
+       Buffer.add_string b "\n";
+       H.iter
+	 (fun fd_num (_,cell) ->
+	    bprintf b " - proxy tbl %Ld -> %s\n"
+	      fd_num
+	      ( match !cell with
+		  | None -> "<free>"
+		  | Some(I_event _) -> "I_event"
+		  | Some(I_pipe _) -> "I_pipe"
+		  | Some(I_pipe_server _) -> "I_pipe_server"
+		  | Some(I_process _) -> "I_process"
+		  | Some(I_input_thread _) -> "I_input_thread"
+	      )
+	 )
+	 proxies';
+       Buffer.contents b
+    )
+	 
+
 let register_proxy fd i_obj =
 (* prerr_endline ("register_proxy " ^ Int64.to_string (int64_of_file_descr fd)); *)
   let fd_num = int64_of_file_descr fd in
@@ -164,23 +227,7 @@ let register_proxy fd i_obj =
        if (!proxies_gc_flag && 
 	     2 * !proxies_unreg_count > H.length !proxies)
        then (  (* do a GC pass *)
-	 let proxies' = H.create 41 in
-	 let l = H.length !proxies in
-	 H.iter
-	   (fun fd_num entry ->
-	      let (_, cell) = entry in
-	      if !cell <> None then
-		H.add proxies' fd_num entry
-	   )
-	   !proxies;
-	 proxies := proxies';
-	 proxies_unreg_count := 0;
-	 proxies_gc_flag := false;
-	 dlogr
-	   (fun () ->
-	      sprintf "register_proxy: keeping %d/%d entries in proxy tbl"
-		(H.length proxies') l
-	   )
+	 gc_proxy()
        );
        let cell = ref (Some i_obj) in
        let fd_weak = mk_weak fd in
@@ -226,6 +273,8 @@ let lookup fd =
 		     W32_pipe_server(i_psrv, fd)
 		 | I_process i_proc ->
 		     W32_process(i_proc, fd)
+		 | I_input_thread(i_thr, keep_alive) ->
+		     W32_input_thread(i_thr, fd, keep_alive)
 	     )
     )
     ()
@@ -262,6 +311,14 @@ let lookup_process fd =
       | _ -> raise Not_found
   with Not_found ->
     failwith "Netsys_win32.lookup_process: not found"
+
+let lookup_input_thread fd =
+  try
+    match lookup fd with
+      | W32_input_thread e -> e
+      | _ -> raise Not_found
+  with Not_found ->
+    failwith "Netsys_win32.lookup_input_thread: not found"
 
 
 
@@ -831,13 +888,6 @@ external netsys_process_descr : c_process -> Unix.file_descr
 external netsys_set_auto_close_process_proxy : c_process -> bool -> unit
   = "netsys_set_auto_close_process_proxy"
 
-let create_process cmd cmdline opts =
-  let c_proc = netsys_create_process cmd cmdline opts in
-  let proxy = netsys_process_descr c_proc in
-  register_proxy proxy (I_process c_proc);
-  Gc.finalise netsys_process_free c_proc;
-  (c_proc, proxy)
-
 let close_process (c_proc, _) =
   netsys_process_free c_proc
 
@@ -847,6 +897,25 @@ let get_process_status (c_proc,_) =
     Some(Unix.WEXITED code)
   with
     | Not_found -> None
+
+let default_opts =
+  [ CP_inherit_or_create_console;
+    CP_ansi_environment;
+    CP_inherit_process_group
+  ]
+
+let create_process cmd cmdline opts =
+  let opts = (* prepend defaults: *)
+    default_opts @ opts in
+  let c_proc = netsys_create_process cmd cmdline opts in
+  let proxy = netsys_process_descr c_proc in
+  register_proxy proxy (I_process c_proc);
+  Gc.finalise netsys_process_free c_proc;
+  ignore(get_process_status (c_proc,proxy));
+  (* The new process seems to remain suspended until the caller waits
+     for the process handle. So we do this here.
+   *)
+  (c_proc, proxy)
 
 let as_process_event (c_proc,_) =
   let ev = netsys_as_process_event c_proc in
@@ -951,3 +1020,220 @@ let clear_until_end_of_line() = clear_console EOL
 let clear_until_end_of_screen() = clear_console EOS
 
 let clear_console() = clear_console All
+
+
+
+
+module InputThread = struct
+  external get_current_thread_id : unit -> int32
+    = "netsys_get_current_thread_id"
+
+  external cancel_synchronous_io : int32 -> unit
+    = "netsys_cancel_synchronous_io"
+    (* Only implemented on Vista (and newer). *)
+
+
+  let rec thread_body (ithr : i_input_thread) =
+    (* Check for new commands: *)
+    dlogr (fun () ->
+	     sprintf "input_thread_body: descr=%Ld waiting"
+	       (int64_of_file_descr ithr.ithr_descr));
+    ithr.ithr_cmd_mutex # lock();
+    while ithr.ithr_cmd = None && not ithr.ithr_cancel_cmd do
+      ithr.ithr_cmd_cond # wait ithr.ithr_cmd_mutex
+    done;
+    let next_cmd =
+      if ithr.ithr_cancel_cmd then
+	`Cancel
+      else
+	match ithr.ithr_cmd with
+          | None -> 
+              assert false
+          | Some c -> 
+              ithr.ithr_cmd <- None;
+              c in
+    ( match next_cmd with
+	| `Cancel ->
+	    dlogr (fun () ->
+		     sprintf "input_thread_body: descr=%Ld got `Cancel"
+		       (int64_of_file_descr ithr.ithr_descr));
+	    ithr.ithr_cmd_mutex # unlock();
+	    set_event ithr.ithr_event;
+	    ithr.ithr_buffer_cond <- `Cancelled;
+	| `Read ->
+	    dlogr (fun () ->
+		     sprintf "input_thread_body: descr=%Ld got `Read"
+		       (int64_of_file_descr ithr.ithr_descr));
+	    let continue =
+	      try
+		let n = 
+		  Unix.read 
+		    ithr.ithr_descr
+		    ithr.ithr_buffer
+		    0
+		    (String.length ithr.ithr_buffer) in
+		if n = 0 then (
+		  ithr.ithr_buffer_cond <- `EOF;
+		  ithr.ithr_buffer_start <- 0;
+		  ithr.ithr_buffer_len <- 0;
+		  false
+		) 
+		else (
+		  ithr.ithr_buffer_cond <- `Data;
+		  ithr.ithr_buffer_start <- 0;
+		  ithr.ithr_buffer_len <- n;
+		  true
+		)
+	      with
+		| Unix.Unix_error(Unix.EPIPE,_,_) ->  (* same as EOF *)
+		    ithr.ithr_buffer_cond <- `EOF;
+		    ithr.ithr_buffer_start <- 0;
+		    ithr.ithr_buffer_len <- 0;
+		    false
+		| error ->
+		    ithr.ithr_buffer_cond <- `Exception error;
+		    ithr.ithr_buffer_start <- 0;
+		    ithr.ithr_buffer_len <- 0;
+		    false
+	    in
+	    dlogr (fun () ->
+		     sprintf "input_thread_body: descr=%Ld unblocking"
+		       (int64_of_file_descr ithr.ithr_descr));
+	    set_event ithr.ithr_event;
+	    ithr.ithr_cmd_mutex # unlock();
+	    if continue then 
+	      thread_body ithr
+	    else (
+	      (* clean-up: *)
+	      dlogr (fun () ->
+		       sprintf "input_thread_body: descr=%Ld terminating"
+			 (int64_of_file_descr ithr.ithr_descr));
+	      Unix.close ithr.ithr_descr;
+	      ithr.ithr_running <- false
+	    )
+    )
+
+
+  let i_cancel_input_thread ithr =
+    dlogr (fun () ->
+	     sprintf "input_thread_body: descr=%Ld cancel_input_thread"
+	       (int64_of_file_descr ithr.ithr_descr));
+    ithr.ithr_cancel_cmd <- true;  (* don't mess with locks here *)
+    ithr.ithr_cmd_cond # signal();
+    (* This is clearly a race condition... The thread may terminate
+       right now, and cancel_io_thread is called with an invalid thread
+       ID.
+     *)
+    if ithr.ithr_running then (
+      try
+	cancel_synchronous_io ithr.ithr_thread
+      with _ -> ()
+    )
+
+  let f_cancel_input_thread ithr _ =
+    i_cancel_input_thread ithr
+
+  let cancel_input_thread (ithr,_,_) =
+    i_cancel_input_thread ithr 
+
+  let create_input_thread fd =
+    let oothr = !Netsys_oothr.provider in
+    let init_cond = oothr#create_condition() in
+    let init_mutex = oothr#create_mutex() in
+    let p_event = netsys_create_event() in
+    let proxy = netsys_event_descr p_event in
+    let ithr =
+      { ithr_descr = fd;
+	ithr_cmd_cond = oothr#create_condition();
+	ithr_cmd_mutex = oothr#create_mutex();
+	ithr_cmd = Some `Read;
+	ithr_cancel_cmd = false;
+	ithr_event = create_event();
+	ithr_buffer = String.create 4096;
+	ithr_buffer_start = 0;
+	ithr_buffer_len = 0;
+	ithr_buffer_cond = `Data;
+	ithr_thread = 0l;  (* initialized below *)
+	ithr_read_mutex = oothr#create_mutex();
+	ithr_running = true;
+	ithr_proxy_handle = p_event;
+      } in
+    let _ =
+      oothr # create_thread
+	(fun () ->
+	   ithr.ithr_thread <- get_current_thread_id();
+	   init_cond # signal();
+	   thread_body ithr
+	)
+	() in
+    init_cond # wait init_mutex;
+    let f = f_cancel_input_thread ithr in
+    let keep_alive = (object end) in
+    Gc.finalise f keep_alive;
+    Gc.finalise netsys_close_event p_event;
+    register_proxy proxy (I_input_thread(ithr, keep_alive));
+    (ithr, proxy, keep_alive)
+    
+
+  let input_thread_read (ithr,_,_) s pos len =
+    if pos < 0 || len < 0 || pos > String.length s - len then
+      invalid_arg "Netsys_win32.input_thread_read";
+    
+    if len = 0 then
+      0
+    else (
+      Netsys_oothr.serialize
+	ithr.ithr_read_mutex   (* only one reader at a time *)
+	(fun () ->
+	   let b = test_event ithr.ithr_event in
+	   if b then (
+	     ithr.ithr_cmd_mutex # lock();
+	   (* Look at what we have: *)
+	   match ithr.ithr_buffer_cond with
+	     | `EOF ->
+		 ithr.ithr_cmd_mutex # unlock();
+		 0
+	     | `Exception e ->
+		 ithr.ithr_cmd_mutex # unlock();
+		 raise e
+	     | `Cancelled ->
+		 ithr.ithr_cmd_mutex # unlock();
+		 raise(Unix.Unix_error(Unix.EPERM, 
+				       "Netsys_win32.input_thread_read", ""))
+	     | `Data ->
+		 let n = min len ithr.ithr_buffer_len in
+		 String.blit 
+		   ithr.ithr_buffer ithr.ithr_buffer_start
+		   s pos
+		   n;
+		 ithr.ithr_buffer_start <- ithr.ithr_buffer_start + n;
+		 ithr.ithr_buffer_len <- ithr.ithr_buffer_len - n;
+		 if ithr.ithr_buffer_len = 0 then (
+		   ithr.ithr_cmd <- Some `Read;
+		   ithr.ithr_cmd_cond # signal();
+		   reset_event ithr.ithr_event;
+		 );
+		 ithr.ithr_cmd_mutex # unlock();
+		 n
+	   )
+	   else
+	     raise(Unix.Unix_error(Unix.EAGAIN, 
+				   "Netsys_win32.input_thread_read", ""))
+	)
+	()
+    )
+
+  let input_thread_event (ithr,_,_) =
+    ithr.ithr_event
+
+  let input_thread_proxy_descr (ithr, proxy, _) = 
+    netsys_set_auto_close_event_proxy ithr.ithr_proxy_handle false;
+    proxy
+
+end
+
+let create_input_thread = InputThread.create_input_thread
+let input_thread_event = InputThread.input_thread_event
+let input_thread_read = InputThread.input_thread_read
+let cancel_input_thread = InputThread.cancel_input_thread
+let input_thread_proxy_descr = InputThread.input_thread_proxy_descr
