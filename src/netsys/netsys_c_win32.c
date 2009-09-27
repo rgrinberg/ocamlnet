@@ -63,6 +63,59 @@ CAMLprim value netsys_fill_random (value s) {
 }
 
 
+/* The implementation in Unix is problematic because the handle is
+   duplicated!
+*/
+CAMLprim value netsys_modify_close_on_exec (value fd, value new_val) {
+#ifdef _WIN32
+    int flag;
+    flag = Bool_val(new_val);
+    if (!SetHandleInformation(Handle_val(fd), HANDLE_FLAG_INHERIT,
+			      flag ? 0 : HANDLE_FLAG_INHERIT)) {
+	win32_maperr(GetLastError());
+	uerror("netsys_modify_close_on_exec/SetHandleInformation", Nothing);
+    }
+    return Val_unit;
+#else
+    invalid_argument("netsys_modify_close_on_exec");
+#endif
+}
+
+
+CAMLprim value netsys_test_close_on_exec (value fd) {
+#ifdef _WIN32
+    DWORD flags;
+    int r;
+    dprintf("netsys_test_close_on_exec fd=%u\n", Handle_val(fd));
+    if (!GetHandleInformation(Handle_val(fd), &flags)) {
+	win32_maperr(GetLastError());
+	uerror("netsys_test_close_on_exec/GetHandleInformation", Nothing);
+    }
+    r = (flags & HANDLE_FLAG_INHERIT) != 0;
+    dprintf("netsys_test_close_on_exec fd=%u result=%s\n", 
+	    Handle_val(fd), r ? "true" : "false");
+    return Val_bool(r);
+#else
+    invalid_argument("netsys_test_close_on_exec");
+#endif
+}
+
+
+CAMLprim value netsys_is_crt_fd (value fd, value crt_fd) {
+#ifdef _WIN32
+    int fd1;
+    fd1 = CRT_fd_val(fd);
+    if (fd1 == NO_CRT_FD)
+	return Val_bool(0);
+    else
+	return Val_bool(fd1 == Int_val(crt_fd));
+#else
+    invalid_argument("netsys_is_crt_fd");
+#endif
+}
+
+
+
 #ifdef _WIN32
 /* Additions to the socket/handle API for Win32: */
 
@@ -1502,7 +1555,6 @@ static value alloc_process(HANDLE proc, DWORD win_pid) {
 
     return r;
 }
-#endif
 
 
 static int has_console(void) {
@@ -1522,6 +1574,9 @@ static int has_console(void) {
 #ifndef CAML_OSDEPS_H
 extern char * caml_search_exe_in_path(char * name);
 #endif
+
+#endif /* _WIN32 */
+
 
 CAMLprim value netsys_create_process(value cmd,
 				     value cmdline,
@@ -1551,6 +1606,9 @@ CAMLprim value netsys_create_process(value cmd,
   env_flags = 0;
   pg_flags = 0;
   
+  dprintf("netsys_create_process cmd=%s cmdline=%s\n",
+	  String_val(cmd), String_val(cmdline));
+
   /* Iterate over opts: */
   opts_hd = opts;
   while (opts_hd != Val_int(0)) {
@@ -1628,11 +1686,32 @@ CAMLprim value netsys_create_process(value cmd,
   };
   stat_free(exefile);
   CloseHandle(pi.hThread);
+  dprintf("netsys_create_process hProcess=%u processId=%u\n",
+	  pi.hProcess, pi.dwProcessId);
   return alloc_process(pi.hProcess, pi.dwProcessId);
 #else
     invalid_argument("netsys_create_process");
 #endif
 }
+
+
+CAMLprim value netsys_terminate_process(value pv) {
+#ifdef _WIN32
+    struct process *p0;
+    p0 = process_val(pv);
+    dprintf("netsys_terminate_process hProcess=%u processId=%u\n",
+	    p0->proc, p0->win_pid);
+    if (!TerminateProcess(p0->proc, 126)) {
+      win32_maperr(GetLastError());
+      uerror("terminate_process/TerminateProcess", Nothing);
+    }
+    return Val_unit;
+#else
+    invalid_argument("netsys_terminate_process");
+#endif
+}
+
+
 
 
 CAMLprim value netsys_process_descr(value pv) {
@@ -2073,6 +2152,7 @@ CAMLprim value netsys_init_console_codepage(value dummy) {
 }
 
 
+#ifdef _WIN32
 static void clear_eol(HANDLE conout, COORD p, DWORD right, int attr) {
     DWORD n, nact;
 
@@ -2090,6 +2170,7 @@ static void clear_eol(HANDLE conout, COORD p, DWORD right, int attr) {
 	uerror("netsys_clear_console/FillConsoleOutputAttribute", Nothing);
     }
 }
+#endif
 
 
 CAMLprim value netsys_clear_console(value mode) {
@@ -2175,11 +2256,12 @@ CAMLprim value netsys_get_current_thread_id(value dummy) {
 }
 
 
-
+#ifdef _WIN32
 /* CancelSynchronousIo is first available in Vista */
 typedef BOOL (WINAPI *cancel_io_func_t)(HANDLE);
 static cancel_io_func_t cancel_io_func = NULL;
 static int cancel_checked = FALSE;
+#endif
 
 
 CAMLprim value netsys_cancel_synchronous_io(value thread_id_val) {

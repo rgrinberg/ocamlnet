@@ -180,7 +180,7 @@ let setup_job
   if commands = [] then invalid_arg "Shell.setup_job";
 
   try
-    (* Is /dev/null needed? *)
+    (* Is /dev/null needed? *) (* TODO *)
 
     let dev_null = ref Unix.stdin in
     if stdin = P_dev_null || stdout = C_dev_null || stderr = C_dev_null then 

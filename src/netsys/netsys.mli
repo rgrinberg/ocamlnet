@@ -2,59 +2,16 @@
 
 (** System calls missing in the [Unix] module *)
 
-(** {1 Helper functions} *)
-
-val restart : ('a -> 'b) -> 'a -> 'b
-  (** [restart f arg] calls [f arg], and restarts this call if the
-    * exception [Unix_error(EINTR,_,_)] is caught.
-    *
-    * Note that there are some cases where this handling of [EINTR] is
-    * not sufficient:
-    * - Functions that have a timeout argument like [Unix.select]: When
-    *   [EINTR] is caught the timeout should be adjusted.
-    * - [Unix.connect] with a blocking descriptor because this is not
-    *   well-enough specified by POSIX
-   *)
-
-val restart_tmo : (float -> 'b) -> float -> 'b
-  (** [restart_tmo f tmo] calls [f] with a timeout argument [tmo], and
-    * restarted the call if the exception [Unix_error(EINTR,_,_)] is caught.
-    * In the restart case, the timeout argument is reduced by the
-    * already elapsed time.
-    *
-    * Negative timeout arguments are interpreted as "no timeout".
-   *)
-
-val restarting_select : 
-      Unix.file_descr list -> Unix.file_descr list -> Unix.file_descr list ->
-      float ->
-        (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list)
-  (** A wrapper around [Unix.select] that handles the [EINTR] condition *)
-
-val sleep : float -> unit
-val restarting_sleep : float -> unit
-  (** Sleep for the passed time. [restarting_sleep] additionally handles
-      [EINTR].
-   *)
-
-val unix_error_of_code : int -> Unix.error
-  (** Converts an integer error into the corresponding variant *)
-
-val int64_of_file_descr : Unix.file_descr -> int64
-  (** Returns the file descriptor as int64 number. Works for all OS. *)
-
-external _exit : int -> unit = "netsys__exit"
-  (** Exit the program immediately without running the atexit handlers.
-   * The argument is the exit code, just as for [exit].
-   *)
-
-
 (** {1 Generic file descriptors} *)
 
 (** Not all OS provide generic read/write functions, or some emulation
     layer does not allow to use a descriptor with read/write. In the
     following functions, the style of the descriptor can be passed along
-    with the descriptor to select the right I/O method.
+    with the descriptor to select the right I/O method. Effectively,
+    the [fd_style] indicates which I/O function to call. Sometimes it is
+    mandatory to call this function, sometimes it is only a good advice
+    because the function provides the best interface for the kind of
+    descriptor.
  *)
 
 type fd_style =
@@ -67,11 +24,13 @@ type fd_style =
     | `W32_event
     | `W32_process
     | `W32_input_thread
+    | `W32_output_thread
     ]
   (** Some information what kind of operations are reasonable for descriptors:
       - [`Read_write]: The descriptor is neither a socket not one of the
         other special cases, so only read/write is possible if read/write
-        is possible at all.
+        is possible at all. This style is also used if it is meaningless
+        to use data I/O like read/write at all.
       - [`Recv_send(sockaddr,peeraddr)]: The descriptor is a connected socket.
         recv/send are the preferred operations.
       - [`Recvfrom_sendto]: The descriptor is an unconnected socket, and
@@ -81,19 +40,34 @@ type fd_style =
         connection. There are no socket addresses.
         recv/send are the preferred operations. It is not possible to call
         [getsockname] or [getpeername].
-      - [`W32_pipe]: The descriptor is a Win32 named pipe as returned by
-        {!Netsys_win32.pipe_descr}. 
-      - [`W32_pipe_server]: The descriptor is a Win32 pipe server as returned by
+      - [`W32_pipe]: The descriptor is a proxy descriptor for a Win32 named
+        pipe as returned by {!Netsys_win32.pipe_descr}. 
+      - [`W32_pipe_server]: The descriptor is a proxy descriptor for a Win32
+        pipe server as returned by
         {!Netsys_win32.pipe_server_descr}. 
-      - [`W32_event]: The descriptor is a Win32 event as returned by
-        {!Netsys_win32.create_event}. It is not possible to read/write
-        with these descriptors.
-      - [`W32_process]: The descriptor is a Win32 process as returned by
+      - [`W32_event]: The descriptor is a Win32 proxy descriptor for an event
+         as returned by {!Netsys_win32.create_event}. It is not possible to
+        read/write with these descriptors.
+      - [`W32_process]: The descriptor is a proxy descriptor for a Win32
+        process as returned by
         {!Netsys_win32.create_process}. It is not possible to read/write
         with these descriptors.
-      - [`W32_input_thread]: The descriptor is a Win32-specific input thread
+      - [`W32_input_thread]: The descriptor is a proxy descriptor for a
+        Win32-specific input thread
         as returned by
         {!Netsys_win32.create_input_thread}. 
+      - [`W32_output_thread]: The descriptor is a proxy descriptor for a
+        Win32-specific output thread
+        as returned by
+        {!Netsys_win32.create_output_thread}. 
+
+      Win32: For the exact meaning of proxy descriptors, please see 
+      {!Netsys_win32}. In short, a proxy descriptor is an abstract handle
+      for the I/O object. The handle itself cannot be used for I/O, however,
+      but only some specialized function. The proxy descriptor can only
+      be used to dereference the I/O object. Note that the following functions
+      like [gread] and [gwrite] automatically look up the I/O object behind
+      the proxy and call the right I/O function.
    *)
 
 val get_fd_style : Unix.file_descr -> fd_style
@@ -165,6 +139,50 @@ val really_gwrite : fd_style -> Unix.file_descr -> string -> int -> int -> unit
       types of descriptors can be handled in non-blocking mode.
    *)
 
+exception Shutdown_not_supported
+  (** See [gshutdown] *)
+
+val gshutdown : fd_style -> Unix.file_descr -> Unix.shutdown_command -> unit
+  (** [gshutdown fd_style fd cmd]: If there is the possibility to shut down
+      the connection for this kind of descriptor, the shutdown is tried.
+      It is possible that the function raises the [EAGAIN] Unix error if
+      the shutdown operation is non-blocking, and currently not possible. 
+      It is suggested to wait until the descriptor is writable, and to try
+      again then.
+
+      If there is no shutdown operation for this kind of descriptor, the
+      exception [Shutdown_not_supported] is raised. In this case it is
+      usually sufficient to close the descriptor ([gclose], see below),
+      and when all descriptors to the resource are closed, the resource
+      is shut down by the OS.
+
+      Details by [fd_style]:
+       - [`Recv_send] and [`Recv_send_implied]: The socket is shut
+         down as requested by [Unix.shutdown]. This only triggers the
+         shutdown, but does not wait until it is completed. Also,
+         errors are usually not immediately reported.
+       - [`W32_pipe]: It is only possible to request [SHUTDOWN_ALL]
+         for these descriptors.  For other shutdown types, the error
+         [EPERM] is reported. The shutdown is synchronous and completed
+         when the function returns.
+       - [`W32_pipe_server]: It is only possible to request [SHUTDOWN_ALL]
+         for these descriptors.  For other shutdown types, the error
+         [EPERM] is reported. A shutdown means here to stop accepting
+         new connections. The shutdown is synchronous and completed
+         when the function returns.
+       - [`W32_output_thread]:  It is only possible to request [SHUTDOWN_SEND]
+         for these descriptors. A [SHUTDOWN_ALL] is also interpreted as
+         [SHUTDOWN_SEND], and a [SHUTDOWN_RECEIVE] is ignored.
+         A shutdown means here that the EOF is appended
+         to the output buffer, and when the output thread has written the
+         buffer contents, the underlying descriptor (not [fd]!) will be
+         closed. The shutdown operation is non-blocking. If it is not
+         possible at the moment of calling, the error [EAGAIN] is reported.
+       - Other styles raise [Shutdown_not_supported].
+   *)
+
+
+
 val is_readable : fd_style -> Unix.file_descr -> bool
 val is_writable : fd_style -> Unix.file_descr -> bool
 val is_prird : fd_style -> Unix.file_descr -> bool
@@ -216,12 +234,21 @@ val gclose : fd_style -> Unix.file_descr -> unit
   (** Shuts down the system object referenced by the descriptor so far
       possible, and closes the descriptor.
 
-      Errors are logged to {!Netlog} as [`Crit] events, and usually
+      Errors are logged to {!Netlog} as [`Crit] events, and
       do not generate exceptions.
 
-      Win32: [gclose] can be called for proxy descriptors, and the
-      proxy as well as the underlying system objects are all closed.
+      The exact semantics of the close operation varies from descriptor
+      style to descriptor style. Generally, [gclose] assumes that all
+      I/O is done, and all buffers are flushed, and that one can tear
+      down the underlying communication circuits. [gclose] is always
+      the right choice when the I/O channel needs to be aborted after a
+      fatal error, and it does not matter whether errors occur or not.
+      If a data connection needs to be orderly closed (i.e. without
+      data loss), one should first try to finish the communication,
+      either by protocol means (e.g. wait for ACK messages), or by
+      calling [gshutdown] first (see above).
    *)
+
 
 
 (** {1 Functions for sockets} *)
@@ -236,7 +263,11 @@ val wait_until_connected : Unix.file_descr -> float -> bool
       calling [connect_check] (see below).
 
       On POSIX, this function is identical to [wait_until_writable]. On
-      Win32 it is different.
+      Win32 the wait condition is slightly different.
+
+      On Win32, this function also tolerates client proxy descriptors for
+      Win32 named pipes. However, there is no waiting - the function 
+      immediately returns.
    *)
 
 val connect_check : Unix.file_descr -> unit
@@ -248,6 +279,10 @@ val connect_check : Unix.file_descr -> unit
       is indicated (e.g. after [wait_until_connected] returns).
 
       Side effect: The per-socket error code may be reset.
+
+      On Win32, this function also tolerates client proxy descriptors for
+      Win32 named pipes. However, there is no real check - the function 
+      immediately returns.
    *)
 
 val domain_of_inet_addr : Unix.inet_addr -> Unix.socket_domain
@@ -259,6 +294,70 @@ val getpeername : Unix.file_descr -> Unix.sockaddr
   (** like [Unix.getpeername], but errors are fixed up. [ENOTCONN] is
       ensured when the socked is unconnected or shut down.
    *)
+
+(** {1 Helper functions} *)
+
+val restart : ('a -> 'b) -> 'a -> 'b
+  (** [restart f arg] calls [f arg], and restarts this call if the
+    * exception [Unix_error(EINTR,_,_)] is caught.
+    *
+    * Note that there are some cases where this handling of [EINTR] is
+    * not sufficient:
+    * - Functions that have a timeout argument like [Unix.select]: When
+    *   [EINTR] is caught the timeout should be adjusted.
+    * - [Unix.connect] with a blocking descriptor because this is not
+    *   well-enough specified by POSIX
+   *)
+
+val restart_tmo : (float -> 'b) -> float -> 'b
+  (** [restart_tmo f tmo] calls [f] with a timeout argument [tmo], and
+    * restarted the call if the exception [Unix_error(EINTR,_,_)] is caught.
+    * In the restart case, the timeout argument is reduced by the
+    * already elapsed time.
+    *
+    * Negative timeout arguments are interpreted as "no timeout".
+   *)
+
+val restarting_select : 
+      Unix.file_descr list -> Unix.file_descr list -> Unix.file_descr list ->
+      float ->
+        (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list)
+  (** A wrapper around [Unix.select] that handles the [EINTR] condition.
+
+      Note: This function calls [Unix.select] and shares all pros and cons
+      with [Unix.select]. In particular, the OS often sets a limit on the 
+      number (and/or the numeric value) of the descriptors (e.g. for
+      Linux it is 1024, for Windows it is 64). On Ocaml 3.11 the Windows
+      version of [Unix.select] includes some support for other types
+      of descriptors than sockets.
+   *)
+
+val sleep : float -> unit
+val restarting_sleep : float -> unit
+  (** Sleep for the passed time. [restarting_sleep] additionally handles
+      [EINTR].
+   *)
+
+val unix_error_of_code : int -> Unix.error
+  (** Converts an integer error into the corresponding variant *)
+
+val int64_of_file_descr : Unix.file_descr -> int64
+  (** Returns the file descriptor as int64 number. Works for all OS. *)
+
+val is_stdin : Unix.file_descr -> bool
+val is_stdout : Unix.file_descr -> bool
+val is_stderr : Unix.file_descr -> bool
+  (** Returns whether the descriptors are stdin/stdout/stderr *)
+
+val set_close_on_exec : Unix.file_descr -> unit
+val clear_close_on_exec : Unix.file_descr -> unit
+  (** Working versions of the functions with the same name in [Unix] *)
+
+external _exit : int -> unit = "netsys__exit"
+  (** Exit the program immediately without running the atexit handlers.
+   * The argument is the exit code, just as for [exit].
+   *)
+
 
 (** {1 Multicast Functions} *)
 
@@ -314,3 +413,65 @@ type shm_open_flag =
 val have_posix_shm : unit -> bool
 val shm_open : string -> shm_open_flag list -> int -> Unix.file_descr
 val shm_unlink : string -> unit
+
+
+(** {1 Further Documentation} *)
+
+(** {2 How to orderly close I/O channels} 
+
+    After reading from uni-directional descriptors, and seeing the
+    EOF, it is usually sufficient to call [gclose] to free OS resources.
+
+    After writing to uni-directional descriptors one should call
+    [gshutdown] to send an EOF ([SHUTDOWN_SEND]). For some descriptors
+    one will get the exception [Shutdown_not_supported] which can be
+    ignored in this context The [gshutdown] function cannot,
+    however, report in all cases whether the operation was successful.
+    As a rule of thumb, error reporting works for local data connections,
+    but not always for remote connections, and there is no way to fix
+    this. After writing EOF, call [gclose] to free OS resources.
+
+    For bidirectional connections, it is even more complicated. If the
+    connection is local, a bidirectional connection behaves much like a pair
+    of unidirectional connections. However, in the network case, we have
+    to go down to the protocol level.
+
+    For TCP the golden rule is that the client initiates the connection,
+    and the client finishes the connection. The case that the server
+    finishes the connection is not well-specified - or better, the server needs
+    the ACK from the client after triggering the connection termination. 
+    In practice we have the cases:
+
+    - Client sends EOF, and server replies with EOF: This is the normal
+      case for which TCP is designed. Client code can invoke
+      [gshutdown] with [SHUTDOWN_SEND] and then waits until the EOF from 
+      the server arrives,
+      and then [gclose]s the descriptor. It may happen that the client
+      gets an error if some problem occurs, so this is reliable from the
+      perspective of the client. The server first sees the EOF from the
+      client, and then responds with another [gshutdown], followed by 
+      [gclose]. From the server's perspective it does not matter whether
+      the operation results in an error or not - the client has lost
+      interest anyway.
+    - Client sends EOF, and server replies with data, and then EOF.
+      Here, the client has to read the final data, and then wait for the
+      server's EOF after sending its own EOF. On the server's side, 
+      some data is written before the final EOF. The question is how
+      the server can be sure that the data really arrived. Unfortunately,
+      there is no way to do so. The server may not get all errors because
+      these may arrive at the server computer after [gshutdown]. There
+      is no way to fix this. (One should better fix the application protocol. 
+      Note
+      that even prominent researchers trapped into this problem. For example,
+      the first version of HTTP had this problem.)
+    - Server sends EOF, and client replies with EOF: This is the difficult
+      case. Here, the server wants to be sure that the data sent immediately
+      before its EOF really arrives at the client. After [gshutdown]
+      it is forbidden to immediately [gclose], because this may result
+      in a connection reset. Instead, the server has to wait for the 
+      client's EOF. (This is called "lingering".) If the client's EOF is
+      seen one can [gclose].
+    - Server sends EOF, and client replies with data, followed by EOF:
+      I admit I don't know whether TCP can handle this somehow.
+ *)
+

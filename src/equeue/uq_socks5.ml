@@ -668,7 +668,7 @@ object(self)
 	 let socks_socket = client_endpoint conn_stat in
 	 let udp_socket = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
 	 Unix.set_nonblock udp_socket;
-	 Unix.set_close_on_exec udp_socket;
+	 Netsys.set_close_on_exec udp_socket;
 	 Unix.bind udp_socket (Unix.ADDR_INET(Unix.inet_addr_any,0));
 	 let eng =
 	   new socks5_datagram_automaton socks_socket udp_socket ues in

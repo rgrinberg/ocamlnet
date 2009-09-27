@@ -2,11 +2,6 @@
 
 (** Primitives for Win32 *)
 
-val fill_random : string -> unit
-  (** Fills the string with random bytes. A cryptographically secure RNG
-      is used
-   *)
-
 (** {1 Event objects} *)
 
 type w32_event
@@ -321,7 +316,7 @@ val input_thread_event : w32_input_thread -> w32_event
    *)
 
 val input_thread_read : w32_input_thread -> string -> int -> int -> int
-  (** [input_thread_read t s pos len]: Tries to read data from the handle. 
+  (** [input_thread_read t s pos len]: Tries to read data from the buffer. 
       If data
       is available, it is put into the [len] bytes at position [pos] of
       the string [s], and the actual number of read bytes is returned.
@@ -344,11 +339,83 @@ val cancel_input_thread : w32_input_thread -> unit
       the thread is no longer needed, because a thread is an expensive
       resource.
 
-      Implementation note: Actually, cancellation is only implemented
-      on Vista. 
+      Implementation note: Actually, cancellation is only fully implemented
+      on Windows Vista. On XP the actual cancellation may be delayed
+      indefinetely.
    *)
 
 val input_thread_proxy_descr : w32_input_thread -> Unix.file_descr
+  (** Returns the proxy descriptor *)
+
+
+type w32_output_thread
+
+val create_output_thread : Unix.file_descr -> w32_output_thread
+  (** Creates the output thread for this file descriptor. Data is being
+     pumped an internal buffer to this descriptor, and can be written
+     there by [output_thread_read].
+
+     The thread continues to run until it is explicitly closed, or 
+     an I/O error occurs, or until the
+     thread is cancelled ([cancel_output_thread]).
+
+     After starting the output thread, the file descriptor must not
+     be used anymore. It is now owned by the output thread.
+   *)
+
+val output_thread_event : w32_output_thread -> w32_event
+  (** This event is signaled when there is space in the buffer,
+      or when there is an error condition 
+   *)
+
+val output_thread_write : w32_output_thread -> string -> int -> int -> int
+  (** [output_thread_write t s pos len]: Tries to write data to the buffer. 
+      If this
+      is possible, the substring starting at position [pos] of the string [s]
+      with a length of [len] is appended to the buffer. The actual number
+      of written bytes is returned.
+
+      If no space is available in the buffer, the function fails with a
+      Unix error of [EAGAIN] (non-blocking).
+
+      For cancelled requests, the function raises [EPERM].
+   *)
+
+val close_output_thread : w32_output_thread -> unit
+  (** Adds the EOF condition to the buffer. When the buffer is written
+      to the descriptor, the descriptor will be closed.
+
+      Note that this is also an asynchronous operation, like
+      [output_thread_write]. If closing is not possible at a certain
+      moment, the Unix error [EGAIN] is raised. This ensures that all
+      errors of previous writes can be reported.
+
+      The output thread terminates after a successful close.
+
+      For cancelled requests, the function raises [EPERM].
+   *)
+
+val cancel_output_thread : w32_output_thread -> unit
+  (** Stops the output thread. This is different from closing as the
+      data that is still in the buffer but not yet written may be
+      dropped (if possible). Also, there is no error reporting.
+
+      It is no error to cancel a thread that is
+      already cancelled or closed. 
+      There is no way to restart the thread later.
+
+      The thread is automatically cancelled by the GC finaliser. However,
+      users are encouraged to call [cancel_output_thread] or
+      [close_output_thread] as soon as
+      the thread is no longer needed, because a thread is an expensive
+      resource.
+
+      Implementation note: Actually, cancellation is only fully implemented
+      on Windows Vista. On XP the actual cancellation may be delayed
+      indefinetely.
+   *)
+
+val output_thread_proxy_descr : w32_output_thread -> Unix.file_descr
   (** Returns the proxy descriptor *)
 
 
@@ -498,6 +565,9 @@ val win_pid : w32_process -> int
 
 val process_descr : w32_process -> Unix.file_descr
   (** Returns the proxy descriptor of the process *)
+
+val terminate_process : w32_process -> unit
+  (** Terminates the process *)
 
 
 
@@ -652,6 +722,7 @@ type w32_object =
     | W32_pipe_server of w32_pipe_server
     | W32_process of w32_process
     | W32_input_thread of w32_input_thread
+    | W32_output_thread of w32_output_thread
 
 val lookup : Unix.file_descr -> w32_object
   (** Returns the real object behind a proxy descriptor, or raises
@@ -665,13 +736,37 @@ val lookup_pipe : Unix.file_descr -> w32_pipe
 val lookup_pipe_server : Unix.file_descr -> w32_pipe_server
 val lookup_process : Unix.file_descr -> w32_process
 val lookup_input_thread : Unix.file_descr -> w32_input_thread
+val lookup_output_thread : Unix.file_descr -> w32_output_thread
   (** Returns the real object. If not found, or if the object is of unexpected
       type, [Failure] is raised.
    *)
 
-val gc_proxy : unit -> unit
-  (* testing only *)
 
+(** {1 Miscelleneous} *)
+
+val test_close_on_exec : Unix.file_descr -> bool
+  (** Tests whether the handle is not inheritable *)
+
+val modify_close_on_exec : Unix.file_descr -> bool -> unit
+  (** Sets the close-on-exec flag, i.e. whether the handle is not inheritable.
+      Note that [Unix.set_close_on_exec] and [Unix.clear_close_on_exec]
+      have a serious problem, and do not always work.
+   *)
+
+val is_crt_fd : Unix.file_descr -> int -> bool
+  (** Tests whether the descriptor has a certain CRT counterpart.
+      E.g. use [is_crt_fd 0] to check whether [fd] is [Unix.stdin]
+      (physically)
+   *)
+
+
+val fill_random : string -> unit
+  (** Fills the string with random bytes. A cryptographically secure RNG
+      is used
+   *)
+
+
+(** {1 Debugging} *)
 
 module Debug : sig
   val enable : bool ref
@@ -682,3 +777,14 @@ module Debug : sig
         simply written to stderr
      *)
 end
+
+
+(**/**)
+
+val input_thread_descr : w32_input_thread -> Unix.file_descr
+val output_thread_descr : w32_output_thread -> Unix.file_descr
+  (* These functions return the I/O descriptor. User code must never
+     use these descriptors!
+   *)
+val gc_proxy : unit -> unit
+  (* testing only *)

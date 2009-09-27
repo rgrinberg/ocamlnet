@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+exception Shutdown_not_supported
+
 let is_win32 =
   Sys.os_type = "Win32"
 
@@ -15,8 +17,10 @@ let restarting_select fd_rd fd_wr fd_oob tmo =
   restart_tmo (Unix.select fd_rd fd_wr fd_oob) tmo
 
 let sleep t =
+  let select =
+    if is_win32 then Netsys_win32.real_select else Unix.select in
   let _,_,_ =
-    Unix.select [] [] [] t in
+    select [] [] [] t in
   ()
 
 let restarting_sleep t =
@@ -45,6 +49,7 @@ type fd_style =
     | `W32_event
     | `W32_process
     | `W32_input_thread
+    | `W32_output_thread
     ]
 
 let get_fd_style fd =
@@ -62,6 +67,8 @@ let get_fd_style fd =
 	`W32_process
     | Some (Netsys_win32.W32_input_thread _) ->
 	`W32_input_thread
+    | Some (Netsys_win32.W32_output_thread _) ->
+	`W32_output_thread
     | None ->
 	(* Check whether we have a socket or not: *)
 	try
@@ -92,9 +99,11 @@ let get_fd_style fd =
 	      (* Note: EINVAL is used by some oldish OS in this case *)
 	      (* fd is not a socket *)
 	      `Read_write
+	  | Unix.Unix_error((Unix.ENOENT,_,_)) when is_win32 -> 
+	      `Read_write
 	  | e ->
-	      prerr_endline ("get_fd_style: saw strange error " ^ 
-			       Netexn.to_string e);
+	      Netlog.log `Crit 
+		("get_fd_style: Exception: " ^ Netexn.to_string e);
 	      assert false
 
 let wait_until_readable fd_style fd tmo =
@@ -118,7 +127,8 @@ let wait_until_readable fd_style fd tmo =
 	  let ithr = Netsys_win32.lookup_input_thread fd in
 	  let eo = Netsys_win32.input_thread_event ithr in
 	  Netsys_win32.event_wait eo tmo
-      | `W32_process ->
+      | `W32_process
+      | `W32_output_thread ->
 	  sleep tmo; false (* never *)
       | _ ->
 	  let l,_,_ = restart_tmo (Unix.select [fd] [] []) tmo in
@@ -141,8 +151,11 @@ let wait_until_writable fd_style fd tmo =
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
-      | `W32_input_thread ->
-	  sleep tmo; false (* never *)
+      | `W32_output_thread ->
+	  let othr = Netsys_win32.lookup_output_thread fd in
+	  let eo = Netsys_win32.output_thread_event othr in
+	  Netsys_win32.event_wait eo tmo
+      | `W32_input_thread 
       | `W32_process ->
 	  sleep tmo; false (* never *)
       | _ ->
@@ -165,8 +178,8 @@ let wait_until_prird fd_style fd tmo =
       | `W32_event ->
 	  let eo = Netsys_win32.lookup_event fd in
 	  Netsys_win32.event_wait eo tmo
-      | `W32_input_thread ->
-	  sleep tmo; false (* never *)
+      | `W32_input_thread
+      | `W32_output_thread
       | `W32_process ->
 	  sleep tmo; false (* never *)
       | _ ->
@@ -199,6 +212,9 @@ let gwrite fd_style fd s pos len =
 	failwith "Netsys.gwrite: cannot write to process descriptor"
     | `W32_input_thread ->
 	failwith "Netsys.gwrite: cannot write to input thread"
+    | `W32_output_thread ->
+	let othr = Netsys_win32.lookup_output_thread fd in
+	Netsys_win32.output_thread_write othr s pos len
 
 
 let rec really_gwrite fd_style fd s pos len =
@@ -232,6 +248,8 @@ let gread fd_style fd s pos len =
 	failwith "Netsys.gread: cannot read from event descriptor"
     | `W32_process ->
 	failwith "Netsys.gread: cannot read from process descriptor"
+    | `W32_output_thread ->
+	failwith "Netsys.gread: cannot read from output thread"
     | `W32_input_thread ->
 	let ithr = Netsys_win32.lookup_input_thread fd in
 	Netsys_win32.input_thread_read ithr s pos len
@@ -264,9 +282,18 @@ let really_gread fd_style fd s pos len =
 
 
 let wait_until_connected fd tmo =
-  if is_win32 then (* FIXME: That works only for sockets *)
-    let l1,_,l2 = Unix.select [] [fd] [fd] tmo in
-    l1 <> [] || l2 <> []
+  if is_win32 then
+    try
+      let w32 = Netsys_win32.lookup fd in
+      ( match w32 with
+	  | Netsys_win32.W32_pipe _ -> true   (* immediately connected *)
+	  | _ ->
+	      failwith "Netsys.wait_until_connected: bad descriptor type"
+      )
+    with
+      | Not_found ->  (* socket case *)
+	  let l1,_,l2 = Netsys_win32.real_select [] [fd] [fd] tmo in
+	  l1 <> [] || l2 <> []
   else
     wait_until_writable `Recv_send fd tmo
 
@@ -289,6 +316,58 @@ external int64_of_file_descr : Unix.file_descr -> int64
   = "netsys_int64_of_file_descr"
   (* Also occurs in netsys_win32.ml! *)
 
+let is_std fd std_fd std_num =
+  if is_win32 then
+    Netsys_win32.is_crt_fd fd std_num
+  else
+    fd = std_fd
+
+let is_stdin fd = is_std fd Unix.stdin 0
+let is_stdout fd = is_std fd Unix.stdout 1
+let is_stderr fd = is_std fd Unix.stderr 2
+
+let set_close_on_exec fd =
+  if is_win32 then
+    Netsys_win32.modify_close_on_exec fd true
+  else
+    Unix.set_close_on_exec fd
+
+
+let clear_close_on_exec fd =
+  if is_win32 then
+    Netsys_win32.modify_close_on_exec fd false
+  else
+    Unix.clear_close_on_exec fd
+
+
+let gshutdown fd_style fd cmd =
+  match fd_style with
+    | `Recv_send _
+    | `Recv_send_implied ->
+	( try
+	    Unix.shutdown fd cmd
+	  with
+	    | Unix.Unix_error(Unix.ENOTCONN, _, _) -> ()
+	)
+    | `W32_pipe ->
+	if cmd <> Unix.SHUTDOWN_ALL then
+	  raise(Unix.Unix_error(Unix.EPERM, "Netsys.gshutdown", ""));
+	let p = Netsys_win32.lookup_pipe fd in
+	Netsys_win32.pipe_shutdown p
+    | `W32_pipe_server ->
+	if cmd <> Unix.SHUTDOWN_ALL then
+	  raise(Unix.Unix_error(Unix.EPERM, "Netsys.gshutdown", ""));
+	let p = Netsys_win32.lookup_pipe_server fd in
+	Netsys_win32.pipe_shutdown_server p
+    | `W32_output_thread ->
+	if cmd <> Unix.SHUTDOWN_RECEIVE then (
+	  let othr = Netsys_win32.lookup_output_thread fd in
+	  Netsys_win32.close_output_thread othr
+	)
+    | _ ->
+	raise Shutdown_not_supported
+
+
 let gclose fd_style fd =
   let fd_detail fd =
     Printf.sprintf "fd %Ld" (int64_of_file_descr fd) in
@@ -300,6 +379,14 @@ let gclose fd_style fd =
     Printf.sprintf "fd %Ld as pipe server %s" 
       (int64_of_file_descr fd)
       (Netsys_win32.pipe_server_name p) in
+  let ithr_detail (fd,p) =
+    Printf.sprintf "fd %Ld as input thread for %Ld" 
+      (int64_of_file_descr fd)
+      (int64_of_file_descr(Netsys_win32.input_thread_descr p)) in
+  let othr_detail (fd,p) =
+    Printf.sprintf "fd %Ld as output thread for %Ld" 
+      (int64_of_file_descr fd)
+      (int64_of_file_descr(Netsys_win32.output_thread_descr p)) in
   match fd_style with
     | `Read_write 
     | `Recvfrom_sendto ->
@@ -345,21 +432,53 @@ let gclose fd_style fd =
 	  Unix.close fd
     | `W32_input_thread ->
 	let ithr = Netsys_win32.lookup_input_thread fd in
-	Netsys_win32.cancel_input_thread ithr
+	catch_exn
+	  "Netsys_win32.cancel_input_thread" ithr_detail
+	  (fun (fd,ithr) -> Netsys_win32.cancel_input_thread ithr)
+	  (fd,ithr);
+	catch_exn
+	  "Unix.close" fd_detail
+	  Unix.close fd
+    | `W32_output_thread ->
+	let othr = Netsys_win32.lookup_output_thread fd in
+	catch_exn
+	  "Netsys_win32.cancel_output_thread" othr_detail
+	  (fun (fd,othr) -> Netsys_win32.cancel_output_thread othr)
+	  (fd,othr);
+	catch_exn
+	  "Unix.close" fd_detail
+	  Unix.close fd
+
 
 
 external unix_error_of_code : int -> Unix.error = "netsys_unix_error_of_code"
 
 
 let connect_check fd =
-  let e_code = Unix.getsockopt_int fd Unix.SO_ERROR in
-  try
-    ignore(getpeername fd); 
-    ()
-  with
-    | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
-	raise(Unix.Unix_error(unix_error_of_code e_code,
-			      "connect_check", ""))
+  let do_check =
+    if is_win32 then
+      try
+	let w32 = Netsys_win32.lookup fd in
+	( match w32 with
+	    | Netsys_win32.W32_pipe _ -> false  (* immediately connected *)
+	    | _ ->
+		failwith "Netsys.connect_check: bad descriptor type"
+      )
+    with
+      | Not_found ->  (* socket case *)
+	  true
+    else
+      true in
+  if do_check then (
+    let e_code = Unix.getsockopt_int fd Unix.SO_ERROR in
+    try
+      ignore(getpeername fd); 
+      ()
+    with
+      | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
+	  raise(Unix.Unix_error(unix_error_of_code e_code,
+				"connect_check", ""))
+  )
 
 (* Misc *)
 

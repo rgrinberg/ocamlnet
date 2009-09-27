@@ -87,6 +87,9 @@ Plan for Ocamlnet 3
   * nethttpd+netcgi2: GET /file//path?p=1
     parameters like p are not recognized when there is "//" in path
   * netclient: Set "Host" header also for proxy requests
+  * Shell for POSIX systems: fix the style how ocamlnet waits for 
+    forked processes. The current solution does not work well for
+    mt programs because it is undefined which thread gets the SIGCHLD.
 
 - syslog:
   * "syslog": Just calls syslog()

@@ -3,6 +3,26 @@
  *
  *)
 
+
+open Printf
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Shell_sys" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Shell_sys" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Shell_sys" Debug.enable
+
+
+let is_win32 =
+  match Sys.os_type with
+    | "Win32" -> true
+    | _ -> false;;
+
+
 let safe_close fd =
   (* Try to close, but don't fail if the descriptor is bad *)
   try
@@ -253,9 +273,14 @@ type group_action =
 ;;
 
 
+type proc_ref =
+  [ `POSIX of int
+  | `Win32 of Netsys_win32.w32_process * Unix.file_descr
+  ]
+
 type process =
     { p_command : command;
-      p_id : int;
+      mutable p_id : proc_ref;
       mutable p_status : Unix.process_status option;
         (* None means: process is still running *)
       mutable p_abandoned : bool;
@@ -267,7 +292,7 @@ type process =
 
 let dummy_process =
   { p_command = command "XXX" ();
-    p_id = 0;
+    p_id = `POSIX 0;
     p_status = Some (Unix.WEXITED 0);
     p_abandoned = false;
   }
@@ -522,18 +547,192 @@ let posix_run
       args in
 
   { p_command = c;
-    p_id = pid;
+    p_id = `POSIX pid;
     p_status = None;
     p_abandoned = false;
   }
 ;;
 
+let win32_maybe_quote f =  (* stolen from unix.ml *)
+  if String.contains f ' ' || String.contains f '\"'
+  then Filename.quote f
+  else f 
 
-let run = posix_run;;
-(* Right now no Win32 implementation available *)
+
+let win32_process_mutex =
+  !Netsys_oothr.provider # create_mutex()
 
 
-let process_id p = p.p_id;;
+let win32_run
+    ?(group = Current_group)
+      ?(pipe_assignments = [])
+      c =
+
+  (* This [run] implementation bases on [Netsys_win32.create_process] *)
+
+  (* Win32 does not pass arguments as array down to the child, but
+     as plain string. The arguments have to be quoted. This is not fully
+     documented by MS
+   *)
+
+  let args = Array.append [| c.c_cmdname |] c.c_arguments in
+  let cmdline =
+    String.concat " "
+      (List.map win32_maybe_quote (Array.to_list args)) in
+
+  dlogr (fun () ->
+	   sprintf "run cmd=%s cmdline=%s"
+	     c.c_cmdname cmdline);
+
+  (* Descriptor assignments. We can only assign stdin/stdout/stderr.
+     Also, create_process understands the assignment already as parallel
+     assignment, so things are quite simple here.
+   *)
+
+  let sub_stdin = ref Unix.stdin in
+  let sub_stdout = ref Unix.stdout in
+  let sub_stderr = ref Unix.stderr in
+
+  let sub_fd fd =
+    if Netsys.is_stdin fd then
+      sub_stdin
+    else if Netsys.is_stdout fd then
+      sub_stdout
+    else if Netsys.is_stderr fd then
+      sub_stderr
+    else
+      raise Not_found in
+
+  List.iter
+    (fun (from_fd, to_fd) ->
+       try 
+	 (sub_fd to_fd) := from_fd
+       with
+	 | Not_found ->
+	     failwith "Shell_sys.run: Cannot assign this descriptor \
+                       (Win32 restriction)"
+    )
+    pipe_assignments;
+
+  (* When simulating sequential assignments, we have to take care of
+     previous assignments, e.g.
+
+     1. stdout := <file>
+     2. stderr := stdout
+
+     Here, the second assignment does not mean the original stdout (like
+     in a parallel assignment), but the already assigned stdout, i.e. <file>.
+   *)
+  List.iter
+    (fun (from_fd, to_fd) ->
+       try
+	 (sub_fd to_fd) := (try !(sub_fd from_fd) with Not_found -> from_fd)
+       with
+	 | Not_found ->
+	     failwith "Shell_sys.run: Cannot assign this descriptor \
+                       (Win32 restriction)"
+    )
+    c.c_assignments;
+
+   dlogr (fun () ->
+	   sprintf "run cmd=%s stdin=%Ld stdout=%Ld stderr=%Ld"
+	     c.c_cmdname
+	     (Netsys.int64_of_file_descr !sub_stdin)
+	     (Netsys.int64_of_file_descr !sub_stdout)
+	     (Netsys.int64_of_file_descr !sub_stderr)
+	 );
+
+  let chdir_opts =
+    match c.c_directory with
+      | None -> []
+      | Some d -> [ Netsys_win32.CP_change_directory d ] in
+
+  let env_opts =
+    [ Netsys_win32.cp_set_env !(c.c_environment) ] in
+
+  let pg_opts =
+    match group with
+      | Current_group -> [ Netsys_win32.CP_inherit_process_group ]
+      | New_bg_group  -> [ Netsys_win32.CP_new_process_group ]
+      | Join_group g  -> failwith "Shell_sys.run: Join_group unsupported \
+                                   (Win32 restriction)"
+      | New_fg_group  -> failwith "Shell_sys.run: New_fg_group unsupported \
+                                   (Win32 restriction)" in
+
+
+  (* There is no way to close descriptors that must not be shared with 
+     the parent process, except clearing the close-on-exec flag.
+     Unfortunately, this flag can only be changed for the whole process.
+     So we have to serialize here (and even then there is some bad
+     conscience).
+   *)
+  Netsys_oothr.serialize
+    win32_process_mutex
+    (fun () ->
+       let open_descr_st = Hashtbl.create 50 in
+
+       let change_close_on_exec() =
+	 List.iter
+	   (fun fd ->
+	      if not (Hashtbl.mem open_descr_st fd) then (
+		let state = Netsys_win32.test_close_on_exec fd in
+		Hashtbl.replace open_descr_st fd state;
+		Netsys_win32.modify_close_on_exec fd false
+	      )
+	   )
+	   [ !sub_stdin; !sub_stdout; !sub_stderr ] in
+       let restore_close_on_exec() =
+	 Hashtbl.iter
+	   (fun fd state ->
+	      Netsys_win32.modify_close_on_exec fd state
+	   )
+	   open_descr_st in
+
+       change_close_on_exec();
+       try
+	 let p =
+	   Netsys_win32.create_process
+	     c.c_cmdname
+	     cmdline
+	     ( chdir_opts @
+		 env_opts @
+		 pg_opts @
+		 [ Netsys_win32.CP_std_handles(!sub_stdin,
+					       !sub_stdout,
+					       !sub_stderr) ]
+	     ) in
+	 let ev = Netsys_win32.as_process_event p in
+	 let ev_proxy = Netsys_win32.event_descr ev in
+	 Gc.finalise Unix.close ev_proxy;  (* CHECK *)
+	 restore_close_on_exec();
+	 dlog "run returning normally";
+	 { p_command = c;
+	   p_id = `Win32 (p,ev_proxy);
+	   p_status = None;
+	   p_abandoned = false;
+	 }
+       with
+	 | error ->
+	     dlogr(fun () -> 
+		     sprintf "run returning exn %s" (Netexn.to_string error));
+	     restore_close_on_exec();
+	     raise error
+    )
+    ()
+    
+
+
+let run = 
+  if is_win32 then
+    win32_run
+  else
+    posix_run;;
+
+
+let process_id p = 
+  match p.p_id with
+    | `POSIX pid -> pid
+    | `Win32 (proc,_) -> Netsys_win32.win_pid proc;;
 
 let status p =
   match p.p_status with
@@ -548,6 +747,14 @@ type process_event =
   | Process_event of process
   | Signal
 ;;
+
+
+let string_of_status =
+  function
+    | Unix.WEXITED n -> sprintf "WEXITED(%d)" n
+    | Unix.WSIGNALED n -> sprintf "WSIGNALED(%d)" n
+    | Unix.WSTOPPED n -> sprintf "WSTOPPED(%d)" n
+
 
 exception Loop;;
 
@@ -583,7 +790,16 @@ let wait
     match pl with
 	[ p ] ->
 	  begin try
-	    let _, status = Unix.waitpid flags p.p_id in
+	    let pid =
+	      match p.p_id with
+		| `POSIX pid -> pid
+		| `Win32 _ -> assert false in
+	    dlogr (fun () -> 
+		     sprintf "wait pid=%d" pid);
+	    let _, status = Unix.waitpid flags pid in
+	    dlogr (fun () ->
+		     sprintf "wait pid=%d status=%s" 
+		       pid (string_of_status status));
 	    p.p_status <- Some status;
 	    [ Process_event p ]
 	  with
@@ -602,12 +818,35 @@ let wait
     List.flatten
       (List.map
 	 (fun p ->
-	    let pid, status = Unix.waitpid flags p.p_id in
-	    if pid = p.p_id then begin
-	      p.p_status <- Some status;
-	      [ Process_event p ]
-	    end
-	    else []
+	    match p.p_id with
+	      | `POSIX pid ->
+		  dlogr (fun () -> 
+			   sprintf "wait(nohang) pid=%d" pid);
+		  let real_pid, status = Unix.waitpid flags pid in
+		  if real_pid = pid then begin
+		    dlogr (fun () ->
+			     sprintf "wait(nohang) pid=%d status=%s" 
+			       pid (string_of_status status));
+		    p.p_status <- Some status;
+		    [ Process_event p ]
+		  end
+		  else []
+		    
+	      | `Win32(proc, _) ->
+		  dlogr (fun () -> 
+			   sprintf "wait(nohang) cmd=%s" 
+			     p.p_command.c_cmdname);
+		  ( match Netsys_win32.get_process_status proc with
+		      | None -> []
+		      | Some status ->
+			  dlogr (fun () -> 
+				   sprintf "wait(nohang) cmd=%s status=%s" 
+				     p.p_command.c_cmdname
+				     (string_of_status status)
+				);
+			  p.p_status <- Some status;
+			  [ Process_event p ]
+		  )
 	 )
 	 pl
       )
@@ -619,21 +858,27 @@ let wait
     else
       try
 	let pl_ev = check_process_events () in
-	if pl_ev <> [] then
+	if pl_ev <> [] then (
+	  dlog "wait returns process events";
 	  pl_ev
+	)
 	else
 	  let timeout =
 	    if wnohang then 0.0 else check_interval in
+	  dlog "wait entering Unix.select";
 	  let indicate_read, indicate_write, indicate_except =
 	    (Lazy.force select_emulation) read write except timeout in
+	  dlog "wait leaving Unix.select";
 	  if indicate_read = [] && indicate_write = [] && indicate_except = []
 	     && not wnohang
 	  then
 	    raise Loop        (* make sure this is tail-recursive! *)
-	  else
+	  else (
+	    dlog "wait returns file events";
 	    (List.map (fun fd -> File_read fd) indicate_read) @
 	    (List.map (fun fd -> File_write fd) indicate_write) @
 	    (List.map (fun fd -> File_except fd) indicate_except)
+	  )
       with
 	  Loop ->
 	    wait_until_event()
@@ -644,10 +889,45 @@ let wait
 	      raise ex
   in
 
+  let w32_events =
+    lazy (
+      List.map
+	(fun p ->
+	   match p.p_id with
+	     | `Win32(_,ev) -> ev
+	     | _ -> assert false
+	)
+	pl) in
+  let rec win32_wait() =
+    let events = Lazy.force w32_events in
+    let timeout = if wnohang then 0.0 else check_interval in
+    dlog "wait entering Unix.select";
+    let indicate_read, indicate_write, indicate_except =
+      (Lazy.force select_emulation) (events@read) write except timeout in
+    dlog "wait leaving Unix.select";
+    let indicate_read' =
+      List.filter (fun fd -> List.mem fd read) indicate_read in
+    let pl_ev = check_process_events () in
+    if indicate_read = [] && indicate_write = [] && indicate_except = []
+         && pl_ev = [] && not wnohang
+    then
+      win32_wait()
+    else (
+      dlog "wait returns events";
+      pl_ev @
+	(List.map (fun fd -> File_read fd) indicate_read') @
+	(List.map (fun fd -> File_write fd) indicate_write) @
+	(List.map (fun fd -> File_except fd) indicate_except)
+    )
+  in
+
   if read = [] && write = [] && except = [] && pl = [] then
     []
   else
-    wait_until_event()
+    if is_win32 then
+      win32_wait()
+    else
+      wait_until_event()
 ;;
 
 
@@ -664,7 +944,20 @@ let call c =
 
 
 let kill ?(signal = Sys.sigterm) p =
-  Unix.kill p.p_id signal
+  dlogr (fun () ->
+	   sprintf "Killing cmd=%s signal=%d"
+	     p.p_command.c_cmdname signal);
+  match p.p_id with
+    | `POSIX pid ->
+	assert(not is_win32);
+	Unix.kill pid signal
+    | `Win32 (proc,_) ->
+	assert(is_win32);
+	if signal = Sys.sigterm || signal = Sys.sigkill then (
+	  try
+	    Netsys_win32.terminate_process proc
+	  with _ -> ()
+	)
 ;;
 
 
@@ -753,6 +1046,31 @@ type job =
 ;;
 
 
+let eq_fd fd1 fd2 =
+  (* POSIX: Same as fd1=fd2.
+     Win32: We treat the standard descriptors specially, so they are only
+     equal to themselves, even if they are compared with another descriptor
+     using the same handle (i.e. not(eq_fd Unix.stdout Unix.stderr) even
+     if stdout and stderr are connected with the same handle)
+   *)
+  if is_win32 then
+    let fd1_stdin = Netsys.is_stdin fd1 in
+    let fd1_stdout = Netsys.is_stdout fd1 in
+    let fd1_stderr = Netsys.is_stderr fd1 in
+    let fd2_stdin = Netsys.is_stdin fd2 in
+    let fd2_stdout = Netsys.is_stdout fd2 in
+    let fd2_stderr = Netsys.is_stderr fd2 in
+    if fd1_stdin then fd2_stdin
+    else if fd1_stdout then fd2_stdout
+    else if fd1_stderr then fd2_stderr
+    else fd1=fd2
+  else
+    fd1=fd2
+
+
+let ( =$ ) = eq_fd
+
+
 let new_job () =
   { cg_commands = [];
     cg_pipelines = [];
@@ -764,7 +1082,8 @@ let new_job () =
 
 let add_command c cg =
   if List.memq c cg.cg_commands then
-    failwith "Shell_sys.add_command: Cannot add the same command twice; use copy_command to add a copy";
+    failwith "Shell_sys.add_command: Cannot add the same command twice; \
+              use copy_command to add a copy";
   cg.cg_commands <- c :: cg.cg_commands;
   ()
 ;;
@@ -779,9 +1098,11 @@ let add_pipeline
       cg =
 
   if not (List.memq src cg.cg_commands) then
-    failwith "Shell_sys.add_pipeline: the ~src command is not member of the command group";
+    failwith "Shell_sys.add_pipeline: the ~src command is not member of \
+              the command group";
   if not (List.memq dest cg.cg_commands) then
-    failwith "Shell_sys.add_pipeline: the ~dest command is not member of the command group";
+    failwith "Shell_sys.add_pipeline: the ~dest command is not member of \
+              the command group";
   let pl =
     { pl_src_command   = src;
       pl_dest_command  = dest;
@@ -802,7 +1123,8 @@ let add_producer
       cg =
 
   if not (List.memq c cg.cg_commands) then
-    failwith "Shell_sys.add_producer: the passed command is not member of the command group";
+    failwith "Shell_sys.add_producer: the passed command is not member of \
+              the command group";
 
   let ph =
     { ph_command = c;
@@ -822,7 +1144,8 @@ let add_consumer
       cg =
 
   if not (List.memq c cg.cg_commands) then
-    failwith "Shell_sys.add_consumer: the passed command is not member of the command group";
+    failwith "Shell_sys.add_consumer: the passed command is not member of \
+              the command group";
 
   let ph =
     { ph_command = c;
@@ -833,6 +1156,19 @@ let add_consumer
 
   cg.cg_consumers <- ph :: cg.cg_consumers
 ;;
+
+
+let write_close fd_style fd =
+  ( try
+      Netsys.gshutdown fd_style fd Unix.SHUTDOWN_SEND
+    with
+      | Netsys.Shutdown_not_supported -> ()
+      | Unix.Unix_error(Unix.EAGAIN,_,_) ->
+	  ignore(Netsys.wait_until_writable fd_style fd (-1.0));
+	  Netsys.gshutdown fd_style fd Unix.SHUTDOWN_SEND
+      | Unix.Unix_error(Unix.EPERM,_,_) -> ()
+  );
+  Netsys.gclose fd_style fd
 
 
 let from_string
@@ -853,13 +1189,19 @@ let from_string
   (* ==> Take material from positions pos to max_pos-1 from s *)
 
   let current_pos = ref pos in
+  let fd_style = ref `Read_write in
+  let fd_style_set = ref false in
 
   function fd ->
+    if not !fd_style_set then (
+      fd_style := Netsys.get_fd_style fd;
+      fd_style_set := true
+    );
     let m = max_pos - !current_pos in
     let n =
       if m > 0 then begin
 	try
-	  Unix.write fd s (!current_pos) m
+	  Netsys.gwrite !fd_style fd s (!current_pos) m
 	with
 	    Unix.Unix_error(Unix.EPIPE,_,_) ->
 	      epipe();
@@ -875,7 +1217,7 @@ let from_string
 	0 in
     current_pos := !current_pos + n;
     if !current_pos = max_pos then begin
-      Unix.close fd;
+      write_close !fd_style fd;
       false
     end
     else
@@ -889,7 +1231,14 @@ let from_stream
   let current_el  = ref None in
   let current_pos = ref 0 in
 
+  let fd_style = ref `Read_write in
+  let fd_style_set = ref false in
+
   function fd ->
+    if not !fd_style_set then (
+      fd_style := Netsys.get_fd_style fd;
+      fd_style_set := true
+    );
     (* If necessary, try to get the next stream element: *)
     begin match !current_el with
 	None ->
@@ -907,13 +1256,13 @@ let from_stream
     (* (Continue to) write the current stream element: *)
     match !current_el with
 	None ->
-	  Unix.close fd;
+	  write_close !fd_style fd;
 	  false
       | Some x ->
 	  let m = String.length x - !current_pos in
 	  let n =
 	    try
-	      Unix.write fd x (!current_pos) m
+	      Netsys.gwrite !fd_style fd x (!current_pos) m
 	    with
 		Unix.Unix_error(Unix.EPIPE,_,_) ->
 		  epipe();
@@ -935,10 +1284,17 @@ let to_buffer b =
   let m = 4096 in
   let s = String.create m in
 
+  let fd_style = ref `Read_write in
+  let fd_style_set = ref false in
+
   let next fd =
+    if not !fd_style_set then (
+      fd_style := Netsys.get_fd_style fd;
+      fd_style_set := true
+    );
     let n =
       try
-	let n = Unix.read fd s 0 m in
+	let n = Netsys.gread !fd_style fd s 0 m in
 	if n = 0 then -1 else n
       with
 	| Unix.Unix_error((Unix.EAGAIN | Unix.EWOULDBLOCK),_,_) ->
@@ -947,7 +1303,7 @@ let to_buffer b =
     in
     if n < 0 then begin
       (* EOF *)
-      Unix.close fd;
+      Netsys.gclose !fd_style fd;
       false
     end
     else begin
@@ -1028,14 +1384,16 @@ let abandoned_job_processes = ref [| dummy_process |];;
 
 
 type safe_fd =
-    FD of Unix.file_descr
+    FD of Netsys.fd_style * Unix.file_descr
   | FD_closed
 
-let mk_fd fd = ref(FD fd);;
+let mk_fd fd = 
+  let style = Netsys.get_fd_style fd in
+  ref(FD(style,fd));;
 
 let dest_fd safe_fd =
   match !safe_fd with
-      FD fd ->
+      FD(_,fd) ->
 	fd
     | FD_closed ->
 	failwith "Descriptor is closed"
@@ -1043,12 +1401,53 @@ let dest_fd safe_fd =
 
 let close_fd safe_fd =
   match !safe_fd with
-      FD fd ->
-	Unix.close fd;
+      FD(style,fd) ->
+	Netsys.gclose style fd;
 	safe_fd := FD_closed;
     | FD_closed ->
 	()
 ;;
+
+let print_fd safe_fd =
+  match !safe_fd with
+      FD(style,fd) ->
+	"FD(" ^ Int64.to_string(Netsys.int64_of_file_descr fd) ^ ")"
+    | FD_closed ->
+	"FD_closed"
+
+
+let print_raw_fd fd =
+  Int64.to_string(Netsys.int64_of_file_descr fd)
+
+
+
+let create_pipe() =
+  let (fd1,fd2) = Unix.pipe() in
+  Netsys.set_close_on_exec fd1;  (* wrong default on win32! *)
+  Netsys.set_close_on_exec fd2;
+  (fd1,fd2)
+
+let create_producer_pipe() =
+  let (fd1,fd2) = create_pipe() in
+  if is_win32 then
+    let othr = Netsys_win32.create_output_thread fd2 in
+    let fd2' = Netsys_win32.output_thread_proxy_descr othr in
+    (fd1,fd2')
+  else (
+    Unix.set_nonblock fd2;
+    (fd1,fd2)
+  )
+
+let create_consumer_pipe() =
+  let (fd1,fd2) = create_pipe() in
+  if is_win32 then
+    let ithr = Netsys_win32.create_input_thread fd1 in
+    let fd1' = Netsys_win32.input_thread_proxy_descr ithr in
+    (fd1',fd2)
+  else (
+    Unix.set_nonblock fd1;
+    (fd1,fd2)
+  )
 
 
 exception Pass_exn of exn;;
@@ -1060,6 +1459,11 @@ let run_job
 
   if cg.cg_commands = [] then
     invalid_arg "Shell_sys.run_job: No commands to start";
+
+  dlogr (fun () ->
+	   sprintf "run_job pipeline=%s"
+	     (String.concat " | " 
+		(List.map (fun c -> c.c_cmdname) cg.cg_commands)));
 
   (* Global stores: *)
 
@@ -1091,7 +1495,7 @@ let run_job
 	     let _, (other_out_end, other_in_end) =
 	       List.find (fun (p, _) ->
 			    (p.pl_src_command == pipe.pl_src_command) &&
-			    (p.pl_src_descr == pipe.pl_src_descr))
+			    (p.pl_src_descr =$ pipe.pl_src_descr))
 	                 !pipe_descriptors
 	     in
 	     Some (other_out_end, other_in_end)
@@ -1102,7 +1506,7 @@ let run_job
 	     let _, (other_out_end, other_in_end) =
 	       List.find (fun (p, _) ->
 			    (p.pl_dest_command == pipe.pl_dest_command) &&
-			    (p.pl_dest_descr == pipe.pl_dest_descr))
+			    (p.pl_dest_descr =$ pipe.pl_dest_descr))
 	                 !pipe_descriptors
 	     in
 	     Some (other_out_end, other_in_end)
@@ -1114,9 +1518,9 @@ let run_job
 	  *)
 	 if List.exists (fun (p, _) ->
 			   ((p.pl_src_command == pipe.pl_dest_command) &&
-			    (p.pl_src_descr = pipe.pl_dest_descr)) ||
+			    (p.pl_src_descr =$ pipe.pl_dest_descr)) ||
 			   ((p.pl_dest_command == pipe.pl_src_command) &&
-			    (p.pl_dest_descr = pipe.pl_src_descr)))
+			    (p.pl_dest_descr =$ pipe.pl_src_descr)))
 	                !pipe_descriptors
 	 then
 	   failwith "Shell_sys.run_group: Pipeline construction not possible or too ambitious";
@@ -1130,16 +1534,25 @@ let run_job
 		 if pipe.pl_bidirectional then
 		   Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0
 		 else
-		   Unix.pipe()
+		   create_pipe()
 	       in
 	       pipe_descriptors :=
-	         (pipe, (mk_fd out_end, mk_fd in_end)) :: !pipe_descriptors
+	         (pipe, (mk_fd out_end, mk_fd in_end)) :: !pipe_descriptors;
+	       dlogr (fun () ->
+			sprintf "Created ipc pipe %s:%s"
+			  (print_raw_fd out_end) (print_raw_fd in_end));
 	   | Some (out_end, in_end), None ->
 	       pipe_descriptors :=
-	         (pipe, (out_end, in_end)) :: !pipe_descriptors
+	         (pipe, (out_end, in_end)) :: !pipe_descriptors;
+	       dlogr (fun () ->
+			sprintf "Reusing ipc pipe %s:%s"
+			  (print_fd out_end) (print_fd in_end));
 	   | None, Some (out_end, in_end) ->
 	       pipe_descriptors :=
-	         (pipe, (out_end, in_end)) :: !pipe_descriptors
+	         (pipe, (out_end, in_end)) :: !pipe_descriptors;
+	       dlogr (fun () ->
+			sprintf "Reusing ipc pipe %s:%s"
+			  (print_fd out_end) (print_fd in_end));
 	   | _ ->
 	       (* case Some, Some: the same pipeline exists twice. We can drop
 		* the second.
@@ -1154,7 +1567,10 @@ let run_job
     List.iter
       (fun (_, (out_end, in_end)) ->
 	 close_fd out_end;
-	 close_fd in_end
+	 close_fd in_end;
+	 dlogr (fun () ->
+		  sprintf "Closed ipc pipe %s:%s"
+		    (print_fd out_end) (print_fd in_end));
       )
       !pipe_descriptors;
   in
@@ -1170,12 +1586,12 @@ let run_job
       List.exists
 	(fun (ph',_) ->
 	   (ph'.ph_command == ph.ph_command) &&
-	   (ph'.ph_descr = ph.ph_descr))
+	   (ph'.ph_descr =$ ph.ph_descr))
 	!producer_descriptors ||
       List.exists
 	(fun (ph',_) ->
 	   (ph'.ph_command == ph.ph_command) &&
-	   (ph'.ph_descr = ph.ph_descr))
+	   (ph'.ph_descr =$ ph.ph_descr))
 	!consumer_descriptors
     then
       failwith ("Shell_sys.run_job: A " ^ name ^
@@ -1186,9 +1602,9 @@ let run_job
       List.exists
 	(fun (pl',_) ->
 	   (pl'.pl_src_command == ph.ph_command &&
-            pl'.pl_src_descr = ph.ph_descr) ||
+            pl'.pl_src_descr =$ ph.ph_descr) ||
 	   (pl'.pl_dest_command == ph.ph_command &&
-            pl'.pl_dest_descr = ph.ph_descr))
+            pl'.pl_dest_descr =$ ph.ph_descr))
 	!pipe_descriptors
     then
       failwith ("Shell_sys.run_job: A " ^ name ^
@@ -1201,10 +1617,12 @@ let run_job
     List.iter
       (fun ph ->
 	 check_ph true ph;
-	 let out_end, in_end = Unix.pipe() in
-	 Unix.set_nonblock in_end;
+	 let out_end, in_end = create_producer_pipe() in
 	 producer_descriptors :=
 	   (ph, (mk_fd out_end, mk_fd in_end)) :: !producer_descriptors;
+	 dlogr (fun () ->
+		  sprintf "Created producer pipe %s:%s"
+		    (print_raw_fd out_end) (print_raw_fd in_end));
       )
       cg.cg_producers
   in
@@ -1214,10 +1632,12 @@ let run_job
     List.iter
       (fun ph ->
 	 check_ph false ph;
-	 let out_end, in_end = Unix.pipe() in
-	 Unix.set_nonblock out_end;
+	 let out_end, in_end = create_consumer_pipe() in
 	 consumer_descriptors :=
 	   (ph, (mk_fd out_end, mk_fd in_end)) :: !consumer_descriptors;
+	 dlogr (fun () ->
+		  sprintf "Created consumer pipe %s:%s"
+		    (print_raw_fd out_end) (print_raw_fd in_end));
       )
       cg.cg_consumers
   in
@@ -1228,6 +1648,10 @@ let run_job
      *)
     List.iter
       (fun (ph,(out_end, in_end)) ->
+	 dlogr (fun () ->
+		  sprintf "Closing producer pipe %s:%s"
+		    (print_fd out_end) 
+		    (if fully then print_fd in_end else "omitted"));
 	 close_fd out_end;
 	 if fully then close_fd in_end;
       )
@@ -1240,6 +1664,10 @@ let run_job
      *)
     List.iter
       (fun (ph,(out_end, in_end)) ->
+	 dlogr (fun () ->
+		  sprintf "Closing consumer pipe %s:%s"
+		    (if fully then print_fd out_end else "omitted")
+		    (print_fd in_end));
 	 close_fd in_end;
 	 if fully then close_fd out_end;
       )
@@ -1333,6 +1761,8 @@ let run_job
 	     c
 	 in
 
+	 dlogr (fun () -> sprintf "Started process %s" c.c_cmdname);
+
 	 processes := p :: !processes;
 	 if !leader = None then leader := Some p;
 
@@ -1340,7 +1770,9 @@ let run_job
 	 then
 	   group_behaviour := Join_group (process_id p)
       )
-      cg.cg_commands
+      cg.cg_commands;
+
+    dlog "Processes started"
   in
 
   try
@@ -1368,6 +1800,10 @@ let run_job
 
     (* Store the new process group: *)
 
+    dlogr (fun () ->
+	     sprintf "run_job setup done - pipeline=%s"
+	       (String.concat " | " 
+		  (List.map (fun c -> c.c_cmdname) cg.cg_commands)));
     let g =
       { pg_id = if mode = Same_as_caller then (-1)
                 else (match !leader with
@@ -1396,6 +1832,9 @@ let run_job
 	(* If another error happens while it is tried to recover from the
 	 * first error, a Fatal_error is raised.
 	 *)
+	dlogr (fun () ->
+		 sprintf "run_job error %s"
+		   (Netexn.to_string ex));
 	try
 	  (* Close all interprocess pipelines (if not already done) *)
 	  close_interprocess_pipelines();
@@ -1431,11 +1870,21 @@ let run_job
 	    raise (Pass_exn ex)
 	with
 	  | Pass_exn ex ->
+	      dlogr (fun () ->
+		       sprintf "run_job returning error %s"
+			 (Netexn.to_string ex));
 	      raise ex
 	  | (Fatal_error ex') as ex ->
+	      dlogr (fun () ->
+		       sprintf "run_job returning error %s"
+			 (Netexn.to_string ex));
 	      raise ex
 	  | ex' ->
-	      raise (Fatal_error ex')
+	      let ex'' = Fatal_error ex' in
+	      dlogr (fun () ->
+		       sprintf "run_job returning error %s"
+			 (Netexn.to_string ex''));
+	      raise ex''
 ;;
 
 
@@ -1459,17 +1908,32 @@ let process_group_expects_signals pg =
 let job_status pg = pg.pg_status;;
 
 
+let string_of_pevent =
+  function
+    | File_read fd ->
+	sprintf "File_read(%Ld)" (Netsys.int64_of_file_descr fd)
+    | File_write fd ->
+	sprintf "File_write(%Ld)" (Netsys.int64_of_file_descr fd)
+    | File_except fd ->
+	sprintf "File_except(%Ld)" (Netsys.int64_of_file_descr fd)
+    | Process_event p ->
+	sprintf "Process_event(%s)" p.p_command.c_cmdname
+    | Signal ->
+	"Signal"
+	
+
+
 let close_job_descriptors pg =
   (* Close the pipeline descriptors used for producers and consumers.
    * These alists only contain the descriptors that are still open,
    * so we can simply close them.
    *)
   List.iter
-    (fun (fd,_) -> Unix.close fd)
+    (fun (fd,_) -> Netsys.gclose (Netsys.get_fd_style fd) fd)
     pg.pg_fd_consumer_alist;
   pg.pg_fd_consumer_alist <- [];
   List.iter
-    (fun (fd,_) -> Unix.close fd)
+    (fun (fd,_) -> Netsys.gclose (Netsys.get_fd_style fd) fd)
     pg.pg_fd_producer_alist;
   pg.pg_fd_producer_alist <- []
 ;;
@@ -1507,6 +1971,7 @@ let register_job sys pg =
 
   let handle_event e =
     (* may fail because of an exception in one of the called handlers! *)
+    dlogr (fun () -> sprintf "handle_event %s" (string_of_pevent e));
     match e with
 	File_except _ ->
 	  assert false
@@ -1542,6 +2007,10 @@ let register_job sys pg =
   in
 
   let rec callback events =
+    dlogr (fun () -> 
+	     sprintf "event callback for [%s]"
+	       (String.concat ";" 
+		  (List.map string_of_pevent events)));
     if events = [] then begin
       (* This is the last callback! *)
       (* All processes have finished. *)
@@ -1551,6 +2020,7 @@ let register_job sys pg =
 	     try status p = Unix.WEXITED 0 with Not_found -> assert false)
 	  pg.pg_processes
       in
+      dlogr (fun () -> sprintf "successful=%b" successful);
       let new_status = if successful then Job_ok else Job_error in
       pg.pg_status <- new_status;
 
@@ -1605,6 +2075,30 @@ let finish_job ?(sys = standard_system_handler()) pg =
 ;;
 
 
+let gc_info () =
+  dlog "Current jobs:";
+  with_current_jobs
+    (fun()->
+       List.iter
+	 (fun j ->
+	    dlogr(fun () -> 
+		    sprintf "- Job %s"
+		      (String.concat " | "
+			 (List.map (fun c -> c.c_cmdname) 
+			    j.pg_cg.cg_commands)));
+	 )
+	 !current_jobs
+    );
+  dlog "Abandoned processes:";
+  Array.iter
+    (fun p ->
+       if p.p_abandoned then
+	 dlogr(fun () ->
+		 sprintf "- Process %s"
+		   (p.p_command.c_cmdname)))
+    !abandoned_job_processes
+
+
 let iter_job_instances
       ~f =
   with_current_jobs
@@ -1614,8 +2108,10 @@ let iter_job_instances
 let kill_process_group
       ?(signal = Sys.sigterm)
       pg =
-  if pg.pg_mode = Same_as_caller then
+  if is_win32 || pg.pg_mode = Same_as_caller then
     raise No_Unix_process_group;
+  dlogr (fun () -> sprintf "Killing pg %d signal %d"
+	   pg.pg_id signal);
   Unix.kill (- pg.pg_id) signal
 ;;
 
@@ -1697,7 +2193,8 @@ let abandon_job ?(signal = Sys.sigterm) pg =
      * abandoned_job_processes.
      *)
 
-    Unix.kill (Unix.getpid()) (Sys.sigchld);
+    if not is_win32 then
+      Unix.kill (Unix.getpid()) (Sys.sigchld);
     (* Force a SIGCHLD such that the abandoned processes will be checked
      * in near future.
      *)
@@ -1728,9 +2225,19 @@ let watch_for_zombies () =
   Array.iter
     (fun p ->
        if p.p_status = None then begin
-	 let pid,status = Unix.waitpid [ Unix.WNOHANG ] p.p_id in
-	 if pid = p.p_id then
-	   p.p_status <- Some status
+	 ( match p.p_id with
+	     | `POSIX pid ->
+		 let real_pid,status = Unix.waitpid [ Unix.WNOHANG ] pid in
+		 if pid = real_pid then
+		   p.p_status <- Some status
+	     | `Win32(proc,_) ->
+		 p.p_status <- Netsys_win32.get_process_status proc
+	 );
+	 if p.p_status <> None then (
+	   (* remove references so the GC can free stuff: *)
+	   p.p_abandoned <- false;
+	   p.p_id <- `POSIX 0
+	 )
        end
     )
     !abandoned_job_processes;
@@ -1804,6 +2311,8 @@ let install_job_handlers () =
   in
 
   let forward_signal always signo =
+    dlogr (fun () -> sprintf "forward_signal always=%b signo=%d"
+	     always signo);
     iter_job_instances
       (fun pg ->
 	 if always || process_group_expects_signals pg then begin
@@ -1819,6 +2328,7 @@ let install_job_handlers () =
   in
 
   let watch_for_zombies _ =
+    dlog "watch_for_zombies";
     watch_for_zombies()
   in
 

@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+open Printf
+
 type entry =
     { sig_number : int;
       sig_library : string option;
@@ -8,6 +10,23 @@ type entry =
       sig_name : string;
       sig_callback : int -> unit;
     }
+
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Netsys_signal" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netsys_signal" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Netsys_signal" Debug.enable
+
+
+let is_win32 =
+  match Sys.os_type with
+    | "Win32" -> true
+    | _ -> false
 
 
 let sig_enable = Hashtbl.create 30
@@ -36,6 +55,7 @@ let lethal_default_actions =
   ]
 
 let handle signo =
+  dlogr (fun () -> sprintf "handle %d" signo);
   let entries =
     try Hashtbl.find sig_definition signo
     with Not_found -> [] in
@@ -44,17 +64,29 @@ let handle signo =
     (fun entry ->
        emulate_default := !emulate_default && entry.sig_keep_default;
        try
+	 dlogr (fun () -> 
+		  sprintf "signal %d calling back %s handler '%s'"
+		    signo
+		    (match entry.sig_library with 
+		       | None -> "application"
+		       | Some lib -> "library '" ^ lib ^ "'")
+		    entry.sig_name
+	       );
 	 entry.sig_callback signo
        with _ -> ()
 	 (* Be hard with exceptions here! *)
     )
     entries;
   if !emulate_default then (
+    dlogr (fun () -> sprintf "signal %d emulating default" signo);
     (* If the default signal action is not "ignore", it is an action that
        will terminate the process. So we can emulate it by setting the
        signal handler again, and by sending the signal to the process.
      *)
     if List.mem signo lethal_default_actions then (
+      Netsys._exit 126;
+      (*  - This does not reliably work in multi-threaded programs: *)
+      (*
       ignore(Sys.signal signo Sys.Signal_default);
       Unix.kill (Unix.getpid()) signo;
       (* The signal signo is pending but usually blocked because this function
@@ -66,6 +98,7 @@ let handle signo =
       while true do Unix.pause() done;
       (* Never return to this point of execution! *)
       assert false
+       *)
     )
   )
 
@@ -159,6 +192,18 @@ let keep_away_list() =
 	 sig_enable
 	 []
     )
+
+let () =
+  if is_win32 then (
+    (* Disable all except Sys.sigint: *)
+    List.iter
+      (fun signo -> Hashtbl.add sig_enable signo `Disabled)
+      [ Sys.sigabrt; Sys.sigalrm; Sys.sigfpe; Sys.sighup; Sys.sigill;
+	Sys.sigkill; Sys.sigpipe; Sys.sigquit; Sys.sigsegv; Sys.sigterm;
+	Sys.sigusr1; Sys.sigusr2; Sys.sigchld; Sys.sigcont; Sys.sigstop;
+	Sys.sigtstp; Sys.sigttin; Sys.sigttou; Sys.sigvtalrm; Sys.sigprof
+      ]
+  )
 
 let () =
   register_handler

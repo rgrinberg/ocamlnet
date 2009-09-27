@@ -720,6 +720,9 @@ class input_descr :
    *
    * The method [close_in] also closes the file descriptor.
    *
+   * This class also supports Win32 proxy descriptors referring to an input
+   * channel.
+   *
    * @param blocking Whether the channel waits for data if it is not
    * possible to read from the (non-blocking) descriptor. Defaults to [true].
    * @param start_pos_in The position to which [pos_in] is initialized when
@@ -739,6 +742,9 @@ class output_descr :
    * of written octets. It is not tried to determine the real file position.
    *
    * The method [close_out] also closes the file descriptor.
+   *
+   * This class also supports Win32 proxy descriptors referring to an output
+   * channel.
    *
    * @param blocking Whether the channel waits until it can output if it is not
    * possible to write to the (non-blocking) descriptor. Defaults to [true].
@@ -760,6 +766,10 @@ class socket_descr :
    * the descriptor is closed.
    *
    * The [pos_in] and [pos_out] methods returns logical positions.
+   *
+   * This class supports sockets and Win32 named pipes. Note, however,
+   * that for Win32 named pipes it is not possible to shut down only one
+   * direction of the bidirectional data channel.
    *
    * @param blocking See {!input_descr} and {!output_descr}
    * @param start_pos_in The position to which [pos_in] is initialized when

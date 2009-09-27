@@ -20,7 +20,7 @@ let open_sockets prots =
     Unix.setsockopt s Unix.SO_KEEPALIVE proto#so_keepalive;
     Unix.bind s addr;
     Unix.set_nonblock s;
-    Unix.set_close_on_exec s;
+    Netsys.set_close_on_exec s;
     Unix.listen s proto#lstn_backlog;
     s
   in
@@ -35,7 +35,7 @@ let open_sockets prots =
     Unix.setsockopt s Unix.SO_KEEPALIVE proto#so_keepalive;
     Unix.bind s addr;
     Unix.set_nonblock s;
-    Unix.set_close_on_exec s;
+    Netsys.set_close_on_exec s;
     Unix.listen s proto#lstn_backlog;
     ( match Unix.getsockname s with
 	| Unix.ADDR_INET(_, port) ->

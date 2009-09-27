@@ -9,6 +9,13 @@
     The module also defines an empty handler list for [Sys.sigpipe], so these
     signals are ignored by the program. This empty list can be extended, 
     however.
+
+    Win32: Only [Sys.sigint] handlers can effectively be registered. 
+    Registrations for other signal types are accepted but ignored.
+ *)
+
+(* Win32: The Ocaml runtime makes a bad joke, and uses SIGTERM for
+   interrupting the running program from the tick thread
  *)
 
 val register_handler : 
@@ -40,9 +47,14 @@ val register_handler :
       application handlers. Libraries should only use values from 0 to 99,
       and applications only from 100 to 199.
 
-      If all handler for a certain signal set [keep_default], then there
+      If all handlers for a certain signal set [keep_default], then there
       will be a special action after all signal handlers have been executed.
       The special action emulates the default behavior for the signal.
+      For now, there is only a simple emulation: If the signal terminates
+      the process, the process is immediately exited with code 126.
+      If the default behaviour is "no-op", nothing happens. We don't try
+      (yet) to do better (emulate core-dumps, emulate the right process
+      status) because this is difficult in the general case.
 
       The handler definition takes place immediately.
 
@@ -90,3 +102,10 @@ val init : unit -> unit
       also possible to call any other function. After initialization the
       Sigpipe handler is set.
    *)
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of this module  *)
+end

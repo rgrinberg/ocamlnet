@@ -1492,8 +1492,10 @@ object(self)
   initializer
     match fd_style with
       | `W32_pipe -> ()
-      | `W32_event | `W32_pipe_server ->
-	  invalid_arg "Uq_engines.socket_multiplex_controller: invalid type of file descriptor"
+      | `W32_event | `W32_pipe_server | `W32_input_thread 
+      | `W32_output_thread | `W32_process ->
+	  invalid_arg "Uq_engines.socket_multiplex_controller: \
+                       invalid type of file descriptor"
       | _ -> 
 	  Unix.set_nonblock fd
 
@@ -1690,7 +1692,10 @@ object(self)
 			      let ph = get_ph() in
 			      Netsys_win32.pipe_read ph s pos len
 			  | `W32_event 
-			  | `W32_pipe_server ->
+			  | `W32_process
+			  | `W32_pipe_server 
+			  | `W32_input_thread
+			  | `W32_output_thread ->
 			      assert false
 		      in
 		      if n = 0 (* && not use_rcv *) then (
@@ -1773,7 +1778,10 @@ object(self)
 			      let ph = get_ph() in
 			      Netsys_win32.pipe_write ph s pos len
 			  | `W32_event
-			  | `W32_pipe_server ->
+			  | `W32_process
+			  | `W32_pipe_server 
+			  | `W32_input_thread
+			  | `W32_output_thread ->
 			      assert false in
 		      (None, n, true)
 		    with
@@ -2406,7 +2414,7 @@ object (self)
 	    let connect_tried = ref false in
 	    let s = Unix.socket sockdom 0 in
 	    ( try
-		Unix.set_close_on_exec s;
+		Netsys.set_close_on_exec s;
 		Unix.set_nonblock s;
 		( match bind_addr_opt with
 		    | None -> ()
@@ -2491,7 +2499,7 @@ end
 
       let setup_socket s stype dest_addr opts =
 	try
-	  Unix.set_close_on_exec s;
+	  Netsys.set_close_on_exec s;
 	  Unix.set_nonblock s;
 	  ( match opts.conn_bind with
 	      | Some bind_spec ->
@@ -2621,15 +2629,15 @@ object(self)
 
 	  Unix.set_nonblock u;
 	  Unix.set_nonblock v;
-          Unix.set_close_on_exec u;
-          Unix.set_close_on_exec v;
+          Netsys.set_close_on_exec u;
+          Netsys.set_close_on_exec v;
  
           let (s_in_sub, s_in) = Unix.pipe() in
           let (s_out, s_out_sub) = Unix.pipe() in
           let _e1 = new copier (`Tridirectional(v, s_in, s_out)) ues in
  
-	  Unix.set_close_on_exec s_in;
-          Unix.set_close_on_exec s_out;
+	  Netsys.set_close_on_exec s_in;
+          Netsys.set_close_on_exec s_out;
 
 	  let e2 = new epsilon_engine (`Done ()) ues in
 	    
@@ -2960,7 +2968,7 @@ class direct_datagram_socket dgtype (sdom,stype,sproto)
   let sock = Unix.socket sdom stype sproto in
   let _ = 
     Unix.set_nonblock sock;
-    Unix.set_close_on_exec sock in
+    Netsys.set_close_on_exec sock in
 object(self)
   method descriptor = sock
   method sendto s p n flags spec = 

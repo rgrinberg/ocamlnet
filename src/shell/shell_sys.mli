@@ -862,3 +862,16 @@ val install_job_handlers : unit -> unit
  * They were added prior to the merge with the equeue library. Use a 
  * Unixqueue now, which is much more powerful.
  *)
+
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of this module  *)
+end
+
+(**/**)
+
+val gc_info : unit -> unit
+val watch_for_zombies : unit -> unit

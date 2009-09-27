@@ -56,8 +56,8 @@ let get_pipe_pair() =
 	 match !pipes with
 	   | [] ->
 	       let (p1,p2) = Unix.pipe() in
-	       Unix.set_close_on_exec p1;
-	       Unix.set_close_on_exec p2;
+	       Netsys.set_close_on_exec p1;
+	       Netsys.set_close_on_exec p2;
 	       (p1,p2)
 	   | (p1,p2) :: r ->
 	       pipes := r;

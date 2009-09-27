@@ -1262,7 +1262,7 @@ object (self)
   method input buf pos len =
     if closed_in then self # complain_closed();
     try
-      let n = Unix.read fd_in buf pos len in
+      let n = Netsys.gread fd_style fd_in buf pos len in
       pos_in <- pos_in + n;
       if n=0 && len>0 then raise End_of_file;
       n
@@ -1281,7 +1281,8 @@ object (self)
   
   method close_in () =
     if closed_in then self # complain_closed();
-    Unix.close fd_in; closed_in <- true
+    Netsys.gclose fd_style fd_in; 
+    closed_in <- true
 
   method pos_in =
     if closed_in then self # complain_closed();
@@ -1308,7 +1309,7 @@ object (self)
   method output buf pos len =
     if closed_out then self # complain_closed();
     try
-      let n = Unix.single_write fd_out buf pos len in
+      let n = Netsys.gwrite fd_style fd_out buf pos len in
       pos_out <- pos_out + n;
       n
     with
@@ -1326,7 +1327,24 @@ object (self)
   
   method close_out () =
     if closed_out then self # complain_closed();
-    Unix.close fd_out; closed_out <- true
+    ( try
+	Netsys.gshutdown fd_style fd Unix.SHUTDOWN_SEND
+      with
+	| Netsys.Shutdown_not_supported -> ()
+	| Unix.Unix_error(Unix.EAGAIN, _, _) ->
+	    (* FIXME. We block here even when non-blocking semantics
+               is requested. We do this because most programmers would
+               be surprised to get EAGAIN when closing a channel.
+               Actually, this only affects Win32 output threads.
+	     *)
+	    let _  = Netsys.restart 
+	      (Netsys.wait_until_writable fd_style fd) (-1.0) in
+	    Netsys.gshutdown fd_style fd Unix.SHUTDOWN_SEND
+	| Unix.Unix_error(Unix.EPERM, _, _) ->
+	    ()
+    );
+    Netsys.gclose fd_style fd_out; 
+    closed_out <- true
 
   method pos_out =
     if closed_out then self # complain_closed();
@@ -1345,23 +1363,47 @@ class output_descr ?blocking ?start_pos_out fd : raw_out_channel =
 
 class socket_descr ?blocking ?(start_pos_in = 0) ?(start_pos_out = 0) fd 
       : raw_io_channel =
+  let fd_style = Netsys.get_fd_style fd in
+  let () =
+    match fd_style with
+      | `Recv_send _
+      | `Recv_send_implied
+      | `W32_pipe -> ()
+      | _ ->
+	  failwith "Netchannels.socket_descr: This type of descriptor is \
+                    unsupported"
+  in
 object (self)
   inherit input_descr_prelim ?blocking ~start_pos_in fd
   inherit output_descr_prelim ?blocking ~start_pos_out fd 
   
+  method private gen_close cmd =
+    ( try
+	Netsys.gshutdown fd_style fd cmd
+      with
+	| Netsys.Shutdown_not_supported -> ()
+	| Unix.Unix_error(Unix.EAGAIN, _, _) -> assert false
+	| Unix.Unix_error(Unix.EPERM, _, _) -> ()
+    );
+    if cmd = Unix.SHUTDOWN_ALL then
+      Netsys.gclose fd_style fd
+
+
   method close_in () =
     if closed_in then self # complain_closed();
     closed_in <- true;
-    Unix.shutdown fd Unix.SHUTDOWN_RECEIVE;
     if closed_out then
-      Unix.close fd
+      self # gen_close Unix.SHUTDOWN_ALL
+    else
+      self # gen_close Unix.SHUTDOWN_RECEIVE
   
   method close_out () =
-    if closed_out then self # complain_closed();
+    if closed_in then self # complain_closed();
     closed_out <- true;
-    Unix.shutdown fd Unix.SHUTDOWN_SEND;
     if closed_in then
-      Unix.close fd
+      self # gen_close Unix.SHUTDOWN_ALL
+    else
+      self # gen_close Unix.SHUTDOWN_SEND
 end
 ;;
 
