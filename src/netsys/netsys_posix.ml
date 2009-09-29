@@ -324,6 +324,48 @@ let spawn ?(chdir = Wd_keep) ?(pg = Pg_keep) ?(fd_actions = [])
   netsys_spawn chdir pg fd_actions sig_actions env cmd args
 
 
+type watched_subprocess = 
+    { atom_idx : int;
+      mutable alive : bool;
+    }
+
+external netsys_watch_subprocess : int -> Unix.file_descr * int
+  = "netsys_watch_subprocess"
+
+external netsys_ignore_subprocess : int -> unit
+  = "netsys_ignore_subprocess"
+
+external netsys_forget_subprocess : int -> unit
+  = "netsys_forget_subprocess"
+
+external netsys_get_subprocess_status : int -> Unix.process_status option
+  = "netsys_get_subprocess_status"
+
+external install_subprocess_handler : unit -> unit
+  = "netsys_install_sigchld_handler"
+
+let watch_subprocess pid =
+  let fd, atom_idx = netsys_watch_subprocess pid in
+  let ws = { atom_idx = atom_idx; alive = true } in
+  (fd, ws)
+
+let ignore_subprocess ws =
+  if not ws.alive then
+    failwith "Netsys_posix.ignore_subprocess: stale reference";
+  netsys_ignore_subprocess ws.atom_idx;
+  ws.alive <- false
+
+let forget_subprocess ws =
+  if ws.alive then (
+    netsys_forget_subprocess ws.atom_idx;
+    ws.alive <- false
+  )
+
+let get_subprocess_status ws =
+  if not ws.alive then
+    failwith "Netsys_posix.get_subprocess_status: stale reference";
+  netsys_get_subprocess_status ws.atom_idx
+
 
 (* Optional POSIX functions *)
 

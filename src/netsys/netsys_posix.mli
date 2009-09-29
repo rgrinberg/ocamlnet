@@ -301,6 +301,67 @@ val spawn : ?chdir:wd_spec ->
    *)
 
 
+(** {1 Subprocesses and signals} *)
+
+(** Watching subprocesses requires that the right signal handler is
+    installed: [install_subprocess_handler]
+ *)
+
+type watched_subprocess
+
+val watch_subprocess : int -> Unix.file_descr * watched_subprocess
+  (** [let fd, ws = watch_subprocess pid]: Enters the subprocess [pid]
+      into the watch list. The descriptor [fd] is open for reading and
+      will indicate EOF when the subprocess is terminated. Via [ws]
+      it is possible to query information about the subprocess. The
+      installed signal handler will [wait] for the subprocess and
+      put the process status into [ws].
+
+      The caller has to close [fd] after the termination is signalled.
+   *)
+
+val ignore_subprocess : watched_subprocess -> unit
+  (** Changes the arrangement so that the termination of the subprocess
+      is no longer reported by the file descriptor. The file descriptor
+      indicates EOF immediately (and can be closed by the caller).
+      Nevertheless, the signal handler still [wait]s for the subprocess
+      to avoid zombies.
+
+      Any further access to [ws] will fail.
+   *)
+     
+val forget_subprocess : watched_subprocess -> unit
+  (** Frees OS resources. Any further access to the [ws] will fail. *)
+
+val get_subprocess_status : watched_subprocess -> Unix.process_status option
+  (** If the subprocess is terminated, this function returns the status.
+      Otherwise [None] is returned
+   *)
+
+val install_subprocess_handler : unit -> unit
+  (** Installs a SIGCHLD handler for watching subprocesses. Note that only
+      processes are [wait]ed for that are registered with 
+      [watch_subprocess].
+
+      The handler works both in the single-threaded and the multi-threaded
+      case.
+
+      About the handler and [fork](): If [fork] is not followed by [exec],
+      and there are watched subprocesses, the mechanism does not work anymore.
+      The reason is that the event notification is done via file descriptors,
+      and these are inherited by [fork], but not closed. So the parent
+      process will never see the notification anymore. So don't use this
+      mechanism in processes that [fork] for creating worker processes,
+      like in the [Netplex] master process.
+
+      The things are even worse when such a [fork] happens, and the program
+      is multi-threaded. In that case the underlying data structure may
+      even get destroyed when the [fork] happens while another thread modifies
+      the structure. (Well, you know, don't even think about [fork]ing
+      in multi-threaded programs. It is unsafe anyway.)
+   *)
+ 
+
 (** {1 Optional POSIX functions} *)
 
 external have_fadvise : unit -> bool = "netsys_have_posix_fadvise"

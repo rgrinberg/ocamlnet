@@ -18,6 +18,10 @@
 #include <sys/poll.h>
 #endif
 
+#ifdef HAVE_PTHREAD
+#include <pthread.h>
+#endif
+
 
 CAMLprim value netsys_int64_of_file_descr(value fd) {
 #ifdef _WIN32
@@ -821,6 +825,349 @@ CAMLprim value netsys_spawn_byte(value * argv, int argn)
 
 #undef MAIN_ERROR
 #undef SUB_ERROR
+
+/**********************************************************************/
+/* Signals+Subprocesses                                               */
+/**********************************************************************/
+
+#ifdef HAVE_POSIX_SIGNALS
+struct sigchld_atom {
+    pid_t pid;          /* 0 means this atom is free */
+    int   terminated;   /* whether terminated or not */
+    int   status;       /* if terminated */
+    int   ignore;       /* whether this is an ignored process */
+    int   pipe_fd;      /* this fd is closed when termination is detected */
+};
+
+static struct sigchld_atom *sigchld_list = NULL;   /* an array of atoms */
+static int                  sigchld_list_len = 0;  /* length of array */
+
+#ifdef HAVE_PTHREAD
+static pthread_mutex_t      sigchld_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+
+static void sigchld_lock(int block_signal, int master_lock) {
+    sigset_t set;
+    int code;
+
+    sigemptyset(&set);
+    sigaddset(&set, SIGCHLD);
+
+#ifdef HAVE_PTHREAD
+    if (block_signal) {
+	code = pthread_sigmask(SIG_BLOCK, &set, NULL);
+	if (code != 0)
+	    uerror("pthread_sigmask", Nothing);
+    }
+    if (master_lock)
+	caml_enter_blocking_section();
+    pthread_mutex_lock(&sigchld_mutex);
+    if (master_lock)
+	caml_leave_blocking_section();
+#else
+    if (block_signal) {
+	code = sigprocmask(SIG_BLOCK, &set, NULL);
+	if (code == -1)
+	    uerror("sigprocmask", Nothing);
+    }
+#endif
+}
+
+
+static void sigchld_unlock(int unblock_signal) {
+    sigset_t set;
+    int code;
+
+    sigemptyset(&set);
+    sigaddset(&set, SIGCHLD);
+
+#ifdef HAVE_PTHREAD
+    pthread_mutex_unlock(&sigchld_mutex);
+    if (unblock_signal) {
+	code = pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+	if (code != 0)
+	    uerror("pthread_sigmask", Nothing);
+    }
+#else
+    if (unblock_signal) {
+	code = sigprocmask(SIG_UNBLOCK, &set, NULL);
+	if (code == -1)
+	    uerror("sigprocmask", Nothing);
+    }
+#endif
+}
+
+
+static void sigchld_action(int signo, siginfo_t *info, void *ctx) {
+    /* This is the sa_sigaction-style signal handler */
+    pid_t pid;
+    int k;
+    struct sigchld_atom *atom;
+
+    /* The SIGCHLD signal is blocked in the current thread during the
+       execution of this function. However, other threads can also
+       try to access sigchld_list in parallel, so we have to protect
+       that with a mutex.
+    */
+    sigchld_lock(0, 0);
+
+    if (info->si_code == CLD_EXITED) {
+
+	/* Now search for the PID */
+	pid = info->si_pid;
+	atom = NULL;
+	for (k=0; k<sigchld_list_len && atom==NULL; k++) {
+	    if (sigchld_list[k].pid == pid) {
+		atom = &(sigchld_list[k]);
+	    }
+	}
+	
+	if (atom != NULL) {
+	    waitpid(pid, NULL, WNOHANG);
+	    if (! atom->ignore && ! atom->terminated) {
+		close(atom->pipe_fd);
+	    }
+	    atom->terminated = 1;
+	    atom->status = info->si_status;
+	}
+    }
+
+    sigchld_unlock(0);
+}
+
+
+#endif  /* HAVE_POSIX_SIGNALS */
+
+
+CAMLprim value netsys_install_sigchld_handler(value dummy) {
+#ifdef HAVE_POSIX_SIGNALS
+    int code;
+    struct sigaction action;
+    int k;
+    
+    action.sa_sigaction = sigchld_action;
+    sigemptyset(&(action.sa_mask));
+    action.sa_flags = SA_SIGINFO;
+
+    sigchld_list_len = 100;
+    sigchld_list = (struct sigchld_atom *) malloc(sigchld_list_len * 
+						  sizeof(struct sigchld_atom));
+    if (sigchld_list == NULL) 
+	failwith("Cannot allocate memory");
+
+    for (k=0; k<sigchld_list_len; k++)
+	sigchld_list[k].pid = 0;
+
+    code = sigaction(SIGCHLD,
+		     &action,
+		     NULL);
+    if (code == -1)
+	uerror("sigaction", Nothing);
+
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.install_subprocess_handler not available");
+#endif
+}
+
+
+CAMLprim value netsys_watch_subprocess(value pid_v) {
+#ifdef HAVE_POSIX_SIGNALS
+    int k, atom_idx;
+    struct sigchld_atom *atom;
+    int pfd[2];
+    value r;
+    pid_t pid;
+    int status, code;
+    
+    if (sigchld_list == NULL)
+	failwith("Netsys_posix.watch_subprocess: uninitialized");
+
+    if (pipe(pfd) == -1)
+	uerror("pipe", Nothing);
+
+    if (fcntl(pfd[0], F_SETFD, FD_CLOEXEC) == -1) {
+	code = errno;
+	close(pfd[0]);
+	close(pfd[1]);
+	errno = code;
+	uerror("set_close_on_exec", Nothing);
+    };
+
+    if (fcntl(pfd[1], F_SETFD, FD_CLOEXEC) == -1) {
+	code = errno;
+	close(pfd[0]);
+	close(pfd[1]);
+	errno = code;
+	uerror("set_close_on_exec", Nothing);
+    };
+
+    pid = Int_val(pid_v);
+
+    /* First block the signal handler and other threads from concurrent
+       accesses:
+    */
+    sigchld_lock(1, 1);
+
+    /* Search for a free atom: */
+    atom=0;
+    atom_idx = 0;
+    for (k=0; k<sigchld_list_len && atom==NULL; k++) {
+	if (sigchld_list[k].pid == 0) {
+	    atom = &(sigchld_list[k]);
+	    atom_idx = k;
+	}
+    }
+
+    if (atom == NULL) {
+	/* Nothing found. Reallocate. */
+	int old_size;
+
+	old_size = sigchld_list_len;
+	sigchld_list_len += sigchld_list_len;
+
+	sigchld_list = 
+	    (struct sigchld_atom *) realloc( (struct sigchld_atom *)
+					     sigchld_list,
+					     sigchld_list_len * 
+					     sizeof(struct sigchld_atom) );
+
+	if (sigchld_list == NULL) {
+	    sigchld_unlock(1);
+	    close(pfd[0]);
+	    close(pfd[1]);
+	    failwith("Cannot allocate memory");
+	};
+
+	for (k=old_size; k<sigchld_list_len; k++)
+	    sigchld_list[k].pid = 0;
+
+	atom = &(sigchld_list[old_size]);
+	atom_idx = old_size;
+    };
+
+    /* Try waitpid once. Maybe the process is already terminated! */
+    code = waitpid(pid, &status, WNOHANG);
+
+    if (code == -1) {
+	code = errno;
+	sigchld_unlock(1);
+	close(pfd[0]);
+	close(pfd[1]);
+	errno = code;
+	uerror("waitpid", Nothing);
+    };
+
+    if (code == 0) {  /* not yet terminated */
+	atom->pid = pid;
+	atom->terminated = 0;
+	atom->status = 0;
+	atom->ignore = 0;
+	atom->pipe_fd = pfd[1];
+    } else {
+	close(pfd[1]);
+	atom->pid = pid;
+	atom->terminated = 1;
+	atom->status = status;
+	atom->ignore = 0;
+	atom->pipe_fd = -1;
+    };
+
+    sigchld_unlock(1);
+
+    r = alloc(2,0);
+    Field(r,0) = Val_int(pfd[0]);
+    Field(r,1) = Val_int(atom_idx);
+    
+    return r;
+#else
+    invalid_argument("Netsys_posix.watch_subprocess not available");
+#endif
+}
+
+
+CAMLprim value netsys_ignore_subprocess(value atom_idx_v) {
+#ifdef HAVE_POSIX_SIGNALS
+    int atom_idx;
+    struct sigchld_atom *atom;
+
+    atom_idx = Int_val(atom_idx_v);
+
+    sigchld_lock(1, 1);
+
+    atom = &(sigchld_list[atom_idx]);
+    if (!atom->ignore && !atom->terminated)
+	close(atom->pipe_fd);
+    atom->ignore = 1;
+    
+    sigchld_unlock(1);
+
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.ignore_subprocess not available");
+#endif
+}
+
+
+CAMLprim value netsys_forget_subprocess(value atom_idx_v) {
+#ifdef HAVE_POSIX_SIGNALS
+    int atom_idx;
+    struct sigchld_atom *atom;
+
+    sigchld_lock(1, 1);
+
+    atom_idx = Int_val(atom_idx_v);
+    atom = &(sigchld_list[atom_idx]);
+
+    atom->pid = 0;
+    if (!atom->ignore && !atom->terminated)
+	close(atom->pipe_fd);
+
+    sigchld_unlock(1);
+
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.forget_subprocess not available");
+#endif
+}
+
+
+#define TAG_WEXITED 0
+#define TAG_WSIGNALED 1
+#define TAG_WSTOPPED 2
+
+
+CAMLprim value netsys_get_subprocess_status(value atom_idx_v) {
+#ifdef HAVE_POSIX_SIGNALS
+    int atom_idx;
+    struct sigchld_atom *atom;
+    value r, st;
+
+    atom_idx = Int_val(atom_idx_v);
+
+    sigchld_lock(1, 1);
+
+    atom = &(sigchld_list[atom_idx]);
+
+    if (atom->terminated) {
+	st = alloc_small(1, TAG_WEXITED);
+	Field(st, 0) = Val_int(WEXITSTATUS(atom->status));
+	r = alloc(1,0);
+	Field(r, 0) = st;
+    }
+    else {
+	r = Val_int(0);
+    }
+
+    sigchld_unlock(1);
+
+    return r;
+#else
+    invalid_argument("Netsys_posix.forget_subprocess not available");
+#endif
+}
+
 
 /**********************************************************************/
 /* POSIX fadvise                                                      */

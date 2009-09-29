@@ -139,6 +139,7 @@ extern void uerror (char * cmdname, value arg) Noreturn;
 /**********************************************************************/
 
 CAMLextern int caml_convert_signal_number (int);
+CAMLextern int caml_rev_convert_signal_number (int);
 
 /**********************************************************************/
 /* From socketaddr.h                                                  */
