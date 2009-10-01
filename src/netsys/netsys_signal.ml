@@ -2,13 +2,19 @@
 
 open Printf
 
+type action =
+    [ `Callback of int -> unit
+    | `Install of unit -> unit
+    ]
+
+
 type entry =
     { sig_number : int;
       sig_library : string option;
       sig_priority : int;
       sig_keep_default : bool;
       sig_name : string;
-      sig_callback : int -> unit;
+      sig_action : action;
     }
 
 
@@ -30,11 +36,13 @@ let is_win32 =
 
 
 let sig_enable = Hashtbl.create 30
-  (** Maps signal number to [`Unchanged], [`Enabled], or [`Disabled].
+  (** Maps signal number to [`Unchanged], [`Enabled], [`Disabled], or
+      [`Exclusive].
       [`Unchanged] is the same as if there was no entry for the signal 
       number and means that [Sys.set_signal] has not been called yet.
-      [`Enabled] measn this function has been called. [`Disabled] means
-      that the signal is on the "keep away list".
+      [`Enabled] means this function has been called. [`Disabled] means
+      that the signal is on the "keep away list". [`Exclusive] is like
+      [`Enabled] for exclusive handlers.
    *)
 
 let sig_definition = Hashtbl.create 30
@@ -64,15 +72,18 @@ let handle signo =
     (fun entry ->
        emulate_default := !emulate_default && entry.sig_keep_default;
        try
-	 dlogr (fun () -> 
-		  sprintf "signal %d calling back %s handler '%s'"
-		    signo
-		    (match entry.sig_library with 
-		       | None -> "application"
-		       | Some lib -> "library '" ^ lib ^ "'")
-		    entry.sig_name
-	       );
-	 entry.sig_callback signo
+	 match entry.sig_action with
+	   | `Install _ -> ()
+	   | `Callback cb ->
+	       dlogr (fun () -> 
+			sprintf "signal %d calling back %s handler '%s'"
+			  signo
+			  (match entry.sig_library with 
+			     | None -> "application"
+			     | Some lib -> "library '" ^ lib ^ "'")
+			  entry.sig_name
+		     );
+	       cb signo
        with _ -> ()
 	 (* Be hard with exceptions here! *)
     )
@@ -103,33 +114,73 @@ let handle signo =
   )
 
 
-let manage signo =
+let sig_manage signo =  
+  (* must not be called for `Exclusive handlers! *)
   let is_disabled =
     try Hashtbl.find sig_enable signo = `Disabled
     with Not_found -> false in
   if not is_disabled then (
     ( try
+	dlogr (fun () -> sprintf "signal %d installing normal handler" signo);
 	Sys.set_signal signo (Sys.Signal_handle handle)
       with Invalid_argument _ -> ()
     );
     Hashtbl.replace sig_enable signo `Enabled
   )
 
+let sig_install entry =
+  (* only for `Exclusive handlers! *)
+  let is_disabled =
+    try Hashtbl.find sig_enable entry.sig_number = `Disabled
+    with Not_found -> false in
+  if not is_disabled then (
+    match entry.sig_action with
+      | `Callback _ -> assert false
+      | `Install f -> 
+	  dlogr (fun () -> 
+		   sprintf "signal %d installing excl handler" 
+		     entry.sig_number);
+	  f();
+	  Hashtbl.replace sig_enable entry.sig_number `Exclusive
+  )
+	
 
 let restore_management signo =
   while_locked
     (fun () ->
-       let is_enabled =
-	 try Hashtbl.find sig_enable signo = `Enabled
-	 with Not_found -> false in
-       if is_enabled then
-	 manage signo
+       let state =
+	 try Hashtbl.find sig_enable signo
+	 with Not_found -> `Unchanged in
+       match state with
+	 | `Enabled -> 
+	     sig_manage signo
+	 | `Exclusive -> 
+	     ( match Hashtbl.find sig_definition signo with
+		 | [ e ] -> sig_install e
+		 | _ -> assert false
+	     )
+	 | _ ->
+	     ()
     )
 
 
 let keep_away_from signo =
   while_locked
     (fun () ->
+       let state =
+	 try Hashtbl.find sig_enable signo
+	 with Not_found -> `Unchanged in
+       dlogr (fun () -> sprintf "signal %d keep away %s" 
+		signo
+		( match state with
+		    | `Enabled -> 
+			"- HANDLER ALREADY DEFINED!"
+		    | `Exclusive ->
+			"- EXCLUSIVE HANDLER ALREADY INSTALLED!"
+		    | _ ->
+			""
+		)
+	     );
        Hashtbl.replace sig_enable signo `Disabled
     )
 
@@ -138,13 +189,20 @@ let register_handler ?library ?priority ?(keep_default=false)
                      ~name ~signal ~callback () =
   while_locked
     (fun () ->
+       let state =
+	 try Hashtbl.find sig_enable signal
+	 with Not_found -> `Unchanged in
+       if state = `Exclusive then
+	 failwith ("Netsys_signal.register_handler: \
+                    Cannot override an exclusive handler (signal " ^ 
+		     string_of_int signal ^ ")");
        let entry =
 	 { sig_number = signal;
 	   sig_library = library;
 	   sig_priority = if library=None then 100 else 0;
 	   sig_keep_default = keep_default;
 	   sig_name = name;
-	   sig_callback = callback
+	   sig_action = `Callback callback
 	 } in
        let old_list =
 	 try Hashtbl.find sig_definition signal
@@ -170,7 +228,30 @@ let register_handler ?library ?priority ?(keep_default=false)
 	   )
 	   (entry :: rm_list) in
        Hashtbl.replace sig_definition signal new_list;
-       manage signal
+       sig_manage signal
+    )
+
+
+let register_exclusive_handler ~name ~signal ~install () =
+  while_locked
+    (fun () ->
+       let state =
+	 try Hashtbl.find sig_enable signal
+	 with Not_found -> `Unchanged in
+       if state = `Enabled then
+	 failwith ("Netsys_signal.register_exclusive_handler: \
+                    There is already a handler definition (signal " ^ 
+		     string_of_int signal ^ ")");
+       let entry =
+	 { sig_number = signal;
+	   sig_library = None;
+	   sig_priority = 100;
+	   sig_keep_default = false;
+	   sig_name = name;
+	   sig_action = `Install install
+	 } in
+       Hashtbl.replace sig_definition signal [entry];
+       sig_install entry
     )
 
 

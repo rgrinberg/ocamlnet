@@ -19,45 +19,10 @@
 (** {1 Engines} *)
 
 
-(** This engine type can be passed as [system_handler] to 
- * {!Shell_sys.register_job} in order to watch a running job.
- *)
-class type ['t] system_handler_engine_type = object
-  inherit ['t] Uq_engines.engine
-
-  method system_handler : Shell_sys.system_handler
-    (** Returns the [system_handler]. The [sys_wait] function simply calls
-     * [Unixqueue.run] to allow integration into event systems.
-     *)
-
-end;;
-
-
-
-class system_handler_engine : 
-        Unixqueue.event_system -> [unit] system_handler_engine_type ;;
-  (** This engine implements a {!Shell_sys.system_handler}, and can
-   * be used to watch an already started [job_instance] as created by
-   * {!Shell_sys.run_job} until the job is done. It is necessary to
-   * {!Shell_sys.register_job} at the system handler.
-   *
-   * When the job terminates the status of the engine changes to 
-   * [`Done ()]. The status of the engine does not reflect whether 
-   * the job was successful [Job_ok] or has failed [Job_error].
-   *
-   * The engine status [`Error] indicates an internal error. It
-   * is also used when callback functions raise exceptions.
-   *
-   * When the engine goes to [`Error] or [`Aborted], the job
-   * is terminated ( {!Shell_sys.abandon_job} ).
-   *)
-
-
-(** In addition to the [system_handler_engine_type], this type of engine
- * returns the [job] and the [job_instance].
+(** This type of engine also returns the [job] and the [job_instance].
  *)
 class type ['t] job_handler_engine_type = object
-  inherit ['t] system_handler_engine_type
+  inherit ['t] Uq_engines.engine
 
   method job : Shell_sys.job
     (** Returns the called job *)

@@ -329,7 +329,7 @@ type watched_subprocess =
       mutable alive : bool;
     }
 
-external netsys_watch_subprocess : int -> Unix.file_descr * int
+external netsys_watch_subprocess : int -> int -> bool -> Unix.file_descr * int
   = "netsys_watch_subprocess"
 
 external netsys_ignore_subprocess : int -> unit
@@ -344,8 +344,22 @@ external netsys_get_subprocess_status : int -> Unix.process_status option
 external install_subprocess_handler : unit -> unit
   = "netsys_install_sigchld_handler"
 
-let watch_subprocess pid =
-  let fd, atom_idx = netsys_watch_subprocess pid in
+external netsys_kill_subprocess : int -> int -> unit
+  = "netsys_kill_subprocess"
+
+external netsys_killpg_subprocess : int -> int -> unit
+  = "netsys_killpg_subprocess"
+
+external kill_all_subprocesses : int -> bool -> bool -> unit
+  = "netsys_kill_all_subprocesses"
+
+external killpg_all_subprocesses : int -> bool -> unit
+  = "netsys_killpg_all_subprocesses"
+
+let watch_subprocess pid pgid kill_flag =
+  if pid <= 0 || pgid < 0 then
+    invalid_arg "Netsys_posix.watch_subprocess";
+  let fd, atom_idx = netsys_watch_subprocess pid pgid kill_flag in
   let ws = { atom_idx = atom_idx; alive = true } in
   (fd, ws)
 
@@ -365,6 +379,22 @@ let get_subprocess_status ws =
   if not ws.alive then
     failwith "Netsys_posix.get_subprocess_status: stale reference";
   netsys_get_subprocess_status ws.atom_idx
+
+let kill_subprocess signal ws =
+  if ws.alive then
+    netsys_kill_subprocess signal ws.atom_idx
+
+let killpg_subprocess signal ws =
+  if ws.alive then
+    netsys_killpg_subprocess signal ws.atom_idx
+
+
+let register_subprocess_handler() =
+  Netsys_signal.register_exclusive_handler
+    ~name:"Sigchld handler in Netsys_posix"
+    ~signal:Sys.sigchld
+    ~install:install_subprocess_handler
+    ()
 
 
 (* Optional POSIX functions *)

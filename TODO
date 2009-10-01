@@ -31,24 +31,14 @@ Plan for Ocamlnet 3
 
 - Focus Win32:
 
-  * Limited support for anonymous pipes using helper threads
-    (Netsys_win32: I/O threads; also support these whereever reasonable)
-  * Support for something similar to Netsys_posix.spawn
-  * Integrate win32 spawn into Shell
   * Documentation: What is supported on Win32?
+
+  + Open:
+    - Shell: search executables
 
   Bugs:
   - examples/rpc/finder: Investigate why not all handles are closed
     ("register_proxy: keeping 20/43 entries in proxy tbl")
-
-- Shell_uq/Shell_sys: Drop Shell_sys.wait implementation. Replace with
-  engine. The system_handler is replaced by something like
-  type system_handler = {
-     mutable eng_opt : engine opt;
-       (* The engine. abort stops it. run runs it *)
-     watch_descriptors : Unix.file_descr list -> Unix.file_descr list -> unit
-       (* Set the descriptors to watch *)
-  }
 
 - Focus Netplex:
   * Netplex_control_routine:
@@ -118,6 +108,20 @@ Plan for Ocamlnet 3
   * Redesign Win32 named pipe support. Interface resembles socket API.
   * Security aspects of Win32 named pipes
   * Fully integrate named pipes into Unixqueue and Netplex
+  * Limited support for anonymous pipes using helper threads
+    (Netsys_win32: I/O threads; also support these whereever reasonable)
+  * Support for something similar to Netsys_posix.spawn
+  * Integrate win32 spawn into Shell
+
+- Shell_uq/Shell_sys: Drop Shell_sys.wait implementation. Replace with
+  engine. The system_handler is replaced by something like
+  type system_handler = {
+     mutable eng_opt : engine opt;
+       (* The engine. abort stops it. run runs it *)
+     watch_descriptors : Unix.file_descr list -> Unix.file_descr list -> unit
+       (* Set the descriptors to watch *)
+  }
+
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0

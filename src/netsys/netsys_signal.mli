@@ -58,8 +58,27 @@ val register_handler :
 
       The handler definition takes place immediately.
 
-      Any exceptions occring during the execution of a handler are caught
+      Any exceptions occuring during the execution of a handler are caught
       and ignored.
+   *)
+
+val register_exclusive_handler :
+      name: string ->
+      signal: int ->
+      install:(unit -> unit)->
+      unit -> unit
+  (** An exclusive handler for a signal is the only handler for the signal.
+      If it is tried to register another handler when there is already
+      an exclusive handler, the second registration fails. Also, an
+      exclusive handler cannot be registered when there is already a normal
+      handler for the signal. It is, however, possible to replace the
+      registered exclusive handler by another exclusive handler for the
+      same signal.
+
+      An exclusive handler is installed by running the [install] function,
+      which can e.g. call [Sys.set_signal] to define the handler. Other
+      methods (e.g. use some C wrapper) are also possible. It is assumed
+      that [install] overrides any existing handler.
    *)
 
 val restore_management : int -> unit
@@ -80,6 +99,19 @@ val keep_away_from : int -> unit
       will not restore the signal handling again. This function should only
       by called by applications wishing to do the signal handling all 
       themselves.
+
+      This function does not have any effect on the already installed
+      handlers. It is nevertheless useful for applications calling
+      [Sys.set_signal] directly to ensure that [Netsys_signal] will never
+      again try to override the handler.
+   *)
+
+type action =
+    [ `Callback of int -> unit
+    | `Install of unit -> unit
+    ]
+  (** [`Callback] is used for normal handlers, and [`Install] for exclusive
+      handlers.
    *)
 
 type entry =
@@ -88,7 +120,7 @@ type entry =
       sig_priority : int;
       sig_keep_default : bool;
       sig_name : string;
-      sig_callback : int -> unit;
+      sig_action : action;
     }
 
 val list : unit -> entry list

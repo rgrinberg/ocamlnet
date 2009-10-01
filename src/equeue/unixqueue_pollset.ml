@@ -226,9 +226,27 @@ object(self)
 	List.flatten
 	  (List.map
 	     (fun (fd,ev_in,ev_out) ->
-		let have_input  = Netsys_posix.poll_rd_result ev_out in 
-		let have_output = Netsys_posix.poll_wr_result ev_out in 
-		let have_pri    = Netsys_posix.poll_pri_result ev_out in 
+		(* Note that POLLHUP and POLLERR can also mean that we
+                   have data to read/write!
+		 *)
+		let (in_rd,in_wr,in_pri) = 
+		  Netsys_posix.poll_req_triple ev_in in
+		let out_rd = 
+		  Netsys_posix.poll_rd_result ev_out in 
+		let out_wr = 
+		  Netsys_posix.poll_wr_result ev_out in 
+		let out_pri = 
+		  Netsys_posix.poll_pri_result ev_out in 
+		let out_hup = 
+		  Netsys_posix.poll_hup_result ev_out in 
+		let out_err = 
+		  Netsys_posix.poll_err_result ev_out in 
+		let have_input  = 
+		  in_rd && (out_rd || out_hup || out_err) in
+		let have_output =
+		  in_wr && (out_wr || out_hup || out_err) in
+		let have_pri =
+		  in_pri && (out_pri || out_hup || out_err) in
 		if have_input || have_output || have_pri then (
 		  let e1 = if have_pri then [Unixqueue.Wait_oob fd] else [] in
 		  let e2 = if have_input then [Unixqueue.Wait_in fd] else [] in

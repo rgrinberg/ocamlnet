@@ -833,10 +833,13 @@ CAMLprim value netsys_spawn_byte(value * argv, int argn)
 #ifdef HAVE_POSIX_SIGNALS
 struct sigchld_atom {
     pid_t pid;          /* 0 means this atom is free */
+    pid_t pgid;         /* process group ID if <> 0 */
+    int   kill_flag;
     int   terminated;   /* whether terminated or not */
     int   status;       /* if terminated */
     int   ignore;       /* whether this is an ignored process */
     int   pipe_fd;      /* this fd is closed when termination is detected */
+    int   kill_sent;    /* scratch variable for kill */
 };
 
 static struct sigchld_atom *sigchld_list = NULL;   /* an array of atoms */
@@ -904,6 +907,9 @@ static void sigchld_action(int signo, siginfo_t *info, void *ctx) {
     pid_t pid;
     int k;
     struct sigchld_atom *atom;
+    int saved_errno;
+
+    saved_errno = errno;
 
     /* The SIGCHLD signal is blocked in the current thread during the
        execution of this function. However, other threads can also
@@ -912,7 +918,9 @@ static void sigchld_action(int signo, siginfo_t *info, void *ctx) {
     */
     sigchld_lock(0, 0);
 
-    if (info->si_code == CLD_EXITED) {
+    if (info->si_code == CLD_EXITED || info->si_code == CLD_KILLED 
+	|| info->si_code == CLD_DUMPED
+	) {
 
 	/* Now search for the PID */
 	pid = info->si_pid;
@@ -924,16 +932,17 @@ static void sigchld_action(int signo, siginfo_t *info, void *ctx) {
 	}
 	
 	if (atom != NULL) {
-	    waitpid(pid, NULL, WNOHANG);
+	    waitpid(pid, &(atom->status), WNOHANG);
 	    if (! atom->ignore && ! atom->terminated) {
 		close(atom->pipe_fd);
 	    }
 	    atom->terminated = 1;
-	    atom->status = info->si_status;
 	}
     }
 
     sigchld_unlock(0);
+
+    errno = saved_errno;
 }
 
 
@@ -946,24 +955,35 @@ CAMLprim value netsys_install_sigchld_handler(value dummy) {
     struct sigaction action;
     int k;
     
+    sigchld_lock(1, 1);
+ 
     action.sa_sigaction = sigchld_action;
     sigemptyset(&(action.sa_mask));
-    action.sa_flags = SA_SIGINFO;
+    action.sa_flags = SA_SIGINFO | SA_NOCLDSTOP;
 
-    sigchld_list_len = 100;
-    sigchld_list = (struct sigchld_atom *) malloc(sigchld_list_len * 
-						  sizeof(struct sigchld_atom));
-    if (sigchld_list == NULL) 
-	failwith("Cannot allocate memory");
+    if (sigchld_list == NULL) {
+	sigchld_list_len = 100;
+	sigchld_list = 
+	    (struct sigchld_atom *) malloc(sigchld_list_len * 
+					   sizeof(struct sigchld_atom));
+	if (sigchld_list == NULL) 
+	    failwith("Cannot allocate memory");
 
-    for (k=0; k<sigchld_list_len; k++)
-	sigchld_list[k].pid = 0;
+	for (k=0; k<sigchld_list_len; k++)
+	    sigchld_list[k].pid = 0;
+    };
 
     code = sigaction(SIGCHLD,
 		     &action,
 		     NULL);
-    if (code == -1)
+    if (code == -1) {
+	code = errno;
+	sigchld_unlock(1);
+	errno = code;
 	uerror("sigaction", Nothing);
+    };
+
+    sigchld_unlock(1);
 
     return Val_unit;
 #else
@@ -972,14 +992,15 @@ CAMLprim value netsys_install_sigchld_handler(value dummy) {
 }
 
 
-CAMLprim value netsys_watch_subprocess(value pid_v) {
+CAMLprim value netsys_watch_subprocess(value pid_v, value pgid_v, 
+				       value kill_flag_v) {
 #ifdef HAVE_POSIX_SIGNALS
     int k, atom_idx;
     struct sigchld_atom *atom;
     int pfd[2];
     value r;
-    pid_t pid;
-    int status, code;
+    pid_t pid, pgid;
+    int status, code, kill_flag;
     
     if (sigchld_list == NULL)
 	failwith("Netsys_posix.watch_subprocess: uninitialized");
@@ -1004,6 +1025,8 @@ CAMLprim value netsys_watch_subprocess(value pid_v) {
     };
 
     pid = Int_val(pid_v);
+    pgid = Int_val(pgid_v);
+    kill_flag = Bool_val(kill_flag_v);
 
     /* First block the signal handler and other threads from concurrent
        accesses:
@@ -1061,6 +1084,8 @@ CAMLprim value netsys_watch_subprocess(value pid_v) {
 
     if (code == 0) {  /* not yet terminated */
 	atom->pid = pid;
+	atom->pgid = pgid;
+	atom->kill_flag = kill_flag;
 	atom->terminated = 0;
 	atom->status = 0;
 	atom->ignore = 0;
@@ -1068,6 +1093,8 @@ CAMLprim value netsys_watch_subprocess(value pid_v) {
     } else {
 	close(pfd[1]);
 	atom->pid = pid;
+	atom->pgid = pgid;
+	atom->kill_flag = kill_flag;
 	atom->terminated = 1;
 	atom->status = status;
 	atom->ignore = 0;
@@ -1151,8 +1178,15 @@ CAMLprim value netsys_get_subprocess_status(value atom_idx_v) {
     atom = &(sigchld_list[atom_idx]);
 
     if (atom->terminated) {
-	st = alloc_small(1, TAG_WEXITED);
-	Field(st, 0) = Val_int(WEXITSTATUS(atom->status));
+	if (WIFEXITED(atom->status)) {
+	    st = alloc_small(1, TAG_WEXITED);
+	    Field(st, 0) = Val_int(WEXITSTATUS(atom->status));
+	}
+	else {
+	    st = alloc_small(1, TAG_WSIGNALED);
+	    Field(st, 0) = 
+		Val_int(caml_rev_convert_signal_number(WTERMSIG(atom->status)));
+	};
 	r = alloc(1,0);
 	Field(r, 0) = st;
     }
@@ -1167,6 +1201,158 @@ CAMLprim value netsys_get_subprocess_status(value atom_idx_v) {
     invalid_argument("Netsys_posix.forget_subprocess not available");
 #endif
 }
+
+
+CAMLprim value netsys_kill_subprocess(value sig_v, value atom_idx_v) {
+#ifdef HAVE_POSIX_SIGNALS
+    int atom_idx;
+    struct sigchld_atom *atom;
+    int sig;
+
+    atom_idx = Int_val(atom_idx_v);
+    sig = caml_convert_signal_number(Int_val(sig_v));
+
+    sigchld_lock(1, 1);
+
+    atom = &(sigchld_list[atom_idx]);
+    if (!atom->terminated) {
+	kill(atom->pid, sig);
+    }
+
+    sigchld_unlock(1);
+
+    return Val_unit;
+
+#else
+    invalid_argument("Netsys_posix.kill_subprocess not available");
+#endif
+}
+
+
+CAMLprim value netsys_killpg_subprocess(value sig_v, value atom_idx_v) {
+#ifdef HAVE_POSIX_SIGNALS
+    int atom_idx;
+    struct sigchld_atom *atom;
+    int sig, k;
+    pid_t pgid;
+    int exists;
+
+    atom_idx = Int_val(atom_idx_v);
+    sig = caml_convert_signal_number(Int_val(sig_v));
+
+    sigchld_lock(1, 1);
+
+    atom = &(sigchld_list[atom_idx]);
+    pgid = atom->pgid;
+
+    if (pgid > 0) {
+	/* Does any process for pgid exist in the watch list? */
+	exists = 0;
+	for (k=0; k<sigchld_list_len && !exists; k++) {
+	    exists=sigchld_list[k].pid != 0 && !sigchld_list[k].terminated;
+	}
+	if (exists) {
+	    kill(-pgid, sig);
+	}
+    }
+
+    sigchld_unlock(1);
+
+    return Val_unit;
+
+#else
+    invalid_argument("Netsys_posix.killpg_subprocess not available");
+#endif
+}
+
+
+CAMLprim value netsys_kill_all_subprocesses(value sig_v, value o_flag_v,
+					    value ng_flag_v) {
+#ifdef HAVE_POSIX_SIGNALS
+    int sig;
+    int o_flag, ng_flag;
+    struct sigchld_atom *atom;
+    int k;
+
+    if (sigchld_list == NULL)
+	failwith("Netsys_posix.watch_subprocess: uninitialized");
+
+    sig = caml_convert_signal_number(Int_val(sig_v));
+    o_flag = Bool_val(o_flag_v);
+    ng_flag = Bool_val(ng_flag_v);
+
+    sigchld_lock(1, 1);
+
+    for (k=0; k<sigchld_list_len; k++) {
+	atom = &(sigchld_list[k]);
+	if (atom->pid != 0 && 
+	    !atom->terminated && 
+	    (!ng_flag || atom->pgid==0) &&
+	    (o_flag || atom->kill_flag)) {
+	    
+	    kill(atom->pid, sig);
+	}
+    }
+
+    sigchld_unlock(1);
+
+    return Val_unit;
+
+#else
+    invalid_argument("Netsys_posix.kill_all_subprocesses not available");
+#endif
+}
+
+
+CAMLprim value netsys_killpg_all_subprocesses(value sig_v, value o_flag_v) {
+#ifdef HAVE_POSIX_SIGNALS
+    struct sigchld_atom *atom;
+    int sig;
+    int o_flag;
+    int k,j;
+    pid_t pgid;
+
+    if (sigchld_list == NULL)
+	failwith("Netsys_posix.watch_subprocess: uninitialized");
+
+    sig = caml_convert_signal_number(Int_val(sig_v));
+    o_flag = Bool_val(o_flag_v);
+
+    sigchld_lock(1, 1);
+
+    /* delete kill_sent: */
+    for (k=0; k<sigchld_list_len; k++) {
+	sigchld_list[k].kill_sent = 0;
+    };
+
+    /* check processes: */
+    for (k=0; k<sigchld_list_len; k++) {
+	atom = &(sigchld_list[k]);
+	if (atom->pid != 0 && 
+	    !atom->terminated && 
+	    atom->pgid > 0 &&
+	    !atom->kill_sent &&
+	    (o_flag || atom->kill_flag)) {
+	    
+	    pgid = atom->pgid;
+	    kill(-pgid, sig);
+	    
+	    for (j=k+1; j<sigchld_list_len; j++) {
+		if (sigchld_list[j].pid != 0 && sigchld_list[j].pgid == pgid)
+		    sigchld_list[j].kill_sent = 1;
+	    }
+	}
+    }
+
+    sigchld_unlock(1);
+
+    return Val_unit;
+
+#else
+    invalid_argument("Netsys_posix.killpg_all_subprocesses not available");
+#endif
+}
+
 
 
 /**********************************************************************/

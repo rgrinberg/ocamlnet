@@ -309,15 +309,22 @@ val spawn : ?chdir:wd_spec ->
 
 type watched_subprocess
 
-val watch_subprocess : int -> Unix.file_descr * watched_subprocess
-  (** [let fd, ws = watch_subprocess pid]: Enters the subprocess [pid]
-      into the watch list. The descriptor [fd] is open for reading and
+val watch_subprocess : int -> int -> bool -> 
+                          Unix.file_descr * watched_subprocess
+  (** [let fd, ws = watch_subprocess pid pgid kill_flag]: 
+      Enters the subprocess [pid]
+      into the watch list. If [pgid > 0], the process group ID is
+      [pgid] (for [killpg_subprocess] and [killpg_all_subprocesses]).
+      The [kill_flag] controls the process selection of
+      [kill_all_subprocesses] and [killpg_all_subprocesses].
+
+      The returned descriptor [fd] is open for reading and
       will indicate EOF when the subprocess is terminated. Via [ws]
       it is possible to query information about the subprocess. The
       installed signal handler will [wait] for the subprocess and
       put the process status into [ws].
 
-      The caller has to close [fd] after the termination is signalled.
+      The caller has to close [fd] after the termination is signaled.
    *)
 
 val ignore_subprocess : watched_subprocess -> unit
@@ -338,13 +345,50 @@ val get_subprocess_status : watched_subprocess -> Unix.process_status option
       Otherwise [None] is returned
    *)
 
+val kill_subprocess : int -> watched_subprocess -> unit
+  (** Sends this signal to the subprocess if this process still exists.
+      Never throws an exception.
+   *)
+
+val killpg_subprocess : int -> watched_subprocess -> unit
+  (** Sends this signal to the process group of the subprocess if there
+      is still a watched subprocess belonging to this group.
+      Never throws an exception.
+   *)
+
+val kill_all_subprocesses : int -> bool -> bool -> unit
+  (** [kill_all_subprocess signal override nogroup]: 
+      Sends a signal to potentially
+      all subprocesses. The signal is sent to a process if the process
+      still exists, and these two conditions hold both:
+      - [not nogroup || pgid = 0]: Processes with [pgid > 0] are excluded
+        if [nogroup] is set
+      - [kill_flag || override]: A process needs to have
+        [kill_flag] set, or [override] is specified
+
+      Never throws an exception if the signal handler is installed.
+   *)
+
+val killpg_all_subprocesses : int -> bool -> unit
+  (** [killpg_all_subprocess signal override]: Sends a signal to potentially
+      all subprocesses belonging to a process group (i.e. [pgid>0]).
+    . The signal is sent to a process group if there are still subprocesses
+      belonging to the group, and if either the [kill_flag] of any of the 
+      subprocesses process was set to [true], or [override] is [true].
+
+      Never throws an exception if the signal handler is installed.
+   *)
+
+
 val install_subprocess_handler : unit -> unit
   (** Installs a SIGCHLD handler for watching subprocesses. Note that only
       processes are [wait]ed for that are registered with 
       [watch_subprocess].
 
       The handler works both in the single-threaded and the multi-threaded
-      case.
+      case. [install_subprocess_handler] can safely called several times.
+      The handler is installed every time the function is called, but the
+      required data structures are only initialized at the first call.
 
       About the handler and [fork](): If [fork] is not followed by [exec],
       and there are watched subprocesses, the mechanism does not work anymore.
@@ -361,6 +405,13 @@ val install_subprocess_handler : unit -> unit
       in multi-threaded programs. It is unsafe anyway.)
    *)
  
+val register_subprocess_handler : unit -> unit
+  (** Uses the {!Netsys_signal} framework to manage the installation of
+      the SIGCHLD handler.
+
+      This is the preferred method of installing the SIGCHLD handler.
+   *)
+
 
 (** {1 Optional POSIX functions} *)
 

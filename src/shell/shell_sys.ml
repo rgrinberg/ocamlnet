@@ -23,14 +23,6 @@ let is_win32 =
     | _ -> false;;
 
 
-let safe_close fd =
-  (* Try to close, but don't fail if the descriptor is bad *)
-  try
-    Unix.close fd
-  with
-      Unix.Unix_error(Unix.EBADF,_,_) -> ()
-;;
-
 (*** environments ***)
 
 (* The following functions assume that environments are typically small
@@ -272,15 +264,22 @@ type group_action =
   | Current_group
 ;;
 
+type fwd_mode =
+    No_forward
+  | Forward_to_process
+  | Forward_to_group
+
 
 type proc_ref =
-  [ `POSIX of int
+  [ `POSIX of int * Unix.file_descr * Netsys_posix.watched_subprocess
   | `Win32 of Netsys_win32.w32_process * Unix.file_descr
+  | `Dummy
   ]
 
 type process =
     { p_command : command;
       mutable p_id : proc_ref;
+      p_gid : int;
       mutable p_status : Unix.process_status option;
         (* None means: process is still running *)
       mutable p_abandoned : bool;
@@ -292,7 +291,8 @@ type process =
 
 let dummy_process =
   { p_command = command "XXX" ();
-    p_id = `POSIX 0;
+    p_id = `Dummy;
+    p_gid = 0;
     p_status = Some (Unix.WEXITED 0);
     p_abandoned = false;
   }
@@ -327,6 +327,7 @@ let all_signals =
 
 let posix_run
       ?(group = Current_group)
+      ?(forward_mode = No_forward)
       ?(pipe_assignments = [])
       c =
 
@@ -546,8 +547,24 @@ let posix_run
       c.c_filename
       args in
 
+  let pgid =
+    try Netsys_posix.getpgid pid
+    with Unix.Unix_error(Unix.ESRCH,_,_) -> 0 
+      (* This should not happen because if pid has terminated it is
+         now a zombie
+       *) in
+
+  let pgid_ws, kill_flag =
+    match forward_mode with
+      | No_forward -> 0, false
+      | Forward_to_process -> 0, true
+      | Forward_to_group -> pgid, true in
+
+  let p_fd, ws = Netsys_posix.watch_subprocess pid pgid_ws kill_flag in
+
   { p_command = c;
-    p_id = `POSIX pid;
+    p_id = `POSIX(pid, p_fd, ws);
+    p_gid = pgid;
     p_status = None;
     p_abandoned = false;
   }
@@ -565,8 +582,9 @@ let win32_process_mutex =
 
 let win32_run
     ?(group = Current_group)
-      ?(pipe_assignments = [])
-      c =
+    ?(forward_mode = No_forward)
+    ?(pipe_assignments = [])
+    c =
 
   (* This [run] implementation bases on [Netsys_win32.create_process] *)
 
@@ -708,6 +726,7 @@ let win32_run
 	 dlog "run returning normally";
 	 { p_command = c;
 	   p_id = `Win32 (p,ev_proxy);
+	   p_gid = 0;  (* We don't do anything with that *)
 	   p_status = None;
 	   p_abandoned = false;
 	 }
@@ -731,8 +750,11 @@ let run =
 
 let process_id p = 
   match p.p_id with
-    | `POSIX pid -> pid
-    | `Win32 (proc,_) -> Netsys_win32.win_pid proc;;
+    | `POSIX (pid,_,_) -> pid
+    | `Win32 (proc,_) -> Netsys_win32.win_pid proc
+    | `Dummy -> failwith "Shell_sys.process_id: dummy"
+;;
+
 
 let status p =
   match p.p_status with
@@ -743,9 +765,7 @@ let status p =
 type process_event =
     File_read of Unix.file_descr
   | File_write of Unix.file_descr
-  | File_except of Unix.file_descr
-  | Process_event of process
-  | Signal
+  | Process_event of Unix.file_descr (* the signalling descriptor *)
 ;;
 
 
@@ -756,201 +776,14 @@ let string_of_status =
     | Unix.WSTOPPED n -> sprintf "WSTOPPED(%d)" n
 
 
-exception Loop;;
-
-let wait
-      ?(wnohang = false)
-      ?(wuntraced = false)
-      ?(restart = false)
-      ?(check_interval = 0.1)
-      ?(read = [])
-      ?(write = [])
-      ?(except = [])
-      pl0 =
-
-  let pl =
-    List.filter (fun p -> p.p_status = None) pl0 in
-  (* Only processes we not yet have waited for are relevant *)
-
-  let select_emulation = lazy (
-    let pset = Netsys_pollset_generic.standard_pollset() in
-    Netsys_pollset_generic.select_emulation pset
-  ) in
-
-  if List.exists (fun p -> p.p_abandoned) pl then
-    failwith "Shell_sys.wait: cannot wait for abandoned processes";
-
-  let one_process =
-    match pl with [ _ ] -> true | _ -> false in
-
-  let rec wait_until_process_event() =
-    (* Note: Do not use this function if wnohang *)
-    let flags =
-      if wuntraced then [ Unix.WUNTRACED ] else [] in
-    match pl with
-	[ p ] ->
-	  begin try
-	    let pid =
-	      match p.p_id with
-		| `POSIX pid -> pid
-		| `Win32 _ -> assert false in
-	    dlogr (fun () -> 
-		     sprintf "wait pid=%d" pid);
-	    let _, status = Unix.waitpid flags pid in
-	    dlogr (fun () ->
-		     sprintf "wait pid=%d status=%s" 
-		       pid (string_of_status status));
-	    p.p_status <- Some status;
-	    [ Process_event p ]
-	  with
-	      Unix.Unix_error(Unix.EINTR,_,_) as ex ->
-		if restart
-		then wait_until_process_event()
-		else raise ex
-	  end
-      | _ ->
-	  assert false
-  in
-
-  let check_process_events() =
-    let flags =
-      if wuntraced then [ Unix.WUNTRACED; Unix.WNOHANG ] else [ Unix.WNOHANG ] in
-    List.flatten
-      (List.map
-	 (fun p ->
-	    match p.p_id with
-	      | `POSIX pid ->
-		  dlogr (fun () -> 
-			   sprintf "wait(nohang) pid=%d" pid);
-		  let real_pid, status = Unix.waitpid flags pid in
-		  if real_pid = pid then begin
-		    dlogr (fun () ->
-			     sprintf "wait(nohang) pid=%d status=%s" 
-			       pid (string_of_status status));
-		    p.p_status <- Some status;
-		    [ Process_event p ]
-		  end
-		  else []
-		    
-	      | `Win32(proc, _) ->
-		  dlogr (fun () -> 
-			   sprintf "wait(nohang) cmd=%s" 
-			     p.p_command.c_cmdname);
-		  ( match Netsys_win32.get_process_status proc with
-		      | None -> []
-		      | Some status ->
-			  dlogr (fun () -> 
-				   sprintf "wait(nohang) cmd=%s status=%s" 
-				     p.p_command.c_cmdname
-				     (string_of_status status)
-				);
-			  p.p_status <- Some status;
-			  [ Process_event p ]
-		  )
-	 )
-	 pl
-      )
-  in
-
-  let rec wait_until_event () =
-    if read = [] && write = [] && except = [] && one_process && not wnohang then
-      wait_until_process_event()
-    else
-      try
-	let pl_ev = check_process_events () in
-	if pl_ev <> [] then (
-	  dlog "wait returns process events";
-	  pl_ev
-	)
-	else
-	  let timeout =
-	    if wnohang then 0.0 else check_interval in
-	  dlog "wait entering Unix.select";
-	  let indicate_read, indicate_write, indicate_except =
-	    (Lazy.force select_emulation) read write except timeout in
-	  dlog "wait leaving Unix.select";
-	  if indicate_read = [] && indicate_write = [] && indicate_except = []
-	     && not wnohang
-	  then
-	    raise Loop        (* make sure this is tail-recursive! *)
-	  else (
-	    dlog "wait returns file events";
-	    (List.map (fun fd -> File_read fd) indicate_read) @
-	    (List.map (fun fd -> File_write fd) indicate_write) @
-	    (List.map (fun fd -> File_except fd) indicate_except)
-	  )
-      with
-	  Loop ->
-	    wait_until_event()
-	| Unix.Unix_error(Unix.EINTR,_,_) as ex ->
-	    if restart then
-	      wait_until_event()
-	    else
-	      raise ex
-  in
-
-  let w32_events =
-    lazy (
-      List.map
-	(fun p ->
-	   match p.p_id with
-	     | `Win32(_,ev) -> ev
-	     | _ -> assert false
-	)
-	pl) in
-  let rec win32_wait() =
-    let events = Lazy.force w32_events in
-    let timeout = if wnohang then 0.0 else check_interval in
-    dlog "wait entering Unix.select";
-    let indicate_read, indicate_write, indicate_except =
-      (Lazy.force select_emulation) (events@read) write except timeout in
-    dlog "wait leaving Unix.select";
-    let indicate_read' =
-      List.filter (fun fd -> List.mem fd read) indicate_read in
-    let pl_ev = check_process_events () in
-    if indicate_read = [] && indicate_write = [] && indicate_except = []
-         && pl_ev = [] && not wnohang
-    then
-      win32_wait()
-    else (
-      dlog "wait returns events";
-      pl_ev @
-	(List.map (fun fd -> File_read fd) indicate_read') @
-	(List.map (fun fd -> File_write fd) indicate_write) @
-	(List.map (fun fd -> File_except fd) indicate_except)
-    )
-  in
-
-  if read = [] && write = [] && except = [] && pl = [] then
-    []
-  else
-    if is_win32 then
-      win32_wait()
-    else
-      wait_until_event()
-;;
-
-
-let call c =
-  let p = run c in
-  let ev = wait ~restart:true [ p ] in
-  match ev with
-      [ Process_event p' ] ->
-	assert(p == p');
-	p
-    | _ ->
-	assert false
-;;
-
-
 let kill ?(signal = Sys.sigterm) p =
   dlogr (fun () ->
 	   sprintf "Killing cmd=%s signal=%d"
 	     p.p_command.c_cmdname signal);
   match p.p_id with
-    | `POSIX pid ->
+    | `POSIX (pid,_,ws) ->
 	assert(not is_win32);
-	Unix.kill pid signal
+	Netsys_posix.kill_subprocess signal ws
     | `Win32 (proc,_) ->
 	assert(is_win32);
 	if signal = Sys.sigterm || signal = Sys.sigkill then (
@@ -958,65 +791,9 @@ let kill ?(signal = Sys.sigterm) p =
 	    Netsys_win32.terminate_process proc
 	  with _ -> ()
 	)
+    | `Dummy -> ()
 ;;
 
-
-
-type system_handler =
-    { sys_register :
-        ?wuntraced:bool ->
-	?check_interval:float ->
-	?read:(Unix.file_descr list) ->
-	?write:(Unix.file_descr list) ->
-        ?except:(Unix.file_descr list) ->
-	process list ->
-        (process_event list -> unit) ->
-	  unit;
-
-      sys_wait :
-	unit -> unit;
-    }
-
-exception Exit_event_loop
-
-let register_callback (current_waiter : (unit -> unit) ref)
-                      ?wuntraced ?check_interval ?read ?write ?except pl cb =
-  current_waiter :=
-    (fun () ->
-       try
-	 let el = wait
-		    ?wuntraced ~restart:false ?check_interval ?read ?write
-		    ?except pl in
-	 if el = [] then begin
-	   let old_waiter = !current_waiter in
-	   cb [];
-	   if old_waiter == !current_waiter then raise Exit_event_loop;
-	 end
-	 else
-	   cb el
-       with
-	   Unix.Unix_error(Unix.EINTR,_,_) ->
-	     cb [ Signal ]
-    )
-;;
-
-
-let do_event_loop (current_waiter : (unit -> unit) ref) () =
-  try
-    while true do
-      !current_waiter()
-    done
-  with
-      Exit_event_loop -> ()
-;;
-
-
-let standard_system_handler() =
-  let current_waiter = ref (fun () -> ()) in
-  { sys_register = register_callback current_waiter;
-    sys_wait = do_event_loop current_waiter;
-  }
-;;
 
 
 (*** command and process groups ***)
@@ -1332,6 +1109,7 @@ type job_instance =
     { pg_id : int;
       pg_cg : job;
       pg_processes : process list;
+      mutable pg_processes_closed : bool;
       pg_mode : group_mode;
       pg_forward_signals : bool;
       mutable pg_fd_producer_alist : (Unix.file_descr * pipehandler) list;
@@ -1341,46 +1119,6 @@ type job_instance =
       mutable pg_exception : exn;
     }
 ;;
-
-let current_jobs = ref [];;
-  (* Jobs that have not yet finished
-   * Invariant: For all jobs in current_job the status is either
-   * Job_running or Job_partially_running.
-   *)
-
-let omtp = !Netsys_oothr.provider
-
-let mutex_jobs = omtp # create_mutex()
-  (* For multi-threaded programs: lock/unlock the mutex for current_jobs *)
-  (* NOTE: Although here is some code for multi-threaded programs, this
-   * does not mean it works
-   *)
-
-let with_current_jobs f =
-  mutex_jobs # lock();
-  ( try
-      f()
-    with
-	any ->
-	  mutex_jobs # unlock();
-	  raise any
-  );
-  mutex_jobs # unlock()
-;;
-
-
-let abandoned_job_processes = ref [| dummy_process |];;
-  (* Processes of jobs that have been abandoned, but not yet waited for *)
-
-  (* Note multi-threaded programs: There is no mutex for this variable,
-   * because it is accessed from a signal handler, and pthread functions
-   * have undefined behaviour when called from signal handlers. So we
-   * have to protect it by other means: Every access has to be atomic,
-   * i.e. the OCaml runtime must not check on pending signals during the
-   * access. The current OCaml implementation performs these checks when
-   * functions are called (except inlined functions), so we have to make
-   * that sure.
-   *)
 
 
 type safe_fd =
@@ -1474,7 +1212,8 @@ let run_job
   let consumer_descriptors = ref [] in
 
   let processes = ref [] in
-  let leader = ref None in
+  let group_id = ref 0 in
+
 
 
   let build_interprocess_pipelines() =
@@ -1680,7 +1419,6 @@ let run_job
 	       Same_as_caller -> Current_group
 	     | Foreground     -> New_fg_group
 	     | Background     -> New_bg_group) in
-
     (* Note: the following iteration is performed in the reverse direction as
      * the commands have been added. This means that the last added command
      * will be started first, and will be the process group leader.
@@ -1754,21 +1492,28 @@ let run_job
 	  * pl.pl_src_descr = out_end.
 	  *)
 
+	 let forward_mode =
+	   if mode = Background && forward_signals then
+	     Forward_to_group
+	   else
+	     No_forward in
+
 	 let p =
 	   run
 	     ~group: !group_behaviour
+	     ~forward_mode
 	     ~pipe_assignments: (rd_assignments @ wr_assignments)
 	     c
 	 in
 
 	 dlogr (fun () -> sprintf "Started process %s" c.c_cmdname);
 
+	 group_id := p.p_gid;
 	 processes := p :: !processes;
-	 if !leader = None then leader := Some p;
 
 	 if !group_behaviour = New_fg_group || !group_behaviour = New_bg_group
 	 then
-	   group_behaviour := Join_group (process_id p)
+	   group_behaviour := Join_group p.p_gid
       )
       cg.cg_commands;
 
@@ -1805,12 +1550,10 @@ let run_job
 	       (String.concat " | " 
 		  (List.map (fun c -> c.c_cmdname) cg.cg_commands)));
     let g =
-      { pg_id = if mode = Same_as_caller then (-1)
-                else (match !leader with
-	 		  Some p -> process_id p
-			| None -> assert false);
+      { pg_id = !group_id;
 	pg_cg = cg;
 	pg_processes = !processes;
+	pg_processes_closed = false;
 	pg_mode = mode;
 	pg_forward_signals = forward_signals;
 	pg_fd_producer_alist = !fd_producer_alist;
@@ -1820,8 +1563,6 @@ let run_job
 	pg_exception = Not_found;
       }
     in
-
-    with_current_jobs (fun () -> current_jobs := g :: !current_jobs);
 
     (* Return g as result *)
 
@@ -1847,12 +1588,10 @@ let run_job
 	  (* If there is at least one process, return a partial result *)
 	  if !processes <> [] then begin
 	    let g =
-	      { pg_id = if mode = Same_as_caller then (-1)
-                        else (match !leader with
-	 			  Some p -> process_id p
-				| None -> assert false);
+	      { pg_id = !group_id;
 		pg_cg = cg;
 		pg_processes = !processes;
+		pg_processes_closed = false;
 		pg_mode = mode;
 		pg_forward_signals = forward_signals;
 		pg_fd_producer_alist = [];
@@ -1862,7 +1601,6 @@ let run_job
 		pg_exception = ex;
 	      }
 	    in
-	    with_current_jobs (fun () -> current_jobs := g :: !current_jobs);
 	    g
 	  end
 	  else
@@ -1901,10 +1639,6 @@ let process_group_id pg =
   if pg.pg_id >= 0 then pg.pg_id else raise No_Unix_process_group
 ;;
 
-let process_group_expects_signals pg =
-  pg.pg_mode = Background && pg.pg_forward_signals
-;;
-
 let job_status pg = pg.pg_status;;
 
 
@@ -1914,12 +1648,8 @@ let string_of_pevent =
 	sprintf "File_read(%Ld)" (Netsys.int64_of_file_descr fd)
     | File_write fd ->
 	sprintf "File_write(%Ld)" (Netsys.int64_of_file_descr fd)
-    | File_except fd ->
-	sprintf "File_except(%Ld)" (Netsys.int64_of_file_descr fd)
-    | Process_event p ->
-	sprintf "Process_event(%s)" p.p_command.c_cmdname
-    | Signal ->
-	"Signal"
+    | Process_event fd ->
+	sprintf "Process_event(%Ld)" (Netsys.int64_of_file_descr fd)
 	
 
 
@@ -1935,175 +1665,263 @@ let close_job_descriptors pg =
   List.iter
     (fun (fd,_) -> Netsys.gclose (Netsys.get_fd_style fd) fd)
     pg.pg_fd_producer_alist;
-  pg.pg_fd_producer_alist <- []
+  pg.pg_fd_producer_alist <- [];
+  if not pg.pg_processes_closed then (
+    List.iter
+      (fun p ->
+	 match p.p_id with
+	   | `POSIX(_,p_fd,ws) ->
+	       Unix.close p_fd;
+	       Netsys_posix.ignore_subprocess ws
+	   | `Win32(_,p_fd) ->
+	       Unix.close p_fd
+	   | `Dummy -> ()
+      )
+      pg.pg_processes;
+    pg.pg_processes_closed <- true
+  )
 ;;
 
 
-let register_job sys pg =
+class type ['t] job_handler_engine_type = object
+  inherit ['t] Uq_engines.engine
+  method job : job
+  method job_instance : job_instance
+end
 
-  let read_list () =
+
+class job_engine esys pg =
+  let read_list() =
     (* Check the list of consumers, and extract the list of file descriptors
      * we are reading from.
      *)
-    List.map fst pg.pg_fd_consumer_alist
-  in
+    List.map fst pg.pg_fd_consumer_alist in
 
-  let write_list () =
+  let write_list() =
     (* Check the list of producers, and extract the list of file descriptors
      * we want to write to
      *)
-    List.map fst pg.pg_fd_producer_alist
-  in
+    List.map fst pg.pg_fd_producer_alist in
 
-  let rec restartable f x =
-    if true (* restart *) then   (* TODO *)
-      (* Currently, we catch EINTR always. This is not wrong, but it would be
-       * better to generate Signal events instead.
-       *)
-      try
-	f x
-      with
-	  Unix.Unix_error(Unix.EINTR,_,_) ->
-	    restartable f x
-    else
-      f x
-  in
-
-  let handle_event e =
-    (* may fail because of an exception in one of the called handlers! *)
-    dlogr (fun () -> sprintf "handle_event %s" (string_of_pevent e));
-    match e with
-	File_except _ ->
-	  assert false
-      | Process_event _ ->
-	  ()
-      | File_read fd ->
-	  (* Find the consumer reading from this fd *)
-	  let consumer =
-	    try List.assoc fd pg.pg_fd_consumer_alist
-	    with Not_found -> assert false
-	  in
-	  let result = restartable consumer.ph_handler fd in
-	  if not result then begin
-	    (* remove the consumer from the list of consumers *)
-	    pg.pg_fd_consumer_alist <- List.remove_assoc
-	                                 fd
-	                                 pg.pg_fd_consumer_alist
-	  end
-      | File_write fd ->
-	  (* Find the producer writing to this fd *)
-	  let producer =
-	    try List.assoc fd pg.pg_fd_producer_alist
-	    with Not_found -> assert false
-	  in
-	  let result = restartable producer.ph_handler fd in
-	  if not result then begin
-	    (* remove the producer from the list of producers *)
-	    pg.pg_fd_producer_alist <- List.remove_assoc
-	                                 fd
-	                                 pg.pg_fd_producer_alist
-	  end
-      | Signal -> ()
-  in
-
-  let rec callback events =
-    dlogr (fun () -> 
-	     sprintf "event callback for [%s]"
-	       (String.concat ";" 
-		  (List.map string_of_pevent events)));
-    if events = [] then begin
-      (* This is the last callback! *)
-      (* All processes have finished. *)
-      let successful =
-	List.for_all
-	  (fun p ->
-	     try status p = Unix.WEXITED 0 with Not_found -> assert false)
-	  pg.pg_processes
-      in
-      dlogr (fun () -> sprintf "successful=%b" successful);
-      let new_status = if successful then Job_ok else Job_error in
-      pg.pg_status <- new_status;
-
-      with_current_jobs
-	(fun () ->
-	   current_jobs := List.filter (fun ji -> ji != pg) !current_jobs);
-
-      close_job_descriptors pg;
-
-      (* Because we do not call sys.sys_register here, the event loop will
-       * be terminated.
-       *)
-    end
-    else begin
-      (* Handle events *)
-      pg.pg_pending <- pg.pg_pending @ events;
-      while pg.pg_pending <> [] do
-	match pg.pg_pending with
-	    e :: elist' ->
-	      handle_event e;           (* may raise arbitrary exception *)
-	      pg.pg_pending <- elist';
-	      (* CHECK: maybe it is better to first remove [e] from the list
-	       * of pending events. The current solution means that the
-	       * event handler will be called again with the same event
-	       * if an exception is raised. (However, Equeue does the same.)
-	       *)
-	  | _ ->
-	      assert false
-      done;
-      (* Register new handler: *)
-      register()
-    end
-
-  and register () =
-    let rd_list = read_list() in
-    let wr_list = write_list() in
-    sys.sys_register ~read:rd_list ~write:wr_list pg.pg_processes callback
-  in
-
-  match pg.pg_status with
-      Job_ok | Job_error | Job_abandoned ->
-	(* Register a do-nothing handler: *)
-	sys.sys_register [] (fun _ -> ());
-    | _ ->
-	register()
-;;
-
-
-let finish_job ?(sys = standard_system_handler()) pg =
-  register_job sys pg;
-  sys.sys_wait()
-;;
-
-
-let gc_info () =
-  dlog "Current jobs:";
-  with_current_jobs
-    (fun()->
-       List.iter
-	 (fun j ->
-	    dlogr(fun () -> 
-		    sprintf "- Job %s"
-		      (String.concat " | "
-			 (List.map (fun c -> c.c_cmdname) 
-			    j.pg_cg.cg_commands)));
+  let process_list() =
+    List.flatten
+      (List.map
+	 (fun p ->
+	    match p.p_status with
+	      | None ->
+		  ( match p.p_id with
+		      | `POSIX(_,p_fd,_) -> [p_fd, p]
+		      | `Win32(_,p_fd) -> [p_fd, p]
+		      | `Dummy -> []
+		  )
+	      | Some _ -> []
 	 )
-	 !current_jobs
+	 pg.pg_processes
+      ) in
+
+object(self)
+  inherit [unit] Uq_engines.engine_mixin (`Working 0)
+
+  val mutable group = Unixqueue.new_group esys
+
+  val mutable cur_read = []
+  val mutable cur_write = []
+  val mutable cur_process = []
+
+  initializer (
+    match pg.pg_status with
+      | Job_ok | Job_error | Job_abandoned ->
+	  (* Register a do-nothing handler: *)
+	  Unixqueue.once esys group 0.0 (fun () -> self # set_state (`Done()))
+      | _ ->
+	  Unixqueue.add_handler
+	    esys group (fun _ _ -> self # handle_event);
+	  self # update();
+  )
+
+  method job = pg.pg_cg
+  method job_instance = pg
+
+  method abort() =
+    match self#state with
+	`Working _ ->
+	  close_job_descriptors pg;
+	  self # set_state `Aborted;
+	  Unixqueue.clear esys group
+      | _ ->
+	  ()
+
+  method event_system = esys
+
+  method private update() =
+    (* Update the resources for file descriptors: *)
+    let update_res make_op old_list new_list =
+      List.iter
+	(fun old_descr ->
+	   if not(List.mem old_descr new_list) then
+	     Unixqueue.remove_resource esys group (make_op old_descr)
+	)
+	old_list;
+      List.iter
+	(fun new_descr ->
+	   if not(List.mem new_descr old_list) then
+	     Unixqueue.add_resource esys group ((make_op new_descr),-1.0)
+	)
+	new_list
+    in
+
+    let next_read = read_list() in
+    let next_write = write_list() in
+    let next_process = process_list() in
+
+    update_res (fun op -> Unixqueue.Wait_in op)  cur_read next_read;
+    update_res (fun op -> Unixqueue.Wait_out op) cur_write next_write;
+    update_res
+      (fun op -> Unixqueue.Wait_in op)  
+      (List.map fst cur_process)
+      (List.map fst next_process);
+
+    cur_read <- next_read;
+    cur_write <- next_write;
+    cur_process <- next_process;
+
+    (* Maybe everything is done: *)
+    if cur_read = [] && cur_write = [] && cur_process = [] then
+      self # all_done()
+
+
+  method private count() =
+    match self#state with
+	`Working n ->
+	  self # set_state (`Working (n+1))
+      | _ ->
+	  ()
+
+
+  method private handle_event ev =
+    match ev with
+      | Unixqueue.Input_arrived(_,fd) -> 
+	  if List.mem fd cur_read then
+	    self # handle_pevent_protected (File_read fd)
+	  else
+	    if List.mem_assoc fd cur_process then
+	      self # handle_pevent_protected (Process_event fd)
+      | Unixqueue.Output_readiness(_,fd) -> 
+	  if List.mem fd cur_write then
+	    self # handle_pevent_protected (File_write fd)
+      | _ ->
+	  raise Equeue.Reject
+
+
+  method private handle_pevent_protected e =
+    try
+      self # handle_pevent e
+    with
+      | error ->
+	  self # set_state(`Error error);
+	  close_job_descriptors pg;
+	  Unixqueue.clear esys group
+
+
+  method private handle_pevent e =
+    (* may fail because of an exception in one of the called handlers! *)
+    dlogr (fun () -> sprintf "handle_pevent %s" (string_of_pevent e));
+    self # count();
+    let need_update = ref false in
+    ( match e with
+	| Process_event fd ->
+	    (* Find the process to which this fd points *)
+	    let p = 
+	      try List.assoc fd cur_process with Not_found -> assert false in
+	    (* Right now we only support terminate events. So: *)
+	    ( match p.p_id with
+		| `POSIX(_,_,ws) ->
+		    p.p_status <-
+		      Netsys_posix.get_subprocess_status ws
+		| `Win32(proc,_) ->
+		    p.p_status <-
+		      Netsys_win32.get_process_status proc
+		| `Dummy -> ()
+	    );
+	    if p.p_status <> None then
+	      need_update := true
+	| File_read fd ->
+	    (* Find the consumer reading from this fd *)
+	    let consumer =
+	      try List.assoc fd pg.pg_fd_consumer_alist
+	      with Not_found -> assert false
+	    in
+	    let result = Netsys.restart consumer.ph_handler fd in
+	    if not result then begin
+	      (* remove the consumer from the list of consumers *)
+	      pg.pg_fd_consumer_alist <- ( List.remove_assoc
+					     fd
+					     pg.pg_fd_consumer_alist
+					 );
+	      need_update := true
+	    end
+	| File_write fd ->
+	    (* Find the producer writing to this fd *)
+	    let producer =
+	      try List.assoc fd pg.pg_fd_producer_alist
+	      with Not_found -> assert false
+	    in
+	    let result = Netsys.restart producer.ph_handler fd in
+	    if not result then begin
+	      (* remove the producer from the list of producers *)
+	      pg.pg_fd_producer_alist <- ( List.remove_assoc
+					     fd
+					     pg.pg_fd_producer_alist
+					 );
+	      need_update := true
+	    end
     );
-  dlog "Abandoned processes:";
-  Array.iter
-    (fun p ->
-       if p.p_abandoned then
-	 dlogr(fun () ->
-		 sprintf "- Process %s"
-		   (p.p_command.c_cmdname)))
-    !abandoned_job_processes
+    if !need_update then
+      self # update()
+
+  method private all_done() =
+    (* This is called when all processes have terminated *)
+    let successful =
+      List.for_all
+	(fun p ->
+	   try status p = Unix.WEXITED 0 with Not_found -> assert false)
+	pg.pg_processes
+    in
+    dlogr (fun () -> sprintf "successful=%b" successful);
+    let new_status = if successful then Job_ok else Job_error in
+    pg.pg_status <- new_status;
+
+    close_job_descriptors pg;
+
+    Unixqueue.clear esys group;
+    self # set_state(`Done ())
+
+end
 
 
-let iter_job_instances
-      ~f =
-  with_current_jobs
-    (fun () -> List.iter f !current_jobs)
+let finish_job pg =
+  let esys = Unixqueue.create_unix_event_system() in
+  let eng = new job_engine esys pg in
+  Unixqueue.run esys;
+  match eng#state with
+    | `Done () -> ()
+    | `Error e -> raise e
+    | `Aborted -> assert false  (* cannot happen *)
+    | `Working _ -> failwith "Shell_sys.finish_job: still running"
 ;;
+
+
+let call c =
+  (* Create a little job with only one process in it *)
+  let j = new_job () in
+  add_command c j;
+  let pg = run_job ~mode:Same_as_caller ~forward_signals:false j in
+  finish_job pg;
+  match pg.pg_processes with
+    | [ p ] -> p
+    | _ -> assert false
+;;
+
 
 let kill_process_group
       ?(signal = Sys.sigterm)
@@ -2112,7 +1930,14 @@ let kill_process_group
     raise No_Unix_process_group;
   dlogr (fun () -> sprintf "Killing pg %d signal %d"
 	   pg.pg_id signal);
-  Unix.kill (- pg.pg_id) signal
+  if not pg.pg_processes_closed then (
+    let p = List.hd pg.pg_processes in
+    match p.p_id with
+      | `POSIX(_,_,ws) ->
+	  Netsys_posix.killpg_subprocess signal ws
+      | _ ->
+	  ()
+  )
 ;;
 
 let kill_processes
@@ -2121,60 +1946,32 @@ let kill_processes
   if pg.pg_status = Job_running || pg.pg_status = Job_partially_running ||
      pg.pg_status = Job_abandoned
   then begin
-    List.iter
-      (fun p ->
-	 try
-	   ignore(status p)
-	 with
-	     Not_found ->
-	       (* The process has not yet terminated *)
-	       try
-		 kill ~signal:signal p
-	       with
-		   Unix.Unix_error(Unix.ESRCH,_,_) ->
-		     (* The process does not exist *)
-		     ()
-      )
-      pg.pg_processes;
+    if not pg.pg_processes_closed then (
+      List.iter
+	(fun p ->
+	   match p.p_id with
+	     | `POSIX(_,_,ws) ->
+		 Netsys_posix.kill_subprocess signal ws
+	     | _ ->
+		 ()
+	)
+	pg.pg_processes;
+    )
   end
 ;;
 
-let abandon_job ?(signal = Sys.sigterm) pg =
+let cancel_job ?(signal = Sys.sigterm) pg =
 
   if pg.pg_status = Job_running || pg.pg_status = Job_partially_running
   then begin
 
     List.iter
-      (fun p -> p.p_abandoned <- true)
+      (fun p -> 
+	 p.p_abandoned <- true
+      )
       pg.pg_processes;
 
     pg.pg_status <- Job_abandoned;
-
-    with_current_jobs
-      (fun () ->
-	 current_jobs := List.filter (fun ji -> ji != pg) !current_jobs;
-	 let k = ref 0 in
-	 List.iter
-	   (fun p ->
-	      let n = Array.length !abandoned_job_processes in
-	      while !k < n &&
-		    !abandoned_job_processes.( !k ).p_status = None
-	      do
-		incr k
-	      done;
-	      if !k < n then begin
-		!abandoned_job_processes.( !k ) <- p;
-		incr k
-	      end
-	      else begin
-		let new_array = Array.create (2*n) dummy_process in
-		Array.blit !abandoned_job_processes 0 new_array 0 n;
-		new_array.( n ) <- p;
-		abandoned_job_processes := new_array
-	      end
-	   )
-	   pg.pg_processes
-      );
 
     begin try
       kill_process_group ~signal:signal pg
@@ -2182,24 +1979,20 @@ let abandon_job ?(signal = Sys.sigterm) pg =
 	No_Unix_process_group ->
 	  kill_processes ~signal:signal pg
       | Unix.Unix_error(Unix.ESRCH,_,_) ->
-	  (* No such process *)
 	  ()
     end;
 
     close_job_descriptors pg;
 
-    (* No "wait" for the processes of the abandoned job! If there is a
-     * SIGCHLD handler, it will look after the processes moved to
-     * abandoned_job_processes.
-     *)
-
-    if not is_win32 then
-      Unix.kill (Unix.getpid()) (Sys.sigchld);
-    (* Force a SIGCHLD such that the abandoned processes will be checked
-     * in near future.
+    (* No "wait" for the processes of the abandoned job! The
+     * SIGCHLD handler will look after the processes anyway.
      *)
   end
 ;;
+
+
+let abandon_job ?signal ji = cancel_job ?signal ji
+
 
 let call_job
       ?mode
@@ -2216,39 +2009,7 @@ let call_job
 ;;
 
 
-let watch_for_zombies () =
-  (* This is _relatively_ safe regarding race conditions with
-   * the "wait" function (see above) which also modifies the components
-   * of process records. However, it is assumed that abandoned processes
-   * will no longer be waited for.
-   *)
-  Array.iter
-    (fun p ->
-       if p.p_status = None then begin
-	 ( match p.p_id with
-	     | `POSIX pid ->
-		 let real_pid,status = Unix.waitpid [ Unix.WNOHANG ] pid in
-		 if pid = real_pid then
-		   p.p_status <- Some status
-	     | `Win32(proc,_) ->
-		 p.p_status <- Netsys_win32.get_process_status proc
-	 );
-	 if p.p_status <> None then (
-	   (* remove references so the GC can free stuff: *)
-	   p.p_abandoned <- false;
-	   p.p_id <- `POSIX 0
-	 )
-       end
-    )
-    !abandoned_job_processes;
-  (* Note MT: In this loop, the array ref may change (harmless), and the
-   * array cells may be replaced by different ones (but only if
-   * p_status <> None), so nothing bad can happen.
-   *)
-;;
-
-
-let mutex_reconf = omtp # create_mutex()
+let mutex_reconf = !Netsys_oothr.provider # create_mutex()
   (* For multi-threaded programs: lock/unlock the mutex while reconfiguring *)
 
 let with_reconf f =
@@ -2269,7 +2030,6 @@ let want_sigint_handler  = ref true;;
 let want_sigquit_handler = ref true;;
 let want_sigterm_handler = ref true;;
 let want_sighup_handler  = ref true;;
-let want_sigchld_handler = ref true;;
 let want_at_exit_handler = ref true;;
 
 
@@ -2280,7 +2040,6 @@ let configure_job_handlers
       ?(catch_sigquit = true)
       ?(catch_sigterm = true)
       ?(catch_sighup  = true)
-      ?(catch_sigchld = true)
       ?(at_exit       = true)
       () =
   with_reconf
@@ -2292,7 +2051,6 @@ let configure_job_handlers
        want_sigquit_handler := catch_sigquit;
        want_sigterm_handler := catch_sigterm;
        want_sighup_handler  := catch_sighup;
-       want_sigchld_handler := catch_sigchld;
        want_at_exit_handler := at_exit;
        ()
     )
@@ -2310,26 +2068,25 @@ let install_job_handlers () =
       ()
   in
 
-  let forward_signal always signo =
-    dlogr (fun () -> sprintf "forward_signal always=%b signo=%d"
-	     always signo);
-    iter_job_instances
-      (fun pg ->
-	 if always || process_group_expects_signals pg then begin
-	   try kill_process_group ~signal:signo pg
-	   with
-	       No_Unix_process_group ->
-		 kill_processes ~signal:signo pg
-	     | Unix.Unix_error(Unix.ESRCH,_,_) ->
-		 (* No such process *)
-		 ()
-	 end
-      )
+  let forward_group_signal signo =
+    dlogr (fun () -> sprintf "forward_group_signal signo=%d"
+	     signo);
+    if not is_win32 then (
+      (* Send the signal to all groups that want it: *)
+      Netsys_posix.killpg_all_subprocesses signo false;
+    )
   in
 
-  let watch_for_zombies _ =
-    dlog "watch_for_zombies";
-    watch_for_zombies()
+
+  let forward_individual_signal signo =
+    dlogr (fun () -> sprintf "forward_individual_signal signo=%d"
+	     signo);
+    if not is_win32 then (
+      (* Send the signal to all individual processes that are not managed
+         as member of groups:
+       *)
+      Netsys_posix.kill_all_subprocesses signo true true
+    )
   in
 
   with_reconf
@@ -2339,15 +2096,20 @@ let install_job_handlers () =
        (* The first argument of forward_signal is 'false' only for keyboard
 	* signals. The other signals should be always forwarded.
 	*)
-       if !want_sigint_handler  then install Sys.sigint  (forward_signal false);
-       if !want_sigquit_handler then install Sys.sigquit (forward_signal false);
-       if !want_sigterm_handler then install Sys.sigterm (forward_signal true);
-       if !want_sighup_handler  then install Sys.sighup  (forward_signal true);
-       if !want_sigchld_handler then install Sys.sigchld watch_for_zombies;
+       if !want_sigint_handler  then install Sys.sigint  forward_group_signal;
+       if !want_sigquit_handler then install Sys.sigquit forward_group_signal;
+       if !want_sigterm_handler then install Sys.sigterm forward_individual_signal;
+       if !want_sighup_handler  then install Sys.sighup  forward_individual_signal;
 
        if !want_at_exit_handler then
-	 at_exit (fun () -> forward_signal true Sys.sigterm);
+	 at_exit (fun () -> forward_individual_signal Sys.sigterm);
 
        ()
     )
 ;;
+
+
+let () =
+  if not is_win32 then
+    Netsys_posix.register_subprocess_handler()
+      (* Install the SIGCHLD handler *)

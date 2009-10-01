@@ -10,6 +10,10 @@
     Problems reported earlier here have been resolved.
 *)
 
+(** If you get errors like "Netsys_posix.watch_subprocess: uninitialized"
+    you should call {!Shell_sys.install_job_handlers}.
+ *)
+
 (** {1 Common exceptions} *)
 
 exception Fatal_error of exn
@@ -206,8 +210,19 @@ type group_action =
   | Current_group     (** Started process remains in the current group *)
   (** Determines in which process group the new process will run *)
 
+type fwd_mode =
+    No_forward          (** No forwarding of keyboard signals *)
+  | Forward_to_process  (** Forward signals directly to subprocess *)
+  | Forward_to_group    (** Forward signals to the process group of the subprocess *)
+  (** Determines whether and how keyboard signals (SIGINT, SIGQUIT) are
+      forwarded from the caller to the new child. There is no forwarding
+      in Win32 - all console applications get the keyboard signals anyway.
+   *)
+
+
 val run :
       ?group:group_action ->       (* default: Current_group *)
+      ?forward_mode:fwd_mode ->    (* default: No_forward *)
       ?pipe_assignments:((Unix.file_descr * Unix.file_descr) list) ->
                                    (* default: [] *)
       command ->
@@ -232,6 +247,9 @@ val run :
    *
    * @param group Determines in which process group the new process will
    *   run. By default [Current_group].
+   * @param forward_mode Whether and how to forward keyboard signals
+   *   to the new child. By default [No_forward]. The Win32 implementation
+   *   ignores this argument.
    * @param pipe_assignments A list of descriptor pairs [(fd_from,fd_to)].
    *   The descriptor [fd_from] in the current process will be assigned
    *   to [fd_to] in the started subprocess. In order to
@@ -248,89 +266,13 @@ val process_id : process -> int
   (** Returns the process ID of the process *)
 
 val status : process -> Unix.process_status
-  (** Reports the status as determined by [wait] (below): If the process 
+  (** Reports the status so far known: If the process 
    * has terminated, the status of the process is returned.
    * If the process is still running, [Not_found] will be raised.
-   *
-   * Note: This function does {b not} call [Unix.waitpid] to get the status
-   * and to release the process ID. This is done by [wait] below.
    *)
 
 val command_of_process : process -> command
   (** Returns the command that is now running as the process *)
-
-type process_event =
-    File_read of Unix.file_descr   (** Data can be read from the fd *)
-  | File_write of Unix.file_descr  (** Data can be written to the fd *)
-  | File_except of Unix.file_descr (** OOB data can be read from the fd *)
-  | Process_event of process       (** The process has changed its status *)
-  | Signal                         (** A signal happened *)
-  (** Events used by [wait] *)
-
-val wait : 
-      ?wnohang:bool ->                     (* default: false *)
-      ?wuntraced:bool ->                   (* default: false *)
-      ?restart:bool ->                     (* default: false *)
-      ?check_interval:float ->             (* default: 0.1 *)
-      ?read:(Unix.file_descr list) ->      (* default: [] *)
-      ?write:(Unix.file_descr list) ->     (* default: [] *)
-      ?except:(Unix.file_descr list) ->    (* default: [] *)
-      process list ->
-        process_event list
-(** Watches the given list of processes and the file descriptors [read], 
- *  [write], and [except], and waits until events for these resources
- *  have happened, and reports these. It is allowed that the list of
- *  processes includes stopped and terminated processes.
- *
- * The function returns immediately with [] if it is no longer possible
- * that any event can happen.
- *
- * The passed file descriptors must be open.
- *
- * The function reports events under these conditions:
- * - A process of the list terminates, either regularly, or because of
- *   a signal. This is recorded as [Process_event].
- * - A process of the list stops, and [wuntraced = true]. This is also
- *   recorded as [Process_event].
- * - A file descriptor of the [read] list delivers data. This is a
- *   [File_read] event.
- * - A file descriptor of the [write] list accepts data. This is a
- *   [File_write] event.
- * - A file descriptor of the [except] list delivers data. This is a
- *   [File_except] event.
- *
- * Notes:
- * - The list of processes may contain terminated processes (that no longer
- *   exist) as long as the process status has already been recorded by a
- *   previous [wait] invocation.
- * - If [wait] does not restart automatically on a signal, the function
- *   will raise [Unix.Unix_error(Unix.EINTR,_,_)] when the signal condition
- *   is caught.
- * - If a process causes both process and descriptor events at the same time, 
- *   it is not specified which events are reported first.
- * - Only every [check_interval] seconds it is checked whether there are
- *   process events. File descriptor events are reported without delay.
- *
- * It is suggested to install a signal handler for SIGCHLD to improve
- * the responsiveness for process events. It is sufficient to install
- * an empty handler for this effect.
- *
- * @param wnohang If [true], it is immediately checked whether file or
- *   process events have happend, and if so, the event list is returned.
- *   When there are no events to report, the empty list is immediately
- *   returned. Default: [false]
- * @param wuntraced Whether to report events about stopped processes.
- *   Default: [false]
- * @param restart Whether to restart the event loop when a signal
- *   interrupts the loop. If [true], Unix errors of the type EINTR
- *   cannot happen any longer. Default: [false]
- * @param check_interval How frequently the processes are checked for
- *   events (in seconds). In addition to this, the processes are also
- *   checked when a signal happens. Default: 0.1
- * @param read The file descriptors to check for read events
- * @param write The file descriptors to check for write events
- * @param except The file descriptors to check for out-of-band events
- *)
 
 val call : command -> process
   (** Executes the command and waits until the process terminates
@@ -346,56 +288,6 @@ val kill :
    *
    * @param signal The signal to send, by default SIGTERM
    *)
-
-
-(* ******************************************************************** *)
-(* **                 system event handler type                      ** *)
-(* ******************************************************************** *)
-
-(** {1 Foreign event loops} *)
-
-(** The type [system_handler] can be used to watch the progress of
- *  jobs from a foreign event loop instead of [wait]. This interface
- *  is needed for the integration into the Unixqueue framework.
- *)
-
-type system_handler =
-    { sys_register :
-        ?wuntraced:bool ->                   (* default: false *)
-	?check_interval:float ->             (* default: 0.1 *)
-	?read:(Unix.file_descr list) ->      (* default: [] *)
-	?write:(Unix.file_descr list) ->     (* default: [] *)
-        ?except:(Unix.file_descr list) ->    (* default: [] *)
-	process list ->
-        (process_event list -> unit) ->   (* callback for events *)
-	  unit;        (** Register an event handler *)
-
-      sys_wait :
-	unit -> unit;  (** Start the event loop *)
-    }
-(** There are two record components:
- *
- * [sys_register]: By calling this function a callback function for the 
- *   specified events is registered. The meaning of the arguments is the
- *   same as for [wait], except of the last argument which is the callback
- *   function of type [process_event list -> unit]. Instead of returning
- *   the events like [wait], [sys_register] calls this function back
- *   to deliver the events.
- *
- * [sys_wait]: By calling this function the event loop is started, and
- *   events are delivered to the registered callback. If exceptions are
- *   raised in the callback function these will not be caught, so the 
- *   caller of [sys_wait] will get them. It must be possible to restart
- *   [sys_wait] in this case.
- *
- *   The callback function can change the list of interesting events by
- *   calling [sys_register] again.
- *
- *   If effectively no events are interesting ([sys_register] is called without
- *   file descriptors and no running process) the callback function is called
- *   with an empty [process_event list] once. If it does not register a new
- *   callback, the event loop will stop, and [sys_wait] will return normally.
- *)
 
 
 (* ******************************************************************** *)
@@ -638,33 +530,36 @@ val run_job :
    * happened, the function sets [job_status] to [Job_running].
    *)
 
+(** This type of engine also returns the [job] and the [job_instance].
+ *)
+class type ['t] job_handler_engine_type = object
+  inherit ['t] Uq_engines.engine
 
-val register_job :
-      system_handler ->
-      job_instance -> unit
-  (** Registers the job at the passed [system_handler]. This is not necessary
-   * if you directly call [finish_job].
+  method job : job
+    (** Returns the called job *)
+
+  method job_instance : job_instance
+    (** Returns the job instance *)
+end;;
+
+
+class job_engine : Unixqueue.event_system -> job_instance ->
+                     [unit] job_handler_engine_type
+  (** The [job_engine] watches the job, and looks whether the processes
+      are finished, and if so, it records the process statuses. Also,
+      the engine takes care of pumping producer data into the job,
+      and of collecting consumer data.
    *)
 
-
 val finish_job :
-      ?sys:system_handler ->
       job_instance -> unit
-  (** Waits until all of the processes of the job have terminated.
-   * The function handles all producer/consumer events and calls the
-   * producer/consumer functions as necessary.
+  (** This creates a [job_engine] internally and runs until it is
+   * finished, i.e. until the job has been executed.
    *
-   * Exceptions raised by the producer/consumer functions are not caught.
-   * In this case, [finish_job] is restartable.
-   *
-   * The [sys] argument determines the system_handler ([standard_system_handler]
-   * by default). The job instance is registered at the system handler,
-   * and it is waited until the job finishes. Roughly, [finish_job]
-   * is equivalent to
-   * {[
-   *   register_job sys jobinst;
-   *   sys.sys_wait()
-   * ]}
+   * In previous version of Ocamlnet there was an optional [sys]
+   * argument. This is gone now. Also, the error handling is different.
+   * It is no longer possible to restart [finish_job] when an error
+   * happens.
    *)
 
 val call_job :
@@ -708,9 +603,6 @@ val process_group_id : job_instance -> int
   (** Returns the Unix ID of the process group as number > 1.
    * This function is not available for jobs in the mode [Same_as_caller].
    *)
-
-val process_group_expects_signals : job_instance -> bool
-  (** [true] iff the group has [mode=Background] and [forward_signals]. *)
 
 type job_status =
     Job_running            (** All commands could be started, and at least
@@ -765,7 +657,7 @@ val kill_processes :
    *    used by the [Sys] module). Default is [Sys.sigterm].
    *)
 
-val abandon_job :
+val cancel_job :
       ?signal:int ->              (* default: SIGTERM *)
       job_instance -> unit
   (** Tries to get rid of a running job. If the mode is [Same_as_caller], the
@@ -782,19 +674,8 @@ val abandon_job :
    *    used by the [Sys] module). Default is [Sys.sigterm].
    *)
 
-val iter_job_instances :
-      f:(job_instance -> unit) ->
-        unit
-  (** Iterates over the jobs in the list of active jobs and calls [f] for every
-   * [job_instance].
-   *)
-
-val watch_for_zombies : unit -> unit
-  (** Iterates over the jobs in the list of abandoned jobs, and removes
-   * zombie processes. 
-   *)
-
-
+val abandon_job : ?signal:int -> job_instance -> unit
+  (** {b Deprecated} name for [cancel_job] *)
 
 exception Already_installed;;
   (** Raised when the job handlers are already installed *)
@@ -804,7 +685,6 @@ val configure_job_handlers :
       ?catch_sigquit:bool ->     (* default: true *)
       ?catch_sigterm:bool ->     (* default: true *)
       ?catch_sighup:bool ->      (* default: true *)
-      ?catch_sigchld:bool ->     (* default: true *)
       ?at_exit:bool ->           (* default: true *)
       unit ->
       unit
@@ -817,7 +697,13 @@ val configure_job_handlers :
    *   running in their own Unix process group or not, and regardless of
    *   [forward_signals]).
    * - The [at_exit] handler sends a SIGTERM to all dependent processes, too.
-   * - the SIGCHLD handler calls [watch_for_zombies].
+   *
+   * In previous versions of Ocamlnet it was also possible to configure
+   * [catch_sigchld] to set whether a SIGCHLD handler is installed. This
+   * is now always done.
+   *
+   * In previous versions of Ocamlnet there was also a [set_sigpipe] flag.
+   * This flag is gone as a SIGPIPE handler is now always installed.
    *
    * The handlers are now managed by {!Netsys_signal}. The handlers of this
    * module set the [keep_default] flag for SIGINT, SIGQUIT, SIGTERM, and
@@ -825,15 +711,6 @@ val configure_job_handlers :
    * the forwarding to the child processes is done. By setting another
    * handler in {!Netsys_signal} without that flag this behavior can be
    * overridden.
-   *
-   * In previous versions of Ocamlnet there was also a [set_sigpipe] flag.
-   * This flag is gone as a SIGPIPE handler is now always installed.
-   *
-   * Dependent processes are:
-   * - For jobs with mode = [Foreground] or [Background]: the processes
-   *   of the corresponding Unix process group
-   * - For jobs with mode = [Same_as_caller]: the actually started
-   *   children processes
    *
    * Note that if an uncaught exception leads to program termination,
    * this situation will not be detected; any running jobs will
@@ -843,11 +720,13 @@ val configure_job_handlers :
    * [install_job_handlers] (below) is invoked.
    * The function fails if the handlers are already installed.
    *
+   * Win32: No handlers are installed. It would be desirable to some extent
+   * that at least [at_exit] is honoured, however, this is not yet done.
+   *
    * @param catch_sigint whether to install a SIGINT handler (default: [true])
    * @param catch_sigquit whether to install a SIGQUIT handler (default: [true])
    * @param catch_sigterm whether to install a SIGTERM handler (default: [true])
    * @param catch_sighup whether to install a SIGHUP handler (default: [true])
-   * @param catch_sigchld whether to install a SIGCHLD handler (default: [true])
    * @param at_exit whether to set the [at_exit] handler (default: [true])
    *)
 
@@ -863,6 +742,32 @@ val install_job_handlers : unit -> unit
  * Unixqueue now, which is much more powerful.
  *)
 
+(** Also no longer supported because the type [system_handler] is gone:
+
+    {[type system_handler]}
+
+    {[ type process_event ]}
+
+    {[val wait : 
+      ?wnohang:bool ->                     (* default: false *)
+      ?wuntraced:bool ->                   (* default: false *)
+      ?restart:bool ->                     (* default: false *)
+      ?check_interval:float ->             (* default: 0.1 *)
+      ?read:(Unix.file_descr list) ->      (* default: [] *)
+      ?write:(Unix.file_descr list) ->     (* default: [] *)
+      ?except:(Unix.file_descr list) ->    (* default: [] *)
+      process list ->
+        process_event list
+    ]}
+    {[val register_job : system_handler -> job_instance -> unit]}
+
+    {[val iter_job_instances : f:(job_instance -> unit) ->  unit]}
+
+    {[val watch_for_zombies : unit -> unit]}
+
+    {[val process_group_expects_signals : job_instance -> bool]}
+
+ *)
 
 (** {1 Debugging} *)
 
@@ -871,7 +776,6 @@ module Debug : sig
     (** Enables {!Netlog}-style debugging of this module  *)
 end
 
-(**/**)
 
-val gc_info : unit -> unit
-val watch_for_zombies : unit -> unit
+
+

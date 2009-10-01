@@ -3,6 +3,20 @@
  *
  *)
 
+let is_win32 =
+  match Sys.os_type with
+    | "Win32" -> true
+    | _ -> false;;
+
+
+let dev_null_name =
+  if is_win32 then
+    "NUL"
+  else
+    "/dev/null"
+
+
+
 let stdin  = Unix.stdin;;
 let stdout = Unix.stdout;;
 let stderr = Unix.stderr;;
@@ -185,7 +199,7 @@ let setup_job
     let dev_null = ref Unix.stdin in
     if stdin = P_dev_null || stdout = C_dev_null || stderr = C_dev_null then 
     begin
-      dev_null := Unix.openfile "/dev/null" [ Unix.O_RDWR ] 0;
+      dev_null := Unix.openfile dev_null_name [ Unix.O_RDWR ] 0;
       files_to_close := !dev_null :: !files_to_close;
     end;
 
