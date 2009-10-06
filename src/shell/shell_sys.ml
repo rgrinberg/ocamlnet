@@ -147,6 +147,23 @@ type command =
     }
 ;;
 
+let is_letter =
+  function
+    | 'a'..'z' -> true
+    | 'A'..'Z' -> true
+    | _ -> false
+
+
+let name_with_dir name =
+  if is_win32 then
+    String.contains name '/' || 
+      String.contains name '\\' || 
+      (String.length name >= 2 && name.[1] = ':' && is_letter name.[0])
+  else
+    String.contains name '/'
+    
+
+
 let command
       ?cmdname
       ?(arguments = [||])
@@ -158,7 +175,7 @@ let command
       () =
   let cmdname' =
     match cmdname with
-	None      -> if String.contains filename '/' then
+	None      -> if name_with_dir filename then
 	               filename
   	             else
 		       "./" ^ filename
@@ -202,14 +219,22 @@ let copy_command c =
 ;;
 
 let is_executable_file name =
-  try
-    Unix.access name [ Unix.X_OK ];
-    true
-  with
-      Unix.Unix_error(_,_,_) -> false
+  let perms = 
+    if is_win32 then [ Unix.R_OK ] else [ Unix.X_OK ] in
+  ( not is_win32 ||
+      Filename.check_suffix name ".exe" ||
+      Filename.check_suffix name ".com"
+  ) &&
+    ( try
+	Unix.access name perms;
+	true
+      with
+	  Unix.Unix_error(_,_,_) -> false
+    )
 ;;
 
-let is_executable c = is_executable_file c.c_filename;;
+let is_executable c = 
+    is_executable_file c.c_filename;;
 
 let split_path s =
   (* move to shell_misc.ml ? *)
@@ -230,10 +255,10 @@ let split_path s =
 
 exception Executable_not_found of string;;
 
-let lookup_executable
+let posix_lookup_executable
       ?(path = split_path (try Unix.getenv "PATH" with Not_found -> ""))
       name =
-  if String.contains name '/' then begin
+  if name_with_dir name then begin
     if is_executable_file name then
       name
     else
@@ -256,6 +281,27 @@ let lookup_executable
 	Exit -> !foundname
   end
 ;;
+
+
+
+let win32_lookup_executable ?path name =
+  if name_with_dir name then (
+    if is_executable_file name then
+      name
+    else
+      raise (Executable_not_found name)
+  )
+  else (
+    let p_opt =
+      match path with
+	| None -> None
+	| Some p -> Some(String.concat ";" p) in
+    Netsys_win32.search_path p_opt name (Some ".exe")
+  )
+
+let lookup_executable =
+  if is_win32 then win32_lookup_executable else posix_lookup_executable
+
 
 type group_action =
     New_bg_group
@@ -721,7 +767,6 @@ let win32_run
 	     ) in
 	 let ev = Netsys_win32.as_process_event p in
 	 let ev_proxy = Netsys_win32.event_descr ev in
-	 Gc.finalise Unix.close ev_proxy;  (* CHECK *)
 	 restore_close_on_exec();
 	 dlog "run returning normally";
 	 { p_command = c;

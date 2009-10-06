@@ -1,5 +1,18 @@
 (* $Id$ *)
 
+open Printf
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Netsys" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netsys" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Netsys" Debug.enable
+
+
 exception Shutdown_not_supported
 
 let is_win32 =
@@ -9,6 +22,10 @@ external netsys_is_darwin : unit -> bool = "netsys_is_darwin"
 
 let is_darwin =
   netsys_is_darwin()
+
+external int64_of_file_descr : Unix.file_descr -> int64
+  = "netsys_int64_of_file_descr"
+  (* Also occurs in netsys_win32.ml! *)
 
 let restart = Netsys_impl_util.restart
 let restart_tmo = Netsys_impl_util.restart_tmo
@@ -107,6 +124,8 @@ let get_fd_style fd =
 	      assert false
 
 let wait_until_readable fd_style fd tmo =
+  dlogr (fun () -> sprintf "wait_until_readable fd=%Ld tmo=%f"
+	   (int64_of_file_descr fd) tmo);
   if Netsys_posix.have_poll() then
     restart_tmo
       (Netsys_posix.poll_single fd true false false) tmo
@@ -135,6 +154,8 @@ let wait_until_readable fd_style fd tmo =
 	  l <> []
 
 let wait_until_writable fd_style fd tmo =
+  dlogr (fun () -> sprintf "wait_until_writable fd=%Ld tmo=%f"
+	   (int64_of_file_descr fd) tmo);
   if Netsys_posix.have_poll() then
     restart_tmo
       (Netsys_posix.poll_single fd false true false) tmo
@@ -163,6 +184,8 @@ let wait_until_writable fd_style fd tmo =
 	  l <> []
 
 let wait_until_prird fd_style fd tmo =
+  dlogr (fun () -> sprintf "wait_until_prird fd=%Ld tmo=%f"
+	   (int64_of_file_descr fd) tmo);
   if Netsys_posix.have_poll() then
     restart_tmo
       (Netsys_posix.poll_single fd false false true) tmo
@@ -193,6 +216,8 @@ let is_prird fd_style fd = wait_until_prird fd_style fd 0.0
 
 
 let gwrite fd_style fd s pos len =
+  dlogr (fun () -> sprintf "gwrite fd=%Ld len=%d"
+	   (int64_of_file_descr fd) len);
   match fd_style with
     | `Read_write ->
 	Unix.single_write fd s pos len
@@ -231,6 +256,8 @@ let rec really_gwrite fd_style fd s pos len =
 
 
 let gread fd_style fd s pos len =
+  dlogr (fun () -> sprintf "gread fd=%Ld len=%d"
+	   (int64_of_file_descr fd) len);
   match fd_style with
     | `Read_write ->
 	Unix.read fd s pos len
@@ -282,6 +309,8 @@ let really_gread fd_style fd s pos len =
 
 
 let wait_until_connected fd tmo =
+  dlogr (fun () -> sprintf "wait_until_connected fd=%Ld tmo=%f"
+	   (int64_of_file_descr fd) tmo);
   if is_win32 then
     try
       let w32 = Netsys_win32.lookup fd in
@@ -312,10 +341,6 @@ let catch_exn label getdetail f arg =
 	    | _ -> ()
 	)
 
-external int64_of_file_descr : Unix.file_descr -> int64
-  = "netsys_int64_of_file_descr"
-  (* Also occurs in netsys_win32.ml! *)
-
 let is_std fd std_fd std_num =
   if is_win32 then
     Netsys_win32.is_crt_fd fd std_num
@@ -341,6 +366,14 @@ let clear_close_on_exec fd =
 
 
 let gshutdown fd_style fd cmd =
+  dlogr (fun () -> sprintf "gshutdown fd=%Ld cmd=%s"
+	   (int64_of_file_descr fd) 
+	   (match cmd with
+	      | Unix.SHUTDOWN_SEND -> "SEND"
+	      | Unix.SHUTDOWN_RECEIVE -> "RECEIVE"
+	      | Unix.SHUTDOWN_ALL -> "ALL"
+	   )
+	);
   match fd_style with
     | `Recv_send _
     | `Recv_send_implied ->
@@ -369,6 +402,7 @@ let gshutdown fd_style fd cmd =
 
 
 let gclose fd_style fd =
+  dlogr (fun () -> sprintf "gclose fd=%Ld" (int64_of_file_descr fd));
   let fd_detail fd =
     Printf.sprintf "fd %Ld" (int64_of_file_descr fd) in
   let pipe_detail (fd,p) =
@@ -415,7 +449,8 @@ let gclose fd_style fd =
 	  (fd,p);
 	catch_exn
 	  "Unix.close" fd_detail
-	  Unix.close fd
+	  Unix.close fd;
+	Netsys_win32.unregister fd
     | `W32_pipe_server ->
 	let p = Netsys_win32.lookup_pipe_server fd in
 	catch_exn
@@ -424,12 +459,14 @@ let gclose fd_style fd =
 	  (fd,p);
 	catch_exn
 	  "Unix.close" fd_detail
-	  Unix.close fd
+	  Unix.close fd;
+	Netsys_win32.unregister fd
     | `W32_event | `W32_process ->
 	(* Events are automatically closed *)
 	catch_exn
 	  "Unix.close" fd_detail
-	  Unix.close fd
+	  Unix.close fd;
+	Netsys_win32.unregister fd
     | `W32_input_thread ->
 	let ithr = Netsys_win32.lookup_input_thread fd in
 	catch_exn
@@ -438,7 +475,8 @@ let gclose fd_style fd =
 	  (fd,ithr);
 	catch_exn
 	  "Unix.close" fd_detail
-	  Unix.close fd
+	  Unix.close fd;
+	Netsys_win32.unregister fd
     | `W32_output_thread ->
 	let othr = Netsys_win32.lookup_output_thread fd in
 	catch_exn
@@ -447,7 +485,8 @@ let gclose fd_style fd =
 	  (fd,othr);
 	catch_exn
 	  "Unix.close" fd_detail
-	  Unix.close fd
+	  Unix.close fd;
+	Netsys_win32.unregister fd
 
 
 

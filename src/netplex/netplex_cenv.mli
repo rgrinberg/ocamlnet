@@ -176,6 +176,16 @@ val run_in_controller_context : controller -> (unit -> unit) -> unit
    *)
 
 
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging *)
+
+end
+
+
 (**/**)
 
 val register_par : parallelizer -> unit

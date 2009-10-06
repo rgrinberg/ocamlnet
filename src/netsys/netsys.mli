@@ -475,3 +475,11 @@ val shm_unlink : string -> unit
       I admit I don't know whether TCP can handle this somehow.
  *)
 
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging *)
+
+end

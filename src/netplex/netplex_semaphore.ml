@@ -59,6 +59,13 @@ let plugin : plugin =
       method ctrl_added _ =
 	()
 
+      method ctrl_unplugged ctrl =
+	List.iter
+	  (fun cid ->
+	     self # ctrl_container_finished ctrl cid false
+	  )
+	  ctrl#containers
+
       method ctrl_receive_call ctrl cid procname procarg_val reply =
 	match procname with
 	  | "ping" ->

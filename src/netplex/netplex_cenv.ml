@@ -1,6 +1,18 @@
 (* $Id$ *)
 
 open Netplex_types
+open Printf
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Netplex_cenv" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netplex_cenv" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Netplex_cenv" Debug.enable
+
 
 exception Not_in_container_thread
 
@@ -17,6 +29,9 @@ let register_par par =
 
 let register_cont cont thread =
   if thread#ptype <> `Controller_attached then (
+    dlogr (fun () ->
+	     sprintf "register_cont cont=%d thread=%s"
+	       (Oo.id cont) thread#info_string);
     let (lock, unlock, par, m) =
       try Hashtbl.find cont_of_thread thread#ptype
       with Not_found -> 
@@ -31,6 +46,9 @@ let register_cont cont thread =
 
 let unregister_cont cont thread =
   if thread#ptype <> `Controller_attached then (
+    dlogr (fun () ->
+	     sprintf "unregister_cont cont=%d thread=%s"
+	       (Oo.id cont) thread#info_string);
     let (lock, unlock, par, m) =
       try Hashtbl.find cont_of_thread thread#ptype
       with Not_found -> 
@@ -38,7 +56,10 @@ let unregister_cont cont thread =
     
     lock();
     Hashtbl.remove m thread#sys_id;
-    unlock()
+    unlock();
+    dlogr (fun () ->
+	     sprintf "unregister_cont remaining_containers=%d"
+	       (Hashtbl.length m))
   )
 ;;
 
@@ -91,6 +112,8 @@ let timer_mutex = ( !Netsys_oothr.provider ) # create_mutex()
 
 let cancel_timer_int do_clear tobj =
   let cont = self_cont() in
+  dlogr (fun () -> sprintf "cancel_timer timer=%d cont=%d"
+	   (Oo.id tobj) (Oo.id cont));
   let esys = cont#event_system in
   timer_mutex # lock();
   let g_opt =
@@ -108,6 +131,8 @@ let cancel_timer = cancel_timer_int true
 
 let rec restart_timer tobj g =
   let cont = self_cont() in
+  dlogr (fun () -> sprintf "restart_timer timer=%d cont=%d"
+	   (Oo.id tobj) (Oo.id cont));
   let esys = cont#event_system in
   timer_mutex # lock();
   Hashtbl.add timer_table tobj g;
@@ -115,6 +140,8 @@ let rec restart_timer tobj g =
   Unixqueue.once esys g tobj#tmo 
     (fun () ->
        cancel_timer_int false tobj;
+        dlogr (fun () -> sprintf "callback_timer timer=%d cont=%d"
+		 (Oo.id tobj) (Oo.id cont));
        (* We let exceptions fall through to Netplex_container.run *)
        let flag = tobj#f tobj in
        if flag then restart_timer tobj g
@@ -132,21 +159,31 @@ let create_timer f tmo =
 	method cont = cont
       end
     ) in
+  dlogr (fun () -> sprintf "create_timer timer=%d cont=%d"
+	   (Oo.id tobj) (Oo.id cont));
   restart_timer tobj g;
   tobj
   
 
 let cancel_all_timers() =
   let cont = self_cont() in
+  dlogr (fun () -> sprintf "cancel_all_timers cont=%d" (Oo.id cont));
   let esys = cont#event_system in
   timer_mutex # lock();
+  let tlist = ref [] in
   Hashtbl.iter
     (fun tobj g ->
-       if tobj # cont = cont then
-	 Unixqueue.clear esys g
+       if tobj # cont = cont then (
+	 Unixqueue.clear esys g;
+	 tlist := tobj :: !tlist
+       )
     )
     timer_table;
-  Hashtbl.clear timer_table;
+  List.iter
+    (fun tobj ->
+       Hashtbl.remove timer_table tobj
+    )
+    !tlist;
   timer_mutex # unlock()
 
 

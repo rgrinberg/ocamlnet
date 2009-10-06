@@ -141,7 +141,7 @@ val lookup_executable :
    *
    * @param path The search path. By default, the contents of the
    *   variable PATH of the current environment, split by ':', are
-   *   used
+   *   used (Win32: SearchPath is used)
    *)
 
 val get_cmdname     : command -> string

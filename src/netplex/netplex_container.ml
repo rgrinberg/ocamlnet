@@ -75,24 +75,16 @@ object(self)
       ~esys
       (Rpc_client.Descriptor fd_clnt)
       Rpc.Tcp in
-    (* We disable logging because this is pretty uninteresting (except
-       you are debugging the container/controller protocol - but there are
-       special log messages for this purpose). Also sys_rpc_cl below also
-       disables logging
-     *)
-    (* Rpc_client.Debug.disable_for_client rpc_cl; (* leave on for now *) *)
+    if not !Debug.enable then
+      Rpc_client.Debug.disable_for_client rpc_cl;
     rpc <- Some rpc_cl;
     let sys_rpc_cl =
       Netplex_ctrl_clnt.System.V1.create_client
 	~esys:sys_esys
 	(Rpc_client.Descriptor sys_fd_clnt)
 	Rpc.Tcp in
-    (* We have to disable logging for this client, because this client is
-       used to transmit log messages. If we did not do this, each log
-       message would have another log message as follower, creating an
-       infinite sequence of messages.
-     *)
-    Rpc_client.Debug.disable_for_client sys_rpc_cl;
+    if not !Debug.enable then
+      Rpc_client.Debug.disable_for_client sys_rpc_cl;
     sys_rpc <- Some sys_rpc_cl;
     dlogr 
       (fun () -> 
@@ -113,6 +105,7 @@ object(self)
       (sockserv # processor # pre_finish_hook)
       (self : #container :> container);
     rpc <- None;
+
     dlogr
       (fun () -> sprintf "Container %d: Finishing (finish)" (Oo.id self))
 

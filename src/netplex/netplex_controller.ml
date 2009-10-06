@@ -275,6 +275,7 @@ object(self)
   method private start_single_container() =
     let onerror = ref [] in
     try
+      let container = sockserv # create_container par#ptype sockserv in
       let fd_clnt_closed = ref false in
       let fd_srv_closed = ref false in
       let (fd_clnt, fd_srv, fd_style) = create_pipe_pair() in
@@ -288,6 +289,11 @@ object(self)
 		      Netsys.gclose fd_style fd_srv
 		    )
 		 ) :: !onerror;
+      dlogr (fun () ->
+	       sprintf "Service %s: Container %d uses pipe %Ld:%Ld"
+		 name (Oo.id container) 
+		 (Netsys.int64_of_file_descr fd_clnt)
+		 (Netsys.int64_of_file_descr fd_srv));
       let sys_fd_clnt_closed = ref false in
       let sys_fd_srv_closed = ref false in
       let (sys_fd_clnt, sys_fd_srv, sys_fd_style) = create_pipe_pair() in
@@ -301,6 +307,11 @@ object(self)
 		      Netsys.gclose sys_fd_style sys_fd_srv
 		    )
 		 ) :: !onerror;
+      dlogr (fun () ->
+	       sprintf "Service %s: Container %d uses sys pipe %Ld:%Ld"
+		 name (Oo.id container) 
+		 (Netsys.int64_of_file_descr sys_fd_clnt)
+		 (Netsys.int64_of_file_descr sys_fd_srv));
       let fd_share =   (* descriptors to share between controller and cont *)
 	fd_clnt :: sys_fd_clnt ::
 	  (List.flatten
@@ -314,7 +325,6 @@ object(self)
 	  [ fd_srv; sys_fd_srv] 
 	else
 	  [] in
-      let container = sockserv # create_container par#ptype sockserv in
       dlogr
 	(fun () ->
 	   sprintf "Service %s: Container %d: pre_start"
@@ -344,6 +354,7 @@ object(self)
                 we always return, because no extra thread is started!
 	      *)
 	     if par # ptype <> `Controller_attached then (
+	       Netplex_cenv.cancel_all_timers();
 	       Netplex_cenv.unregister_cont container par_thread;
 	       (* indicates successful termination: *)
 	       Netsys.gclose fd_style fd_clnt;
@@ -372,7 +383,8 @@ object(self)
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, fd_srv))
 	  controller#event_system in
-      Rpc_server.Debug.disable_for_server rpc;
+      if not !Debug.enable then
+	Rpc_server.Debug.disable_for_server rpc;
       Rpc_server.set_exception_handler rpc
 	(fun err ->
 	   controller # logger # log
@@ -384,7 +396,8 @@ object(self)
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, sys_fd_srv))
 	  controller#event_system in
-      Rpc_server.Debug.disable_for_server sys_rpc;
+      if not !Debug.enable then
+	Rpc_server.Debug.disable_for_server sys_rpc;
       Rpc_server.set_exception_handler sys_rpc
 	(fun err ->
 	   controller # logger # log
@@ -1311,6 +1324,13 @@ object(self)
       plugin # ctrl_added (self :> controller)
     )
 
+  method free_resources () =
+    admin_setups <- [];
+    message_receivers <- [];
+    List.iter
+      (fun plugin -> plugin # ctrl_unplugged (self :> controller))
+      plugins
+
   method private rm_service sockctrl =
     let sockserv = ref None in
     services <- 
@@ -1490,6 +1510,18 @@ object(self)
 			     Netexn.to_string error);
       )
       plugins
+
+  method containers =
+    List.flatten
+      (List.map
+	 (fun (_,sockctrl,_) ->
+	    List.map
+	      (fun (cid,_,_,_) -> cid)
+	      sockctrl#container_state
+	 )
+	 services
+      )
+	    
 
 end
 

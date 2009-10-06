@@ -223,7 +223,8 @@ let get_weak w =
   Weak.get w 0
 
 
-let unregister_proxy cell _ =
+let finalise_proxy cell _ =
+  (* the GC finaliser *)
   proxies_unreg_count := !proxies_unreg_count + 1;
   cell := None
 
@@ -235,43 +236,53 @@ let gc_proxy() =
      in the table.
    *)
   let proxies' = H.create 41 in
-  let l = H.length !proxies in
-  let m = ref [] in
+  let n_old = ref 0 in
+  let n_new = ref 0 in
   H.iter
-    (fun fd_num entry ->
-       let (_, cell) = entry in
-       if !cell <> None then
-	 m := (fd_num, entry) :: !m
+    (fun fd_num entries ->
+       let m = ref [] in
+       List.iter
+	 (fun entry ->
+	    incr n_old;
+	    let (_, cell) = entry in
+	    if !cell <> None then (
+	      incr n_new;
+	      m := entry :: !m
+	    )
+	 )
+	 entries;
+       H.add proxies' fd_num (List.rev !m)
     )
     !proxies;
-  List.iter
-    (fun (fd_num,entry) -> H.add proxies' fd_num entry)
-    !m;
   proxies := proxies';
   proxies_unreg_count := 0;
   proxies_gc_flag := false;
   dlogr
     (fun () ->
        sprintf "register_proxy: keeping %d/%d entries in proxy tbl"
-	 (H.length proxies') l;
+	 !n_new !n_old;
     );
   dlogr
     (fun () ->
        let b = Buffer.create 500 in
        Buffer.add_string b "\n";
        H.iter
-	 (fun fd_num (_,cell) ->
-	    bprintf b " - proxy tbl %Ld -> %s\n"
-	      fd_num
-	      ( match !cell with
-		  | None -> "<free>"
-		  | Some(I_event _) -> "I_event"
-		  | Some(I_pipe _) -> "I_pipe"
-		  | Some(I_pipe_server _) -> "I_pipe_server"
-		  | Some(I_process _) -> "I_process"
-		  | Some(I_input_thread _) -> "I_input_thread"
+	 (fun fd_num entries ->
+	    List.iter
+	      (fun (_,cell) ->
+		 bprintf b " - proxy tbl %Ld -> %s\n"
+		   fd_num
+		   ( match !cell with
+		       | None -> "<free>"
+		       | Some(I_event _) -> "I_event"
+		       | Some(I_pipe _) -> "I_pipe"
+		       | Some(I_pipe_server _) -> "I_pipe_server"
+		       | Some(I_process _) -> "I_process"
+		       | Some(I_input_thread _) -> "I_input_thread"
 		  | Some(I_output_thread _) -> "I_output_thread"
+		   )
 	      )
+	      entries
 	 )
 	 proxies';
        Buffer.contents b
@@ -295,11 +306,32 @@ let register_proxy fd i_obj =
        );
        let cell = ref (Some i_obj) in
        let fd_weak = mk_weak fd in
-       H.add !proxies fd_num (fd_weak, cell);
-       Gc.finalise (unregister_proxy cell) fd
+       let l = try H.find !proxies fd_num with Not_found -> [] in
+       H.replace !proxies fd_num ((fd_weak, cell) :: l);
+       Gc.finalise (finalise_proxy cell) fd
     )
     ()
 
+
+let unregister fd =
+  (* called from user code *)
+  let fd_num = int64_of_file_descr fd in
+  Netsys_oothr.serialize
+    proxies_mutex
+    (fun () ->
+       let l = try H.find !proxies fd_num with Not_found -> [] in
+       let l' = 
+	 List.filter
+	   (fun (fd'_weak,cell) ->
+	      match get_weak fd'_weak with
+		| None -> false
+		| Some fd' ->
+		    !cell <> None && fd != fd'  (* phys. cmp! *)
+	   )
+	   l in
+       H.replace !proxies fd_num l'
+    )
+    ()
 
 let _ =
   Gc.create_alarm
@@ -313,7 +345,7 @@ let lookup fd =
   Netsys_oothr.serialize
     proxies_mutex
     (fun () ->
-       let l = H.find_all !proxies fd_num in
+       let l = H.find !proxies fd_num in
        let (_, cell_opt) =
 	 List.find
 	   (fun (fd'_weak,cell) ->
@@ -1029,6 +1061,9 @@ let process_descr (c_proc, fd) =
 let cp_set_env env =
   CP_set_env(String.concat "\000" (Array.to_list env) ^ "\000")
     (* another null byte is implicitly added by the ocaml runtime! *)
+
+external search_path : string option -> string -> string option -> string
+  = "netsys_search_path"
 
 
 type w32_console_attr =

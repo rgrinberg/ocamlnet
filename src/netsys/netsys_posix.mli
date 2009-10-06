@@ -359,7 +359,7 @@ val killpg_subprocess : int -> watched_subprocess -> unit
 val kill_all_subprocesses : int -> bool -> bool -> unit
   (** [kill_all_subprocess signal override nogroup]: 
       Sends a signal to potentially
-      all subprocesses. The signal is sent to a process if the process
+      all subprocesses. The signal is sent to a watched process if the process
       still exists, and these two conditions hold both:
       - [not nogroup || pgid = 0]: Processes with [pgid > 0] are excluded
         if [nogroup] is set
@@ -372,7 +372,8 @@ val kill_all_subprocesses : int -> bool -> bool -> unit
 val killpg_all_subprocesses : int -> bool -> unit
   (** [killpg_all_subprocess signal override]: Sends a signal to potentially
       all subprocesses belonging to a process group (i.e. [pgid>0]).
-    . The signal is sent to a process group if there are still subprocesses
+    . The signal is sent to a process group if there are still watched
+      subprocesses
       belonging to the group, and if either the [kill_flag] of any of the 
       subprocesses process was set to [true], or [override] is [true].
 

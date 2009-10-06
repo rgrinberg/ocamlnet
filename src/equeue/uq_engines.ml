@@ -2,6 +2,8 @@
  * $Id$
  *)
 
+open Printf
+
 
 exception Closed_channel
 exception Broken_communication
@@ -60,6 +62,18 @@ class type async_in_channel_engine = object
   inherit async_in_channel
 end
 ;;
+
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Uq_engines" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Uq_engines" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Uq_engines" Debug.enable
+
 
 
 let is_active state =
@@ -1490,14 +1504,19 @@ object(self)
     send_to <- Some a
 
   initializer
-    match fd_style with
-      | `W32_pipe -> ()
-      | `W32_event | `W32_pipe_server | `W32_input_thread 
-      | `W32_output_thread | `W32_process ->
-	  invalid_arg "Uq_engines.socket_multiplex_controller: \
+    ( match fd_style with
+	| `W32_pipe -> ()
+	| `W32_event | `W32_pipe_server | `W32_input_thread 
+	| `W32_output_thread | `W32_process ->
+	    invalid_arg "Uq_engines.socket_multiplex_controller: \
                        invalid type of file descriptor"
-      | _ -> 
-	  Unix.set_nonblock fd
+	| _ -> 
+	    Unix.set_nonblock fd
+    );
+    dlogr (fun () ->
+	     sprintf
+	       "new socket_multiplex_controller mplex=%d fd=%Ld"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd))
 
   method start_reading ?(peek = fun ()->()) ~when_done s pos len =
     if pos < 0 || len < 0 || pos + len > String.length s then
@@ -1511,7 +1530,12 @@ object(self)
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_in fd, -1.0);
     reading <- Some(when_done, peek, s, pos, len);
-    disconnecting <- None
+    disconnecting <- None;
+    dlogr (fun () ->
+	     sprintf
+	       "start_reading socket_multiplex_controller mplex=%d fd=%Ld"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd))
+
 
   method cancel_reading () =
     match reading with
@@ -1527,6 +1551,10 @@ object(self)
     if reading <> None then (
       Unixqueue.remove_resource esys group (Unixqueue.Wait_in fd);
       reading <- None;
+      dlogr (fun () ->
+	       sprintf
+		 "cancel_reading socket_multiplex_controller mplex=%d fd=%Ld"
+		 (Oo.id self) (Netsys.int64_of_file_descr fd))
     )
 
   method start_writing ~when_done s pos len =
@@ -1543,7 +1571,11 @@ object(self)
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_out fd, -1.0);
     writing <- Some(when_done, s, pos, len);
-    disconnecting <- None
+    disconnecting <- None;
+    dlogr (fun () ->
+	     sprintf
+	       "start_writing socket_multiplex_controller mplex=%d fd=%Ld"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd))
 
   method start_writing_eof ~when_done () =
     if not supports_half_open_connection then
@@ -1557,26 +1589,15 @@ object(self)
       failwith "#start_writing_eof: already past EOF";
     if not alive then
       failwith "#start_writing_eof: inactive connection";
-    (* Although we directly shut down, the notification is artificially 
-     * deferred (for uniformity of the multiplex controllers)
-     *)
     self # check_for_connect();
-    let op = Unixqueue.Wait (Unixqueue.new_wait_id esys) in
-    Unixqueue.add_resource esys group (op, 0.0);
-    ( try
-	if not wrote_eof then (
-	  if not read_eof then need_linger <- true;
-	  Unix.shutdown fd Unix.SHUTDOWN_SEND;
-	);
-	writing_eof <- Some(when_done, op, None);
-	disconnecting <- None;
-	wrote_eof <- true
-      with
-	| error ->
-	    writing_eof <- Some(when_done, op, (Some error));
-	    disconnecting <- None
-    )
-    
+    Unixqueue.add_resource esys group (Unixqueue.Wait_out fd, -1.0);
+    writing_eof <- Some when_done;
+    disconnecting <- None;
+    dlogr (fun () ->
+	     sprintf
+	       "start_writing_eof socket_multiplex_controller mplex=%d fd=%Ld"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd))
+
 
   method cancel_writing () =
     match writing, writing_eof with
@@ -1587,7 +1608,7 @@ object(self)
 	  anyway
 	    ~finally:self#check_for_disconnect
 	    (f_when_done (Some Cancelled)) 0
-      | None, Some (f_when_done, _, _) ->
+      | None, Some f_when_done ->
 	  self # really_cancel_writing();
 	  anyway
 	    ~finally:self#check_for_disconnect
@@ -1596,15 +1617,15 @@ object(self)
 	  assert false
 
   method private really_cancel_writing() =
-    if writing <> None then (
+    if writing <> None || writing_eof <> None then (
       Unixqueue.remove_resource esys group (Unixqueue.Wait_out fd);
       writing <- None;
-    );
-    ( match writing_eof with
-	| None -> ()
-	| Some (_, op, _) ->
-	    Unixqueue.remove_resource esys group op;
-	    writing_eof <- None
+      writing_eof <- None;
+      dlogr (fun () ->
+	       sprintf
+		 "cancel_writing socket_multiplex_controller mplex=%d fd=%Ld"
+		 (Oo.id self) (Netsys.int64_of_file_descr fd))
+
     )
 
   method start_shutting_down ?(linger = 60.0) ~when_done () =
@@ -1625,7 +1646,11 @@ object(self)
 	(Unixqueue.Wait_in fd, linger_timeout) in
     Unixqueue.add_resource esys group (op,tmo);
     shutting_down <- Some(when_done, op);
-    disconnecting <- None
+    disconnecting <- None;
+    dlogr (fun () ->
+	     sprintf
+	       "start_shutting_down socket_multiplex_controller mplex=%d fd=%Ld"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd))
 
   method cancel_shutting_down () =
     match shutting_down with
@@ -1644,7 +1669,12 @@ object(self)
 	  ()
       | Some (_, op) ->
 	  Unixqueue.remove_resource esys group op;
-	  shutting_down <- None
+	  shutting_down <- None;
+	  dlogr (fun () ->
+		   sprintf
+		     "cancel_shutting_down \
+                        socket_multiplex_controller mplex=%d fd=%Ld"
+		     (Oo.id self) (Netsys.int64_of_file_descr fd))
 
 
   method private check_for_connect() =
@@ -1668,6 +1698,11 @@ object(self)
   method private handle_event ev =
     match ev with
       | Unixqueue.Input_arrived(g, _) when g = group ->
+	  dlogr (fun () ->
+		   sprintf
+		     "input_event \
+                        socket_multiplex_controller mplex=%d fd=%Ld"
+		     (Oo.id self) (Netsys.int64_of_file_descr fd));
 	  ( match reading with
 	      | None -> ()
 	      | Some (f_when_done, peek, s, pos, len) ->
@@ -1680,25 +1715,14 @@ object(self)
 			      let n = Unix.recv fd s pos len [] in
 			      rcvd_from <- Some a;
 			      n
-			  | `Recv_send_implied ->
-			      Unix.recv fd s pos len []
 			  | `Recvfrom_sendto ->
 			      let (n, a) = Unix.recvfrom fd s pos len [] in
 			      rcvd_from <- Some a;
 			      n
-			  | `Read_write ->
-			      Unix.read fd s pos len
-			  | `W32_pipe ->
-			      let ph = get_ph() in
-			      Netsys_win32.pipe_read ph s pos len
-			  | `W32_event 
-			  | `W32_process
-			  | `W32_pipe_server 
-			  | `W32_input_thread
-			  | `W32_output_thread ->
-			      assert false
+			  | _ ->
+			      Netsys.gread fd_style fd s pos len
 		      in
-		      if n = 0 (* && not use_rcv *) then (
+		      if n = 0 then (
 			read_eof <- true;
 			need_linger <- false;
 			(Some End_of_file, 0, true)
@@ -1715,6 +1739,11 @@ object(self)
 		  in
 		  if notify then (
 		    self # really_cancel_reading();
+		    dlogr (fun () ->
+			     sprintf
+			       "input_done \
+                                  socket_multiplex_controller mplex=%d fd=%Ld"
+			       (Oo.id self) (Netsys.int64_of_file_descr fd));
 		    anyway
 		      ~finally:self#check_for_disconnect
 		      (f_when_done exn_opt) n
@@ -1724,22 +1753,16 @@ object(self)
 	      | Some (f_when_done, op) when op = Unixqueue.Wait_in fd ->
 		  let exn_opt, notify =
 		    try
-		      match fd_style with
-			| `W32_pipe ->
-			    let ph = get_ph() in
-			    Netsys_win32.pipe_shutdown ph;
-			    (None, true)
-			| _ ->
-			    Unix.shutdown fd 
-			      (if wrote_eof then Unix.SHUTDOWN_RECEIVE else
-				 Unix.SHUTDOWN_ALL);
-			    (None, true)
+		      Netsys.gshutdown fd_style fd Unix.SHUTDOWN_ALL;
+		      (None, true)
 		    with
 		      | Unix.Unix_error(Unix.EAGAIN,_,_)
 		      | Unix.Unix_error(Unix.EWOULDBLOCK,_,_)
 		      | Unix.Unix_error(Unix.EINTR,_,_) ->
-			  assert false  (* Not documented in man pages *)
+			  (None, false)
 		      | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
+			  (None, true)
+		      | Unix.Unix_error(Unix.EPERM,_,_) ->
 			  (None, true)
 		      | error ->
 			  (Some error, true)
@@ -1748,6 +1771,11 @@ object(self)
 		    self # really_cancel_shutting_down();
 		    read_eof <- true;
 		    wrote_eof <- true;
+		    dlogr (fun () ->
+			     sprintf
+			       "shutdown_done \
+                                  socket_multiplex_controller mplex=%d fd=%Ld"
+			       (Oo.id self) (Netsys.int64_of_file_descr fd));
 		    anyway
 		      ~finally:self#check_for_disconnect
 		      f_when_done exn_opt
@@ -1756,6 +1784,11 @@ object(self)
 	  )
 
       | Unixqueue.Output_readiness(g, _) when g = group ->
+	  dlogr (fun () ->
+		   sprintf
+		     "output_event \
+                        socket_multiplex_controller mplex=%d fd=%Ld"
+		     (Oo.id self) (Netsys.int64_of_file_descr fd));
 	  ( match writing with
 	      | None -> ()
 	      | Some (f_when_done, s, pos, len) ->
@@ -1763,8 +1796,6 @@ object(self)
 		    try
 		      let n = 
 			match fd_style with
-			  | `Recv_send(_,_) | `Recv_send_implied ->
-			      Unix.send fd s pos len []
 			  | `Recvfrom_sendto ->
 			      ( match send_to with
 				  | None ->
@@ -1772,17 +1803,8 @@ object(self)
 				  | Some a ->
 				      Unix.sendto fd s pos len [] a
 			      )
-			  | `Read_write ->
-			      Unix.single_write fd s pos len
-			  | `W32_pipe ->
-			      let ph = get_ph() in
-			      Netsys_win32.pipe_write ph s pos len
-			  | `W32_event
-			  | `W32_process
-			  | `W32_pipe_server 
-			  | `W32_input_thread
-			  | `W32_output_thread ->
-			      assert false in
+			  | _ ->
+			      Netsys.gwrite fd_style fd s pos len in
 		      (None, n, true)
 		    with
 		      | Unix.Unix_error(Unix.EAGAIN,_,_)
@@ -1794,9 +1816,45 @@ object(self)
 		  in
 		  if notify then (
 		    self # really_cancel_writing();
+		    dlogr (fun () ->
+			     sprintf
+			       "output_done \
+                                  socket_multiplex_controller mplex=%d fd=%Ld"
+			       (Oo.id self) (Netsys.int64_of_file_descr fd));
 		    anyway
 		      ~finally:self#check_for_disconnect
 		      (f_when_done exn_opt) n
+		  )
+	  );
+	  ( match writing_eof with
+	      | None -> ()
+	      | Some f_when_done ->
+		  let exn_opt, notify =
+		    try
+		      if not wrote_eof then (
+			Netsys.gshutdown fd_style fd Unix.SHUTDOWN_SEND;
+			if not read_eof then need_linger <- true;
+			wrote_eof <- true
+		      );
+		      (None, true)
+		    with
+		      | Unix.Unix_error(Unix.EAGAIN,_,_)
+		      | Unix.Unix_error(Unix.EWOULDBLOCK,_,_)
+		      | Unix.Unix_error(Unix.EINTR,_,_) ->
+			  (None, false)
+		      | Netsys.Shutdown_not_supported ->
+			  (None, true)
+		  in
+		  if notify then (
+		    self # really_cancel_writing();
+		    dlogr (fun () ->
+			     sprintf
+			       "output_eof_done \
+                                  socket_multiplex_controller mplex=%d fd=%Ld"
+			       (Oo.id self) (Netsys.int64_of_file_descr fd));
+		    anyway
+		      ~finally:self#check_for_disconnect
+		      f_when_done exn_opt
 		  )
 	  )
 
@@ -1804,14 +1862,11 @@ object(self)
 	  (* Note: The following is incompatible with [once] because we
            * always accept timeout events!
            *)
-	  ( match writing_eof with
-	      | Some (f_when_done, op', err_opt) when op = op' ->
-		  self # really_cancel_writing();
-		  anyway
-		    ~finally:self#check_for_disconnect
-		    f_when_done err_opt
-	      | _ -> ()
-	  );
+	  dlogr (fun () ->
+		   sprintf
+		     "other_event \
+                        socket_multiplex_controller mplex=%d fd=%Ld"
+		     (Oo.id self) (Netsys.int64_of_file_descr fd));
 	  ( match shutting_down with
 	      | Some (f_when_done, op') when op = op' ->
 		  let exn_opt, notify =
@@ -1840,6 +1895,11 @@ object(self)
 		    self # really_cancel_shutting_down();
 		    read_eof <- true;
 		    wrote_eof <- true;
+		    dlogr (fun () ->
+			     sprintf
+			       "shutdown_done \
+                                  socket_multiplex_controller mplex=%d fd=%Ld"
+			       (Oo.id self) (Netsys.int64_of_file_descr fd));
 		    anyway
 		      ~finally:self#check_for_disconnect
 		      f_when_done exn_opt
@@ -1859,6 +1919,13 @@ object(self)
 	  raise Equeue.Reject
 
   method inactivate() =
+    dlogr (fun () ->
+	     sprintf 
+	       "inactivate \
+                  socket_multiplex_controller mplex=%d fd=%Ld alive=%b \
+                  close_inactive_descr=%b"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd) alive
+	       close_inactive_descr);
     if alive then (
       alive <- false;
       self # really_cancel_reading();

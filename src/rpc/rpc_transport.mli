@@ -198,3 +198,11 @@ class stream_rpc_multiplex_controller :
          Unixqueue.event_system ->
             rpc_multiplex_controller
   (** The class is exported for the SSL transporter *)
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging *)
+
+end

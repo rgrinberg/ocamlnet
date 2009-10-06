@@ -124,6 +124,9 @@ let startup ?(late_initializer = fun _ _ -> ())
             is disabled for the client transmitting log messages.
 	  *)
 
+	 let old_logger = !Netlog.current_logger in
+	 let old_dlogger = !Netlog.Debug.current_dlogger in
+
 	 Netlog.current_logger :=
 	   (fun level message ->
 	      try
@@ -217,7 +220,11 @@ let startup ?(late_initializer = fun _ _ -> ())
 			       Netexn.to_string error);
 	 );
 
-	 run controller
+	 run controller;
+	 controller # free_resources();
+
+	 Netlog.current_logger := old_logger;
+	 Netlog.Debug.current_dlogger := old_dlogger
 
        with
 	 | error ->

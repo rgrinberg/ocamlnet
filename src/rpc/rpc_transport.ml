@@ -77,6 +77,16 @@ object
   method inactivate : unit -> unit
 end
 
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Rpc_transport" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Rpc_transport" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Rpc_transport" Debug.enable
+
 
 class datagram_rpc_multiplex_controller sockname peername_opt peer_user_name_opt
         (mplex : Uq_engines.datagram_multiplex_controller) esys 
@@ -268,6 +278,11 @@ let datagram_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
 class stream_rpc_multiplex_controller sockname peername peer_user_name_opt
         (mplex : Uq_engines.multiplex_controller) esys 
       : rpc_multiplex_controller =
+  let () = 
+    dlogr (fun () ->
+	     sprintf "new stream_rpc_multiplex_controller mplex=%d"
+	       (Oo.id mplex))
+  in
 object(self)
   val mutable wr_buffer = None
   val mutable wr_buffer_pos = 0
@@ -501,8 +516,14 @@ object(self)
     mplex # cancel_writing()
     
   method start_shutting_down ~when_done () =
+    dlogr (fun () ->
+	     sprintf "start_shutting_down mplex=%d"
+	       (Oo.id mplex));
     mplex # start_shutting_down
       ~when_done:(fun exn_opt ->
+		    dlogr (fun () ->
+			     sprintf "done shutting_down mplex=%d"
+			       (Oo.id mplex));
 		    self # timer_event `Stop `D;
 		    match exn_opt with
 		      | None -> when_done (`Ok ())
@@ -516,6 +537,9 @@ object(self)
     mplex # cancel_shutting_down()
 
   method inactivate () =
+    dlogr (fun () ->
+	     sprintf "inactivate mplex=%d"
+	       (Oo.id mplex));
     self # stop_timer();
     mplex # inactivate()
 

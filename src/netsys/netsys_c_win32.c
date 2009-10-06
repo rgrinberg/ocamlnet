@@ -1569,12 +1569,6 @@ static int has_console(void) {
 	return 1;
     }
 }
-
-
-#ifndef CAML_OSDEPS_H
-extern char * caml_search_exe_in_path(char * name);
-#endif
-
 #endif /* _WIN32 */
 
 
@@ -1587,7 +1581,6 @@ CAMLprim value netsys_create_process(value cmd,
   STARTUPINFO si;
   char *chdir;
   char *envp;
-  char *exefile;
   int flags;
   int pass_std_handles;
   int console_flags;
@@ -1663,13 +1656,11 @@ CAMLprim value netsys_create_process(value cmd,
       opts_hd = Field(opts_hd,1);
   }
 
-  exefile = caml_search_exe_in_path(String_val(cmd));
-  
   if (pass_std_handles) 
       si.dwFlags |= STARTF_USESTDHANDLES;
   flags |= console_flags | env_flags | pg_flags;
 
-  code = CreateProcess(exefile,
+  code = CreateProcess(String_val(cmd),
 		       String_val(cmdline),
 		       NULL,
 		       NULL,
@@ -1681,16 +1672,75 @@ CAMLprim value netsys_create_process(value cmd,
 		       &pi);
   if (!code) {
       win32_maperr(GetLastError());
-      stat_free(exefile);
       uerror("create_process/CreateProcess", cmd);
   };
-  stat_free(exefile);
   CloseHandle(pi.hThread);
   dprintf("netsys_create_process hProcess=%u processId=%u\n",
 	  pi.hProcess, pi.dwProcessId);
   return alloc_process(pi.hProcess, pi.dwProcessId);
 #else
     invalid_argument("netsys_create_process");
+#endif
+}
+
+
+CAMLprim value netsys_search_path(value path_opt_v, 
+				  value file_v,
+				  value ext_opt_v) {
+#ifdef _WIN32
+    char *path;
+    char *file;
+    char *ext;
+    char *fullname;
+    DWORD pathlen, code;
+    int cont;
+    value r;
+
+    if (Is_block(path_opt_v))
+	path = String_val(Field(path_opt_v,0));
+    else
+	path = NULL;
+
+    file = String_val(file_v);
+
+    if (Is_block(ext_opt_v))
+	ext = String_val(Field(ext_opt_v,0));
+    else
+	ext = NULL;
+
+    caml_enter_blocking_section();    /* searching can take some time */
+    
+    pathlen = strlen(file) + 1;
+    if (pathlen < 256) pathlen = 256;
+    cont = 1;
+    while (cont) {
+	fullname = stat_alloc(pathlen);
+	code = SearchPath(path,
+			  file,
+			  ext,
+			  pathlen,
+			  fullname,
+			  NULL);
+	cont = (code >= pathlen);
+	if (cont) {
+	    stat_free(fullname);
+	    pathlen = code+1;  /* space for NULL byte! */
+	}
+    }
+    
+    caml_leave_blocking_section();
+
+    if (code == 0) {
+	stat_free(fullname);
+	errno = ENOENT;
+	uerror("netsys_search_path", file_v);
+    };
+
+    r = caml_copy_string(fullname);
+    stat_free(fullname);
+    return r;
+#else
+    invalid_argument("netsys_search_path");
 #endif
 }
 

@@ -109,6 +109,9 @@ let setup srv root_dir =
 ;;
 
 
+let win32_debug_gc = ref false
+
+
 let start() =
   let (opt_list, cmdline_cfg) = Netplex_main.args() in
 
@@ -130,6 +133,7 @@ let start() =
       "  Show possible modules for -debug, then exit";
 
       "-debug-win32", Arg.Unit (fun () -> 
+				  win32_debug_gc := true;
 				  Netsys_win32.Debug.debug_c_wrapper true),
       "  Special debug log of Win32 wrapper"
    ] @ opt_list in
@@ -176,15 +180,11 @@ Netsys_signal.init();
 start();;
 
 let () =  (* debugging: check that all resources are freed *)
-  Gc.full_major();
-  Gc.full_major();
-  Gc.full_major();
-  Gc.full_major();
-  Gc.full_major();
-  Gc.full_major();
-  Gc.full_major();
-  Gc.full_major();
-  Gc.full_major();
-  ignore(Netsys_win32.create_event())
+  if !win32_debug_gc then (
+    for k = 1 to 10 do
+      Gc.full_major();
+      Netsys_win32.gc_proxy()
+    done
+  )
 ;;
 

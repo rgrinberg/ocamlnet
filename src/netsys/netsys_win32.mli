@@ -520,6 +520,13 @@ val cp_set_env : string array -> create_process_option
       variables (in the [Unix.environment] format)
    *)
 
+val search_path : string option -> string -> string option -> string
+  (** [search_path path_opt name ext_opt]: Uses the SearchPath function
+      to locate a file. If [name] does not end with [ext_opt], this
+      extension is added during the search. If [path_opt] is [None],
+      the default search path is used.
+   *)
+
 type w32_process
   (** A handle to spawned processes *)
 
@@ -528,7 +535,8 @@ val create_process :
         w32_process
   (** [create_process cmd cmdline options]: Spawns a new process that runs
       concurrently with the calling process. [cmd] is the command
-      to execute. [cmdline] is the full command-line.
+      to execute (it is not searched by path, and the file suffix must be
+      given). [cmdline] is the full command-line.
 
       If the exit code of the new process does not play any role, it is
       ok to just ignore the returned process handle (which will be
@@ -741,6 +749,12 @@ val lookup_output_thread : Unix.file_descr -> w32_output_thread
       type, [Failure] is raised.
    *)
 
+val unregister : Unix.file_descr -> unit
+  (** Removes this descriptor from the lookup table. This should only be done
+      after it is closed. Calling [unregister] is optional, and the removal
+      will take place anyway when the descriptor is collected by the GC.
+   *)
+
 
 (** {1 Miscelleneous} *)
 
@@ -758,7 +772,6 @@ val is_crt_fd : Unix.file_descr -> int -> bool
       E.g. use [is_crt_fd 0] to check whether [fd] is [Unix.stdin]
       (physically)
    *)
-
 
 val fill_random : string -> unit
   (** Fills the string with random bytes. A cryptographically secure RNG

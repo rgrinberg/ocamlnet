@@ -33,12 +33,15 @@ Plan for Ocamlnet 3
 
   * Documentation: What is supported on Win32?
 
-  + Open:
-    - Shell: search executables
-
   Bugs:
   - examples/rpc/finder: Investigate why not all handles are closed
     ("register_proxy: keeping 20/43 entries in proxy tbl")
+
+    after starting finder_daemon, then shutting it down with netplex-admin
+
+  - examples/rpc/finder: Unix_error(EUNKNOWNERROR 0, "socket", "")
+    if daemon is started and then finder_client -shutdown.
+
 
 - Focus Netplex:
   * Netplex_control_routine:
@@ -59,6 +62,19 @@ Plan for Ocamlnet 3
   * RPc_netplex:
       - "netplex.activations": Print all activations at a certain time
         (also for nethttpd?)
+
+  * Revisit: helper containers for multi-processing. Make it easy to
+    define a template at system startup time, and to instantiate it
+    later at any time
+
+  * Message passing between containers: Containers can define a 
+    message queue, and other containers can send XDR-able messages.
+    Queues are referenced by a global naming scheme.
+
+  * Container-private servers. Containers may define additional RPC
+    servers for local data traffic only.
+
+  * Shut down master sockets after use.
 
 
 - NetCGI cleanup
@@ -86,7 +102,15 @@ Plan for Ocamlnet 3
   * "syslog_emulation": The syslog protocol itself
 
 - fd leaks / double close:
-  * do something about this
+  * Netsys_fd: implements hash table with used descriptors (in debugging
+    mode)
+    - for each managed fd:
+        - owning module
+        - type
+        - GC hook: pointer to a finalisable block. When this block is collected
+          the fd is set to state "garbage
+    - which fd's to manage: the long-living fd's
+".
 
 - Other
   * Nethttpd: configurable error response
@@ -153,6 +177,8 @@ Implementation improvements after Ocamlnet 3.0
 
 - Cluster Message bus
 
+- Improved shared memory support; RPC over shared memory
+
 - Netdate: support for newer RFC date formats
 
 - Fix netplex + nethttpd + async API: netcgi cannot be used right now
@@ -202,24 +228,12 @@ netcgi2-plex:
 	- Implement mount_dir/mount_at
 	  Sched: 2.3
 
-RPC:
-	- Exceptions from client callbacks are suppressed by default:
-	  (1) Default handler re-raises exception
-	  (2) Allow the handler to re-raise exception
-
 Bugs Tidalwave:
   * ocamlnet
 	- Bug: Netstring_pcre.global_replace
 	  Sched: after 2.2.0 is out
 
-	- Feature Netgzip hinzu
-	  Sched: 2.3
-
 Http_client.pipeline:
 	- aggressive caching does not work properly. Sometimes descriptors
 	  are closed in the wrong moment.
 	  Sched: 2.3
-
-Shell_uq:
-	- Double close von stderr-Descriptor falls in when_done eine
-          exception geworfen wird

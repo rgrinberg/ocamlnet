@@ -208,6 +208,14 @@ object
         See [send_message] for the notification guarantees.
      *)
 
+  method containers : container_id list
+    (** Lists the containers *)
+
+  method free_resources : unit -> unit
+    (** Should be called when the controller is finished, in order to
+        free resources again. E.g. plugins are unplugged.
+     *)
+
 end
 
 and controller_config =
@@ -559,6 +567,9 @@ object
     (** This method is invoked when the plugin has been added to this
         controller. Note that plugins can be added to several controllers.
      *)
+
+  method ctrl_unplugged : controller -> unit
+    (** The plugin has been unplugged from this controller *)
 
   method ctrl_receive_call : 
             controller -> container_id -> string -> Xdr.xdr_value -> 

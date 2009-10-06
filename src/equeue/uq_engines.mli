@@ -1358,3 +1358,11 @@ class input_async_mplex :
     * is not closed! You can define the [shutdown] callback to do something
     * in this case.
    *)
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging *)
+
+end

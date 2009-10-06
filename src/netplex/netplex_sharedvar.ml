@@ -23,6 +23,13 @@ let plugin : plugin =
 
       method ctrl_added _ = ()
 
+      method ctrl_unplugged ctrl =
+	List.iter
+	  (fun cid ->
+	     self # ctrl_container_finished ctrl cid true
+	  )
+	  ctrl#containers
+
       method ctrl_receive_call ctrl cid procname arg reply =
 	match procname with
 	  | "ping" ->
