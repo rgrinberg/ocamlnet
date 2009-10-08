@@ -542,7 +542,7 @@ class telnet_session =
     method private connect_server f_ok f_err =
 
       begin match connector with
-	  Telnet_connect(hostname, port) ->
+	| Telnet_connect(hostname, port) ->
 	    if options.verbose_connection then
 	      prerr_endline ("Telnet connection: Connecting to server " ^ 
 			     hostname);
@@ -570,6 +570,12 @@ class telnet_session =
 			      syscall
 				(fun () -> 
 				   Unix.setsockopt s Unix.SO_OOBINLINE true);
+			      Netlog.Debug.track_fd
+				~owner:"Telnet_client"
+				~descr:("connection to " ^ 
+					  Unix.string_of_inet_addr addr ^
+					  ":" ^ string_of_int port)
+				s;
 			      f_ok()
 			  | _ -> assert false
 		       )
@@ -591,6 +597,12 @@ class telnet_session =
 	    connecting <- None;
 	    syscall(fun () -> Unix.setsockopt s Unix.SO_OOBINLINE true);
 	    socket <- s;
+	    Netlog.Debug.track_fd
+	      ~owner:"Telnet_client"
+	      ~descr:("connection to " ^ 
+			try Netsys.string_of_sockaddr(Netsys.getpeername s)
+			with _ -> "(noaddr)")
+	      s;
 	    if options.verbose_connection then
 	      prerr_endline "Telnet connection: Got connected socket";
 	    let g1 = Unixqueue.new_group esys in
@@ -615,6 +627,7 @@ class telnet_session =
 	| (Up_rw | Up_r) -> 
 	    if options.verbose_connection then 
 	      prerr_endline "Telnet connection: Closing socket!";
+	    Netlog.Debug.release_fd socket;
 	    try
 	      syscall (fun () -> Unix.close socket)
 	    with

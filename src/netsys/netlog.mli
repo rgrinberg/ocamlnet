@@ -136,4 +136,81 @@ module Debug : sig
   val mk_dlogr : string -> bool ref -> ((unit -> string) -> unit)
     (** [let dlogr = mk_dlog "M" enable]: The conditional debug function *)
 
+  (** {2 File descriptor tracking} *)
+
+  (** [Netlog.Debug] also has a little hash table that maps file descriptors
+      to an info record. This allows it to track file descriptors more
+      easily, and to find file descriptor leaks, and "double close" bugs.
+      All long-living descriptors managed by Ocamlnet should go into this
+      table.
+   *)
+
+  type serial
+    (** A serial number for the optional tracking of ownership *)
+
+  val new_serial : unit -> serial
+    (** Create new serial number *)
+
+  val track_fd : 
+        ?update:bool ->
+        ?anchor:'a ->
+        ?sn:serial ->
+        owner:string ->
+        descr:string ->
+          Unix.file_descr -> unit
+    (** [track_fd ~owner ~descr fd]: Enters the descriptor [fd] into the
+        descriptor table. The [owner] string should be set to the module
+        name. In [descr] one can give additional information, e.g. about
+        the purpose, and details like the file name.
+
+        It is not an error if there is also an entry for the descriptor
+        [fd]. However, a warning is emitted (using the debug logger).
+        By setting [update] to [true], this warning can be suppressed.
+        The old entry is overwritten by the new one.
+
+        The [anchor] can be an arbitrary boxed value. When the garbage
+        collector calls the finaliser for [anchor] the descriptor is
+        marked as dead, and will be tagged in the [fd_table] as such.
+
+        By setting [sn] to a new serial number, the knowledge of this
+        number is required to update the descriptor entry later,
+        and to release the descriptor. If the entry is tried to be
+        updated or released with the wrong serial number, a warning
+        is emitted (to the debug logger).
+     *)
+
+  val release_fd : ?sn:serial -> ?force:bool -> Unix.file_descr -> unit
+    (** Removes this descriptor from the descriptor table.
+
+        It is not an error if the descriptor does not exist in the table.
+        However, a warning is emitted (using the debug logger).
+
+        [release_fd] must be invoked {b before} the descriptor is actually
+        closed.
+
+        [force]: If set, all warnings are suppressed
+     *)
+
+  val fd_string : ?owner:bool -> ?descr:bool -> Unix.file_descr -> string
+    (** Return a string for generating debug messages. By default, the
+        string only includes the numeric descriptor value.
+
+        If [owner] is set to true, the string also includes the owner.
+        If [descr] is set to true, the string also includes the description.
+
+        The full version of this string looks like
+        "76(Http_client - 87.65.213.67:80)". An untracked descriptor
+        looks like "76(?)".
+     *)
+
+  val fd_table : unit -> string list
+    (** Returns the table of descriptors as list of lines. 
+        One can easily print them to stdout using
+        [List.iter print_endline (fd_table())].
+     *)
+
+  val enable_fd_tracking : bool ref
+    (** By setting to true, each [track_fd] and [release_fd] is 
+        logged.
+     *)
 end

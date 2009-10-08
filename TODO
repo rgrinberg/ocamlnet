@@ -27,6 +27,16 @@ Plan for Ocamlnet 3
   - netcgi2 Netcgi_scgi
   - netclient
   - nethttpd_engine
+  - Uq_socks5
+
+  FD tracking:
+  - Netsys_pollset_posix DONE
+  - Netcgi_ajp, _fcgi, _scgi: DONE
+  - Http_client, Telnet_client: DONE
+  - Uq_socks5
+  - Ftp_client
+  ...
+
 
 
 - Focus Win32:
@@ -101,16 +111,6 @@ Plan for Ocamlnet 3
   * "syslog": Just calls syslog()
   * "syslog_emulation": The syslog protocol itself
 
-- fd leaks / double close:
-  * Netsys_fd: implements hash table with used descriptors (in debugging
-    mode)
-    - for each managed fd:
-        - owning module
-        - type
-        - GC hook: pointer to a finalisable block. When this block is collected
-          the fd is set to state "garbage
-    - which fd's to manage: the long-living fd's
-".
 
 - Other
   * Nethttpd: configurable error response
@@ -146,6 +146,15 @@ Plan for Ocamlnet 3
        (* Set the descriptors to watch *)
   }
 
+- fd leaks / double close:
+  * Netlog: implements hash table with used descriptors (in debugging
+    mode)
+    - for each managed fd:
+        - owning module
+        - type
+        - GC hook: pointer to a finalisable block. When this block is collected
+          the fd is set to state "garbage
+    - which fd's to manage: the long-living fd's
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0

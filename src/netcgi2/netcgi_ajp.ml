@@ -713,7 +713,7 @@ let handle_request ?script_name config output_type arg_store exn_handler f ~log 
 	`Conn_error error
 
 
-let rec handle_connection fd ~config ?script_name output_type arg_store
+let rec handle_connection_1 fd ~config ?script_name output_type arg_store
     exn_handler f =
 
   let log = Some ajp_log_error in
@@ -739,14 +739,27 @@ let rec handle_connection fd ~config ?script_name output_type arg_store
 
   match cdir with
     | `Conn_keep_alive ->
-	handle_connection fd ~config ?script_name output_type arg_store
+	handle_connection_1 fd ~config ?script_name output_type arg_store
 	  exn_handler f
     | `Conn_close ->
+	Netlog.Debug.release_fd fd;
 	Unix.close fd
     | `Conn_error error ->
+	Netlog.Debug.release_fd fd;
 	Unix.close fd;
 	raise error
     (* other cdir not possible *)
+
+let handle_connection fd ~config ?script_name output_type arg_store
+    exn_handler f =
+  Netlog.Debug.track_fd
+    ~owner:"Netcgi_ajp"
+    ~descr:("connection from " ^
+	      try Netsys.string_of_sockaddr(Netsys.getpeername fd)
+	      with _ -> "(noaddr)")
+    fd;
+  handle_connection_1 fd ~config ?script_name output_type arg_store
+    exn_handler f
 
 
 let run
@@ -766,6 +779,10 @@ let run
   Unix.setsockopt sock Unix.SO_REUSEADDR true;
   Unix.bind sock sockaddr;
   Unix.listen sock 5;
+  Netlog.Debug.track_fd
+    ~owner:"Netcgi_ajp"
+    ~descr:("master port " ^ string_of_int port)
+    sock;
   while true do
     let (fd, server) = Unix.accept sock in
     try

@@ -178,6 +178,8 @@ let handle_request config output_type arg_store exn_handler f ~log fd =
                );
     `Conn_close_linger
   with
+    | Unix.Unix_error(Unix.EPIPE,_,_) ->
+	`Conn_close_linger
     | error ->
 	`Conn_error error
 
@@ -186,7 +188,13 @@ let handle_request config output_type arg_store exn_handler f ~log fd =
 (* [handle_connection fd .. f] handle an accept()ed connection,
    reading incoming records on the file descriptor [fd] and running
    [f] for each incoming request. *)
-let rec handle_connection fd ~config output_type arg_store exn_handler f =
+let handle_connection fd ~config output_type arg_store exn_handler f =
+  Netlog.Debug.track_fd 
+    ~owner:"Netcgi_scgi"
+    ~descr:("connection from " ^ 
+	      try Netsys.string_of_sockaddr(Netsys.getpeername fd)
+	      with _ -> "(noaddr)")
+    fd;
   let log =
     Some scgi_log_error in
   let cdir =
@@ -195,8 +203,10 @@ let rec handle_connection fd ~config output_type arg_store exn_handler f =
     | `Conn_close_linger ->
 	Unix.setsockopt_optint fd Unix.SO_LINGER (Some 15);
         Unix.shutdown fd Unix.SHUTDOWN_ALL;
+	Netlog.Debug.release_fd fd;
         Unix.close fd
     | `Conn_error e ->
+	Netlog.Debug.release_fd fd;
 	Unix.close fd;
 	raise e
     (* Othe cdirs not possible *)
@@ -216,23 +226,16 @@ let run
   Unix.setsockopt sock Unix.SO_REUSEADDR true;
   Unix.bind sock sockaddr;
   Unix.listen sock 5;
+  Netlog.Debug.track_fd
+    ~owner:"Netcgi_fcgi"
+    ~descr:("master " ^ Netsys.string_of_sockaddr sockaddr)
+    sock;
   while true do
     let (fd, server) = Unix.accept sock in
     try
       if allow server then
 	handle_connection fd ~config output_type arg_store exn_handler f;
-      Unix.close fd
     with
-	(* CHECK: Exceptions are impossible here... *)
-    | Unix.Unix_error(Unix.EPIPE, _, _) ->
-	(* This error is perfectly normal: the sever or ourselves may
-	   have closed the connection (Netcgi_common ignores SIGPIPE).
-	   Just wait for the next connection. *)
-	(try Unix.close fd with _ -> ())
-    | e when config.default_exn_handler ->
-	(* Log the error and wait for the next conection. *)
-	(try
-	   scgi_log_error(Netexn.to_string e);
-	   Unix.close fd
-	 with _ -> ())
+      | e when config.default_exn_handler ->
+	  ()
   done

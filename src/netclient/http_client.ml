@@ -1475,9 +1475,8 @@ object
      *)
   method find_my_connections : < > -> Unix.file_descr list
     (** Returns all active connections owned by the object *)
-  method forget_connection : Unix.file_descr -> unit
-    (** Deletes the connection from the cache (it has been shut down
-      * and is going to be closed) *)
+  method close_connection : Unix.file_descr -> unit
+    (** Deletes the connection from the cache, and closes it *)
   method close_all : unit -> unit
     (** Closes all descriptors known to the cache *)
 end
@@ -1502,10 +1501,10 @@ object(self)
 	  let fd_list = 
 	    try Hashtbl.find rev_active_conns owner with Not_found -> [] in
 	  if not (List.mem fd fd_list) then
-	    Hashtbl.replace rev_active_conns owner (fd :: fd_list)
+	    Hashtbl.replace rev_active_conns owner (fd :: fd_list);
+	  
       | `Inactive ->
-	  self # forget_connection fd;
-	  Unix.close fd;
+	  self # close_connection fd
 
   method find_inactive_connection _ = raise Not_found
 
@@ -1515,7 +1514,7 @@ object(self)
     with
 	Not_found -> []
 
-  method forget_connection fd =
+  method close_connection fd =
     ( try
 	let owner = Hashtbl.find active_conns fd in
 	let fd_list = 
@@ -1527,10 +1526,13 @@ object(self)
 	  Not_found -> ()
     );
     Hashtbl.remove active_conns fd;
+    Netlog.Debug.release_fd fd;
+    Unix.close fd
 
   method close_all () =
     Hashtbl.iter
       (fun fd _ ->
+	 Netlog.Debug.release_fd fd;
 	 Unix.close fd)
       active_conns;
     Hashtbl.clear active_conns;
@@ -1571,7 +1573,7 @@ object(self)
 	  let fd_list = 
 	    try Hashtbl.find rev_active_conns owner with Not_found -> [] in
 	  if not (List.mem fd fd_list) then
-	    Hashtbl.replace rev_active_conns owner (fd :: fd_list)
+	    Hashtbl.replace rev_active_conns owner (fd :: fd_list);
       | `Inactive ->
 	  ( try
 	      let peer = Netsys.getpeername fd in
@@ -1583,7 +1585,7 @@ object(self)
 		Hashtbl.replace rev_inactive_conns peer (fd :: fd_list)
 	    with
 	      | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
-		  self # forget_connection fd
+		  self # close_connection fd
 	  )
 
   method find_inactive_connection peer =
@@ -1632,20 +1634,24 @@ object(self)
 	  ()
 
 
-  method forget_connection fd =
+  method close_connection fd =
     self # forget_active_connection fd;
-    self # forget_inactive_connection fd
+    self # forget_inactive_connection fd;
+    Netlog.Debug.release_fd fd;
+    Unix.close fd
 
 
   method close_all () =
     Hashtbl.iter
       (fun fd _ ->
+	 Netlog.Debug.release_fd fd;
 	 Unix.close fd)
       active_conns;
     Hashtbl.clear active_conns;
     Hashtbl.clear rev_active_conns;
     Hashtbl.iter
       (fun fd _ ->
+	 Netlog.Debug.release_fd fd;
 	 Unix.close fd)
       inactive_conns;
     Hashtbl.clear inactive_conns;
@@ -1732,8 +1738,7 @@ class io_buffer options conn_cache fd fd_state =
 	    if options.verbose_connection then 
 	      prerr_endline "HTTP connection: Closing socket";
 	    socket_state <- Down;
-	    conn_cache # forget_connection fd;
-	    Unix.close fd; 
+	    conn_cache # close_connection fd
 
     method release() =
       (* Give socket back to cache: *)
@@ -2790,7 +2795,7 @@ class connection the_esys
 			      ~is_done:(function
 					  | `Socket(s,_) ->
 					      Unixqueue.clear esys g1;
-					      self # connected g s
+					      self # connected g s peer
 					  | _ -> assert false
 				       )
 			      ~is_error:(function
@@ -2809,7 +2814,13 @@ class connection the_esys
 	)
 
 
-    method private connected g s =
+    method private connected g s peer =
+      Netlog.Debug.track_fd
+	~owner:"Http_client"
+	~descr:("HTTP to " ^ 
+		  Netsys.string_of_sockaddr peer)
+	s;
+
       let t1 = Unix.gettimeofday() in
       connect_time <- t1 -. connect_started;
       connecting <- None;

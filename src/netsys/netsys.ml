@@ -524,6 +524,13 @@ let connect_check fd =
 let domain_of_inet_addr addr =
   Unix.domain_of_sockaddr(Unix.ADDR_INET(addr,0))
 
+let string_of_sockaddr =
+  function
+    | Unix.ADDR_INET(inet,port) ->
+	Unix.string_of_inet_addr inet ^ ":" ^ string_of_int port
+    | Unix.ADDR_UNIX path ->
+	String.escaped path
+
 external _exit : int -> unit = "netsys__exit";;
 
 

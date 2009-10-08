@@ -22,7 +22,12 @@ let pipe_pid = ref None
 
 let reset_locked() =
   List.iter
-    (fun (p1,p2) -> Unix.close p1; Unix.close p2)
+    (fun (p1,p1_sn,p2,p2_sn) -> 
+       Netlog.Debug.release_fd ~sn:p1_sn p1;
+       Netlog.Debug.release_fd ~sn:p2_sn p2;
+       Unix.close p1; 
+       Unix.close p2
+    )
     !pipes;
   pipes := [];
   pipe_pid := None
@@ -58,19 +63,34 @@ let get_pipe_pair() =
 	       let (p1,p2) = Unix.pipe() in
 	       Netsys.set_close_on_exec p1;
 	       Netsys.set_close_on_exec p2;
-	       (p1,p2)
-	   | (p1,p2) :: r ->
+	       let p1_sn = Netlog.Debug.new_serial() in
+	       let p2_sn = Netlog.Debug.new_serial() in
+	       Netlog.Debug.track_fd
+		 ~sn:p1_sn 
+		 ~owner:"Netsys_pollset_posix" 
+		 ~descr:"Event injection (rd)"
+		 p1;
+	       Netlog.Debug.track_fd
+		 ~sn:p2_sn 
+		 ~owner:"Netsys_pollset_posix" 
+		 ~descr:"Event injection (wr)"
+		 p2;
+	       pipes := (p1,p1_sn,p2,p2_sn) :: !pipes;
+	       (p1,p1_sn,p2,p2_sn)
+	   | (p1,p1_sn,p2,p2_sn) :: r ->
 	       pipes := r;
-	       (p1,p2) in
+	       (p1,p1_sn,p2,p2_sn) in
        pp
     )
 
 
-let return_pipe_pair ((p1,p2) as pp) =
+let return_pipe_pair ((p1,p1_sn,p2,p2_sn) as pp) =
   while_locked 
     pipes_m
     (fun () ->
        if List.length !pipes >= pipe_limit then (
+	 Netlog.Debug.release_fd ~sn:p1_sn p1;
+	 Netlog.Debug.release_fd ~sn:p2_sn p2;
 	 Unix.close p1;
 	 Unix.close p2
        )
@@ -130,7 +150,7 @@ object(self)
 	self # wait_1 tmo None
     )
     else (
-      let (p_rd, p_wr) = get_pipe_pair() in
+      let (p_rd, p_rd_sn, p_wr, p_wr_sn) = get_pipe_pair() in
       let have_intr_lock = ref false in
       let r =
 	try
@@ -169,9 +189,9 @@ object(self)
 	with
 	  | err ->
 	      if !have_intr_lock then intr_m # unlock();
-	      return_pipe_pair (p_rd, p_wr);
+	      return_pipe_pair (p_rd, p_rd_sn, p_wr, p_wr_sn);
 	      raise err in
-      return_pipe_pair (p_rd, p_wr);
+      return_pipe_pair (p_rd, p_rd_sn, p_wr, p_wr_sn);
       r
     )
 
