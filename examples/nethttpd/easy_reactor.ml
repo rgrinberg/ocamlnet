@@ -246,6 +246,30 @@ let process (cgi : cgi_activation) =
 	cgi # output # commit_work()
 ;;
 
+let conf_debug() =
+  (* Set the environment variable DEBUG to either:
+       - a list of Netlog module names
+       - the keyword "ALL" to output all messages
+       - the keyword "LIST" to output a list of modules
+     By setting DEBUG_WIN32 additional debugging for Win32 is enabled.
+   *)
+  let debug = try Sys.getenv "DEBUG" with Not_found -> "" in
+  if debug = "ALL" then
+    Netlog.Debug.enable_all()
+  else if debug = "LIST" then (
+    List.iter print_endline (Netlog.Debug.names());
+    exit 0
+  )
+  else (
+    let l = Netstring_str.split (Netstring_str.regexp "[ \t\r\n]+") debug in
+    List.iter
+      (fun m -> Netlog.Debug.enable_module m)
+      l
+  );
+  if (try ignore(Sys.getenv "DEBUG_WIN32"); true with Not_found -> false) then
+    Netsys_win32.Debug.debug_c_wrapper true
+;;
 
 (* main: *)
+conf_debug();
 start process ;;

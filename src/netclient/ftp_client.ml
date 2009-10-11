@@ -2,6 +2,18 @@
 
 open Telnet_client
 open Ftp_data_endpoint
+open Printf
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Ftp_client" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Ftp_client" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Ftp_client" Debug.enable
+
 
 exception FTP_error of exn
 exception FTP_protocol_violation of string
@@ -19,8 +31,6 @@ let () =
 	 | _ -> assert false
     )
 
-
-let verbose = true
 
 type cmd_state =
     [ `Init
@@ -213,6 +223,7 @@ let format_port (addr,p) =
 let set_ftp_port state value =
   ( match state.ftp_port with
       | `Active(_,_,fd) ->
+	  Netlog.Debug.release_fd fd;
 	  Unix.close fd
       | _ ->
 	  ()
@@ -243,6 +254,20 @@ let parse_features s =
 type reply = int * string
     (* Reply code plus text *)
 
+
+let string_of_state =
+  function
+    | `Init -> "Init"
+    | `Success -> "Success"
+    | `Proto_error -> "Proto_error"
+    | `Temp_failure -> "Temp_failure"
+    | `Perm_failure -> "Perm_failure"
+    | `Rename_seq -> "Rename_seq"
+    | `Restart_seq -> "Restart_seq"
+    | `User_pass_seq -> "User_pass_seq"
+    | `User_acct_seq -> "User_acct_seq"
+    | `Pass_acct_seq -> "Pass_acct_seq"
+    | `Preliminary -> "Preliminary"
 
 let init_state s =
   let _s_name =
@@ -310,6 +335,9 @@ class ftp_client_pi
   let ctrl_input_buffer = Netbuffer.create 500 in
   let ctrl_input, ctrl_input_shutdown = 
     Netchannels.create_input_netbuffer ctrl_input_buffer in
+  let peer_str = 
+    try Netsys.string_of_sockaddr (Netsys.getpeername sock)
+    with _ -> "(noaddr)" in
 object(self)
 
   val queue = Queue.create()
@@ -441,7 +469,8 @@ object(self)
     try
       while true do
 	let line = ctrl_input # input_line() in  (* or exception! *)
-	if verbose then prerr_endline ("< " ^ line);
+	dlogr (fun () ->
+		 sprintf "ctrl received: %s" line);
 	if Netstring_pcre.string_match start_reply_re line 0 <> None then (
 	  let code = int_of_string (String.sub line 0 3) in
 	  if reply_code <> (-1) && reply_code <> code then 
@@ -491,6 +520,8 @@ object(self)
     let reply st cmd_state =
       let st' = { st with cmd_state = cmd_state } in
       ftp_state <- st';
+      dlogr (fun () ->
+	       sprintf "state: %s" (string_of_state cmd_state));
       try
 	reply_callback st' (code,text)
       with
@@ -897,21 +928,31 @@ object(self)
 		let server_sock = Unix.socket dom Unix.SOCK_STREAM 0 in
 		Unix.bind server_sock (Unix.ADDR_INET(addr,0));
 		Unix.listen server_sock 1;
+		Netlog.Debug.track_fd
+		  ~owner:"Ftp_client"
+		  ~descr:("Data server (active mode) for " ^ 
+			    peer_str)
+		  server_sock;
 		let port =
 		  match Unix.getsockname server_sock with
 		    | Unix.ADDR_INET(_,port) -> port
 		    | _ -> assert false in
+		dlogr (fun () ->
+			 sprintf "created data server (active mode) \
+                                  listening for %s:%d"
+			   addr_str port);
 		ftp_state <- set_ftp_port ftp_state (`Active(addr_str,port,server_sock));
 		let port_str = format_port (addr_str,port) in
 		"PORT " ^ port_str ^ "\r\n"
 	    | _ -> string_of_cmd cmd in
 	reply_callback <- onreply;
 	if line <> "" then (
-	  if verbose then prerr_endline ("> " ^ line);
+	  dlogr (fun () ->
+		   sprintf "ctrl sent: %s" line);
 	  Queue.push (Telnet_data line) ctrl#output_queue;
 	  ctrl # update();
 	) else (
-	  if verbose then prerr_endline "> DUMMY";
+	  dlog "ctrl sent: DUMMY";
 	  raise Dummy
 	)
       with
@@ -927,11 +968,13 @@ object(self)
     ( match data_engine with
 	| None -> ()
 	| Some e -> 
+	    dlogr (fun () -> "aborting data transfer");
 	    ( match e # state with
 		| `Working _ -> e # abort()
 		| _ -> ()
 	    );
 	    let data_sock = e # descr in
+	    Netlog.Debug.release_fd data_sock;
 	    Unix.close data_sock;
 	    data_engine <- None;
     );
@@ -949,6 +992,8 @@ object(self)
 	      proto_viol "Data connection not clean";
 	    (* Create a new engine taking the connection over *)
 	    let data_sock = e # descr in
+	    dlogr (fun () ->
+		     sprintf "reusing passive-mode data connection");
 	    self # setup_receiver 
 	      ~is_done:(fun () ->
 			  match interaction_state with
@@ -981,6 +1026,15 @@ object(self)
 	    Uq_engines.when_state
 	      ~is_done:(function
 			  | `Socket(data_sock,_) ->
+			      dlogr (fun () ->
+				       sprintf "passive-mode data connection \
+                                                to %s:%d established"
+					 addr port);
+			      Netlog.Debug.track_fd
+				~owner:"Ftp_client"
+				~descr:("Data connection (passive mode) for "^ 
+					  peer_str)
+				data_sock;
 			      self # setup_receiver 
 				~is_done:(fun () ->
 					    match interaction_state with
@@ -1016,6 +1070,8 @@ object(self)
 	    if e # descr_state <> `Clean then
 	      proto_viol "Data connection not clean";
 	    (* Create a new engine taking the connection over *)
+	    dlogr (fun () ->
+		     sprintf "reusing active-mode data connection");
 	    let data_sock = e # descr in
 	    self # setup_receiver 
 	      ~is_done:(fun () ->
@@ -1045,6 +1101,14 @@ object(self)
 	      ~is_done:(function
 			  | Unixqueue.Input_arrived(_,_) ->
 			      let data_sock, _ = Unix.accept server_sock in
+			      dlogr (fun () ->
+				       sprintf "accepted new active-mode \
+                                                data connection");
+			      Netlog.Debug.track_fd
+				~owner:"Ftp_client"
+				~descr:("Data connection (active mode) for " ^ 
+					  peer_str)
+				data_sock;
 			      self # setup_receiver 
 				~is_done:(fun () ->
 					    match interaction_state with
@@ -1686,6 +1750,7 @@ object(self)
 	      Uq_engines.when_state
 		~is_done:(function
 			    | `Socket(sock,_) ->
+				(* N.B. This socket is fd-tracked by Telnet_client *)
 				let pi = 
 				  new ftp_client_pi
 				    ~event_system

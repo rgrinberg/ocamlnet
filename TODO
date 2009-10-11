@@ -19,22 +19,25 @@ Plan for Ocamlnet 3
   - Equeue DONE
   - Unixqueue_select DONE
   - Unixqueue_util DONE
+  - Ftp_client DONE
+  - Telnet_client DONE
+  - Http_client DONE
+  - Nethttpd DONE
 
   - Uq_gtk
   - Uq_tcl
   - netcgi2 Netcgi_ajp
   - netcgi2 Netcgi_common
   - netcgi2 Netcgi_scgi
-  - netclient
   - nethttpd_engine
   - Uq_socks5
 
   FD tracking:
   - Netsys_pollset_posix DONE
   - Netcgi_ajp, _fcgi, _scgi: DONE
-  - Http_client, Telnet_client: DONE
+  - Http_client, Telnet_client, Ftp_client: DONE
+  - Nethttpd DONE
   - Uq_socks5
-  - Ftp_client
   ...
 
 
@@ -85,6 +88,10 @@ Plan for Ocamlnet 3
     servers for local data traffic only.
 
   * Shut down master sockets after use.
+ 
+  * netplex.descriptors: print fd table from Netlog
+
+  * Revisit: Netplex + UDP
 
 
 - NetCGI cleanup
@@ -103,9 +110,6 @@ Plan for Ocamlnet 3
   * nethttpd+netcgi2: GET /file//path?p=1
     parameters like p are not recognized when there is "//" in path
   * netclient: Set "Host" header also for proxy requests
-  * Shell for POSIX systems: fix the style how ocamlnet waits for 
-    forked processes. The current solution does not work well for
-    mt programs because it is undefined which thread gets the SIGCHLD.
 
 - syslog:
   * "syslog": Just calls syslog()
@@ -113,10 +117,13 @@ Plan for Ocamlnet 3
 
 
 - Other
-  * Nethttpd: configurable error response
+  * Nethttpd: configurable error response (Nethttpd_plex, look for "TODO")
   * Nethttpd: suppress "broken pipe"
   * Check $Id$
   * Go through examples. Fix programming style
+      nethttpd DONE
+      rpc/finder DONE
+
   * Gprof support (as for Wink)
   * Log of deprecated functions (Netlog). Enabled by default.
 
@@ -145,6 +152,10 @@ Plan for Ocamlnet 3
      watch_descriptors : Unix.file_descr list -> Unix.file_descr list -> unit
        (* Set the descriptors to watch *)
   }
+
+  * Shell for POSIX systems: fix the style how ocamlnet waits for 
+    forked processes. The current solution does not work well for
+    mt programs because it is undefined which thread gets the SIGCHLD.
 
 - fd leaks / double close:
   * Netlog: implements hash table with used descriptors (in debugging

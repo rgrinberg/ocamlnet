@@ -18,15 +18,27 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with WDialog; if not, write to the Free Software
+ * along with Nethttpd; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *)
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Nethttpd_reactor" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Nethttpd_reactor" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Nethttpd_reactor" Debug.enable
+
 
 open Nethttp
 open Nethttp.Header
 open Nethttpd_types
 open Nethttpd_kernel
 open Netchannels
+open Printf
 
 class type http_processor_config =
 object
@@ -368,10 +380,20 @@ class http_reactive_request_impl config env inch outch resp expect_100_continue
                                  finish_request reqrej
                                  : http_reactive_request =
 object(self)
+
+  initializer (
+    let (m,u) = env # req_method in
+    dlogr (fun () ->
+	     sprintf "req-%d: %s %s" 
+	       (Oo.id self) m u
+	  );
+  )
+
   method environment = 
     (env : internal_environment :> extended_environment)
 
   method accept_body() =
+    dlogr (fun () -> sprintf "req-%d: accept_body" (Oo.id self));
     if expect_100_continue then
       resp # send resp_100_continue;
     (* We need not to synch here! The attempt to read the body will synchronize
@@ -385,6 +407,7 @@ object(self)
     env # unlock()
 
   method reject_body() =
+    dlogr (fun () -> sprintf "req-%d: reject_body" (Oo.id self));
     inch # drop();
     outch # unlock();
     env # unlock();
@@ -394,6 +417,7 @@ object(self)
 
   method finish_request() =
     if not fin_req then (    (* Do this only once *)
+      dlogr (fun () -> sprintf "req-%d: finish_request" (Oo.id self));
       fin_req <- true;
       inch # drop();
       outch # unlock();
@@ -403,9 +427,13 @@ object(self)
 
   method finish() =
     self # finish_request();
+    dlogr (fun () -> sprintf "req-%d: finish" (Oo.id self));
     match env # output_state with
       | `Start ->
 	  (* The whole response is missing! Generate a "Server Error": *)
+	  dlogr (fun () -> 
+		   sprintf "req-%d: no response, generating server error"
+		     (Oo.id self));
 	  output_std_response config env `Internal_server_error None 
 	    (Some "Nethttpd: Missing response, replying 'Server Error'");
 	  env # set_output_state `End;
@@ -414,6 +442,9 @@ object(self)
 	  (* The response body is probably incomplete or missing. Try to close
 	   * the channel.
 	   *)
+	  dlogr (fun () -> 
+		   sprintf "req-%d: incomplete response, trying to fix"
+		     (Oo.id self));
 	  ( try env # output_ch # close_out() with Closed_channel -> () );
 	  env # set_output_state `End;
       | `Sent_body 
@@ -430,10 +461,22 @@ end
 
 
 class http_reactor (config : #http_reactor_config) fd =
+  (* note that "new http_reactor" can already raise exceptions, e.g.
+     Unix.ENOTCONN
+   *)
 object(self)
   val proto = new http_protocol config fd
   val fd_addr = Unix.getsockname fd
   val peer_addr = Netsys.getpeername fd
+
+  initializer (
+    Netlog.Debug.track_fd
+      ~owner:"Nethttpd_reactor"
+      ~descr:(sprintf "HTTP %s->%s"
+		(Netsys.string_of_sockaddr peer_addr)
+		(Netsys.string_of_sockaddr fd_addr))
+      fd
+  )
 
   method private cycle() =
     let block = 
@@ -611,17 +654,24 @@ object(self)
     ( try
 	self # synch();
       with
-	| err -> Unix.close fd; raise err
+	| err -> 
+	    Netlog.Debug.release_fd fd;
+	    Unix.close fd; 
+	    raise err
     );
     if proto # need_linger then (
-      let lc = new Nethttpd_kernel.lingering_close fd in
+      let lc = 
+	new Nethttpd_kernel.lingering_close
+	  ~preclose:(fun () -> Netlog.Debug.release_fd fd)
+	  fd in
       while lc # lingering do
 	lc # cycle ~block:true ()
       done
     )
-    else
+    else (
+      Netlog.Debug.release_fd fd;
       Unix.close fd
-
+    )
 end
 
 
@@ -635,8 +685,18 @@ type x_reaction =
 
 let process_connection config fd (stage1 : 'a http_service) =
 
-  let _fd_addr = Unix.getsockname fd in
-  let _peer_addr = Netsys.getpeername fd in
+  let fd_addr_str =
+    try Netsys.string_of_sockaddr (Unix.getsockname fd)
+    with _ -> "(noaddr)" in
+  let peer_addr_str =
+    try Netsys.string_of_sockaddr (Netsys.getpeername fd) 
+    with _ -> "(noaddr)" in
+
+  dlogr
+    (fun () ->
+       sprintf "FD %Ld (%s -> %s) processing connection"
+	 (Netsys.int64_of_file_descr fd) peer_addr_str fd_addr_str 
+    );
 
   let protect env f arg =
     try
@@ -644,38 +704,50 @@ let process_connection config fd (stage1 : 'a http_service) =
     with
       | Redirect_response_legal(_,_) as e -> raise e
 
-      | Standard_response(status, hdr_opt, errmsg_opt) when env#output_state = `Start ->
-	  output_std_response config env status hdr_opt errmsg_opt;
+      | Standard_response(status, hdr_opt, errmsg_opt) 
+	  when env#output_state = `Start -> (
+	    output_std_response config env status hdr_opt errmsg_opt
+	  )
  
       | err when env#output_state = `Start ->
 	  output_std_response config env `Internal_server_error None 
 	    (Some("Nethttpd: Uncaught exception: " ^ Netexn.to_string err));
   in
 
-  let do_stage3 env stage3 =
+  let do_stage3 req env stage3 =
+    dlogr (fun () -> sprintf "req-%d: stage3" (Oo.id req));
     try
-      stage3 # generate_response env
+      stage3 # generate_response env;
+      dlogr (fun () -> sprintf "req-%d: stage3 done" (Oo.id req));
     with
       | Redirect_request(_,_) ->
-	  failwith "Caught Redirect_request in stage 3, but it is only allowed in stage 1"
+	  failwith "Caught Redirect_request in stage 3, \
+                    but it is only allowed in stage 1"
       | Redirect_response(uri,hdr) ->
 	  if env#output_state <> `Start then
-	    failwith "Caught Redirect_response, but it is too late for redirections";
+	    failwith "Caught Redirect_response, \
+                      but it is too late for redirections";
+	  dlogr (fun () -> sprintf "req-%d: stage3 redirect_response"
+		   (Oo.id req));
 	  raise (Redirect_response_legal(uri,hdr))
   in
 
   let do_stage2 req env stage2 =
+    dlogr (fun () -> sprintf "req-%d: stage2" (Oo.id req));
     let stage3 = 
       try
 	stage2 # process_body env 
       with
 	| Redirect_request(_,_) ->
-	    failwith "Caught Redirect_request in stage 2, but it is only allowed in stage 1"
+	    failwith "Caught Redirect_request in stage 2, \
+                      but it is only allowed in stage 1"
 	| Redirect_response(_,_) ->
-	    failwith "Caught Redirect_response in stage 2, but it is only allowed in stage 3"
+	    failwith "Caught Redirect_response in stage 2, \
+                      but it is only allowed in stage 3"
     in
+    dlogr (fun () -> sprintf "req-%d: stage2 done" (Oo.id req));
     req # finish_request();
-    do_stage3 env stage3
+    do_stage3 req env stage3
   in
 
   let rec process_request req redir_env redir_count =
@@ -683,16 +755,34 @@ let process_connection config fd (stage1 : 'a http_service) =
      * [redir_count]: The number of already performed redirections
      * [req]: Contains always the original environment
      *)
+    dlogr 
+      (fun () ->
+	 sprintf "req-%d: process_request redir_count=%d"
+	   (Oo.id req) redir_count);
     if redir_count > 10 then
       failwith "Too many redirections";
+    dlogr (fun () -> sprintf "req-%d: stage1" (Oo.id req));
     let reaction = 
       try (stage1 # process_header redir_env :> x_reaction)
       with 
 	| Redirect_request(new_uri, new_hdr) ->
 	    `Redirect_request(new_uri, new_hdr)
 	| Redirect_response(_,_) ->
-	    failwith "Caught Redirect_response in stage 1, but it is only allowed in stage 3"
+	    failwith "Caught Redirect_response in stage 1, \
+                      but it is only allowed in stage 3"
     in
+    dlogr
+      (fun () ->
+	 let s_reaction =
+	   match reaction with
+	     | `Accept_body stage2 -> "Accept_body (next stage: stage2)"
+	     | `Reject_body stage3 -> "Reject_body (next stage: stage3)"
+	     | `Static _ -> "Static"
+	     | `File _ -> "File"
+	     | `Std_response _ -> "Std_response"
+	     | `Redirect_request _ -> "Redirect_request" in
+	 sprintf "req-%d: stage1 results in: %s" (Oo.id req) s_reaction
+      );
     ( try
 	( match reaction with
 	    | `Accept_body stage2 ->
@@ -700,7 +790,7 @@ let process_connection config fd (stage1 : 'a http_service) =
 		protect redir_env (do_stage2 req redir_env) stage2
 	    | `Reject_body stage3 ->
 		req # reject_body();
-		protect redir_env (do_stage3 redir_env) stage3
+		protect redir_env (do_stage3 req redir_env) stage3
 	    | `Static(status, resp_hdr_opt, resp_str) ->
 		req # reject_body();
 		output_static_response redir_env status resp_hdr_opt resp_str
@@ -708,15 +798,21 @@ let process_connection config fd (stage1 : 'a http_service) =
 		req # accept_body();
 		protect
 		  redir_env 
-		  (output_file_response redir_env status resp_hdr_opt resp_filename pos) 
+		  (output_file_response 
+		     redir_env status resp_hdr_opt resp_filename pos) 
 		  length
 	    | `Std_response(status, resp_hdr_opt, errlog_opt) ->
 		req # reject_body();
-		output_std_response config redir_env status resp_hdr_opt errlog_opt
+		output_std_response 
+		  config redir_env status resp_hdr_opt errlog_opt
 	    | `Redirect_request(new_uri, new_hdr) ->
-		let (new_script_name, new_query_string) = decode_query new_uri in
+		dlogr (fun () -> sprintf "req-%d: redirect_request to: %s"
+			 (Oo.id req) new_uri);
+		let (new_script_name, new_query_string) = 
+		  decode_query new_uri in
 		new_hdr # update_multiple_field 
-		  "Content-length" (redir_env # multiple_input_header_field "Content-length");
+		  "Content-length" 
+		  (redir_env # multiple_input_header_field "Content-length");
 		let new_properties =
 		  update_alist 
 		    [ "REQUEST_URI", new_uri;
@@ -732,8 +828,11 @@ let process_connection config fd (stage1 : 'a http_service) =
 	)
       with
 	| Redirect_response_legal(new_uri, new_hdr) ->
+	    dlogr (fun () -> sprintf "req-%d: redirect_response to: %s"
+		     (Oo.id req) new_uri);
 	    if redir_env # output_state <> `Start then
-	      failwith "Redirect_response is not allowed after output has started";
+	      failwith "Redirect_response is not allowed after \
+                        output has started";
 	    let (new_script_name, new_query_string) = decode_query new_uri in
 	    new_hdr # update_field "Content-length" "0";
 	    let new_properties =
@@ -752,14 +851,21 @@ let process_connection config fd (stage1 : 'a http_service) =
 	    process_request req new_env (redir_count+1)
 	    
     );
-    req # finish()
+    dlogr (fun () -> sprintf "req-%d: finish" (Oo.id req));
+    req # finish();
+    dlogr (fun () -> sprintf "req-%d: done" (Oo.id req));
   in
 
   let rec fetch_requests reactor =
     match reactor # next_request() with
       | None ->
+	  dlogr (fun () -> sprintf "FD %Ld - no next request"
+		   (Netsys.int64_of_file_descr fd));
 	  ()
       | Some req ->
+	  dlogr (fun () -> sprintf "FD %Ld - next request req-%d"
+		   (Netsys.int64_of_file_descr fd) (Oo.id req)
+		);
 	  process_request req req#environment 0;
 	  fetch_requests reactor
   in
@@ -773,6 +879,9 @@ let process_connection config fd (stage1 : 'a http_service) =
              We can only close the descriptor!
            *)
 	  Unix.close fd;
+	     (* No need for release_fd - the descriptor has not yet been
+                tracked!
+	      *)
 	  raise err
   in
   ( try
@@ -780,13 +889,13 @@ let process_connection config fd (stage1 : 'a http_service) =
     with
 	err ->
 	  config # config_log_error None None None None
-	              ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
+	    ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
   );
   ( try
       reactor # close()
     with
 	err ->
 	  config # config_log_error None None None None
-	              ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
+	    ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
   )
 ;;

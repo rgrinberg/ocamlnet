@@ -49,7 +49,6 @@ type telnet_command =
 
 type telnet_options =
     { connection_timeout : float;
-      verbose_connection : bool;
       verbose_input : bool;
       verbose_output : bool;
     }
@@ -60,9 +59,8 @@ type telnet_options =
  *                           [Telnet_timeout] pseudo-command is added to
  *                           the input queue, and the connection is
  *                           aborted.
- * - [verbose_connection]:   Enables printing of connection events to stderr.
- * - [verbose_input]:        Enables printing of input events to stderr.
- * - [verbose_output]:       Enables printing of output events to stderr.
+ * - [verbose_input]:        Enables printing of input events to {!Netlog.Debug}.
+ * - [verbose_output]:       Enables printing of output events to {!Netlog.Debug}
  *)
 
 
@@ -326,4 +324,12 @@ class telnet_session :
   end
 ;;
 
+(** {1 Debugging} *)
 
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of this module  By default,
+        the exchanged Telnet commands are logged. This can be extended
+        by setting the [verbose_input] and [verbose_output] options.
+     *)
+end

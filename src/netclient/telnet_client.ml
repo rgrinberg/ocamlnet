@@ -17,6 +17,18 @@
  *   more complicated.
  *)
 
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Ftp_client" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Ftp_client" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Ftp_client" Debug.enable
+
+
+
 exception Telnet_protocol of exn;;
 
 let () =
@@ -56,31 +68,31 @@ type telnet_command =
 
 let prerr_command cmd =
   match cmd with
-      Telnet_data s    -> prerr_endline ("Telnet: Data " ^ s)
-    | Telnet_nop       -> prerr_endline "Telnet: NOP";
-    | Telnet_dm        -> prerr_endline "Telnet: DM";
-    | Telnet_brk       -> prerr_endline "Telnet: BRK";
-    | Telnet_ip        -> prerr_endline "Telnet: IP";
-    | Telnet_ao        -> prerr_endline "Telnet: AO";
-    | Telnet_ayt       -> prerr_endline "Telnet: AYT";
-    | Telnet_ec        -> prerr_endline "Telnet: EC";
-    | Telnet_el        -> prerr_endline "Telnet: EL";
-    | Telnet_ga        -> prerr_endline "Telnet: GA";
-    | Telnet_sb c      -> prerr_endline ("Telnet: DB " ^ 
-					 string_of_int(Char.code c));
-    | Telnet_se        -> prerr_endline "Telnet: SE";
-    | Telnet_will c    -> prerr_endline ("Telnet: WILL " ^
-					 string_of_int(Char.code c));
-    | Telnet_wont c    -> prerr_endline ("Telnet: WONT " ^
-					 string_of_int(Char.code c));
-    | Telnet_do c      -> prerr_endline ("Telnet: DO " ^
-					 string_of_int(Char.code c));
-    | Telnet_dont c    -> prerr_endline ("Telnet: DONT " ^
-					 string_of_int(Char.code c));
-    | Telnet_unknown c -> prerr_endline ("Telnet: unknown command " ^
-					 string_of_int(Char.code c));
-    | Telnet_eof       -> prerr_endline "Telnet: <eof>";
-    | Telnet_timeout   -> prerr_endline "Telnet: <timeout>";
+      Telnet_data s    -> dlog ("command: Data " ^ s)
+    | Telnet_nop       -> dlog "command: NOP";
+    | Telnet_dm        -> dlog "command: DM";
+    | Telnet_brk       -> dlog "command: BRK";
+    | Telnet_ip        -> dlog "command: IP";
+    | Telnet_ao        -> dlog "command: AO";
+    | Telnet_ayt       -> dlog "command: AYT";
+    | Telnet_ec        -> dlog "command: EC";
+    | Telnet_el        -> dlog "command: EL";
+    | Telnet_ga        -> dlog "command: GA";
+    | Telnet_sb c      -> dlog ("command: DB " ^ 
+				  string_of_int(Char.code c));
+    | Telnet_se        -> dlog "command: SE";
+    | Telnet_will c    -> dlog ("command: WILL " ^
+				  string_of_int(Char.code c));
+    | Telnet_wont c    -> dlog ("command: WONT " ^
+				  string_of_int(Char.code c));
+    | Telnet_do c      -> dlog ("command: DO " ^
+				  string_of_int(Char.code c));
+    | Telnet_dont c    -> dlog ("command: DONT " ^
+				  string_of_int(Char.code c));
+    | Telnet_unknown c -> dlog ("command: unknown command " ^
+				  string_of_int(Char.code c));
+    | Telnet_eof       -> dlog "command: <eof>";
+    | Telnet_timeout   -> dlog "command: <timeout>";
 ;;
 
 
@@ -93,7 +105,6 @@ type sockstate =
 
 type telnet_options =
     { connection_timeout : float;
-      verbose_connection : bool;
       verbose_input : bool;
       verbose_output : bool;
     }
@@ -221,7 +232,6 @@ class telnet_session =
 
     val mutable options = 
 	    { connection_timeout = 300.0;
-	      verbose_connection = false;
 	      verbose_input = false;
 	      verbose_output = false;
 	    }
@@ -483,8 +493,7 @@ class telnet_session =
 	(fun () -> 
 	   self # connect_server
 	     (fun () ->
-		if options.verbose_connection then
-		  prerr_endline "Telnet connection: Connected!";
+		dlog "Telnet connection: Connected!";
 		(* 'group' must not be set earlier, because it is used as
 	         * indicator whether a connection is established or not.
 		 *)
@@ -499,8 +508,7 @@ class telnet_session =
 		self # maintain_polling
 	     )
 	     (fun err ->
-		if options.verbose_connection then
-		  prerr_endline "Telnet connection: Connection error!";
+		dlog "Telnet connection: Connection error!";
 		exn_handler err
 	     )
 	)
@@ -543,9 +551,8 @@ class telnet_session =
 
       begin match connector with
 	| Telnet_connect(hostname, port) ->
-	    if options.verbose_connection then
-	      prerr_endline ("Telnet connection: Connecting to server " ^ 
-			     hostname);
+	    dlog ("Telnet connection: Connecting to server " ^ 
+		    hostname);
 
 	    let addr = self # inet_addr hostname in
 
@@ -603,8 +610,7 @@ class telnet_session =
 			try Netsys.string_of_sockaddr(Netsys.getpeername s)
 			with _ -> "(noaddr)")
 	      s;
-	    if options.verbose_connection then
-	      prerr_endline "Telnet connection: Got connected socket";
+	    dlog "Telnet connection: Got connected socket";
 	    let g1 = Unixqueue.new_group esys in
 	    Unixqueue.once esys g1 0.0 f_ok
       end;
@@ -620,13 +626,11 @@ class telnet_session =
 
 
     method private shutdown =
-      if options.verbose_connection then 
-	prerr_endline "Telnet connection: Shutdown!";
+      dlog "Telnet connection: Shutdown!";
       begin match socket_state with
 	  Down -> ()
 	| (Up_rw | Up_r) -> 
-	    if options.verbose_connection then 
-	      prerr_endline "Telnet connection: Closing socket!";
+	    dlog "Telnet connection: Closing socket!";
 	    Netlog.Debug.release_fd socket;
 	    try
 	      syscall (fun () -> Unix.close socket)
@@ -753,8 +757,7 @@ class telnet_session =
 	
 	Queue.add Telnet_timeout input_queue;
 	
-	if options.verbose_connection then 
-	  prerr_endline "Telnet connection: Timeout event!";
+	dlog "Telnet connection: Timeout event!";
 	
 	self # abort_connection;
 	
@@ -782,8 +785,7 @@ class telnet_session =
 
       input_timed_out <- false;
 
-      if options.verbose_connection then 
-	prerr_endline "Telnet connection: Input event!";
+      dlog "Telnet connection: Input event!";
 
       let _g = match group with
 	  Some x -> x
@@ -925,18 +927,17 @@ class telnet_session =
       in
 
       if eof then begin
-	if options.verbose_connection then
-	  prerr_endline "Telnet connection: Got EOF";
+	dlog "got EOF";
 	Queue.add Telnet_eof input_queue;
 	self # abort_connection;
       end
       else
 	interpret 0;
 
-      if options.verbose_input then begin
-	prerr_endline "Telnet input queue:";
+      if !Debug.enable && options.verbose_input then begin
+	dlog "Telnet input queue:";
 	Queue.iter prerr_command input_queue;
-	prerr_endline "Telnet: <end of queue>";
+	dlog "<end of queue>";
       end;
 
 
@@ -968,8 +969,7 @@ class telnet_session =
 
       output_timed_out <- false;
 
-      if options.verbose_connection then 
-	prerr_endline "Telnet connection: Output event!";
+      dlog "Telnet connection: Output event!";
 
       let _g = match group with
 	  Some x -> x
@@ -1072,16 +1072,15 @@ class telnet_session =
 
 	if q == synch_queue then begin
 	  sending_urgent_data <- true;
-	  if options.verbose_connection then
-	    prerr_endline "Sending urgent data";
+	  dlog "Sending urgent data";
 	end
 	else
 	  sending_urgent_data <- false;
 
-	if options.verbose_output then begin
-	  prerr_endline "Telnet output queue:";
+	if !Debug.enable && options.verbose_output then begin
+	  dlog "Telnet output queue:";
 	  Queue.iter prerr_command output_queue;
-	  prerr_endline "Telnet: <end of queue>";
+	  dlog "<end of queue>";
 	end;
 
 	try copy() with Queue.Empty -> ()
@@ -1104,8 +1103,7 @@ class telnet_session =
       end;
 
       if Netbuffer.length output_buffer = 0 && send_eof then begin
-	if options.verbose_connection then
-	  prerr_endline "Telnet connection: Sending EOF";
+	dlog "Telnet connection: Sending EOF";
 	syscall(fun () -> Unix.shutdown socket Unix.SHUTDOWN_SEND);
 	socket_state <- Up_r;
       end;

@@ -18,7 +18,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with WDialog; if not, write to the Free Software
+ * along with Nethttpd; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *)
 
@@ -328,3 +328,11 @@ val process_connection :
     * The passed [http_engine_processing_config] is crucial for good performance.
     * XXX
    *)
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of this module
+     *)
+end

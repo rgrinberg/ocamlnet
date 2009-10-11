@@ -8,6 +8,18 @@
  * RFC 2069, 2617:      Digest Authentication
  *)
 
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Http_client" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Http_client" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Http_client" Debug.enable
+
+
+open Printf
 
 exception Bad_message of string;;
 exception Http_error of (int * string);;
@@ -286,7 +298,7 @@ end
 let dump_header prefix h =
   List.iter
     (fun (n,v) ->
-       prerr_endline (prefix ^ n ^ ": " ^ v))
+       dlog (prefix ^ n ^ ": " ^ v))
     h
 
 
@@ -454,7 +466,6 @@ object(self)
   method private def_private_api fixup_request =
     ( object(pself) 
 
-	val self = false
 	  (* We cannot call methods of [self] due to a bug in O'Caml 3.08
            * (present until 3.08.3, fixed in 3.08.4 and 3.09)
            * PR#3576, PR#3678
@@ -550,17 +561,23 @@ object(self)
 		status <- (`Http_protocol_error x);
 
 	method dump_status () =
-	  prerr_endline ("HTTP response code: " ^ string_of_int resp_code);
-	  prerr_endline ("HTTP response code: " ^ resp_text);
-	  prerr_endline ("HTTP response protocol: "  ^ resp_proto);
+	  dlog (sprintf
+		  "Call %d - HTTP response code: %d (%s)"
+		  (Oo.id self) resp_code resp_text);
+	  dlog (sprintf
+		  "Call %d - HTTP response protocol: %s"
+		  (Oo.id self) resp_proto);
 
 	method dump_response_header () =
-	  dump_header "HTTP response " (resp_header # fields)
+	  dump_header 
+	    (sprintf 
+	       "Call %d - HTTP response "
+	       (Oo.id self))
+	    (resp_header # fields)
 
 	method dump_response_body () =
-	  prerr_endline ("HTTP Response:\n");
-	  prerr_endline resp_body#value
-
+	  dlog (sprintf "Call %d - HTTP response body:\n%s\n"
+		  (Oo.id self) resp_body#value)
       end
     )
 
@@ -1720,12 +1737,20 @@ class io_buffer options conn_cache fd fd_state =
 	| Down -> failwith "Socket is down"
 	| _ -> fd
 
+    method socket_str =
+      try
+	Int64.to_string (Netsys.int64_of_file_descr self # socket)
+      with _ -> "n/a"
+
+
     method close_out() =
       match socket_state with
 	| Down  -> ()
 	| Up_rw -> 
 	    if options.verbose_connection then 
-	      prerr_endline "HTTP connection: Sending EOF!";
+	      dlogr (fun () ->
+		       sprintf "FD %Ld - HTTP connection: Sending EOF!"
+			 (Netsys.int64_of_file_descr fd));
 	    Unix.shutdown fd Unix.SHUTDOWN_SEND; 
 	    socket_state <- Up_r
 	| Up_r  -> 
@@ -1736,7 +1761,9 @@ class io_buffer options conn_cache fd fd_state =
 	| Down  -> ()
 	| _     -> 
 	    if options.verbose_connection then 
-	      prerr_endline "HTTP connection: Closing socket";
+	      dlogr (fun () ->
+		       sprintf "FD %Ld - HTTP connection: Closing socket!"
+			 (Netsys.int64_of_file_descr fd));
 	    socket_state <- Down;
 	    conn_cache # close_connection fd
 
@@ -2099,9 +2126,11 @@ class io_buffer options conn_cache fd fd_state =
       send_position <- send_position + n;
 
     method dump_send_buffer () =
-      prerr_endline ("HTTP request body fragment:\n" ^ 
-		       String.sub send_buffer 0 send_length ^ "\n"
-		    )
+      dlogr (fun () ->
+	       sprintf "FD %Ld - HTTP request body fragment:\n%s\n"
+		 (Netsys.int64_of_file_descr fd)
+		 (String.sub send_buffer 0 send_length)
+	    )
 
   end
 ;;
@@ -2269,7 +2298,10 @@ class transmitter
 	      Buffer.add_string buf " HTTP/1.1";
 	      
 	      if options.verbose_status then
-		prerr_endline ("HTTP request: " ^ Buffer.contents buf);
+		dlogr
+		  (fun () ->
+		     sprintf "FD %s - Call %d - HTTP request: %s"
+		       io#socket_str (Oo.id m) (Buffer.contents buf));
 	      
 	      Buffer.add_string buf "\r\n";
 	      
@@ -2366,13 +2398,19 @@ class transmitter
 		  | Bad_message s -> ": Bad message: " ^ s
 		  | _ -> ": " ^ Netexn.to_string e in
 	      if options.verbose_status then
-		prerr_endline ("HTTP protocol error" ^ e_msg)
+		dlogr
+		  (fun () ->
+		     sprintf "FD %s - Call %d - HTTP status: protocol error %s"
+		       io#socket_str (Oo.id m) e_msg);
 	  | _ -> 
 	      if state = Sent_request then 
 		state <- Complete 
 	      else (
 		if options.verbose_status then
-		  prerr_endline "HTTP status: Got response before request was completely sent";
+		dlogr
+		  (fun () ->
+		     sprintf "FD %s - Call %d - HTTP status: Got response before request was completely sent"
+		       io#socket_str (Oo.id m));
 		state <- Complete_broken;
 		io # close_out()
 	      );
@@ -2386,8 +2424,11 @@ class transmitter
 	| Garbage_received s ->
 	    state <- Broken;
 	    if options.verbose_status then
-	      prerr_endline ("HTTP protocol error: Garbage received: " ^ s)
-
+		dlogr
+		  (fun () ->
+		     sprintf "FD %s - Call %d - HTTP status: Garbage received: %s"
+		       io#socket_str (Oo.id m) s);
+	    
     method handshake_timeout() =
       if state = Handshake then
 	state <- Sending_body
@@ -2778,7 +2819,7 @@ class connection the_esys
 			    connect_pause <- 0.0;
 
 			    if options.verbose_connection then
-			      prerr_endline ("HTTP connection: Connecting to " ^ 
+			      dlog ("HTTP connection: Connecting to " ^ 
 					       peer_host);
 			    let eng =
 			      Uq_engines.connector 
@@ -2795,13 +2836,15 @@ class connection the_esys
 			      ~is_done:(function
 					  | `Socket(s,_) ->
 					      Unixqueue.clear esys g1;
-					      self # connected g s peer
+					      self # connected 
+						peer_host g s peer
 					  | _ -> assert false
 				       )
 			      ~is_error:(function
 					   | err ->
 					       Unixqueue.clear esys g1;
-					       self # connect_error g err
+					       self # connect_error 
+						 peer_host g err
 					)
 			      ~is_aborted:(fun () -> 
 					     Unixqueue.clear esys g1;
@@ -2814,7 +2857,7 @@ class connection the_esys
 	)
 
 
-    method private connected g s peer =
+    method private connected peer_host g s peer =
       Netlog.Debug.track_fd
 	~owner:"Http_client"
 	~descr:("HTTP to " ^ 
@@ -2826,7 +2869,8 @@ class connection the_esys
       connecting <- None;
 
       if options.verbose_connection then
-	prerr_endline "HTTP connection: Connected!";
+	dlog (sprintf "FD %Ld - HTTP connection to %s: Connected!"
+		(Netsys.int64_of_file_descr s) peer_host);
 
       options.configure_socket s;
 
@@ -2839,7 +2883,7 @@ class connection the_esys
       self # maintain_polling;
 
 
-    method private connect_error g err =
+    method private connect_error peer_host g err =
       connecting <- None;
       (* We cannot call abort_connection, because the
        * state is not fully initialized. So clean up everything
@@ -2848,11 +2892,13 @@ class connection the_esys
       if options.verbose_connection then (
 	match err with
 	  | Unix.Unix_error(e,_,_) ->
-	      prerr_endline("HTTP connection: Cannot connect: Unix error " ^
-			      Unix.error_message e)
+	      dlog(sprintf 
+		     "HTTP connection: Cannot connect to %s: Unix error %s"
+		     peer_host (Unix.error_message e))
 	  | _ ->
-	      prerr_endline("HTTP connection: Cannot connect: Exception " ^ 
-			      Netexn.to_string err)
+	      dlog(sprintf 
+		     "HTTP connection: Cannot connect to %s: Exception %s"
+		     peer_host (Netexn.to_string err))
       );
       Unixqueue.clear esys g;         (* clean up esys *)
       group <- None;
@@ -2960,7 +3006,9 @@ class connection the_esys
 	match group with
 	  | Some g -> 
 	       if options.verbose_connection then 
-		 prerr_endline "HTTP connection: Shutdown!";
+		 dlog (sprintf 
+			 "FD %s - HTTP connection: Shutdown!"
+			 io#socket_str);
 	      begin match io#socket_state with
 		  Down -> ()
 		| Up_r -> 
@@ -3026,7 +3074,9 @@ class connection the_esys
 	raise Equeue.Reject;
 
       if options.verbose_connection then 
-	prerr_endline "HTTP connection: Input event!";
+	dlogr 
+	  (fun () ->
+	     sprintf "FD %s - HTTP connection: Input event!" io#socket_str);
 
       let _g = match group with
 	  Some x -> x
@@ -3047,15 +3097,23 @@ class connection the_esys
 	      ();  (* Ignore! *)
 	  | Unix.Unix_error(Unix.ECONNRESET,_,_) ->
 	      if options.verbose_connection then
-		prerr_endline("HTTP connection: Connection reset by peer");
+		dlogr
+		  (fun () ->
+		     sprintf
+		       "FD %s - HTTP connection: Connection reset by peer"
+		       io#socket_str
+		  );
 	      self # abort_connection;
 	      end_of_queueing := true;
 	      counters.crashed_connections <-
 		counters.crashed_connections + 1;
 	  | Unix.Unix_error(e,a,b) as err ->
 	      if options.verbose_connection then
-		prerr_endline("HTTP connection: Unix error " ^
-			      Unix.error_message e);
+		dlogr 
+		  (fun () ->
+		     sprintf 
+		       "FD %s - HTTP connection: Unix error %s"
+		       io#socket_str (Unix.error_message e));
 	      counters.crashed_connections <- 
 		counters.crashed_connections + 1;
 	      self # abort_connection;
@@ -3073,13 +3131,18 @@ class connection the_esys
 	(* shutdown the connection, and clean up the event system: *)
 	if io # in_eof then (
 	  if options.verbose_connection	then
-	    prerr_endline "HTTP connection: Got EOF!";
+	    dlogr
+	      (fun () ->
+		 sprintf "FD %s - HTTP connection: Got EOF!" io#socket_str);
 	  counters.server_eof_connections <- 
 	    counters.server_eof_connections + 1
 	);
 	if io # timeout then (
 	  if options.verbose_connection then 
-	    prerr_endline "HTTP connection: Connection timeout!";
+	    dlogr
+	      (fun () ->
+		 sprintf "FD %s - HTTP connection: Connection timeout!" 
+		 io#socket_str);
 	  counters.timed_out_connections <- 
 	    counters.timed_out_connections + 1;
 	);
@@ -3112,9 +3175,17 @@ class connection the_esys
                    *)
 		  if options.verbose_connection then (
 		    if io # has_unparsed_bytes then
-		      prerr_endline "HTTP connection: Got data of spontaneous response";
+		      dlogr
+			(fun () ->
+			   sprintf 
+			     "FD %s - HTTP connection: \
+                              Got data of spontaneous response" io#socket_str);
 		    if io # in_eof then
-		      prerr_endline "HTTP connection: premature EOF";
+		      dlogr
+			(fun () ->
+			   sprintf 
+			     "FD %s - HTTP connection: premature EOF"
+			     io#socket_str);
 		  );
 		  ()
 
@@ -3126,9 +3197,17 @@ class connection the_esys
 			  with Q.Empty -> false);
 		  if options.verbose_connection then (
 		    if io # has_unparsed_bytes then
-		      prerr_endline "HTTP connection: Got data of premature response";
+		      dlogr
+			(fun () ->
+			   sprintf
+			     "FD %s - HTTP connection: \
+                              Got data of premature response" io#socket_str);
 		    if io # in_eof then
-		      prerr_endline "HTTP connection: premature EOF"
+		      dlogr
+			(fun () ->
+			   sprintf
+			     "FD %s - HTTP connection: premature EOF"
+			     io#socket_str)
 		  );
 		  ()
 
@@ -3179,7 +3258,11 @@ class connection the_esys
 		    (* 'close_connection': not set.
 		     *)
 		    if options.verbose_connection then 
-		      prerr_endline "HTTP connection: using HTTP/1.0 style persistent connection";
+		      dlogr
+			(fun () ->
+			   sprintf "FD %s - HTTP connection: \
+                               using HTTP/1.0 style persistent connection"
+			     io#socket_str);
 		    inhibit_pipelining_byserver <- true;
 		  end
 		  else
@@ -3205,7 +3288,11 @@ class connection the_esys
                    *)
 
 		  if options.verbose_connection then
-		    prerr_endline "HTTP connection: Aborting the invalidated connection";
+		    dlogr
+		      (fun () ->
+			 sprintf "FD %s - HTTP connection: \
+                            Aborting the invalidated connection"
+			   io#socket_str);
 
 		  self # abort_connection;
 		  end_of_queueing := true;
@@ -3238,7 +3325,11 @@ class connection the_esys
 	      | Broken ->
 		  (* Simply stop here. *)
 		  if options.verbose_connection then
-		    prerr_endline "HTTP connection: Aborting the errorneuos connection";
+		    dlogr
+		      (fun () ->
+			 sprintf "FD %s - HTTP connection: \
+                            Aborting the errorneuos connection"
+			   io#socket_str);
 		  self # abort_connection;
 		  end_of_queueing := true;
 		  counters.crashed_connections <-
@@ -3262,7 +3353,11 @@ class connection the_esys
 	       * This is a protocol error, too.
 	       *)
 	      if options.verbose_connection then
-		prerr_endline "HTTP connection: Extra octets -- aborting connection";
+		dlogr
+		  (fun () ->
+		     sprintf "FD %s - HTTP connection: \
+                              Extra octets -- aborting connection"
+		       io#socket_str);
 	      self # abort_connection;
 	      end_of_queueing := true;
 	      counters.crashed_connections <-
@@ -3318,7 +3413,7 @@ class connection the_esys
 	(* It was a total failure. *)
 	totally_failed_connections <- totally_failed_connections + 1;
 	if options.verbose_connection then
-	  prerr_endline "HTTP connection: total failure";
+	  dlog "HTTP connection: total failure";
 	
 	if totally_failed_connections >= options.maximum_connection_failures then
 	  begin
@@ -3398,8 +3493,8 @@ class connection the_esys
 			   * way to report it).
 			   *)
 			  x ->
-			    prerr_string "Exception caught in Http_client: ";
-			    prerr_endline (Netexn.to_string x);
+			    dlog ("Exception caught in Http_client: " 
+				  ^ (Netexn.to_string x));
 			    false
 		    end
 	    in
@@ -3453,7 +3548,7 @@ class connection the_esys
 	end
 	else (
 	  if options.verbose_connection then
-	    prerr_endline "HTTP connection: Nothing left to do";
+	    dlog "HTTP connection: Nothing left to do";
 	  counters.failed_connections <- counters.failed_connections + 1
 	)
 
@@ -3521,8 +3616,10 @@ class connection the_esys
 	raise Equeue.Reject;
 
       if options.verbose_connection then 
-	prerr_endline "HTTP connection: Output event!";
-
+	dlogr
+	  (fun () ->
+	     sprintf "FD %s - HTTP connection: Output event!"
+	       io#socket_str);
       let _g = match group with
 	  Some x -> x
 	| None -> assert false
@@ -3589,7 +3686,11 @@ class connection the_esys
 			 self # clear_timeout tm;
 		      );
 		    if options.verbose_connection then
-		      prerr_endline "HTTP connection: waiting for 100 CONTINUE";
+		      dlogr
+			(fun () ->
+			   sprintf "FD %s - HTTP connection: \
+                                    waiting for 100 CONTINUE"
+			     io#socket_str);
 		  );
 		  
 		with
@@ -3610,7 +3711,10 @@ class connection the_esys
                        * nothing here.
 		       *)
 		      if options.verbose_connection then
-			prerr_endline "HTTP connection: broken pipe";
+			dlogr
+			  (fun () ->
+			     sprintf "FD %s - HTTP connection: broken pipe"
+			       io#socket_str);
 		      ()
 
 		  | Unix.Unix_error(Unix.EAGAIN,_,_) ->
@@ -3618,8 +3722,10 @@ class connection the_esys
 		      
 		  | Unix.Unix_error(e,a,b) ->
 		      if options.verbose_connection then
-			prerr_endline("HTTP connection: Unix error " ^
-				      Unix.error_message e);
+			dlogr
+			  (fun () ->
+			     sprintf "FD %s - HTTP connection: Unix error %s"
+			       io#socket_str (Unix.error_message e));
 		      (* Hope the input handler will do the right thing *)
 		      ()
 	      );
@@ -3702,7 +3808,10 @@ class connection the_esys
 	      try 
 		let _ = req_hdr # field "proxy-authorization" in
 		if options.verbose_status then
-		  prerr_endline "HTTP auth: proxy authentication required again";
+		  dlogr
+		    (fun () ->
+		       sprintf "Call %d - HTTP auth: proxy authentication \
+                                required again" (Oo.id msg_trans));
 		false
 	      with Not_found -> true
 	    then begin
@@ -3712,7 +3821,10 @@ class connection the_esys
 	       *)
 	      if peer_is_proxy then begin
 		if options.verbose_status then
-		  prerr_endline "HTTP auth: proxy authentication required";
+		  dlogr
+		    (fun () ->
+		       sprintf "Call %d - HTTP auth: proxy authentication \
+                                required" (Oo.id msg_trans));
 		if proxy_user <> "" then begin
 		  (* We have a user/password pair: Enable proxy authentication
 		   * and add 'msg' again to the queue of messages to be
@@ -3728,13 +3840,19 @@ class connection the_esys
 		    proxy_cookie <- "";
 		  end;
 		  if options.verbose_status then
-		    prerr_endline "HTTP auth: proxy credentials added";
+		    dlogr
+		      (fun () ->
+			 sprintf "Call %d - HTTP auth: proxy credentials \
+                                  added" (Oo.id msg_trans));
 		  ignore (self # add_again msg_trans);
 		end
 		else (
 		  (* No user/password pair: We cannot authorize ourselves. *)
 		  if options.verbose_status then
-		    prerr_endline "HTTP auth: user/password missing";
+		    dlogr
+		      (fun () ->
+			 sprintf "Call %d - HTTP auth: user/password missing"
+			   (Oo.id msg_trans));
 		  default_action()
 		)
 	      end
@@ -3743,7 +3861,10 @@ class connection the_esys
 		 * proxy authorization. Regard this as an intrusion.
 		 *)
 		if options.verbose_status then
-		  prerr_endline "HTTP auth: intrusion by proxy authentication";
+		  dlogr
+		    (fun () ->
+		       sprintf "Call %d - HTTP auth: intrusion by proxy \
+                                authentication" (Oo.id msg_trans));
 		default_action()
 	      )
 	    end
@@ -3889,12 +4010,12 @@ class pipeline =
 	      handshake_timeout = 1.0;
 	      resolver = sync_resolver;
 	      configure_socket = (fun _ -> ());
-	      verbose_status = false;
+	      verbose_status = true;
 	      verbose_request_header = false;
 	      verbose_response_header = false;
 	      verbose_request_contents = false;
 	      verbose_response_contents = false;
-	      verbose_connection = false;
+	      verbose_connection = true;
 	    }
 
     val auth_cache = new auth_cache
@@ -4138,9 +4259,11 @@ class pipeline =
 			      * way to report it).
 			      *)
 				 x ->
-				   prerr_string 
-				     "Exception caught in Http_client: ";
-				   prerr_endline (Netexn.to_string x);
+				   dlog (sprintf 
+					   "Call %d - \
+                                            Exception caught in Http_client %s"
+					   (Oo.id m)
+					   (Netexn.to_string x));
 				   false
 			   end
 		   in
@@ -4453,5 +4576,6 @@ module Convenience =
 		 verbose_connection = true 
              };
 	   conv_verbose := true;
+	   Debug.enable := true;
 	)
   end

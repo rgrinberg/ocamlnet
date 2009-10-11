@@ -260,6 +260,10 @@ type http_options =
 	 * - [verbose_response_contents]: prints the document received from the server
 	 * - [verbose_connection]: reports many connection events; authentication,
 	 *   too.
+         *
+         * By default, [verbose_status] and [verbose_connection] are enabled.
+         * Note that you also have to set [Debug.enable] to [true] to see
+         * any log message at all!
 	 *)
     }
   (** Options for the whole pipeline *)
@@ -1125,4 +1129,14 @@ sig
   val http_verbose : unit -> unit
     (** Turns on debug messages on stderr. *)
 
+end
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of this module  By default,
+        the exchanged Telnet commands are logged. This can be extended
+        by setting the [verbose_input] and [verbose_output] options.
+     *)
 end

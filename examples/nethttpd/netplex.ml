@@ -166,7 +166,23 @@ let start() =
 
   let opt_list' =
     [ "-mt", Arg.Set use_mt,
-      "  Use multi-threading instead of multi-processing"
+      "  Use multi-threading instead of multi-processing";
+
+      "-debug", Arg.String (fun s -> Netlog.Debug.enable_module s),
+      "<module>  Enable debug messages for <module>";
+
+      "-debug-all", Arg.Unit (fun () -> Netlog.Debug.enable_all()),
+      "  Enable all debug messages";
+
+      "-debug-list", Arg.Unit (fun () -> 
+                                 List.iter print_endline (Netlog.Debug.names());
+                                 exit 0),
+      "  Show possible modules for -debug, then exit";
+
+      "-debug-win32", Arg.Unit (fun () -> 
+                                  Netsys_win32.Debug.debug_c_wrapper true),
+      "  Special debug log of Win32 wrapper"
+
     ] @ opt_list in
 
   Arg.parse 

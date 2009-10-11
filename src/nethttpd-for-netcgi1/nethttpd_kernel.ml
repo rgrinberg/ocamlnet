@@ -18,13 +18,25 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with WDialog; if not, write to the Free Software
+ * along with Nethttpd; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *)
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Nethttpd_kernel" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Nethttpd_kernel" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Nethttpd_kernel" Debug.enable
+
 
 open Nethttpd_types
 open Nethttp
 open Nethttp.Header
+open Printf
 
 type fatal_error =
     [ `Broken_pipe
@@ -110,6 +122,22 @@ type resp_state =
 type announcement =
     [`Ignore | `Ocamlnet | `Ocamlnet_and of string | `As of string ]
 
+
+let string_of_front_token_x =
+  function
+    | `Resp_wire_data(s,pos,len) ->
+	let n = min len 20 in
+	sprintf 
+	  "Resp_wire_data(%s%s)"
+	  (String.escaped (String.sub s pos n))
+	  (if len > n then "..." else "")
+    | `Resp_end ->
+	"Resp_end"
+    | `Resp_wire_action _ ->
+	"Resp_wire_action"
+
+
+
 class type http_response  =
 object
   method state : resp_state
@@ -141,7 +169,7 @@ let string_of_state =
  * - make http_repsonse_impl thread-safe
  * - implement trailers
  *)
-class http_response_impl ?(close=false) ?(suppress_body=false) 
+class http_response_impl ?(close=false) ?(suppress_body=false) fdi
                          (req_version : protocol) 
                          (ann_server : announcement) : http_response =
   (* - [close]: If true, the connection will be closed after this response
@@ -171,6 +199,8 @@ object(self)
   method set_state s = 
     let old_state = state in
     state <- s;
+    dlogr (fun () ->
+	     sprintf "FD %Ld: response state: %s" fdi (string_of_state s));
     if s <> old_state && (s = `Processed || s = `Error || s = `Dropped) then (
       (* do all actions on the queue *)
       try
@@ -183,7 +213,6 @@ object(self)
 	  Queue.Empty -> ()
     );
     if s <> old_state then callback();
-    (* if s <> old_state then prerr_endline ("CHANGING STATE TO " ^ string_of_state s); *)
 
   method set_callback f = callback <- f
 
@@ -233,7 +262,10 @@ object(self)
 	  (* Set [announced_content_length]: *)
 	  ( try
 	      let len = get_content_length resp_header in  (* or Not_found *)
-	      announced_content_length <- Some len
+	      announced_content_length <- Some len;
+	      dlogr (fun () ->
+		       sprintf "FD %Ld: response anncounced_content_length=%Ld"
+			 fdi len)
 	    with
 		Not_found -> 
 		  announced_content_length <- None
@@ -244,10 +276,21 @@ object(self)
 		  transfer_encoding <- ( match announced_content_length with
 					   | Some _ -> `Identity
 					   | None -> `Chunked );
+		  dlogr (fun () ->
+			   sprintf "FD %Ld: response transfer_encoding=%s"
+			     fdi
+			     (match transfer_encoding with
+				| `Identity -> "identity"
+				| `Chunked -> "chunked"
+			     ))
 	      | _ ->
 		  (* Other protocol version: fall back to conservative defaults *)
 		  close_connection <- true;
 		  transfer_encoding <- `Identity;
+		  dlogr (fun () ->
+			   sprintf "FD %Ld: response \
+                             transfer_encoding=identity; close_connection=true"
+			     fdi)
 	  );
 	  (* Update the header: *)
 	  ( match transfer_encoding, suppress_body with
@@ -301,10 +344,11 @@ object(self)
 		  in
 		  if len' > 0 then
 		    Queue.push (`Resp_wire_data (s,pos,len')) queue;
-		  (*
 		  if len > 0 && len' = 0 then
-		    failwith "Nethttpd_kernel.http_response: response larger than announced in header";
-		   *)
+		    dlogr (fun () ->
+			     sprintf "FD %Ld: response warning: \
+                                  response is longer than announced" fdi)
+
 	      | `Chunked ->
 		  if len > 0 then (
 		    (* Generate the chunk header: *)
@@ -368,12 +412,16 @@ object(self)
 	  ( try
 	      let tok = Queue.take queue in
 	      front_token <- (tok :> front_token_opt);
+	      dlogr (fun () ->
+		       sprintf "FD %Ld: response new front_token: %s"
+			 fdi (string_of_front_token_x tok));
 	      self # front_token
 	    with Queue.Empty ->
 	      raise Send_queue_empty
 	  )
       | `Resp_wire_action f ->
 	  front_token <- `None;
+	  dlogr (fun () -> sprintf "FD %Ld: response Resp_wire_action" fdi);
 	  f();
 	  self # front_token
 
@@ -416,6 +464,10 @@ let send_static_response resp status hdr_opt body =
 
 
 let send_file_response resp status hdr_opt fd length =
+  Netlog.Debug.track_fd
+    ~owner:"Nethttpd_kernel"
+    ~descr:"file response"
+    fd;
   let hdr =
     match hdr_opt with
       | None ->
@@ -453,6 +505,7 @@ let send_file_response resp status hdr_opt fd length =
 	      else (
 		resp # send `Resp_end;
 		fd_open := false;
+		Netlog.Debug.release_fd fd;
 		Unix.close fd;
 	      )
 	    with
@@ -462,8 +515,10 @@ let send_file_response resp status hdr_opt fd length =
 		  feed()
 	  )
       | `Processed | `Error | `Dropped ->
-	  if !fd_open then
+	  if !fd_open then (
+	    Netlog.Debug.release_fd fd;
 	    Unix.close fd;
+	  );
 	  fd_open := false
   in
   resp # send (`Resp_action feed)
@@ -588,6 +643,7 @@ module StrSet = Set.Make(String)
 
 class http_protocol (config : #http_protocol_config) (fd : Unix.file_descr) =
   let pa = Netsys_posix.create_poll_array 1 in
+  let fdi = Netsys.int64_of_file_descr fd in
 object(self)
   val mutable resp_queue = Queue.create()
     (* The queue of [http_response] objects. The first is currently being transmitted *)
@@ -644,14 +700,17 @@ object(self)
 
     with
       | Fatal_error e ->
+	  dlog (sprintf "FD %Ld: fatal error" fdi);
 	  self # abort e;
       | Timeout ->
+	  dlog (sprintf "FD %Ld: timeout" fdi);
 	  self # timeout()
       | Bad_request e ->
 	  (* Stop only the input side of the engine! *)
+	  dlog (sprintf "FD %Ld: bad request" fdi);
 	  self # stop_input_acceptor();
 	  let resp = 
-	    new http_response_impl ~close:true (`Http((1,0),[])) 
+	    new http_response_impl ~close:true fdi (`Http((1,0),[])) 
 	      config#config_announce_server in
 	  self # push_recv (`Bad_request_error(e, resp), 0);
 	  self # push_recv (`Eof, 0);
@@ -662,6 +721,7 @@ object(self)
     (* If d < 0 wait for undefinite time. If d >= 0 wait for a maximum of d seconds.
      * On expiration, raise [Timeout].
      *)
+    dlogr (fun () -> sprintf "FD %Ld: block %f" fdi d);
     let f_input = self#do_input in
     let f_output = self#do_output in
     if not f_input && not f_output then raise Timeout;
@@ -682,17 +742,28 @@ object(self)
 	(* Now find out which error. Unfortunately, a simple Unix.read on
            the socket seems not to work.
 	 *)
+(*
+ -- interpreting POLL_HUP here is difficult. Generally, POLL_HUP can also
+    be set when the other side sends EOF, i.e. a harmless condition
+
 	if Netsys_posix.poll_hup_result c.Netsys_posix.poll_act_events then
 	  raise(Fatal_error `Broken_pipe);
+ *)
 	let code =
 	  Unix.getsockopt_int fd Unix.SO_ERROR in
 	let error =
 	  Netsys.unix_error_of_code code in
-	raise(Fatal_error(`Unix_error error));
+	let exn_arg =
+	  match error with
+	    | Unix.EPIPE 
+	    | Unix.ECONNRESET -> `Broken_pipe
+	    | _ -> `Unix_error error in
+	raise(Fatal_error exn_arg)
       )
 	
     with
 	Unix.Unix_error(Unix.EINTR,_,_) ->
+	  dlog (sprintf "FD %Ld: block: EINTR" fdi);
 	  if d < 0.0 then
 	    self # block d
 	  else (
@@ -722,7 +793,10 @@ object(self)
 	if recv_eof then (
 	  if need_linger then (
 	    (* Try to linger in the background... *)
-	    let n = Unix.read fd linger_buf 0 (String.length linger_buf) in
+	    dlogr
+	      (fun () ->
+		 sprintf "FD %Ld: lingering for remaining input" fdi);
+	    let n = Unix.recv fd linger_buf 0 (String.length linger_buf) [] in
 	       (* or Unix_error *)
 	    if n=0 then need_linger <- false  (* that's it! *)
 	  );
@@ -730,11 +804,16 @@ object(self)
 	)
 	else (
 	  if self # do_input then (
-	    let n = Netbuffer.add_inplace recv_buf (Unix.read fd) in  (* or Unix_error *)
+	    let n = Netbuffer.add_inplace   (* or Unix_error *)
+	      recv_buf
+	      (fun s pos len -> Unix.recv fd s pos len []) in
 	    if n=0 then (
 	      recv_eof <- true;
 	      need_linger <- false;
-	    );
+	      dlog (sprintf "FD %Ld: got EOF" fdi);
+	    )
+	    else
+	      dlogr (fun () -> sprintf "FD %Ld: got %d bytes" fdi n);
 	    true
 	  )
 	  else
@@ -882,7 +961,7 @@ object(self)
 	  | _ -> false in
       let suppress_body = (meth = "HEAD") in
       let resp = 
-	new http_response_impl ~close ~suppress_body (snd request_line)
+	new http_response_impl ~close ~suppress_body fdi (snd request_line)
 	  config#config_announce_server in
       self # push_recv 
 	(`Req_header (request_line, req_h, resp), block_end-block_start);
@@ -1198,11 +1277,14 @@ object(self)
 	match resp # front_token with      (* or Send_queue_empty, Unix_error *)
 	  | `Resp_wire_data (s,pos,len) ->
 	      (* Try to write: *)
-	      let n = Unix.single_write fd s pos len in  (* or Unix.error *)
+	      let n = Unix.send fd s pos len [] in  (* or Unix.error *)
+	      dlogr (fun () -> sprintf "FD %Ld: sent %d bytes" fdi n);
 	      (* Successful. Advance by [n] *)
 	      resp # advance n;
 
 	  | `Resp_end ->
+	      dlogr
+		(fun () -> sprintf "FD %Ld: found Resp_end in the queue" fdi);
 	      pipeline_len <- pipeline_len - 1;
 	      resp # set_state `Processed;
 	      (* Check if we have to close the connection: *)
@@ -1281,11 +1363,13 @@ object(self)
      * - Keep receiving data for a while ("lingering"). In principle, until the client has 
      *   seen the half shutdown, but we do not know when. Apache lingers for 30 seconds.
      *)
+    dlogr (fun () -> sprintf "FD %Ld: shutdown" fdi);
     self # stop_input_acceptor();
     self # drop_remaining_responses();
     self # shutdown_sending()
 
   method private shutdown_sending() =
+    dlogr (fun () -> sprintf "FD %Ld: shutdown_sending" fdi);
     if not fd_down then (
       try
 	Unix.shutdown fd Unix.SHUTDOWN_SEND;
@@ -1323,6 +1407,7 @@ object(self)
   method timeout () =
     if waiting_for_next_message then (
       (* Indicate a "soft" timeout. Processing is nevertheless similar to [abort]: *)
+      dlogr (fun () -> sprintf "FD %Ld: soft timeout" fdi);
       need_linger <- false;
       self # shutdown();
       self # push_recv (`Timeout, 0);
@@ -1333,6 +1418,8 @@ object(self)
       
 
   method abort (err : fatal_error) = 
+    dlogr (fun () -> 
+	     sprintf "FD %Ld: abort %s" fdi (string_of_fatal_error err));
     need_linger <- false;
     self # shutdown();
     self # push_recv (`Fatal_error err, 0);
@@ -1359,7 +1446,7 @@ object(self)
 end
 
 
-class lingering_close fd =
+class lingering_close ?(preclose = fun () -> ()) fd =
   let fd_style = Netsys.get_fd_style fd in
 object(self)
   val start_time = Unix.gettimeofday()
@@ -1376,9 +1463,10 @@ object(self)
 	()
       );
 
-      let n = Unix.read fd junk_buffer 0 (String.length junk_buffer) in
+      let n = Unix.recv fd junk_buffer 0 (String.length junk_buffer) [] in
       if n = 0 then (
 	lingering <- false;
+	preclose();
 	Unix.close fd
       )
     with
@@ -1388,6 +1476,7 @@ object(self)
 	  ()             (* got signal *)
       | Unix.Unix_error(_, _,_) ->  (* Any other error means we are done! *)
 	  lingering <- false;
+	  preclose();
 	  Unix.close fd
 
   method lingering = lingering

@@ -18,7 +18,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with WDialog; if not, write to the Free Software
+ * along with Nethttpd; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *)
 
@@ -263,7 +263,7 @@ object
 
 end
 
-class http_response_impl : ?close:bool -> ?suppress_body:bool -> protocol -> announcement -> http_response
+class http_response_impl : ?close:bool -> ?suppress_body:bool -> int64 -> protocol -> announcement -> http_response
   (** Exported for debugging and testing only *)
 
 val send_static_response : http_response -> 
@@ -311,7 +311,7 @@ type req_token =
       *   the corresponding [http_response] object is returned which must
       *   be used to transmit the response.
       * - [`Req_expect_100_continue] is generated when the client expects that the
-      *   server sends a "100 Contínue" response (or a final status code) now.
+      *   server sends a "100 Continue" response (or a final status code) now.
       *   One should add [`Resp_info_line resp_100_continue] to the send queue
       *   if the header is acceptable, or otherwise generate an error response. In any
       *   case, the rest of the request must be read until [`Req_end].
@@ -560,8 +560,10 @@ object
 end
 
 
-(** Closes a file descriptor using the "lingering close" algorithm. *)
-class lingering_close : Unix.file_descr ->
+(** Closes a file descriptor using the "lingering close" algorithm.
+    The optional [preclose] function is called just before [Unix.close].
+ *)
+class lingering_close : ?preclose:(unit->unit) -> Unix.file_descr ->
 object
   (** Closes a file descriptor using the "lingering close" algorithm
     * 
@@ -580,4 +582,13 @@ object
 
   method fd : Unix.file_descr
     (** The file descriptor *)
+end
+
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of this module
+     *)
 end

@@ -646,3 +646,10 @@ end
   * end-of-line convention, unlike the similar class
   * [Netconversion.conversion_pipe].
  *)
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of this module  *)
+end

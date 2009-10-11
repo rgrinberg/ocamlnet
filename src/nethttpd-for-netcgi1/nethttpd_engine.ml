@@ -18,15 +18,27 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with WDialog; if not, write to the Free Software
+ * along with Nethttpd; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *)
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Nethttpd_engine" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Nethttpd_engine" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Nethttpd_engine" Debug.enable
+
 
 
 open Nethttp
 open Nethttp.Header
 open Nethttpd_types
 open Nethttpd_kernel
+open Printf
 
 type engine_req_state =
     [ `Received_header
@@ -411,6 +423,7 @@ object(self)
     out_ch # abort();
 
   method schedule_accept_body ~on_request ?(on_error = fun ()->()) () =
+    dlogr (fun () -> sprintf "req-%d: accept_body" (Oo.id self));
     (* Send the "100 Continue" response if requested: *)
     if expect_100_continue then (
       resp # send resp_100_continue;
@@ -426,6 +439,7 @@ object(self)
       
 
   method schedule_reject_body ~on_request ?(on_error = fun ()->()) () =
+    dlogr (fun () -> sprintf "req-%d: reject_body" (Oo.id self));
     (* Unlock everything: *)
     in_ch # drop();
     out_ch # unlock();
@@ -446,6 +460,7 @@ object(self)
      * - We also set [req_state] to `Finishing to inform all other parts of the
      *   engine what is going on.
      *)
+    dlogr (fun () -> sprintf "req-%d: schedule_finish" (Oo.id self));
     in_ch # drop();
     out_ch # unlock();
     env # unlock();
@@ -490,6 +505,9 @@ let ensure_not_reentrant name lock f arg =
 
 
 class http_engine ~on_request_header () config fd ues =
+  (* note that "new http_engine" can already raise exceptions, e.g.
+     Unix.ENOTCONN
+   *)
   let _proto = new http_protocol config fd in
   let handle_event_lock = ref false in
 object(self)
@@ -516,8 +534,15 @@ object(self)
   val mutable cur_request_manager = None
   val mutable eof_seen = false
 
-  initializer 
-    self # start()
+  initializer (
+    self # start();
+    Netlog.Debug.track_fd   (* configure tracking as last step of init *)
+      ~owner:"Nethttpd_engine"
+      ~descr:(sprintf "HTTP %s->%s"
+		(Netsys.string_of_sockaddr peer_addr)
+		(Netsys.string_of_sockaddr fd_addr))
+      fd
+  )
 
   method private start() =
     Unixqueue.add_handler ues group (fun _ _ -> self # handle_event);
@@ -649,13 +674,17 @@ object(self)
     (* Check whether the HTTP connection is processed and can be closed: *)
     if eof_seen && not proto#do_output then (
       if proto # need_linger then (
-	let lc = new lingering_close fd in
+	let lc = 
+	  new lingering_close 
+	    ~preclose:(fun () -> Netlog.Debug.release_fd fd) 
+	    fd in
 	conn_state <- `Closing lc;
 	self # enable_input true;
 	self # enable_output false;
       )
       else (
 	(* Just close the descriptor and shut down the engine: *)
+	Netlog.Debug.release_fd fd;
 	conn_state <- `Closed;
 	Unix.close fd;
 	Unixqueue.clear ues group;    (* Stop in Unixqueue terms *)
@@ -836,7 +865,10 @@ object(self)
     match state with
       | `Working _ ->
 	  Unixqueue.clear ues group;    (* Stop the queue immediately *)
-	  if conn_state <> `Closed then ( try Unix.close fd with _ -> ());
+	  if conn_state <> `Closed then ( 
+	    Netlog.Debug.release_fd fd;
+	    try Unix.close fd with _ -> ()
+	  );
 	  ( match conn_state with
 	      | `Active proto ->
 		  proto # abort `Broken_pipe
@@ -947,13 +979,15 @@ type x_reaction =
     ]
 
 
-exception Ev_stage2_processed of (http_service_generator option * Unixqueue.group)
+exception Ev_stage2_processed of 
+  (http_service_generator option * Unixqueue.group)
   (* Event: Stage 2 has been processed. The argument is the follow-up action:
    * - None: Finish request immediately
    * - Some g: Proceed with generator g
    *)
 
-exception Ev_stage3_processed of ((string * http_header) option * Unixqueue.group)
+exception Ev_stage3_processed of
+  ((string * http_header) option * Unixqueue.group)
   (* Event: Stage 2 has been processed. The argument is the follow-up action:
    * - None: Finish request
    * - Some(uri,hdr): Redirect response to this location
@@ -979,9 +1013,18 @@ object
 end
 
 
-let process_connection config pconfig fd ues stage1 : http_engine_processing_context =
+let process_connection config pconfig fd ues stage1 : 
+                                              http_engine_processing_context =
   let fd_addr = Unix.getsockname fd in
   let peer_addr = Netsys.getpeername fd in
+
+  dlogr
+    (fun () ->
+       sprintf "FD %Ld (%s -> %s) processing connection"
+	 (Netsys.int64_of_file_descr fd)
+	 (Netsys.string_of_sockaddr peer_addr)
+	 (Netsys.string_of_sockaddr fd_addr)
+    );
 
   let on_req_hdr = ref (fun _ -> ()) in
 
@@ -1003,17 +1046,13 @@ let process_connection config pconfig fd ues stage1 : http_engine_processing_con
     method config_announce_server = config # config_announce_server
   end in
 
-  let engine = 
-    new http_engine 
-      ~on_request_header:(fun req -> !on_req_hdr req) ()
-      eng_config fd ues in
-
   let log_error req msg =
     let env = req # environment in
     let meth = env # cgi_request_method in
     let uri = env # cgi_request_uri in
     config # config_log_error
-      (Some fd_addr) (Some peer_addr) (Some(meth,uri)) (Some env#input_header) msg
+      (Some fd_addr) (Some peer_addr) (Some(meth,uri)) (Some env#input_header)
+      msg
   in
 
   let group = Unixqueue.new_group ues in
@@ -1023,22 +1062,39 @@ object(self)
 
   val mutable watched_groups = []
 
+  val mutable engine = lazy (assert false)
+
   initializer (
     on_req_hdr := self # on_request_header;
-    Uq_engines.when_state 
-      ~is_aborted:(fun _ -> 
-		     List.iter (Unixqueue.clear ues) watched_groups;
-		     watched_groups <- []
-		  )
-      engine
+    (* Create the http_engine, but be careful in case of errors: *)
+    try
+      let eng = 
+	new http_engine 
+	  ~on_request_header:(fun req -> !on_req_hdr req) ()
+	  eng_config fd ues in
+      Uq_engines.when_state 
+	~is_aborted:(fun _ -> 
+		       List.iter (Unixqueue.clear ues) watched_groups;
+		       watched_groups <- []
+		    )
+	eng;
+      engine <- lazy eng
+    with
+      | error ->
+	  Unix.close fd;  (* fd is not yet tracked here *)
+	  let eng = new Uq_engines.epsilon_engine (`Error error) ues in
+	  engine <- lazy eng
   )
 
 
-  method private do_stage3 (req : http_request_notification) env redir_count stage3 =
+  method private do_stage3 req_id (req : http_request_notification) 
+                           env redir_count stage3 =
     (* We call the response generator with a synchronized output channel. By sending
      * the [Ev_stage3_processed] event, we catch the point in time when the whole
      * request is over, and can be finished.
      *)
+
+    dlogr (fun () -> sprintf "req-%d: preparing stage3" req_id);
 
     (* This construction just catches the [Ev_stage3_processed] event: *)
     let pe = new Uq_engines.poll_engine 
@@ -1053,10 +1109,14 @@ object(self)
 		      (* Maybe we have to perform a redirection: *)
 		      ( match redirect_opt with
 			  | Some (new_uri,new_hdr) ->
+			      dlogr (fun () ->
+				       sprintf "req-%d: redirect_response \
+                                                to %s" req_id new_uri);
 			      if env # output_state <> `Start 
 			      then
 				log_error req
-				  "Nethttpd: Redirect_response is not allowed after output has started"
+				  "Nethttpd: Redirect_response is not allowed \
+                                   after output has started"
 			      else (
 				let (new_script_name, new_query_string) = 
 				  decode_query new_uri in
@@ -1083,6 +1143,8 @@ object(self)
 				self # process_request new_req new_env (redir_count+1)
 			      )
 			  | None ->
+			      dlogr (fun () -> 
+				       sprintf "req-%d: stage3 done" req_id);
 			      req # schedule_finish())
 		  | _ -> assert false)
       pe;
@@ -1091,6 +1153,7 @@ object(self)
       (fun out_ch ->
 	 let env' =
 	   new redrained_environment ~out_channel:out_ch env in
+	 dlogr (fun () -> sprintf "req-%d: stage3" req_id);
 	 let redirect_opt =
 	   try
 	     stage3 # generate_response env';
@@ -1115,6 +1178,7 @@ object(self)
 		   ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
 		 None
 	 in
+	 dlogr (fun () -> sprintf "req-%d: stage3 postprocessing" req_id);
 	 (* Send the event that we are done here: *)
 	 ues # add_event (Unixqueue.Extra(Ev_stage3_processed(redirect_opt,group)))
       )
@@ -1130,6 +1194,7 @@ object(self)
      * [schedule_accept_body], and when the stage2 processor is done). To do so,
      * we send a [Ev_stage2_processed] event, and catch that by the main event loop.
      *)
+    dlogr (fun () -> sprintf "req-%d: preparing stage2" (Oo.id req));
     let accepted_request = ref None in
     let stage3_opt = ref None in
     (* When both variables are [Some], we are in synch again. *)
@@ -1138,7 +1203,7 @@ object(self)
       match (!accepted_request, !stage3_opt) with
 	| (Some req', Some(Some stage3)) ->
 	    (* Synch + stage2 was successful. Continue with stage3: *)
-	    self # do_stage3 req' env redir_count stage3
+	    self # do_stage3 (Oo.id req) req' env redir_count stage3
 	| (Some req', Some None) ->
 	    (* Synch, but stage2 was not successful. Finish the request immediately. *)
 	    req' # schedule_finish()
@@ -1173,17 +1238,20 @@ object(self)
       (fun in_ch ->
 	 let env' =
 	   new redirected_environment ~in_channel:in_ch env in
+	 dlogr (fun () -> sprintf "req-%d: stage2" (Oo.id req));
 	 let stage3_opt =
 	   try
 	     Some(stage2 # process_body env')
 	   with
 	     | Redirect_request(_,_) ->
 		 log_error req
-		   "Nethttpd: Caught Redirect_request in stage 2, but it is only allowed in stage 1";
+		   "Nethttpd: Caught Redirect_request in stage 2, \
+                    but it is only allowed in stage 1";
 		 None
 	     | Redirect_response(_,_) ->
 		 log_error req
-		   "Nethttpd: Caught Redirect_response in stage 2, but it is only allowed in stage 3";
+		   "Nethttpd: Caught Redirect_response in stage 2, \
+                    but it is only allowed in stage 3";
 		 None
              | Standard_response(status, hdr_opt, errmsg_opt) 
 		 when env'#output_state = `Start ->
@@ -1191,7 +1259,8 @@ object(self)
 		   None
 	     | err when env#output_state = `Start ->
 		 output_std_response config env' `Internal_server_error None 
-		   (Some("Nethttpd: Uncaught exception: " ^ Netexn.to_string err));
+		   (Some("Nethttpd: Uncaught exception: " ^ 
+			   Netexn.to_string err));
 		 None
 	     | err ->
 		 log_error req
@@ -1199,6 +1268,7 @@ object(self)
 		 None
 	 in
 	 (* Send the event that we are done here: *)
+	 dlogr (fun () -> sprintf "req-%d: stage2 done" (Oo.id req));
 	 ues # add_event (Unixqueue.Extra(Ev_stage2_processed(stage3_opt,group)))
       )
       req # environment # input_ch_async
@@ -1209,8 +1279,13 @@ object(self)
      * [redir_count]: The number of already performed redirections
      * [req]: Contains always the original environment
      *)
+    dlogr 
+      (fun () ->
+	 sprintf "req-%d: process_request FD=%Ld redir_count=%d"
+	   (Oo.id req) (Netsys.int64_of_file_descr fd) redir_count);
     if redir_count > 10 then
       failwith "Too many redirections";
+    dlogr (fun () -> sprintf "req-%d: stage1" (Oo.id req));
     let reaction = 
       try (stage1 # process_header redir_env :> x_reaction)
       with 
@@ -1219,13 +1294,27 @@ object(self)
 	| Redirect_response(_,_) ->
 	    failwith "Caught Redirect_response in stage 1, but it is only allowed in stage 3"
     in
+    dlogr
+      (fun () ->
+	 let s_reaction =
+	   match reaction with
+	     | `Accept_body stage2 -> "Accept_body (next stage: stage2)"
+	     | `Reject_body stage3 -> "Reject_body (next stage: stage3)"
+	     | `Static _ -> "Static"
+	     | `File _ -> "File"
+	     | `Std_response _ -> "Std_response"
+	     | `Redirect_request _ -> "Redirect_request" in
+	 sprintf "req-%d: stage1 results in: %s" (Oo.id req) s_reaction
+      );
     ( match reaction with
 	| `Accept_body stage2 ->
 	    self # do_stage2 req redir_env redir_count stage2
 	| `Reject_body stage3 ->
 	    req # schedule_reject_body
 	      ~on_request:(fun req' -> 
-			     self # do_stage3 req' redir_env redir_count stage3)
+			     self # do_stage3 
+			       (Oo.id req)
+			       req' redir_env redir_count stage3)
 	      ();
 	| `Static(status, resp_hdr_opt, resp_str) ->
 	    req # schedule_reject_body
@@ -1249,6 +1338,8 @@ object(self)
 			     req' # schedule_finish())
 	      ();
 	| `Redirect_request(new_uri, new_hdr) ->
+	    dlogr (fun () -> sprintf "req-%d: redirect_request to: %s"
+		     (Oo.id req) new_uri);
 	    let (new_script_name, new_query_string) = decode_query new_uri in
 	    new_hdr # update_multiple_field 
 	      "Content-length" (redir_env # multiple_input_header_field "Content-length");
@@ -1274,6 +1365,6 @@ object(self)
 	  log_error req
 	    ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err)
 	  
-  method engine = engine
+  method engine = Lazy.force engine
 
 end

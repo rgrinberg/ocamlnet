@@ -46,3 +46,17 @@ The most advanced (and recommended for applications) is netplex.ml.
   controlled (start/stop) using the generic netplex-admin tool.
 
   This is what you should use for your applications.
+
+
+Getting debug messages:
+
+- For netplex.ml there are additional command-line switches to print
+  debug messages (e.g. -debug-all)
+
+- For the other examples, one can set the environment variables
+  DEBUG and DEBUG_WIN32 (see comment in the code)
+
+The resulting output can be fairly detailed. For a better
+understanding how Ocamlnet works internally, it is recommended to
+enable debugging only for a few modules, and to compare the debug
+output with the code.
