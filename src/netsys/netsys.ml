@@ -123,6 +123,44 @@ let get_fd_style fd =
 		("get_fd_style: Exception: " ^ Netexn.to_string e);
 	      assert false
 
+let string_of_sockaddr =
+  function
+    | Unix.ADDR_INET(inet,port) ->
+	Unix.string_of_inet_addr inet ^ ":" ^ string_of_int port
+    | Unix.ADDR_UNIX path ->
+	String.escaped path
+
+let string_of_fd fd =
+  let st = get_fd_style fd in
+  let fdi = int64_of_file_descr fd in
+  match st with
+    | `Read_write ->
+	sprintf "fd<%Ld>" fdi
+    | `Recv_send(sockaddr,peeraddr) ->
+	sprintf "fd<%Ld=socket(%s,%s)>" 
+	  fdi (string_of_sockaddr sockaddr) (string_of_sockaddr peeraddr)
+    | `Recv_send_implied ->
+	sprintf "fd<%Ld=socket>" fdi
+    | `Recvfrom_sendto ->
+	sprintf "fd<%Ld=socket>" fdi
+    | `W32_pipe ->
+	let p = Netsys_win32.lookup_pipe fd in
+	sprintf "fd<%Ld=w32_pipe(%s)>" fdi (Netsys_win32.pipe_name p)
+    | `W32_pipe_server ->
+	let p = Netsys_win32.lookup_pipe_server fd in
+	sprintf "fd<%Ld=w32_pipe_server(%s)>" 
+	  fdi (Netsys_win32.pipe_server_name p)
+    | `W32_event ->
+	sprintf "fd<%Ld=w32_event>" fdi
+    | `W32_process ->
+	let p = Netsys_win32.lookup_process fd in
+	sprintf "fd<%Ld=w32_process(%d)>" fdi (Netsys_win32.win_pid p)
+    | `W32_input_thread ->
+	sprintf "fd<%Ld=w32_input_thread>" fdi
+    | `W32_output_thread ->
+	sprintf "fd<%Ld=w32_output_thread>" fdi
+
+
 let wait_until_readable fd_style fd tmo =
   dlogr (fun () -> sprintf "wait_until_readable fd=%Ld tmo=%f"
 	   (int64_of_file_descr fd) tmo);
@@ -523,13 +561,6 @@ let connect_check fd =
 
 let domain_of_inet_addr addr =
   Unix.domain_of_sockaddr(Unix.ADDR_INET(addr,0))
-
-let string_of_sockaddr =
-  function
-    | Unix.ADDR_INET(inet,port) ->
-	Unix.string_of_inet_addr inet ^ ":" ^ string_of_int port
-    | Unix.ADDR_UNIX path ->
-	String.escaped path
 
 external _exit : int -> unit = "netsys__exit";;
 

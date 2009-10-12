@@ -137,6 +137,7 @@ object
     close_inactive_descr:bool ->
     protocol -> Unix.file_descr -> Unixqueue.event_system ->
       Rpc_transport.rpc_multiplex_controller Uq_engines.engine
+    (* close_inactive_descr: also implies that release_fd is called *)
 end
   (** Configuration for [`Socket] (see below). *)
 

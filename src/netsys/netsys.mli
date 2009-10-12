@@ -295,11 +295,6 @@ val getpeername : Unix.file_descr -> Unix.sockaddr
       ensured when the socked is unconnected or shut down.
    *)
 
-val string_of_sockaddr : Unix.sockaddr -> string
-  (** Returns a human-readable string describing the address
-      (for debug messages)
-   *)
-
 (** {1 Helper functions} *)
 
 val restart : ('a -> 'b) -> 'a -> 'b
@@ -348,6 +343,14 @@ val unix_error_of_code : int -> Unix.error
 
 val int64_of_file_descr : Unix.file_descr -> int64
   (** Returns the file descriptor as int64 number. Works for all OS. *)
+
+val string_of_fd : Unix.file_descr -> string
+  (** Return a string describing the descriptor (for debugging) *)
+
+val string_of_sockaddr : Unix.sockaddr -> string
+  (** Returns a human-readable string describing the address
+      (for debug messages)
+   *)
 
 val is_stdin : Unix.file_descr -> bool
 val is_stdout : Unix.file_descr -> bool

@@ -180,13 +180,21 @@ end
 
 val stream_rpc_multiplex_controller :
        ?close_inactive_descr:bool ->
+       ?preclose:(unit -> unit) ->
        Unix.file_descr -> Unixqueue.event_system ->
          rpc_multiplex_controller
-  (** The multiplex controller for stream encapsulation *)
+  (** The multiplex controller for stream encapsulation
+
+      - [close_inactive_descr]: If true, the descriptor is closed when
+        inactivated
+      - [preclose]: This function is called just before the descriptor
+        is closed.
+   *)
 
 
 val datagram_rpc_multiplex_controller :
        ?close_inactive_descr:bool ->
+       ?preclose:(unit -> unit) ->
        Unix.file_descr -> Unixqueue.event_system ->
          rpc_multiplex_controller
   (** The multiplex controller for datagrams *)

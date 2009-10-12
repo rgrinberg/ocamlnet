@@ -15,6 +15,10 @@ exception Not_in_container_thread
 
 (** {2 Logging} *)
 
+(** The log messages work (as an exception of the foregoing) also
+    from the controller thread
+ *)
+
 val log : level -> string -> unit
   (** Writes a log message *)
 
@@ -171,8 +175,32 @@ val run_in_controller_context : controller -> (unit -> unit) -> unit
       in the context of the controller. {b This is only possible for
       multi-threading but not for multi-processing style!}
 
+      This function can be called from any thread. The function [f] is
+      executed by pushing it onto the event queue, and calling it when
+      the pushed event is reached. This is usually a safe point for
+      many kinds of operations, but if controller methods are invoked
+      the details are left unspecified.
+
       For example, this allows it to start helper threads via
       {!Netplex_kit.add_helper_service} at any time.
+   *)
+
+
+val run_in_container_context : container -> (unit -> unit) -> unit
+  (** [run_in_container_context cont f]: Arranges that [f()] is executed
+      in the context of the container [cont]. {b This is only possible for
+      multi-threading but not for multi-processing style!}
+
+      This function can be called from any thread. The function [f] is
+      executed by pushing it onto the event queue, and calling it when
+      the pushed event is reached. This is usually a safe point for
+      many kinds of operations, but if container method are invoked
+      the details are left unspecified.
+
+      There is no guarantee that [f] is called anytime soon - if the
+      container is busy with something else than with the event queue
+      the execution will be blocked until these other activities are
+      over.
    *)
 
 
@@ -191,3 +219,5 @@ end
 val register_par : parallelizer -> unit
 val register_cont : container -> par_thread -> unit
 val unregister_cont : container -> par_thread -> unit
+val register_ctrl : controller -> unit
+val unregister_ctrl : controller -> unit

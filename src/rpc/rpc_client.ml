@@ -915,13 +915,15 @@ let shutdown_connector cl mplex ondown =
 
 
 let mplex_of_fd ~close_inactive_descr prot fd esys =
+  let preclose() =
+    Netlog.Debug.release_fd fd in
   match prot with
     | Tcp ->
         Rpc_transport.stream_rpc_multiplex_controller
-          ~close_inactive_descr fd esys
+          ~close_inactive_descr ~preclose fd esys
     | Udp ->
         Rpc_transport.datagram_rpc_multiplex_controller
-          ~close_inactive_descr fd esys
+          ~close_inactive_descr ~preclose fd esys
 
 
 class type socket_config =
@@ -939,7 +941,8 @@ object
   method non_blocking_connect = true
   method multiplexing ~close_inactive_descr prot fd esys =
     let close() =
-      if close_inactive_descr then 
+      if close_inactive_descr then (
+	Netlog.Debug.release_fd fd;
 	try
 	  match Netsys_win32.lookup fd with
 	    | Netsys_win32.W32_pipe ph ->
@@ -948,7 +951,8 @@ object
 	    | _ -> 
 		()
 	with Not_found ->
-	  Unix.close fd in
+	  Unix.close fd 
+      ) in
     let eng = 
       try
 	let mplex = mplex_of_fd ~close_inactive_descr prot fd esys in
@@ -1167,6 +1171,9 @@ let rec internal_create initial_xid
       | #Uq_engines.connect_address as addr ->
 	  Uq_engines.connector addr esys in
 
+  let track fd =
+    Netlog.Debug.track_fd ~owner:"Rpc_client" ~descr:id_s fd in
+
   let open_socket_non_blocking addr prot conf =
     new Uq_engines.seq_engine
       (connect_engine addr esys)
@@ -1175,6 +1182,7 @@ let rec internal_create initial_xid
 	    (fun () -> 
 	       "Non-blocking socket connect successful for " ^ id_s);
 	 let fd = Uq_engines.client_endpoint status in
+	 track fd;
 	 conf # multiplexing ~close_inactive_descr:true prot fd esys
       ) in
 
@@ -1188,6 +1196,7 @@ let rec internal_create initial_xid
 	    (fun () ->
 	       "Blocking socket connect successful for " ^ id_s);
 	  let fd = Uq_engines.client_endpoint status in
+	  track fd;
 	  conf # multiplexing ~close_inactive_descr:true prot fd esys
       | `Error err ->
 	  raise err
@@ -1204,6 +1213,7 @@ let rec internal_create initial_xid
   let (prot, establish_engine) =
     match mode with
       | `Socket_endpoint(prot,fd) ->
+	  track fd;
 	  let m = mplex_of_fd ~close_inactive_descr:true prot fd esys in
 	  (prot, new Uq_engines.epsilon_engine (`Done m) esys)
       | `Multiplexer_endpoint(mplex) ->
@@ -1239,11 +1249,13 @@ let rec internal_create initial_xid
 		  let addr = `W32_pipe(Netsys_win32.Pipe_duplex, path) in
 		  (prot, open_socket addr prot conf)
 	      |	Descriptor fd -> 
+		  (* no track! *)
 		  let m = 
 		    mplex_of_fd ~close_inactive_descr:false prot fd esys in
 		  (prot, new Uq_engines.epsilon_engine (`Done m) esys)
 	      |	Dynamic_descriptor f ->
 		  let fd = f() in
+		  track fd;
 		  let m = 
 		    mplex_of_fd ~close_inactive_descr:true prot fd esys in
 		  (prot, new Uq_engines.epsilon_engine (`Done m) esys)

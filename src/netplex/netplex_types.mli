@@ -61,6 +61,10 @@ type parallelization_type =
     *   services.
    *)
 
+type thread_sys_id =
+    [ `Thread of int | `Process of int ]
+  (** A system-specific identifier of the thread/process *)
+
 type socket_state =
     [ `Enabled | `Disabled | `Restarting of bool | `Down ]
   (** The state of a socket:
@@ -130,6 +134,9 @@ class type controller =
 object
   method ptype : parallelization_type
     (** The actually effective parallelization type *)
+
+  method sys_id : thread_sys_id
+    (** The thread running the controller *)
 
   method controller_config : controller_config
 
@@ -215,6 +222,9 @@ object
     (** Should be called when the controller is finished, in order to
         free resources again. E.g. plugins are unplugged.
      *)
+
+  method startup_directory : string
+    (** The current directory at startup time *)
 
 end
 
@@ -601,7 +611,7 @@ class type par_thread =
 object
   method ptype : parallelization_type
 
-  method sys_id : [ `Thread of int | `Process of int ]
+  method sys_id : thread_sys_id
     (** Returns a system-dependent identifier for the thread:
      * - [`Thread id]: The [id] as returned by [Thread.id]
      * - [`Process id]: The [id] is the process ID

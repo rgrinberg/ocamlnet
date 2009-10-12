@@ -225,7 +225,7 @@ let essential_blocks dtd elements =
 let relaxed_html40_dtd =
   essential_blocks
     (relax_dtd html40_dtd)
-    [ "table"; "ol"; "ul"; "dl" ]
+    [ "body"; "table"; "ol"; "ul"; "dl" ]
 ;;
 
 

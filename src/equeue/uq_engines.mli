@@ -947,6 +947,8 @@ class type server_socket_acceptor = server_endpoint_acceptor
 
 
 class direct_acceptor : 
+        ?close_on_shutdown:bool ->
+        ?preclose:(unit->unit) ->
         Unix.file_descr -> Unixqueue.event_system -> 
           server_endpoint_acceptor
 (** An implementation of [server_endpoint_acceptor] for sockets and Win32
@@ -1241,6 +1243,7 @@ end
 
 val create_multiplex_controller_for_connected_socket : 
       ?close_inactive_descr:bool ->
+      ?preclose:(unit -> unit) ->
       ?supports_half_open_connection:bool ->
       Unix.file_descr -> Unixqueue.unix_event_system -> multiplex_controller
   (** Creates a multiplex controller for a bidirectional socket (e.g.
@@ -1252,6 +1255,9 @@ val create_multiplex_controller_for_connected_socket :
     *
     * [close_inactive_descr]: Whether [inactivate] closes the descriptor.
     * True by default.
+    *
+    * [preclose]: This function is called just before the descriptor is
+    * closed.
     *
     * [supports_half_open_connection]: This implementation does not know
     * how to find out whether the socket supports half-open connections.
@@ -1279,6 +1285,7 @@ end
 
 val create_multiplex_controller_for_datagram_socket : 
       ?close_inactive_descr:bool ->
+      ?preclose:(unit -> unit) ->
       Unix.file_descr -> Unixqueue.unix_event_system -> 
         datagram_multiplex_controller
   (** Creates a multiplex controller for datagram sockets (e.g. UDP socket).
@@ -1288,6 +1295,9 @@ val create_multiplex_controller_for_datagram_socket :
     *
     * [close_inactive_descr]: Whether [inactivate] closes the descriptor.
     * True by default.
+    *
+    * [preclose]: This function is called just before the descriptor is
+    * closed.
    *)
 
 

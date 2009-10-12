@@ -1232,6 +1232,10 @@ let string_of_request_method = function
   | `DELETE	 -> "DELETE"
   | `PUT _	 -> "PUT"
 
+let last_char s =
+  if s = "" then failwith "last_char";
+  s.[ String.length s - 1 ]
+
 
 (* CGI abstractions independent of the connector. *)
 class cgi (env:cgi_environment) (op:output_type)
@@ -1317,13 +1321,15 @@ object(self)
     and script = match with_script_name with
       | `Env -> env#cgi_script_name
       | `This s -> s
-      | `None -> ""
-    and path = match with_path_info with
+      | `None -> "" in
+    let before_path = serv ^ script in
+    let path = match with_path_info with
       | `Env -> env#cgi_path_info
       | `This s ->
 	  (* the path-info MUST be separated by "/" *)
-	  if String.length s >= 1 && unsafe_get s 0 <> '/' then
-	    "/" ^ s
+	  if (s <> "" && s.[0] <> '/') && 
+	     (before_path = "" || last_char before_path <> '/' )
+	  then "/" ^ s
 	  else s
       | `None -> ""
     and args = match with_query_string with
@@ -1334,7 +1340,7 @@ object(self)
     let args =   (* consider only `Memory args *)
       List.filter
 	(fun a -> match a#store with `Memory -> true | _ -> false) args in
-    let url = serv ^ script ^ path in
+    let url = before_path ^ path in
     if args= [] then url else
       url ^ "?" ^
 	(String.concat "&"

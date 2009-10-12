@@ -1135,8 +1135,5 @@ end
 
 module Debug : sig
   val enable : bool ref
-    (** Enables {!Netlog}-style debugging of this module  By default,
-        the exchanged Telnet commands are logged. This can be extended
-        by setting the [verbose_input] and [verbose_output] options.
-     *)
+    (** Enables {!Netlog}-style debugging of this module *)
 end

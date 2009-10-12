@@ -2,7 +2,8 @@
 
 (** Multi-processing provider *)
 
-class mp : ?keep_fd_open:bool -> unit -> Netplex_types.parallelizer
+class mp : ?keep_fd_open:bool -> ?terminate_tmo:int -> unit -> 
+              Netplex_types.parallelizer
   (** Uses [Unix.fork] to create new threads.
 
       After forking the child process is initialized by 
@@ -13,9 +14,15 @@ class mp : ?keep_fd_open:bool -> unit -> Netplex_types.parallelizer
       of applications. By setting [keep_fd_open] another behavior can
       be demanded: The descriptors are kept open except those that need
       to be closed.
+
+      When the controller wants to shut down the process, it notifies
+      the process, and waits [terminate_tmo] seconds until the process
+      terminates. If this timeout expires, the process is killed. Defaults
+      to 60. A negative value disables this function.
    *)
 
-val mp : ?keep_fd_open:bool -> unit -> Netplex_types.parallelizer
+val mp : ?keep_fd_open:bool -> ?terminate_tmo:int -> unit -> 
+           Netplex_types.parallelizer
   (** Uses [Unix.fork] to create new threads. See {!class: Netplex_mp.mp}
       for details.
    *)

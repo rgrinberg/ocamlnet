@@ -1,8 +1,30 @@
 (* $Id$ *)
 
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Uq_ssl" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Uq_ssl" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Uq_ssl" Debug.enable
+
+
+open Printf
+
 exception Ssl_error of Ssl.ssl_error
 
 type ssl_socket_state = [ `Unset | `Client | `Server | `Unclean | `Clean ]
+
+let string_of_socket_state =
+  function
+    | `Unset -> "Unset"
+    | `Client -> "Client"
+    | `Server -> "Server"
+    | `Unclean -> "Unclean"
+    | `Clean -> "Clean"
+
 
 class type ssl_multiplex_controller =
 object
@@ -18,9 +40,20 @@ object
 end
 
 
+let string_of_tag =
+  function
+    | `Connecting -> "Connecting"
+    | `Accepting -> "Accepting"
+    | `Reading -> "Reading"
+    | `Writing -> "Writing"
+    | `Shutting_down -> "Shutting_down"
+
+
 class ssl_mplex_ctrl ?(close_inactive_descr=true)
+                     ?(preclose = fun () -> ())
                      fd ssl_sock esys : ssl_multiplex_controller =
   let () = Unix.set_nonblock fd in
+  let fdi = Netsys.int64_of_file_descr fd in
 object(self)
   val mutable alive = true    (* if false => state in { `Clean, `Unclean } *)
   val mutable read_eof = false
@@ -65,6 +98,14 @@ object(self)
       failwith "#start_connecting: no longer possible in this state";
     if connecting || accepting then
       failwith "#start_connecting: handshake already in progress";
+    dlogr
+      (fun () ->
+	 sprintf "FD %Ld: start_ssl_connecting" fdi);
+    let when_done arg =
+      dlogr
+	(fun () ->
+	   sprintf "FD %Ld: done start_ssl_connecting" fdi);
+      when_done arg in
     self # nonblock_operation
       (ref false)
       `Connecting
@@ -96,6 +137,14 @@ object(self)
       failwith "#start_accepting: no longer possible in this state";
     if connecting || accepting then
       failwith "#start_accepting: handshake already in progress";
+    dlogr
+      (fun () ->
+	 sprintf "FD %Ld: start_ssl_accepting" fdi);
+    let when_done arg =
+      dlogr
+	(fun () ->
+	   sprintf "FD %Ld: done start_ssl_accepting" fdi);
+      when_done arg in
     self # nonblock_operation
       (ref false)
       `Accepting
@@ -131,6 +180,14 @@ object(self)
       failwith "#start_reading: already reading";
     if shutting_down <> None then
       failwith "#start_reading: already shutting down";
+    dlogr
+      (fun () ->
+	 sprintf "FD %Ld: start_reading" fdi);
+    let when_done arg =
+      dlogr
+	(fun () ->
+	   sprintf "FD %Ld: done start_reading" fdi);
+      when_done arg in
     let cancel_flag = ref false in
     self # nonblock_operation
       cancel_flag
@@ -166,6 +223,9 @@ object(self)
 
 
   method cancel_reading () =
+    dlogr
+      (fun () ->
+	 sprintf "FD %Ld: cancel_reading" fdi);
     match reading with
       | None ->
 	  ()
@@ -188,6 +248,14 @@ object(self)
       failwith "#start_writing: already shutting down";
     if wrote_eof then
       failwith "#start_writing: already past EOF";
+    dlogr
+      (fun () ->
+	 sprintf "FD %Ld: start_writing" fdi);
+    let when_done arg =
+      dlogr
+	(fun () ->
+	   sprintf "FD %Ld: done start_writing" fdi);
+      when_done arg in
     let cancel_flag = ref false in
     self # nonblock_operation
       cancel_flag
@@ -221,6 +289,9 @@ object(self)
     
 
   method cancel_writing () =
+    dlogr
+      (fun () ->
+	 sprintf "FD %Ld: cancel_writing" fdi);
     match writing with
       | None ->
 	  ()
@@ -239,6 +310,14 @@ object(self)
       failwith "#start_shutting_down: still reading or writing";
     if shutting_down <> None then
       failwith "#start_shutting_down: already shutting down";
+    dlogr
+      (fun () ->
+	 sprintf "FD %Ld: start_shutting_down" fdi);
+    let when_done arg =
+      dlogr
+	(fun () ->
+	   sprintf "FD %Ld: done start_shutting_down" fdi);
+      when_done arg in
     let n = ref 0 in
     let cancel_flag = ref false in
     self # nonblock_operation
@@ -297,6 +376,9 @@ object(self)
     shutting_down <- Some(when_done, cancel_flag)
 
   method cancel_shutting_down () =
+    dlogr
+      (fun () ->
+	 sprintf "FD %Ld: cancel_shutting_down" fdi);
     match shutting_down with
       | None ->
 	  ()
@@ -315,7 +397,16 @@ object(self)
       0.0
       (fun () ->
 	 if not !cancel_flag then (
+	   dlogr
+	     (fun () ->
+		sprintf "FD %Ld: operation: %s" fdi (string_of_tag tag));
 	   let (want_rd, want_wr, action) = f() in
+	   dlogr
+	     (fun () ->
+		sprintf "FD %Ld: returning from %s - want_rd=%b want_wr=%b %s"
+		  fdi (string_of_tag tag) want_rd want_wr
+		  (if want_rd || want_wr then "- queuing op and retrying later"
+		   else ""));
 	   if want_rd || want_wr then
 	     pending <- (tag, want_rd, want_wr, f) :: pending;
 	   ( try
@@ -336,6 +427,9 @@ object(self)
 
 
   method private retry_nonblock_operations can_read can_write =
+    dlogr
+      (fun () ->
+	 sprintf "FD %Ld: retry_nonblock_operations" fdi);
     let cur_pending = pending in
     pending <- [];    (* maybe new operations are added! *)
     let actions = ref [] in
@@ -344,7 +438,19 @@ object(self)
 	(List.map
 	   (fun (tag, want_rd, want_wr, f) ->
 	      if (want_rd && can_read) || (want_wr && can_write)  then (
+		dlogr
+		  (fun () ->
+		     sprintf "FD %Ld: retried operation: %s" 
+		       fdi (string_of_tag tag));
 		let (want_rd', want_wr', action) = f() in  (* must not fail! *)
+		dlogr
+		  (fun () ->
+		     sprintf "FD %Ld: returning from %s - \
+                              want_rd=%b want_wr=%b %s"
+		       fdi (string_of_tag tag) want_rd' want_wr'
+		       (if want_rd' || want_wr' then
+			  "- queuing op and retrying later"
+			else ""));
 		actions := action :: !actions;
 		if want_rd' || want_wr' then
 		  [ tag, want_rd', want_wr', f ]   (* try again later *)
@@ -463,8 +569,10 @@ object(self)
       disconnecting <- None;
       have_handler <- false;
       Unixqueue.clear esys group;
-      if close_inactive_descr then
+      if close_inactive_descr then (
+	preclose();
 	Unix.close fd
+      )
     )
 
   method event_system = esys
@@ -473,7 +581,8 @@ end
 ;;
 
 
-let create_ssl_multiplex_controller ?close_inactive_descr fd ctx esys =
+let create_ssl_multiplex_controller
+       ?close_inactive_descr ?preclose fd ctx esys =
   let () = Unix.set_nonblock fd in
   let s = Ssl.embed_socket fd ctx in
   let m = Ssl_exts.get_mode s in
@@ -481,7 +590,7 @@ let create_ssl_multiplex_controller ?close_inactive_descr fd ctx esys =
     { m with
 	Ssl_exts.enable_partial_write = true; 
 	accept_moving_write_buffer = true } in
-  new ssl_mplex_ctrl ?close_inactive_descr fd s esys
+  new ssl_mplex_ctrl ?close_inactive_descr ?preclose fd s esys
 ;;
 
 

@@ -23,22 +23,26 @@ Plan for Ocamlnet 3
   - Telnet_client DONE
   - Http_client DONE
   - Nethttpd DONE
+  - Uq_ssl DONE
+  - Shell DONE
 
   - Uq_gtk
   - Uq_tcl
   - netcgi2 Netcgi_ajp
   - netcgi2 Netcgi_common
   - netcgi2 Netcgi_scgi
-  - nethttpd_engine
   - Uq_socks5
 
   FD tracking:
+  - FD tracking and fork() DONE
   - Netsys_pollset_posix DONE
   - Netcgi_ajp, _fcgi, _scgi: DONE
   - Http_client, Telnet_client, Ftp_client: DONE
   - Nethttpd DONE
+  - Rpc_client, Rpc_server, Rpc_ssl DONE
+  - Shell_sys DONE
+
   - Uq_socks5
-  ...
 
 
 
@@ -57,6 +61,10 @@ Plan for Ocamlnet 3
 
 
 - Focus Netplex:
+  * Shut down master sockets after use.
+ 
+  * netplex.descriptors: print fd table from Netlog
+
   * Netplex_control_routine:
     Use plugin mechanism to run ad-hoc defined routines in controller
     context.
@@ -66,9 +74,6 @@ Plan for Ocamlnet 3
 
     let [| ... |] = call_control_routine "foo" [| ... |]
 
-  * netplex_main:
-      - set logger earlier (if external logger is used)
-      - chdir for daemonize
 
   * Rpc_netplex: config var for Rpc_server.set_timeout
 
@@ -87,10 +92,6 @@ Plan for Ocamlnet 3
   * Container-private servers. Containers may define additional RPC
     servers for local data traffic only.
 
-  * Shut down master sockets after use.
- 
-  * netplex.descriptors: print fd table from Netlog
-
   * Revisit: Netplex + UDP
 
 
@@ -100,16 +101,9 @@ Plan for Ocamlnet 3
   * remove nethttpd-for-netcgi1, and fix types in nethttpd_for_netcgi2
 
 - Bug fixes:
-  * netcgi2, url: better magic to enfore '/' between script name and path info
-  * nethtml: <body> should have ANY as sub elements
-  * netclient: parsing fails of URL
-    http://host?param
-  * netplex: socket directory is ignored for Unix domain sockets.
-    relative UD sockets should be taken relative to socket dir
   * RPC: prevent that xid's can be reused
   * nethttpd+netcgi2: GET /file//path?p=1
     parameters like p are not recognized when there is "//" in path
-  * netclient: Set "Host" header also for proxy requests
 
 - syslog:
   * "syslog": Just calls syslog()
@@ -143,6 +137,14 @@ Plan for Ocamlnet 3
     (Netsys_win32: I/O threads; also support these whereever reasonable)
   * Support for something similar to Netsys_posix.spawn
   * Integrate win32 spawn into Shell
+  * netplex: socket directory is ignored for Unix domain sockets.
+    relative UD sockets should be taken relative to socket dir
+  * netplex_main:
+      - chdir for daemonize
+  * netclient: Set "Host" header also for proxy requests
+  * netclient: parsing fails of URL http://host?param
+  * nethtml: <body> is now an essential block
+  * netcgi2, url: better magic to enfore '/' between script name and path info
 
 - Shell_uq/Shell_sys: Drop Shell_sys.wait implementation. Replace with
   engine. The system_handler is replaced by something like
@@ -156,6 +158,9 @@ Plan for Ocamlnet 3
   * Shell for POSIX systems: fix the style how ocamlnet waits for 
     forked processes. The current solution does not work well for
     mt programs because it is undefined which thread gets the SIGCHLD.
+
+  * Netplex:
+      - set logger earlier (if external logger is used): Now using Netlog.
 
 - fd leaks / double close:
   * Netlog: implements hash table with used descriptors (in debugging
@@ -187,6 +192,10 @@ A list of possible improvements, once interfaces are stable again:
 - Improve Rtypes performance
 
 - RPC: generate direct mapping
+
+- RPC: support relaying specially: if a server simply wants to forward
+  an RPC call unchanged to a different port, there is no need to decode
+  the message fully.
 
 ----------------------------------------------------------------------
 Implementation improvements after Ocamlnet 3.0

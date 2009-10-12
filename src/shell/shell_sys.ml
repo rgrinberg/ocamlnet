@@ -608,6 +608,11 @@ let posix_run
 
   let p_fd, ws = Netsys_posix.watch_subprocess pid pgid_ws kill_flag in
 
+  Netlog.Debug.track_fd
+    ~owner:"Shell_sys"
+    ~descr:("event_fd(" ^ c.c_cmdname ^ ")")
+    p_fd;
+
   { p_command = c;
     p_id = `POSIX(pid, p_fd, ws);
     p_gid = pgid;
@@ -769,6 +774,10 @@ let win32_run
 	 let ev_proxy = Netsys_win32.event_descr ev in
 	 restore_close_on_exec();
 	 dlog "run returning normally";
+	 Netlog.Debug.track_fd
+	   ~owner:"Shell_sys"
+	   ~descr:("event_fd(" ^ c.c_cmdname ^ ")")
+	   ev_proxy;
 	 { p_command = c;
 	   p_id = `Win32 (p,ev_proxy);
 	   p_gid = 0;  (* We don't do anything with that *)
@@ -1170,7 +1179,12 @@ type safe_fd =
     FD of Netsys.fd_style * Unix.file_descr
   | FD_closed
 
-let mk_fd fd = 
+let mk_fd ?descr fd = 
+  ( match descr with
+      | None -> ()
+      | Some d ->
+	  Netlog.Debug.track_fd ~owner:"Shell_sys" ~descr:d fd
+  );
   let style = Netsys.get_fd_style fd in
   ref(FD(style,fd));;
 
@@ -1206,7 +1220,7 @@ let print_raw_fd fd =
 
 let create_pipe() =
   let (fd1,fd2) = Unix.pipe() in
-  Netsys.set_close_on_exec fd1;  (* wrong default on win32! *)
+  Netsys.set_close_on_exec fd1;
   Netsys.set_close_on_exec fd2;
   (fd1,fd2)
 
@@ -1312,14 +1326,13 @@ let run_job
          (* Distinguish between the various cases: *)
 
 	 match other_src, other_dest with
-	     None, None ->
+	   | None, None ->
 	       (* Create a new pipeline: *)
 	       let out_end, in_end =
 		 if pipe.pl_bidirectional then
 		   Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0
 		 else
-		   create_pipe()
-	       in
+		   create_pipe() in
 	       pipe_descriptors :=
 	         (pipe, (mk_fd out_end, mk_fd in_end)) :: !pipe_descriptors;
 	       dlogr (fun () ->
@@ -1588,6 +1601,24 @@ let run_job
                            !consumer_descriptors;
     consumer_descriptors := [];
 
+    (* fd tracking: *)
+    List.iter
+      (fun (fd, ph) ->
+	 Netlog.Debug.track_fd 
+	   ~owner:"Shell_sys" 
+	   ~descr:("producer->" ^ ph.ph_command.c_cmdname)
+	   fd
+      )
+      !fd_producer_alist;
+    List.iter
+      (fun (fd, ph) ->
+	 Netlog.Debug.track_fd 
+	   ~owner:"Shell_sys" 
+	   ~descr:("consumer<-" ^ ph.ph_command.c_cmdname)
+	   fd
+      )
+      !fd_consumer_alist;
+
     (* Store the new process group: *)
 
     dlogr (fun () ->
@@ -1704,11 +1735,15 @@ let close_job_descriptors pg =
    * so we can simply close them.
    *)
   List.iter
-    (fun (fd,_) -> Netsys.gclose (Netsys.get_fd_style fd) fd)
+    (fun (fd,_) -> 
+       Netlog.Debug.release_fd fd;
+       Netsys.gclose (Netsys.get_fd_style fd) fd)
     pg.pg_fd_consumer_alist;
   pg.pg_fd_consumer_alist <- [];
   List.iter
-    (fun (fd,_) -> Netsys.gclose (Netsys.get_fd_style fd) fd)
+    (fun (fd,_) -> 
+       Netlog.Debug.release_fd fd;
+       Netsys.gclose (Netsys.get_fd_style fd) fd)
     pg.pg_fd_producer_alist;
   pg.pg_fd_producer_alist <- [];
   if not pg.pg_processes_closed then (
@@ -1716,9 +1751,11 @@ let close_job_descriptors pg =
       (fun p ->
 	 match p.p_id with
 	   | `POSIX(_,p_fd,ws) ->
+	       Netlog.Debug.release_fd p_fd;
 	       Unix.close p_fd;
 	       Netsys_posix.ignore_subprocess ws
 	   | `Win32(_,p_fd) ->
+	       Netlog.Debug.release_fd p_fd;
 	       Unix.close p_fd
 	   | `Dummy -> ()
       )

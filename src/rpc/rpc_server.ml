@@ -970,6 +970,21 @@ let on_trans_timeout srv conn () =
 ;;
 
 
+let track fd =
+  Netlog.Debug.track_fd
+    ~owner:"Rpc_server"
+    ~descr:(sprintf "RPC connection %s"
+	      (Netsys.string_of_fd fd))
+    fd
+
+
+let track_server fd =
+  Netlog.Debug.track_fd
+    ~owner:"Rpc_server"
+    ~descr:(sprintf "RPC server %s" (Netsys.string_of_fd fd))
+    fd
+
+
 let create2_multiplexer_endpoint ?fd mplex =
   let prot = mplex#protocol in
   let srv  = create2_srv prot mplex#event_system in
@@ -1002,13 +1017,15 @@ let create2_multiplexer_endpoint ?fd mplex =
 
 
 let mplex_of_fd ~close_inactive_descr prot fd esys =
+  let preclose() =
+    Netlog.Debug.release_fd fd in
   match prot with
     | Tcp ->
         Rpc_transport.stream_rpc_multiplex_controller
-          ~close_inactive_descr fd esys
+          ~close_inactive_descr ~preclose fd esys
     | Udp ->
         Rpc_transport.datagram_rpc_multiplex_controller
-          ~close_inactive_descr fd esys 
+          ~close_inactive_descr ~preclose fd esys 
 ;;
 
 
@@ -1034,6 +1051,7 @@ let default_socket_config = new default_socket_config
 
 let create2_socket_endpoint ?(close_inactive_descr=true) 
                             prot fd esys =
+  if close_inactive_descr then track fd;
   let mplex = mplex_of_fd ~close_inactive_descr prot fd esys in
   create2_multiplexer_endpoint ~fd mplex 
 ;;
@@ -1045,6 +1063,7 @@ let create2_socket_server ?(config = default_socket_config)
   let srv = create2_srv prot esys in
 
   let create_multiplexer_eng ?(close_inactive_descr = true) fd prot =
+    if close_inactive_descr then track fd;
     config # multiplexing ~close_inactive_descr prot fd esys in
 
   let rec accept_connections acc =  (* for stream sockets *)
@@ -1102,7 +1121,8 @@ let create2_socket_server ?(config = default_socket_config)
 	(Unix.ADDR_INET (addr, port));
       s
     with
-	any -> Unix.close s; raise any
+	any -> 
+	  Unix.close s; raise any
   in
 
   let bind_to_localhost port =
@@ -1111,7 +1131,8 @@ let create2_socket_server ?(config = default_socket_config)
 
   let bind_to_w32_pipe name mode =
     let psrv = Netsys_win32.create_local_pipe_server name mode max_int in
-    Netsys_win32.pipe_server_descr psrv
+    let s = Netsys_win32.pipe_server_descr psrv in
+    s
   in
 
   let get_descriptor() =
@@ -1186,7 +1207,7 @@ let create2_socket_server ?(config = default_socket_config)
   match prot with
     | Udp ->
 	let (fd, close_inactive_descr) = get_descriptor() in
-	let mplex_eng = create_multiplexer_eng fd prot in
+	let mplex_eng = create_multiplexer_eng ~close_inactive_descr fd prot in
 	when_state
 	  ~is_done:(fun mplex ->
 		      let conn = connection srv mplex in
@@ -1231,7 +1252,12 @@ let create2_socket_server ?(config = default_socket_config)
 	    | _ ->
 		Unix.listen fd backlog
 	);
-	let acc = new Uq_engines.direct_acceptor fd esys in
+	if close_inactive_descr then track_server fd;	  
+	let acc = 
+	  new Uq_engines.direct_acceptor 
+	    ~close_on_shutdown: close_inactive_descr
+	    ~preclose:(fun () -> Netlog.Debug.release_fd fd)
+	    fd esys in
 	srv.master_acceptor <- Some acc;
 	accept_connections acc;
 	srv

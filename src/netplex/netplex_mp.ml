@@ -11,7 +11,9 @@ let close_all_except l =
   for k = 3 to fd_max - 1 do  (* Note: Keep 0, 1, 2 open *)
     if not(List.mem k l) then
       ( try
-	  Unix.close (Netsys_posix.file_descr_of_int k)
+	  let fd = Netsys_posix.file_descr_of_int k in
+	  Netlog.Debug.release_fd ~force:true fd;
+	  Unix.close fd
 	with
 	  | _ -> ()
       )
@@ -22,6 +24,7 @@ let close_list l =
   List.iter
     (fun fd ->
       ( try
+	  Netlog.Debug.release_fd ~force:true fd;
 	  Unix.close fd
 	with
 	  | _ -> ()
@@ -33,7 +36,8 @@ let close_list l =
 let pid_list = ref []
 
 
-class mp ?(keep_fd_open=false) () : Netplex_types.parallelizer =
+class mp ?(keep_fd_open=false) ?(terminate_tmo=60) () : 
+               Netplex_types.parallelizer =
 object(self)
 
   method ptype = `Multi_processing
@@ -146,7 +150,7 @@ object(self)
 
 		let watch() =
 		  incr cnt;
-		  if !cnt = 60 then (
+		  if !cnt = terminate_tmo then (
 		    logger # log 
 		      ~component:"netplex.controller"
 		      ~level:`Alert
@@ -196,7 +200,7 @@ object(self)
 		       if watch() then watch_loop()
 		    )
 		in
-		if not watching then (
+		if not watching && terminate_tmo >= 0 then (
 		  watching <- true;
 		  if watch() then  watch_loop()
 		)
@@ -206,13 +210,14 @@ object(self)
 
 end
 
+(* This instance is only used for getting current_sys_id *)
 let the_mp = lazy(
   let par = new mp() in
   Netplex_cenv.register_par par;
   par
 )
 
-let mp ?keep_fd_open () = 
-  Lazy.force the_mp;
-  new mp ?keep_fd_open()
+let mp ?keep_fd_open ?terminate_tmo () = 
+  ignore(Lazy.force the_mp);
+  new mp ?keep_fd_open ?terminate_tmo ()
 

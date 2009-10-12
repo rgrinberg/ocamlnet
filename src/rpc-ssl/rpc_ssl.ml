@@ -11,10 +11,12 @@ object(self)
 	esys
     else
       let sockname = `Sockaddr(Unix.getsockname fd) in
-      let peername = `Sockaddr(Netsys.getpeername fd) in
+      let peername = 
+	try `Sockaddr(Netsys.getpeername fd) with _ -> `Implied in
       let ssl_mplex =
 	Uq_ssl.create_ssl_multiplex_controller 
 	  ~close_inactive_descr:true
+	  ~preclose:(fun () -> Netlog.Debug.release_fd fd)
 	  fd
 	  ctx
 	  esys in
@@ -59,6 +61,7 @@ object(self)
       let ssl_mplex =
 	Uq_ssl.create_ssl_multiplex_controller 
 	  ~close_inactive_descr:true
+	  ~preclose:(fun () -> Netlog.Debug.release_fd fd)
 	  fd
 	  ctx
 	  esys in

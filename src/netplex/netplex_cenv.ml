@@ -16,13 +16,13 @@ let () =
 
 exception Not_in_container_thread
 
-let cont_of_thread = Hashtbl.create 10
+let obj_of_thread = Hashtbl.create 10
 
 let register_par par =
-  if not (Hashtbl.mem cont_of_thread par#ptype) then (
+  if not (Hashtbl.mem obj_of_thread par#ptype) then (
     let (lock, unlock) = par # create_mem_mutex() in
     let m = Hashtbl.create 10 in
-    Hashtbl.add cont_of_thread par#ptype (lock, unlock, par, m)
+    Hashtbl.add obj_of_thread par#ptype (lock, unlock, par, m)
   )
 ;;
 
@@ -33,15 +33,43 @@ let register_cont cont thread =
 	     sprintf "register_cont cont=%d thread=%s"
 	       (Oo.id cont) thread#info_string);
     let (lock, unlock, par, m) =
-      try Hashtbl.find cont_of_thread thread#ptype
+      try Hashtbl.find obj_of_thread thread#ptype
       with Not_found -> 
 	failwith "Netplex_cenv.register_cont: Unknown parallelizer type" in
     
     lock();
-    Hashtbl.replace m thread#sys_id cont;
+    Hashtbl.replace m thread#sys_id (`Container cont);
     unlock()
   )
 ;;
+
+
+let register_ctrl ctrl =
+  if ctrl#ptype <> `Controller_attached then (
+    let (lock, unlock, par, m) =
+      try Hashtbl.find obj_of_thread ctrl#ptype
+      with Not_found -> 
+	failwith "Netplex_cenv.register_ctrl: Unknown parallelizer type" in
+    
+    lock();
+    Hashtbl.replace m ctrl#sys_id (`Controller ctrl);
+    unlock()
+  )
+;;
+
+
+let unregister ptype sys_id =
+  let (lock, unlock, par, m) =
+    try Hashtbl.find obj_of_thread ptype
+    with Not_found -> 
+      failwith "Netplex_cenv.unregister: Unknown parallelizer type" in
+    
+  lock();
+  Hashtbl.remove m sys_id;
+  unlock();
+  dlogr (fun () ->
+	   sprintf "unregister remaining_objects=%d"
+	     (Hashtbl.length m))
 
 
 let unregister_cont cont thread =
@@ -49,57 +77,79 @@ let unregister_cont cont thread =
     dlogr (fun () ->
 	     sprintf "unregister_cont cont=%d thread=%s"
 	       (Oo.id cont) thread#info_string);
-    let (lock, unlock, par, m) =
-      try Hashtbl.find cont_of_thread thread#ptype
-      with Not_found -> 
-	failwith "Netplex_cenv.unregister_cont: Unknown parallelizer type" in
-    
-    lock();
-    Hashtbl.remove m thread#sys_id;
-    unlock();
-    dlogr (fun () ->
-	     sprintf "unregister_cont remaining_containers=%d"
-	       (Hashtbl.length m))
+    unregister thread#ptype thread#sys_id
   )
 ;;
 
 
-exception Found of container * parallelizer
+let unregister_ctrl ctrl =
+  if ctrl#ptype <> `Controller_attached then
+    unregister ctrl#ptype ctrl#sys_id
+;;
 
-let self_cont_par() =
+
+
+exception Found
+
+let self_obj_par() =
   (* We do not know the parallelizer, so simply try them one after the other *)
+  let found = ref None in
   try
     Hashtbl.iter
       (fun ptype (lock, unlock, par, m) ->
 	 let my_sys_id = par # current_sys_id in
 	 lock();
 	 try
-	   let cont = Hashtbl.find m my_sys_id in
+	   let obj = Hashtbl.find m my_sys_id in
 	   unlock();
-	   raise(Found(cont, par))
+	   found := Some (obj, par);
+	   raise Found
 	 with
 	   | Not_found ->
 	       unlock();
       )
-      cont_of_thread;
-    raise Not_in_container_thread
+      obj_of_thread;
+    raise Not_found
   with
-    | Found(cont,par) -> (cont,par)
+    | Found ->
+	match !found with
+	  | None -> assert false
+	  | Some (obj,par) -> (obj,par)
 ;;
+
+let self_cont_par() =
+  try
+    match self_obj_par() with
+      | (`Container c, par) -> (c,par)
+      | _ -> raise Not_found
+  with
+    | Not_found -> raise Not_in_container_thread
+
 
 let self_cont() =
   fst(self_cont_par())
 
 let self_par() =
-  snd(self_cont_par())
+  try
+    snd(self_obj_par())
+  with
+    | Not_found -> raise Not_in_container_thread
 
 let current_sys_id() =
   (self_par()) # current_sys_id
 
 
 let log level msg =
-  let cont = self_cont() in
-  cont # log level msg
+  let obj,_ = 
+    try self_obj_par() 
+    with Not_found -> raise Not_in_container_thread in
+  match obj with
+    | `Container cont -> 
+	cont # log level msg
+    | `Controller ctrl -> 
+	ctrl # logger # log 
+	  ~component:"netplex.controller"
+	  ~level ~message:msg
 
 let logf level fmt =
   Printf.ksprintf (log level) fmt
@@ -297,13 +347,9 @@ let system_shutdown() =
 let system_restart() =
   admin_call Netplex_ctrl_clnt.Admin.V2.restart_all
 
-let run_in_controller_context ctrl f =
-  let cont = self_cont() in
-  if cont#ptype <> `Multi_threading then
-    failwith "Netplex_cenv.run_in_controller_context: only possible for multi-threaded environments";
+let run_in_esys esys f =
   let mutex = !Netsys_oothr.provider # create_mutex() in
   let cond = !Netsys_oothr.provider # create_condition() in
-  let esys = ctrl # event_system in
   let g = Unixqueue.new_group esys in
   let r = ref (fun () -> assert false) in
   Unixqueue.once esys g 0.0
@@ -325,3 +371,17 @@ let run_in_controller_context ctrl f =
   cond # wait mutex;
   mutex # unlock();
   !r()
+  
+
+let run_in_controller_context ctrl f =
+  if ctrl#ptype <> `Multi_threading then
+    failwith "Netplex_cenv.run_in_controller_context: only possible for multi-threaded environments";
+  let esys = ctrl # event_system in
+  run_in_esys esys f
+
+
+let run_in_container_context cont f =
+  if cont#ptype <> `Multi_threading then
+    failwith "Netplex_cenv.run_in_container_context: only possible for multi-threaded environments";
+  let esys = cont # event_system in
+  run_in_esys esys f

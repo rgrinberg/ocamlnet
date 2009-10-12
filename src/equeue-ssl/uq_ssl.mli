@@ -76,6 +76,7 @@ end
 
 val create_ssl_multiplex_controller : 
        ?close_inactive_descr:bool ->
+       ?preclose:(unit -> unit) ->
        Unix.file_descr -> Ssl.context -> Unixqueue.event_system ->
          ssl_multiplex_controller
   (** Creates a multiplex controller for an SSL socket. The descriptor must
@@ -83,6 +84,9 @@ val create_ssl_multiplex_controller :
     *
     * [close_inactive_descr]: Whether to close the file descriptor by
     * [inactivate].
+    *
+    * [preclose]: This function is called immediately before closing
+    * the descriptor
    *)
 
 val ssl_connect_engine : 
@@ -92,3 +96,12 @@ val ssl_connect_engine :
 val ssl_accept_engine : 
        ssl_multiplex_controller -> unit Uq_engines.engine
   (** This engine performs the server handshake. *)
+
+
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging of this module *)
+end

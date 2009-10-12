@@ -1245,6 +1245,8 @@ class std_controller_for_esys esys
        : extended_controller =
   let dl = new deferring_logger in
   let eps_group = Unixqueue.new_group esys in
+  let startup_dir = Unix.getcwd() in
+  let ctrl_sys_id = par # current_sys_id in
 object(self)
   val mutable logger = (dl :> logger)
   val mutable services = []
@@ -1283,6 +1285,8 @@ object(self)
   )
 
   method ptype = par # ptype
+
+  method sys_id = ctrl_sys_id
 
   method controller_config = config
 
@@ -1521,7 +1525,8 @@ object(self)
 	 )
 	 services
       )
-	    
+
+  method startup_directory = startup_dir	    
 
 end
 

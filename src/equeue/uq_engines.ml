@@ -1456,6 +1456,7 @@ let anyway ~finally f arg =
 
 class socket_multiplex_controller
          ?(close_inactive_descr = true)
+         ?(preclose = fun () -> ())
          ?(supports_half_open_connection = false)
          fd esys : datagram_multiplex_controller =
 
@@ -1934,13 +1935,15 @@ object(self)
       disconnecting <- None;
       have_handler <- false;
       Unixqueue.clear esys group;
-      if close_inactive_descr then
+      if close_inactive_descr then (
+	preclose();
 	Netsys.gclose fd_style fd
  	(* It is important that Unix.close (or substitute) is the very
            last action. From here on, a thread running in parallel can
            allocate this descriptor again, so it is essential that there
            are no references anymore to it when the old descriptor is closed.
 	 *)
+      )
     )
 
   method event_system = esys
@@ -1950,19 +1953,19 @@ end
 
 
 let create_multiplex_controller_for_connected_socket 
-       ?close_inactive_descr ?supports_half_open_connection fd esys =
+       ?close_inactive_descr ?preclose ?supports_half_open_connection fd esys =
   let mplex = 
     new socket_multiplex_controller
-      ?close_inactive_descr ?supports_half_open_connection fd esys in
+      ?close_inactive_descr ?preclose ?supports_half_open_connection fd esys in
   (mplex :> multiplex_controller)
 ;;
 
 
 let create_multiplex_controller_for_datagram_socket 
-       ?close_inactive_descr fd esys =
+       ?close_inactive_descr ?preclose fd esys =
   let mplex = 
     new socket_multiplex_controller
-      ?close_inactive_descr ~supports_half_open_connection:false 
+      ?close_inactive_descr ?preclose ~supports_half_open_connection:false 
       fd esys in
   (mplex :> datagram_multiplex_controller)
 ;;
@@ -2794,7 +2797,8 @@ end
 class type server_socket_listener = server_endpoint_listener
 
 
-class direct_acceptor fd ues : server_socket_acceptor =
+class direct_acceptor ?(close_on_shutdown=true) ?(preclose=fun()->())
+                      fd ues : server_socket_acceptor =
   let fd_style = Netsys.get_fd_style fd in
   let pipe_objects = lazy (
     let psrv = Netsys_win32.lookup_pipe_server fd in
@@ -2905,17 +2909,24 @@ object(self)
     acc_eng
 
   method shut_down() =
-    ( match fd_style with
-	| `Recv_send _ | `Recvfrom_sendto | `Recv_send_implied ->
-	    Unix.close fd
-	| `W32_pipe_server ->
-	    let (psrv, _, cn_ev_descr) = Lazy.force pipe_objects in
-	    Unix.close cn_ev_descr;
-	    Netsys_win32.pipe_shutdown_server psrv;
-	    Unix.close fd
-	| _ ->
-	    assert false
+    if close_on_shutdown then (
+      preclose();
+      ( match fd_style with
+	  | `Recv_send _ | `Recvfrom_sendto | `Recv_send_implied ->
+	      Unix.close fd
+	  | `W32_pipe_server ->
+	      let (psrv, _, cn_ev_descr) = Lazy.force pipe_objects in
+	      Unix.close cn_ev_descr;
+	      Netsys_win32.pipe_shutdown_server psrv;
+	      Unix.close fd
+	  | _ ->
+	      assert false
+      )
     );
+    (* else: if not close_on_shutdown, there is no portable way of
+       achieving that further connection attempts are refused by the
+       kernel. listen(fd,0) works on some systems, but not on all.
+     *)
     match acc_engine with
 	None -> 
 	  ()

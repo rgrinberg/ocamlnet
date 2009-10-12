@@ -172,7 +172,7 @@ type header_kind = [ `Base | `Effective ]
 
 let http_re =
   Netstring_pcre.regexp
-    "^http://(([^/:@]+)(:([^/:@]+))?@)?([^/:@]+)(:([0-9]+))?(/.*)?$"
+    "^http://(([^/:@]+)(:([^/:@]+))?@)?([^/:@]+)(:([0-9]+))?([/?].*)?$"
 
 let parse_http_url url =
   match Netstring_pcre.string_match http_re url 0 with
@@ -2288,7 +2288,10 @@ class transmitter
 	      Buffer.add_string buf " ";
 	      Buffer.add_string buf msg#effective_request_uri;
 	      let rh = msg # request_header `Effective in
-	      if not peer_is_proxy then (
+	      if true (* not peer_is_proxy *) then (
+		(* Setting Host even for proxies does not harm, and some
+                   cheap proxy implementations require it
+		 *)
 		let host = msg # get_host() in
 		let port = msg # get_port() in
 		let host_str = host ^ (if port = 80 then "" 

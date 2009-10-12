@@ -7,6 +7,11 @@ exception Config_error of string
 
 class address = object end
 
+let is_win32 =
+  match Sys.os_type with
+    | "Win32" -> true
+    | _ -> false;;
+
 let parse_config_file filename =
   let rec parse_tree =
     parser 
@@ -317,8 +322,29 @@ let inet6_binding =
 let host_binding =
   Pcre.regexp "^(.*):([0-9]+)$" ;;
 
+let is_letter =
+  function
+    | 'a'..'z' -> true
+    | 'A'..'Z' -> true
+    | _ -> false
 
-let extract_address cf addraddr =
+let mk_absolute dir path =
+  let is_abs =
+    if is_win32 then
+      String.length path >= 3 &&
+	is_letter path.[0] &&
+	path.[1] = ':' &&
+	  (path.[2] = '/' || path.[2] = '\\')
+    else
+      path <> "" && path.[0] = '/'
+  in
+  if is_abs then
+    path
+  else
+    Filename.concat dir path
+
+
+let extract_address socket_dir cf addraddr =
   let typ =
     try
       cf # string_param
@@ -328,8 +354,9 @@ let extract_address cf addraddr =
 	  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".type") in
   let get_path() =
     try
-      cf # string_param
-	(cf # resolve_parameter addraddr "path") 
+      mk_absolute socket_dir
+	(cf # string_param
+	   (cf # resolve_parameter addraddr "path"))
     with
       | Not_found ->
 	  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".path") in
@@ -452,6 +479,7 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
   cf # restrict_parameters cf#root_addr [];
 
   let ctrl_cfg = Netplex_controller.extract_config c_logger_cfg cf in
+  let socket_dir = ctrl_cfg # socket_directory in
 
   let services =
     List.map
@@ -541,7 +569,7 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 		let addresses =
 		  List.flatten
 		    (List.map
-		       (extract_address cf)
+		       (extract_address socket_dir cf)
 		       (cf # resolve_section protaddr "address")) in
 
 		( object

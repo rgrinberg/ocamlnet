@@ -254,7 +254,8 @@ end
 
 
 
-let datagram_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
+let datagram_rpc_multiplex_controller ?(close_inactive_descr=true)
+                                      ?(preclose=fun() -> ()) fd esys =
   let sockname, peername_opt = 
     match Netsys.get_fd_style fd with
       | `Recv_send(sockaddr,peeraddr) ->
@@ -269,7 +270,7 @@ let datagram_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
 	  (`Implied, Some `Implied) in
   let mplex = 
     Uq_engines.create_multiplex_controller_for_datagram_socket
-      ~close_inactive_descr
+      ~close_inactive_descr ~preclose
       fd esys in
   new datagram_rpc_multiplex_controller sockname peername_opt None mplex esys
 ;;
@@ -588,7 +589,8 @@ end
 
 
 
-let stream_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
+let stream_rpc_multiplex_controller ?(close_inactive_descr=true)
+                                    ?(preclose=fun()->()) fd esys =
   let sockname = 
     try
       `Sockaddr(Unix.getsockname fd) 
@@ -601,7 +603,7 @@ let stream_rpc_multiplex_controller ?(close_inactive_descr=true) fd esys =
       | Unix.Unix_error(_,_,_) -> `Implied in
   let mplex = 
     Uq_engines.create_multiplex_controller_for_connected_socket
-      ~close_inactive_descr
+      ~close_inactive_descr ~preclose
       fd esys in
   new stream_rpc_multiplex_controller sockname peername None mplex esys
 ;;
