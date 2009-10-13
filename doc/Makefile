@@ -21,7 +21,8 @@ html-doc:
 	$(OCAMLDOC) -d html-main -stars -t "Ocamlnet 3 Reference Manual" \
 		-html -css-style style.css \
 		-intro intro.txt \
-		`cat loadopts.tmp`
+		platform.txt \
+                `cat loadopts.tmp`
 	cp style.css html-main
 
 .PHONY: html-doc-netcgi1

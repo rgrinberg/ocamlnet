@@ -127,13 +127,36 @@ let w32_count =
     | Netsys_win32.W32_output_thread _ -> 1
 
 
-let pollset () : pollset =
+let pollset_1 () : pollset =
   let m = wsa_maximum_wait_events() in
-  let evobj_cancel = create_event() in
 object(self)
   val mutable sockets = Hashtbl.create m
   val mutable w32_objects = Hashtbl.create m
   val mutable w32_size = 0
+  val mutable evobj_cancel = None
+  val mutable cancel_bit = false
+
+  initializer (
+    dlogr
+      (fun () -> sprintf "new w32 pollset oid=%d" (Oo.id self))
+  )
+
+  method private evobj_cancel =
+    match evobj_cancel with
+      | None ->
+	  let ev = create_event() in
+	  (* FIXME: There is a race with cancel_wait *)
+	  self # propagate_cancel_bit ev;
+	  evobj_cancel <- Some ev;
+	  ev
+      | Some ev -> 
+	  ev
+
+  method private propagate_cancel_bit ev =
+    if cancel_bit then
+      set_event ev
+    else
+      reset_event ev
 
   method find fd =
     try
@@ -244,7 +267,8 @@ object(self)
       (* No pending events, so wait for the recorded events *)
       let count =
 	Hashtbl.length sockets + w32_size + 1 in
-      let evobjs = Array.make count evobj_cancel in
+      let cancel = self#evobj_cancel in
+      let evobjs = Array.make count cancel in
       let fdobjs = Array.make count Unix.stdin in
       let k = ref 1 in
       Hashtbl.iter
@@ -303,6 +327,8 @@ object(self)
 		 incr k
 	)
 	w32_objects;
+      (* Trying to limit the effects of the mentioned race: *)
+      self # propagate_cancel_bit cancel;
       ( try 
 	  let _w_opt = wait_for_multiple_events evobjs tmo in
 	  ( match _w_opt with
@@ -318,7 +344,8 @@ object(self)
 	  ()
 	with
 	  | error ->
-	      reset_event evobj_cancel; (* always reset this guy *)
+	      cancel_bit <- false;
+	      reset_event cancel; (* always reset this guy *)
 	      raise error
       );
       let null_ev = Netsys_posix.poll_req_events false false false in
@@ -341,17 +368,27 @@ object(self)
     )
 
   method dispose () = 
-    (* is automatic *)
-    ()
+    evobj_cancel <- None
 
   method cancel_wait cb =
     dlogr (fun () -> sprintf "cancel_wait %b" cb);
-    if cb then
-      set_event evobj_cancel
-    else
-      reset_event evobj_cancel
+    cancel_bit <- cb;
+    match evobj_cancel with
+      | None -> ()
+      | Some ev ->
+	  self # propagate_cancel_bit ev
 
 end
+
+let gc_pollset pset =
+  dlogr
+    (fun () -> sprintf "dropping w32 pollset oid=%d" (Oo.id pset))
+
+let pollset() =
+  let pset = pollset_1() in
+  Gc.finalise gc_pollset pset;
+  pset
+
 
 
 (* A pollset_helper starts a new thread and communicates with this thread *)
@@ -470,7 +507,7 @@ object(self)
 end
 
 
-let threaded_pollset() =
+let threaded_pollset_1() =
   let oothr = !Netsys_oothr.provider in
 object(self)
   val mutable pollset_list = []
@@ -481,7 +518,9 @@ object(self)
 
   initializer (
     (* pollset_list must not be empty *)
-    pollset_list <- [ pollset(), ref None ]
+    pollset_list <- [ pollset(), ref None ];
+    dlogr
+      (fun () -> sprintf "new threaded_pollset oid=%d" (Oo.id self))
   )
 
   method find fd =
@@ -516,7 +555,8 @@ object(self)
   method remove fd =
     try
       let pset = Hashtbl.find ht fd in
-      pset # remove fd
+      pset # remove fd;
+      Hashtbl.remove ht fd
 	(* CHECK: terminate pollset_helpers for empty psets? *)
     with
       | Not_found -> ()
@@ -609,12 +649,25 @@ object(self)
   method dispose() =
     dlog "threaded_pollset: dispose";
     List.iter
-      (fun (_, pset_helper_opt) ->
-	 match !pset_helper_opt with
-	   | None -> ()
-	   | Some pset_helper ->
-	       pset_helper # join_thread();
-	       pset_helper_opt := None
+      (fun (pset, pset_helper_opt) ->
+	 ( match !pset_helper_opt with
+	     | None -> ()
+	     | Some pset_helper ->
+		 pset_helper # join_thread();
+		 pset_helper_opt := None
+	 );
+	 pset # dispose()
       )
       pollset_list
+      
 end
+
+
+let gc_thr_pollset pset =
+  dlogr
+    (fun () -> sprintf "dropping threaded_pollset oid=%d" (Oo.id pset))
+
+let threaded_pollset() =
+  let pset = threaded_pollset_1() in
+  Gc.finalise gc_thr_pollset pset;
+  pset

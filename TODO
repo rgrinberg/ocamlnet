@@ -50,19 +50,17 @@ Plan for Ocamlnet 3
 
   * Documentation: What is supported on Win32?
 
+  * Netsys_win32.dispose_event: closes the handle. It is automatically
+    opened again when the event is used
+
+  * Netsys_pollset_win32: use dispose_event (avoid the commented race)
+
   Bugs:
-  - examples/rpc/finder: Investigate why not all handles are closed
-    ("register_proxy: keeping 20/43 entries in proxy tbl")
-
-    after starting finder_daemon, then shutting it down with netplex-admin
-
   - examples/rpc/finder: Unix_error(EUNKNOWNERROR 0, "socket", "")
     if daemon is started and then finder_client -shutdown.
 
 
 - Focus Netplex:
-  * netplex.fd_table: print fd table from Netlog
-
   * Netplex_control_routine:
     Use plugin mechanism to run ad-hoc defined routines in controller
     context.
@@ -140,6 +138,7 @@ Plan for Ocamlnet 3
   * netplex_main:
       - chdir for daemonize
   * netplex: Shut down master sockets after use.
+  * netplex.fd_table: print fd table from Netlog
   * netclient: Set "Host" header also for proxy requests
   * netclient: parsing fails of URL http://host?param
   * nethtml: <body> is now an essential block
@@ -203,6 +202,7 @@ Implementation improvements after Ocamlnet 3.0
 ----------------------------------------------------------------------
 
 - Name_resulution_error
+
 - Configurable async name resolution
 
 - Cluster Message bus

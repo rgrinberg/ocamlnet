@@ -1272,6 +1272,7 @@ object(self)
   val mutable admin_setups = []
   val mutable message_receivers = []
   val mutable plugins = []
+  val mutable socksrv_list = []
 
   initializer (
     par # init();
@@ -1297,6 +1298,7 @@ object(self)
 	my_sockserv 
 	my_wrkmng in
     services <- (my_sockserv, my_sockctrl, my_wrkmng) :: services;
+    socksrv_list <- my_sockserv :: socksrv_list;
     my_wrkmng # hello (self : #controller :> controller);
     my_sockctrl # enable();
 
@@ -1332,6 +1334,7 @@ object(self)
       (self : #controller :> controller);
     sockserv # processor # post_add_hook
       sockserv (self : #controller :> controller);
+    socksrv_list <- sockserv :: socksrv_list;
     sockctrl # enable();
 
   method add_admin setup =
@@ -1347,18 +1350,20 @@ object(self)
     )
 
   method free_resources () =
+    dlog "free_resources";
     admin_setups <- [];
     message_receivers <- [];
     List.iter
       (fun plugin -> plugin # ctrl_unplugged (self :> controller))
       plugins;
+    List.iter (fun socksrv -> socksrv#shutdown()) socksrv_list;
+    socksrv_list <- [];
     List.iter
       (fun (socksrv,sockctrl,wrkmng) ->
 	 if sockctrl#state <> `Down then
 	   Netlog.logf `Err
 	     "Socket controller not shut down when it should be: %s"
 	     socksrv#name;
-	 socksrv # shutdown()
       )
       services
     
@@ -1379,7 +1384,8 @@ object(self)
     match !sockserv with
       | None -> ()   (* strange *)
       | Some s -> 
-	  s # processor # post_rm_hook s (self : #controller :> controller)
+	  s # processor # post_rm_hook s (self : #controller :> controller);
+	  (* We don't immediately shut down s, so it can be re-added again *)
 
   method logger = logger
 

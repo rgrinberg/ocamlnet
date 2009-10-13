@@ -18,6 +18,11 @@ A number of ideas and concepts are used throughout the libraries:
 - The event queues provided by {!Equeue} and {!Unixqueue} make
   asynchronous protocol interpreters possible
 
+{2 Platform support}
+
+Please read this document for extended information which features
+are supported on which platform: {!Platform}.
+
 {2:netstring The [netstring] library}
 
 [netstring] focuses on string processing functions.
@@ -300,6 +305,7 @@ The [netsys] library contains a number of low-level functions used by
 other Ocamlnet libraries.
 
 {!modules:
+    Platform
     Netexn
     Netlog
     Netsys

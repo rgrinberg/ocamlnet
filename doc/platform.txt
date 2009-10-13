@@ -1,0 +1,111 @@
+{1 Platform Support}
+
+Not everything works in the same way for all operating systems. This
+documents describes the different levels of support for the various
+platforms.
+
+{2 POSIX}
+
+Ocamlnet has been primarily developed for POSIX systems. Most libraries
+should work on all systems, but there are also some more special features
+that are designed for certain systems only.
+
+{3 Banning [select()]}
+
+On POSIX systems, the [select()] system call is not used anymore. As
+a general-purpose replacement Ocamlnet favors [poll()]. In future
+versions of Ocamlnet, there will also be support for the improved
+versions of [poll()] some systems provide, such as [epoll] on Linux,
+[kqueue] on BSD, and [/dev/poll] on Solaris. Ocamlnet is already
+prepared for this change.
+
+The reason for banning [select()] are the limited capabilities of this
+API. Especially, it cannot handle file descriptors whose numeric
+values exceed a system-dependent limit. Although this limit is quite
+high (usually 1024) there are applications that need more descriptors.
+(Note that it is not sufficient to simply increase the maximum number
+of descriptors a process can have - the [select()] call is still 
+restricted in the mentioned sense, and this seems to be unfixable.)
+The [poll()] interface does not have this problem.
+
+The [poll()] interface is made accessible from Ocaml in
+{!Netsys_posix}.
+
+{3 Multi-processing and [fork()]}
+
+One of the main difference of the POSIX platforms compared with
+Windows is that there is the [fork()] system call. Ocamlnet provides
+multi-processing support in the [netplex] library (see {!Netplex_mp}).
+This makes it easy to manage a set of child processes that are used
+as parallel running "workers" (e.g. for accepting network connections).
+
+There is a registry of user functions to be run after a new child
+process has been forked off (see
+{!Netsys_posix.register_post_fork_handler}). The intention is that the
+child can close descriptors it would otherwise share with the parent.
+
+One should note that there is a basic incompatibility between code
+that uses [fork()] to achieve parallelism and multi-threading. The
+problem is that the state of synchronization objects like mutexes is
+undefined after [fork()]. In the C language, one can try to define
+special handlers that run before/after the [fork()] to fix up such
+objects.  There is no such possibility in Ocaml (the mentioned
+registry cannot be used for this purpose). One simply should not call
+[fork()] while there is more than one thread. It is of course allowed
+to start threads in the sub processes.
+
+For the multi-processing capability of [netplex] this means that one
+must not create threads in the master process (from which the worker
+processes are forked off). There is no such restriction for the
+children.
+
+{3 Starting programs as sub processes}
+
+There is now extended support for starting subprograms. First, there
+is {!Netsys_posix.spawn} which provides a comfortable way for starting
+programs. The interface is patterned after the [posix_spawn()] system
+call although the implemention is not using [posix_spawn()] yet, but
+a traditional [fork/exec] combination.
+(In a later version of Ocamlnet it is planned to give the user the
+choice of using [posix_spawn()] as the underlying system interface.
+On some OS, [posix_spawn()] is highly optimized and significantly
+faster than [fork/exec].)
+
+Second, it is now possible to let Ocamlnet watch for the termination
+of child processes: {!Netsys_posix.watch_subprocess}. This function
+arranges that the [SIGCHLD] signal is caught, and that the process
+termination is reported as a file descriptor event. By means of
+careful programming this even works for multi-threaded applications
+(where signal handling is notoriously difficult).
+
+{3 RPC integration}
+
+POSIX systems usually already provide RPC functionality, as some
+deeply-integrated networking protocols like NFS are based on it.
+Traditionally, there is a program called [portmapper] that acts as
+registry of RPC services running on a machine. Ocamlnet can register
+servers in [portmapper], and it can also look up services there.
+
+On some systems, there is a newer version of [portmapper] called
+[rpcbind]. Fortunately, [rpcbind] is backward-compatible, and also
+provides a [portmapper]-style interface.
+
+There is some problem, though, on systems that also provide the XTI
+networking API which is a replacement for the socket API.  Whereas
+TCP/IP can be used with both XTI and sockets, the local network
+connections the API's provide are incompatible: A local XTI endpoint
+cannot be contacted over the socket API, and a local socket endpoint
+(i.e. a Unix domain socket) cannot be contacted over XTI. There is
+the helper library {!Rpc_xti_client} that allows to connect to a local
+XTI server.
+
+
+
+{2 Windows}
+
+{3 Cygwin}
+
+{3 Win32}
+
+
+{2 Hints for portable programming}
