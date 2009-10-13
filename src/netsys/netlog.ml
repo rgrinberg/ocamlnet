@@ -235,10 +235,10 @@ module Debug = struct
 	       true
 	     )
 	     else !enable_fd_tracking in
-	   Hashtbl.remove fd_tab fd;
 	   if verbose then
 	     logf tracker "release_fd: releasing descriptor %s"
-	       (fd_string_1 ~owner:true ~descr:true fd)
+	       (fd_string_1 ~owner:true ~descr:true fd);
+	   Hashtbl.remove fd_tab fd;
 	 with
 	   | Not_found ->
 	       if not force then

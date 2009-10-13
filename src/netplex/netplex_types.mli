@@ -220,7 +220,8 @@ object
 
   method free_resources : unit -> unit
     (** Should be called when the controller is finished, in order to
-        free resources again. E.g. plugins are unplugged.
+        free resources again. E.g. plugins are unplugged, and the master
+        sockets are closed.
      *)
 
   method startup_directory : string
@@ -266,6 +267,9 @@ object
 
   method processor : processor
     (** A user-supplied object to process incoming connections *)
+
+  method shutdown : unit -> unit
+    (** Shuts down the master sockets *)
 
   method create_container : parallelization_type -> socket_service -> container
     (** {b Internal method.} Called by the controller to create a new

@@ -110,6 +110,7 @@ let setup srv root_dir =
 
 
 let win32_debug_gc = ref false
+let debug_fd = ref false
 
 
 let start() =
@@ -135,7 +136,13 @@ let start() =
       "-debug-win32", Arg.Unit (fun () -> 
 				  win32_debug_gc := true;
 				  Netsys_win32.Debug.debug_c_wrapper true),
-      "  Special debug log of Win32 wrapper"
+      "  Special debug log of Win32 wrapper";
+
+      "-debug-fd", Arg.Unit(fun () -> 
+			      Netlog.Debug.enable_fd_tracking := true;
+			      debug_fd := true;      
+			   ),
+      "  Special debugging of file descriptors";
    ] @ opt_list in
 
   Arg.parse
@@ -178,6 +185,9 @@ let start() =
 
 Netsys_signal.init();
 start();;
+
+if !debug_fd then
+  List.iter prerr_endline (Netlog.Debug.fd_table());;
 
 let () =  (* debugging: check that all resources are freed *)
   if !win32_debug_gc then (

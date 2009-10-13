@@ -21,6 +21,9 @@ let pipe_pid = ref None
    *)
 
 let reset_locked() =
+  let l = !pipes in
+  pipes := [];
+  pipe_pid := None;
   List.iter
     (fun (p1,p1_sn,p2,p2_sn) -> 
        Netlog.Debug.release_fd ~sn:p1_sn p1;
@@ -28,9 +31,7 @@ let reset_locked() =
        Unix.close p1; 
        Unix.close p2
     )
-    !pipes;
-  pipes := [];
-  pipe_pid := None
+    l
 
 
 let reset() =
@@ -75,7 +76,6 @@ let get_pipe_pair() =
 		 ~owner:"Netsys_pollset_posix" 
 		 ~descr:"Event injection (wr)"
 		 p2;
-	       pipes := (p1,p1_sn,p2,p2_sn) :: !pipes;
 	       (p1,p1_sn,p2,p2_sn)
 	   | (p1,p1_sn,p2,p2_sn) :: r ->
 	       pipes := r;

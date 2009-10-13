@@ -279,9 +279,15 @@ object(self)
       let fd_clnt_closed = ref false in
       let fd_srv_closed = ref false in
       let (fd_clnt, fd_srv, fd_style) = create_pipe_pair() in
+      (* We only track the client here. The server is tracked by Rpc_server *)
+      Netlog.Debug.track_fd
+	~owner:"Netplex_controller"
+	~descr:("Ctrl client for container " ^ string_of_int(Oo.id container))
+	fd_clnt;
       onerror := (fun () -> 
 		    if not !fd_clnt_closed then (
 		      fd_clnt_closed := true;
+		      Netlog.Debug.release_fd fd_clnt;
 		      Netsys.gclose fd_style fd_clnt
 		    );
 		    if not !fd_srv_closed then (
@@ -297,9 +303,15 @@ object(self)
       let sys_fd_clnt_closed = ref false in
       let sys_fd_srv_closed = ref false in
       let (sys_fd_clnt, sys_fd_srv, sys_fd_style) = create_pipe_pair() in
+      Netlog.Debug.track_fd
+	~owner:"Netplex_controller"
+	~descr:("Sys ctrl client for container " ^ 
+		  string_of_int(Oo.id container))
+	sys_fd_clnt;
       onerror := (fun () -> 
 		    if not !sys_fd_clnt_closed then (
 		      sys_fd_clnt_closed := true;
+		      Netlog.Debug.release_fd sys_fd_clnt;
 		      Netsys.gclose sys_fd_style sys_fd_clnt
 		    );
 		    if not !sys_fd_srv_closed then (
@@ -357,7 +369,9 @@ object(self)
 	       Netplex_cenv.cancel_all_timers();
 	       Netplex_cenv.unregister_cont container par_thread;
 	       (* indicates successful termination: *)
+	       Netlog.Debug.release_fd fd_clnt;
 	       Netsys.gclose fd_style fd_clnt;
+	       Netlog.Debug.release_fd sys_fd_clnt;
 	       Netsys.gclose sys_fd_style sys_fd_clnt
 	     )
 	  )
@@ -370,7 +384,9 @@ object(self)
            needed in the master process (dups of them will still play a role
            in the forked children, of course)
 	 *)
+	Netlog.Debug.release_fd fd_clnt;
 	Netsys.gclose fd_style fd_clnt;
+	Netlog.Debug.release_fd sys_fd_clnt;
 	Netsys.gclose sys_fd_style sys_fd_clnt;
       );
       (* From now on it does not make sense to close the client descriptors
@@ -1237,6 +1253,8 @@ object(self)
   method processor = processor
   method create_container p s =
     Netplex_container.create_admin_container controller#event_system p s
+  method shutdown() =
+    sockserv'#shutdown()
 end
 
 
@@ -1333,7 +1351,17 @@ object(self)
     message_receivers <- [];
     List.iter
       (fun plugin -> plugin # ctrl_unplugged (self :> controller))
-      plugins
+      plugins;
+    List.iter
+      (fun (socksrv,sockctrl,wrkmng) ->
+	 if sockctrl#state <> `Down then
+	   Netlog.logf `Err
+	     "Socket controller not shut down when it should be: %s"
+	     socksrv#name;
+	 socksrv # shutdown()
+      )
+      services
+    
 
   method private rm_service sockctrl =
     let sockserv = ref None in

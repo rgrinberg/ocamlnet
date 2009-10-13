@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+open Printf
+
 let debug_rpc_internals = ref false
 let debug_rpc_service = ref false
 
@@ -121,6 +123,14 @@ let rpc_factory
 		
 
 	    method process ~when_done container fd proto =
+	      (* We track here fd - it is released and closed by mplex_eng
+                 because of close_inactive_descr:true
+	       *)
+	      Netlog.Debug.track_fd
+		~owner:"Rpc_netplex"
+		~descr:(sprintf "RPC connection %s"
+			  (Netsys.string_of_fd fd))
+		fd;
 	      let esys = container # event_system in
 	      let mplex_eng = sconf # multiplexing 
 		~close_inactive_descr:true Rpc.Tcp fd esys in

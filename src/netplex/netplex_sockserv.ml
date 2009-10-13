@@ -1,8 +1,9 @@
 (* $Id$ *)
 
 open Netplex_types
+open Printf
 
-let open_sockets prots =
+let open_sockets srvname prots =
   let fdlist = ref [] in
   let sockets = ref [] in
 
@@ -84,15 +85,24 @@ let open_sockets prots =
 	 let fda =
 	   Array.map
 	     (fun addr ->
-		match addr with
-		  | `Socket s -> 
-		      open_socket proto s
-		  | `Socket_file f -> 
-		      open_socket_file proto f
-		  | `W32_pipe p -> 
-		      open_w32_pipe proto p
-		  | `W32_pipe_file f -> 
-		      open_w32_pipe_file proto f
+		let fd = 
+		  match addr with
+		    | `Socket s -> 
+			open_socket proto s
+		    | `Socket_file f -> 
+			open_socket_file proto f
+		    | `W32_pipe p -> 
+			open_w32_pipe proto p
+		    | `W32_pipe_file f -> 
+			open_w32_pipe_file proto f in
+		Netlog.Debug.track_fd
+		  ~owner:"Netplex_sockserv"
+		  ~descr:(sprintf 
+			    "Master socket service=%s proto=%s %s"
+			    srvname proto#name 
+			    (Netsys.string_of_fd fd))
+		  fd;
+		fd
 	     )
 	     proto#addresses in
 	 sockets := (proto#name, fda) :: !sockets
@@ -106,10 +116,38 @@ let open_sockets prots =
 ;;
 
 
+let close_sockets sockets =
+  List.iter
+    (fun (_, fda) ->
+       Array.iter
+	 (fun fd ->
+	    let fd_style = Netsys.get_fd_style fd in
+	    match fd_style with
+	      | `W32_pipe_server ->
+		  (* As a special case, we also have to close the connect
+                     event descriptor
+                     FIXME: How to avoid that we have to special-case this?
+		   *)
+		  let psrv = Netsys_win32.lookup_pipe_server fd in
+		  let cn_ev = Netsys_win32.pipe_connect_event psrv in
+		  let cn_fd = Netsys_win32.event_descr cn_ev in
+		  Netsys.gclose `W32_event cn_fd;
+		  Netlog.Debug.release_fd fd;
+		  Netsys.gclose fd_style fd
+	      | _ ->
+		  Netlog.Debug.release_fd fd;
+		  Netsys.gclose fd_style fd
+	 )
+	 fda
+    )
+    sockets
+;;
+
+
 class std_socket_service 
 	proc
         config : socket_service =
-  let sockets = open_sockets config#protocols in
+  let sockets = open_sockets config#name config#protocols in
 object(self)
   method name = config#name
   method sockets = sockets
@@ -117,7 +155,8 @@ object(self)
   method processor = proc
   method create_container sockserv =
     Netplex_container.create_container sockserv
-
+  method shutdown () =
+    close_sockets sockets
 end
 
 

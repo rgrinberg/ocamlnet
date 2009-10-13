@@ -465,6 +465,20 @@ object(self)
 		    `Err
 		    ("netplex.debug.disable: " ^ s)
 	  )
+      | "netplex.fd_table" ->
+	  ( List.iter
+	      (fun line ->
+		 self # log
+		   `Debug
+		   (sprintf "fd_table(%5d): %s"
+		      ( match Netplex_cenv.current_sys_id() with
+			  | `Thread n -> n
+			  | `Process n -> n
+		      )
+		      line)
+	      )
+	      (Netlog.Debug.fd_table())
+	  )
       | _ ->
 	  self # protect
 	    "receive_admin_message"
@@ -522,6 +536,7 @@ object(self)
 	| None -> ()
 	| Some fd -> 
 	    let fd_style = Netsys.get_fd_style fd in
+	    Netlog.Debug.release_fd fd;
 	    Netsys.gclose fd_style fd;
 	    c_fd_clnt <- None
     );
@@ -529,6 +544,7 @@ object(self)
 	| None -> ()
 	| Some fd -> 
 	    let fd_style = Netsys.get_fd_style fd in
+	    Netlog.Debug.release_fd fd;
 	    Netsys.gclose fd_style fd;
 	    c_sys_fd_clnt <- None
     )

@@ -61,9 +61,7 @@ Plan for Ocamlnet 3
 
 
 - Focus Netplex:
-  * Shut down master sockets after use.
- 
-  * netplex.descriptors: print fd table from Netlog
+  * netplex.fd_table: print fd table from Netlog
 
   * Netplex_control_routine:
     Use plugin mechanism to run ad-hoc defined routines in controller
@@ -141,6 +139,7 @@ Plan for Ocamlnet 3
     relative UD sockets should be taken relative to socket dir
   * netplex_main:
       - chdir for daemonize
+  * netplex: Shut down master sockets after use.
   * netclient: Set "Host" header also for proxy requests
   * netclient: parsing fails of URL http://host?param
   * nethtml: <body> is now an essential block
@@ -196,6 +195,8 @@ A list of possible improvements, once interfaces are stable again:
 - RPC: support relaying specially: if a server simply wants to forward
   an RPC call unchanged to a different port, there is no need to decode
   the message fully.
+
+- RPC: server should support caching for configured procedures
 
 ----------------------------------------------------------------------
 Implementation improvements after Ocamlnet 3.0
