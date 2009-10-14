@@ -83,7 +83,8 @@ let start() =
     );
     if !shutdown then (
       Finder_service_clnt.Finder.V1.shutdown rpc_client ()
-    )
+    );
+    Rpc_client.shut_down rpc_client
   with
     | Rpc_client.Communication_error exn ->
 	prerr_endline ("RPC: I/O error: " ^ Printexc.to_string exn)

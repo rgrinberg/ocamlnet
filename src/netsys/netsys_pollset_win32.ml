@@ -146,8 +146,8 @@ object(self)
       | None ->
 	  let ev = create_event() in
 	  (* FIXME: There is a race with cancel_wait *)
-	  self # propagate_cancel_bit ev;
 	  evobj_cancel <- Some ev;
+	  self # propagate_cancel_bit ev;
 	  ev
       | Some ev -> 
 	  ev

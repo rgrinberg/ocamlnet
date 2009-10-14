@@ -326,8 +326,9 @@ let admin_connector() =
     | None ->
 	failwith "Netplex_cenv.admin_connector: Socket not found"
     | Some path ->
+	let c = Netplex_util.any_file_client_connector path in
 	`Socket(Rpc.Tcp,
-		Rpc_client.Unix path,
+		c,
 		Rpc_client.default_socket_config)
 
 let admin_call f =

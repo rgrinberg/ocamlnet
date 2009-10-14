@@ -2,6 +2,7 @@ TOP_DIR=../..
 
 PKGNAME  = netplex
 OBJECTS  = netplex_ctrl_aux.cmo netplex_ctrl_clnt.cmo netplex_ctrl_srv.cmo \
+           netplex_util.cmo \
 	   netplex_cenv.cmo netplex_mp.cmo netplex_mt.cmo netplex_log.cmo \
            netplex_container.cmo netplex_sockserv.cmo netplex_workload.cmo \
 	   netplex_kit.cmo netplex_controller.cmo \

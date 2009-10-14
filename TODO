@@ -50,15 +50,7 @@ Plan for Ocamlnet 3
 
   * Documentation: What is supported on Win32?
 
-  * Netsys_win32.dispose_event: closes the handle. It is automatically
-    opened again when the event is used
-
-  * Netsys_pollset_win32: use dispose_event (avoid the commented race)
-
-  Bugs:
-  - examples/rpc/finder: Unix_error(EUNKNOWNERROR 0, "socket", "")
-    if daemon is started and then finder_client -shutdown.
-
+  * nethttpd: not yet working
 
 - Focus Netplex:
   * Netplex_control_routine:

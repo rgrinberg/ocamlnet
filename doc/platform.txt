@@ -105,7 +105,186 @@ XTI server.
 
 {3 Cygwin}
 
+On Cygwin Ocamlnet should behave like on a POSIX machine.
+
+
 {3 Win32}
+
+There is now a lot of support for Win32, even for asynchronous network
+programming. The minimum Windows version is Windows XP SP2. One should
+also mention that some functions are only supported when the Ocaml
+program is compiled as multi-threaded program, as sometimes helper
+threads are needed to emulate a certain behavior. For example, Win32
+limits the number of file handles to 64 per thread when one watches
+them for events. Ocamlnet includes support to overcome this limit by
+creating helper threads as needed.
+
+As a substitute for Unix Domain sockets, Ocamlnet provides access to
+Win32 named pipes. These are, for security reasons, restricted to
+local connection (within the same machine). As named pipes exist in a
+special file system, one cannot create named pipes in arbitrary
+directories (unlike Unix Domain sockets). As a workaround, it is also
+supported to create named pipes with random names, and to write these
+names into text files. A number of functions that used to expect Unix
+Domain socket files as input can now also deal with these text files,
+and will automatically map these files to the referenced named pipes
+(see {!Netplex_sockserv.any_file_client_connector}).
+
+The {b RPC} implementation supports TCP/IP sockets and named pipes,
+both for clients and for servers. As for POSIX, the clients and servers
+can be programmed in an asynchronous way.
+
+{b Netplex} is supported, but only for multi-threaded containers. The
+multi-processing containers are not available. Netplex can manage both
+TCP connections and named pipes.
+
+The {b Shell} library works, too. As for POSIX, it is possible to
+create complex pipelines between the started shell commands, and it is
+possible to read the output of and to provide input to the commands at
+the same time.  All asynchronous command execution features are
+available!  The only limitation is that one can redirect only
+stdin/stdout/stderr of the started commands, and not arbitrary
+descriptors as for POSIX (this is a restriction of Win32).
+
+The {b Equeue} library is supported. The GTK- and TclTk-specific
+extensions do not work, however. The SSL add-on is untested.
+
+The {b Netshm} library is only partially supported: The managed memory
+object must be file-backed and cannot (yet) live in RAM-only shared
+memory.
+
+XXX: Nethttpd
+
+XXX: Netcgi2
+
+
+
+{3 Win32 low-level}
+
+The missing Win32 calls are made available via {!Netsys_win32}. The 
+accessible objects are:
+
+- Events: Win32 event objects can signal a condition (and look like
+  condition variables)
+- Named pipes: Win32 named pipes are network connections between
+  a client endpoint and a server endpoint. Ocamlnet only supports
+  local connections, however.
+- Pipe servers: The notion
+  of "pipe servers" does not exist in Win32 as kernel objects. Win32
+  sees a pipe server as a set of endpoints one can connect to, and the
+  user code has to manage this set. In {!Netsys_win32}, pipe server
+  objects are emulated to simplify this for user code, so that pipe
+  servers look very much like socket servers.
+- Input threads: {!Netsys_win32} provides helper threads allowing one to 
+  read from an arbitrary file handle in an asynchronous way, even if Win32 
+  does not support that for the type of handle. This is intended for 
+  reading from anonymous pipes (as returned by [Unix.pipe]).
+- Output threads: a similar kind of object writing to file handles
+- Processes
+- Consoles
+
+As you can see, we are trying to make the Win32 calls a bit more user
+friendly. One of the goals of this wrapper is to make them even usable
+in programs that are mainly written for POSIX.
+
+A central idea here is the concept of "proxy descriptors". Many of the
+mentioned objects have a complex inner structure - e.g. a pipe server
+can mean an open number of Win32 file handles. However, it is intended
+to make these objects look like in POSIX, and that means that there is
+only a single descriptor referencing the object. The proxy descriptors
+are additional file descriptors Ocamlnet allocates only for the purpose
+of referencing these objects. For example, a pipe server is mainly
+represented by the type {!Netsys_win32.w32_pipe_server}, and there are
+a lot of functions dealing with such values, e.g.
+{!Netsys_win32.pipe_shutdown_server} for shutting a server down.
+Of course, a {!Netsys_win32.w32_pipe_server} is not a file descriptor,
+but a complex Ocaml record. The question is now how to pass such an
+object to functions that only accept file descriptors as input? The
+solution looks simple although the implementation causes a lot of
+headache: A special file descriptor is allocated, and there is a global
+table mapping these descriptors to the real objects. For instance, you
+can get the proxy descriptor of a pipe server by calling
+
+{[ let (fd : Unix.file_descr) =
+     Netsys_win32.pipe_server_descr psrv 
+]}
+
+for a pipe server object [psrv]. You can pass [fd] around, and when
+a called function requires the pipe server object again, one can
+map [fd] back by:
+
+{[ let (psrv : Netsys_win32.w32_pipe_server) =
+     Netsys_win32.lookup_pipe_server fd
+]}
+
+Like other descriptors, [fd] must be closed after use. The tricky part
+of the implementation is that unreferenced proxy descriptors are
+detected, and that the entry of the global mapping table is deleted
+then.
+
+As mentioned, Ocamlnet supports asynchronous I/O for the supported
+Win32 objects. For some objects, Win32 has built-in support in the
+form of so-called overlapped I/O. This kind of I/O is, unfortunately,
+different than what POSIX provides ([poll]-style I/O). The analysis
+shows that the main difference is that in Win32 one has to start an
+I/O operation in order to asynchronously check whether and when it is
+finally possible, whereas POSIX allows one to check the possibility of
+I/O before one starts the operation. Ocamlnet hides this difference in
+the {!Netsys_win32} wrapper by providing additional buffering. The
+price is, however, that the generic [read] and [write] calls (or
+better, [ReadFile] and [WriteFile] in Win32) can no longer be used.
+As a substitute, Ocamlnet provides for each kind of object a special
+set of read and write operations, e.g. {!Netsys_win32.pipe_read}
+for named pipes.
+
+For simplicity of user code, there are also generalized read/write
+operations: {!Netsys.gread} and {!Netsys.gwrite}. These work for
+all descriptors supported by [Unix.read] and [Unix.write], plus for
+sockets, plus for all of the mentioned Win32-specific objects for 
+which reading and writing are reasonable I/O operations.
+
+If overlapping I/O is unavailable for a kind of file handle, it is
+still possible to use the input and output threads in order to do
+asynchronous I/O for these handles. An example of such a handle type
+are anonymous pipes. The threads are automatically started and
+initiate synchronous I/O operations when needed. The completion of the
+operations is signalled via condition variables to the caller, so that
+it is possible to provide an asynchronous API to the file handle.
 
 
 {2 Hints for portable programming}
+
+Generally, the functions in {!Netsys} are available on all platforms
+(but not necessarily in all variants), whereas {!Netsys_posix} and
+{!Netsys_win32} contain the platform-specific stuff.
+
+In order to read and write file descriptors, one should first get
+the kind of descriptor [fd]:
+
+{[ let st = Netsys.get_fd_style fd ]}
+
+Now, one can read and write to the file descriptor by calling
+{!Netsys.gread} and {!Netsys.gwrite} (or by some of the provided
+variants of these functions). These functions need [st] as input,
+and internally call the right system function to do the requested
+I/O operation.
+
+There is also {!Netsys.gshutdown} for shutting a descriptor down
+(possibly only half-way), and {!Netsys.gclose} for closing a
+descriptor.
+
+In order to wait for a {b single} descriptor, one can call one of the
+{!Netsys} functions doing so, e.g. {!Netsys.wait_until_readable}.
+These functions block execution until the requested I/O operation
+is possible, or until a timeout elapses.
+
+If {b several} descriptors need to be waited for, there is the
+portable class type {!Netsys_pollset.pollset}. One can add several
+descriptors to pollsets and wait until I/O operations for one of the
+descriptors become possible. There are implementations for both POSIX
+and Win32. {!Netsys_pollset_generic.standard_pollset} automatically
+selects the best pollset implementation for "normal use".
+
+For porting programs that are still written around [Unix.select],
+there is an emulation of [select] on top of pollsets:
+{!Netsys_pollset_generic.select_emulation}.
