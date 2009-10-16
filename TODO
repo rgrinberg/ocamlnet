@@ -50,9 +50,6 @@ Plan for Ocamlnet 3
 
   * Documentation: What is supported on Win32?
 
-  * nethttpd: translation of paths to files does not work
-    (e.g. examples/nethttpd/netplex)
-
 - Focus Netplex:
   * Netplex_control_routine:
     Use plugin mechanism to run ad-hoc defined routines in controller
@@ -93,6 +90,9 @@ Plan for Ocamlnet 3
   * RPC: prevent that xid's can be reused
   * nethttpd+netcgi2: GET /file//path?p=1
     parameters like p are not recognized when there is "//" in path
+  * CHECK nethttpd: if PATH_TRANSLATED points to a directory, omit the
+    trailing slash. See also Nethtttpd_services.w32_fix_trailing_slash -
+    but this is a hack
 
 - syslog:
   * "syslog": Just calls syslog()
