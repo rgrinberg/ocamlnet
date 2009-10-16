@@ -1,6 +1,21 @@
 (* $Id$ *)
 
 open Unix
+open Printf
+
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Netsys_posix" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netsys_posix" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Netsys_posix" Debug.enable
+
+external int64_of_file_descr : Unix.file_descr -> int64
+  = "netsys_int64_of_file_descr"
 
 let int_of_file_descr =
   match Sys.os_type with
@@ -162,6 +177,31 @@ let create_poll_array n =
 external netsys_poll : poll_mem -> int -> int -> int = "netsys_poll"
 
 
+let concat_fd_list l =
+  String.concat "," 
+    (List.map
+       (fun fd -> 
+	  Int64.to_string(int64_of_file_descr fd))
+       l
+    )
+
+
+(* win32 only: *)
+external netsys_real_select : 
+         Unix.file_descr list -> 
+         Unix.file_descr list -> 
+         Unix.file_descr list -> 
+         float ->
+           (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list)
+  = "netsys_real_select"
+
+let real_select = 
+  if Sys.os_type = "Win32" then
+    netsys_real_select
+  else
+    Unix.select
+
+
 let do_poll a k tmo =
   match a with
     | Poll_mem(s,_) ->
@@ -180,8 +220,19 @@ let do_poll a k tmo =
 	  if f_out then l_out := c.poll_fd :: !l_out;
 	  if f_pri then l_pri := c.poll_fd :: !l_pri;
 	done;
+	dlogr (fun () ->
+		 sprintf "poll_emulation request in=%s out=%s pri=%s tmo=%f"
+		   (concat_fd_list !l_inp)
+		   (concat_fd_list !l_out)
+		   (concat_fd_list !l_pri)
+		   tmo');
 	let (o_inp, o_out, o_pri) = 
-	  Unix.select !l_inp !l_out !l_pri tmo' in
+	  real_select !l_inp !l_out !l_pri tmo' in
+	dlogr (fun () ->
+		 sprintf "poll_emulation result in=%s out=%s pri=%s"
+		   (concat_fd_list o_inp)
+		   (concat_fd_list o_out)
+		   (concat_fd_list o_pri));
 	let a_inp = Array.of_list o_inp in
 	let a_out = Array.of_list o_out in
 	let a_pri = Array.of_list o_pri in

@@ -50,7 +50,8 @@ Plan for Ocamlnet 3
 
   * Documentation: What is supported on Win32?
 
-  * nethttpd: not yet working
+  * nethttpd: translation of paths to files does not work
+    (e.g. examples/nethttpd/netplex)
 
 - Focus Netplex:
   * Netplex_control_routine:

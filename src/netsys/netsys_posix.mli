@@ -522,3 +522,12 @@ external ioprio_get : ioprio_target -> ioprio = "netsys_ioprio_get"
 
 external ioprio_set : ioprio_target -> ioprio -> unit = "netsys_ioprio_set"
     (** Sets the priority of the target processes. *)
+
+
+(** {1 Debugging} *)
+
+module Debug : sig
+  val enable : bool ref
+    (** Enables {!Netlog}-style debugging *)
+
+end

@@ -743,6 +743,17 @@ let merge_byte_ranges st ranges =
   in
   merge ranges
 
+let w32_fix_trailing_slash s =
+  (* background: Win32 dislikes Unix.stat "directory/" *)
+  if Sys.os_type = "Win32" then (
+    if s <> "" && s <> "/" && s.[ String.length s - 1 ] = '/' then
+      s ^ "."
+    else
+      s
+  )
+  else s
+
+
 let file_service (spec : file_service) =
 object(self)
   method name = "file_service"
@@ -775,7 +786,8 @@ object(self)
 	try uripath_decode req_path_esc with Failure _ -> raise Not_found in
       let filename =
 	file_translator spec req_path in (* or Not_found *)
-      let s = Unix.LargeFile.stat filename in   (* or Unix_error *)
+      let s = Unix.LargeFile.stat (w32_fix_trailing_slash filename) in
+              (* or Unix_error *)
       ( match s.Unix.LargeFile.st_kind with
 	  | Unix.S_REG ->
 	      self # serve_regular_file env filename s
@@ -1014,7 +1026,6 @@ object(self)
 	raise(Standard_response(`Found, Some h, None));
       )
     );
-
     match (abs_index_file_opt, gen_listings) with
       | Some name, _ ->
 	  (* Ok, redirect to the file *)
@@ -1078,7 +1089,7 @@ let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi1_compat.Netcgi_typ
   let regexps = List.map (fun re -> Netstring_pcre.regexp re) hide in
   let req_path_esc = env#cgi_path_info in
   let req_path = uripath_decode req_path_esc in
-  let files = Sys.readdir dirname in
+  let files = Sys.readdir (w32_fix_trailing_slash dirname) in
   let xfiles =
     Array.map
       (fun name ->

@@ -684,7 +684,8 @@ object(self)
 
 
   initializer (
-    recv_cont <- self # accept_header 0
+    recv_cont <- self # accept_header 0;
+    Unix.set_nonblock fd
   )
 
   method cycle ?(block=0.0) () = 
@@ -804,6 +805,7 @@ object(self)
 	)
 	else (
 	  if self # do_input then (
+	    dlogr (fun () -> sprintf "FD %Ld: recv" fdi);
 	    let n = Netbuffer.add_inplace   (* or Unix_error *)
 	      recv_buf
 	      (fun s pos len -> Unix.recv fd s pos len []) in
@@ -821,13 +823,17 @@ object(self)
 	)
       with
 	| Unix.Unix_error((Unix.EAGAIN | Unix.EWOULDBLOCK), _,_)->
+	    dlogr (fun () -> sprintf "FD %Ld: recv EWOULDBLOCK" fdi);
 	    false             (* socket not ready *)
 	| Unix.Unix_error(Unix.EINTR,_,_) ->
+	    dlogr (fun () -> sprintf "FD %Ld: recv EINTR" fdi);
 	    false             (* got signal *)
 	| Unix.Unix_error(Unix.ECONNRESET, _,_) ->
+	    dlogr (fun () -> sprintf "FD %Ld: recv ECONNRESET" fdi);
 	    self # abort `Broken_pipe;
 	    false
 	| Unix.Unix_error(e, _, _) ->
+	    dlogr (fun () -> sprintf "FD %Ld: recv ERROR" fdi);
 	    self # abort (`Unix_error e);
 	    false
     in
@@ -1277,6 +1283,7 @@ object(self)
 	match resp # front_token with      (* or Send_queue_empty, Unix_error *)
 	  | `Resp_wire_data (s,pos,len) ->
 	      (* Try to write: *)
+	      dlogr (fun () -> sprintf "FD %Ld: send" fdi);
 	      let n = Unix.send fd s pos len [] in  (* or Unix.error *)
 	      dlogr (fun () -> sprintf "FD %Ld: sent %d bytes" fdi n);
 	      (* Successful. Advance by [n] *)
