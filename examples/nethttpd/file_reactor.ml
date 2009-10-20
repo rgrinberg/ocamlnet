@@ -7,15 +7,15 @@ open Printf
 
 let counter = ref 0
 
-let hit_counter env cgi =
+let hit_counter env (cgi:Netcgi.cgi) =
   let cur_counter = !counter in
   incr counter;
   cgi # output # output_string "<html><body>\n";
   cgi # output # output_string (sprintf "Counter = %d<br>\n" cur_counter);
   List.iter
-    (fun (name, arg) ->
+    (fun arg ->
        cgi # output # output_string (sprintf "Arg %s = %s<br>\n"
-				   (Netencoding.Html.encode_from_latin1 name)
+				   (Netencoding.Html.encode_from_latin1 arg#name)
 				   (Netencoding.Html.encode_from_latin1 arg#value))
     )
     cgi # arguments;
@@ -71,10 +71,10 @@ let start () =
       method config_timeout_next_request = 15.0
       method config_timeout = 300.0
       method config_reactor_synch = `Write
-      method config_cgi = Netcgi_env.default_config
+      method config_cgi = Netcgi.default_config
       method config_error_response n = "<html>Error " ^ string_of_int n ^ "</html>"
       method config_log_error _ _ _ _ msg =
-        printf "Error log: %s\n" msg
+        eprintf "Error log: %s\n%!" msg
       method config_log_access _ _ _ _ _ _ _ _ _ _ = ()
       method config_max_reqline_length = 256
       method config_max_header_length = 32768

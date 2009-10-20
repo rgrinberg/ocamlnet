@@ -45,7 +45,7 @@ object
   inherit Nethttpd_kernel.http_protocol_config
   method config_timeout_next_request : float
   method config_timeout : float
-  method config_cgi : Netcgi1_compat.Netcgi_env.cgi_config
+  method config_cgi : Netcgi.config
   method config_error_response : int -> string
   method config_log_error : 
     Unix.sockaddr option -> Unix.sockaddr option -> http_method option ->
@@ -71,7 +71,6 @@ object
   method req_method : http_method
   method response : http_response
   method log_access : unit -> unit
-
 end
 
 
@@ -97,8 +96,9 @@ let get_this_host addr =
 class http_environment (proc_config : #http_processor_config)
                        req_meth req_uri req_version req_hdr 
                        fd_addr peer_addr
-                       in_ch in_cnt out_ch resp close_after_send_file
-		       reqrej
+                       in_ch in_cnt 
+                       out_ch output_state resp close_after_send_file
+		       reqrej fdi
                       : internal_environment =
 
   (* Decode important input header fields: *)
@@ -139,10 +139,10 @@ object(self)
 
   val mutable logged_props = []
 
+  val out_state = (output_state : output_state ref)
+
   initializer (
     config <- proc_config # config_cgi;
-    in_state <- `Received_header;
-    out_state <- `Start;
     in_header <- req_hdr;
     in_channel <- in_ch;
     out_channel <- out_ch;
@@ -171,6 +171,7 @@ object(self)
   )
 
   method unlock() =
+    dlogr (fun () -> sprintf "FD=%Ld: env.unlock" fdi);
     locked <- false
 
   method server_socket_addr = fd_addr
@@ -183,23 +184,30 @@ object(self)
   val mutable sent_resp_hdr = new Netmime.basic_mime_header []
 
   method send_output_header() =
+    dlogr (fun () -> sprintf "FD=%Ld: env.send_output_header out_state=%s"
+	     fdi (string_of_output_state !out_state));
     if locked then failwith "Nethttpd_reactor: channel is locked";
-    if out_state <> `Start then
-      failwith "send_output_header";
-    (* The response status is encoded in the [Status] pseudo header *)
-    let (code, phrase) = status_of_cgi_header out_header in
-    resp # send (`Resp_status_line(code, phrase));
-    (* Create a copy of the header without [Status]: *)
-    let h = new Netmime.basic_mime_header out_header#fields in
-    h # delete_field "Status";
-    sent_status <- code;   (* remember what has been sent for access logging *)
-    sent_resp_hdr <- h;
-    resp # send (`Resp_header h);
-    out_state <- `Sent_header
+    if !out_state = `Start then (
+      (* The response status is encoded in the [Status] pseudo header *)
+      let (code, phrase) = status_of_cgi_header out_header in
+      resp # send (`Resp_status_line(code, phrase));
+      (* Create a copy of the header without [Status]: *)
+      let h = new Netmime.basic_mime_header out_header#fields in
+      h # delete_field "Status";
+      sent_status <- code;   (* remember what has been sent for access logging *)
+      sent_resp_hdr <- h;
+      resp # send (`Resp_header h);
+      out_state := `Sending;
+    )
+      (* netcgi2 may call send_output_header several times, so we have to 
+         ignore the later calls after the first one
+       *)
 
   method send_file fd length =
+    dlogr (fun () -> sprintf "FD=%Ld: env.send_file out_state=%s" 
+	     fdi (string_of_output_state !out_state));
     if locked then failwith "Nethttpd_reactor: channel is locked";
-    if out_state <> `Start then
+    if !out_state <> `Start then
       failwith "send_file";
     (* The response status is encoded in the [Status] pseudo header *)
     let (code, phrase) = status_of_cgi_header out_header in
@@ -210,7 +218,7 @@ object(self)
     sent_status <- code;   (* remember what has been sent for access logging *)
     sent_resp_hdr <- h;
     send_file_response resp status (Some h) fd length;
-    out_state <- `Sending_body;  (* best approximation *)
+    out_state := `Sending;
     close_after_send_file()
 
   method log_error s =
@@ -241,10 +249,12 @@ object(self)
       access_logged <- true
     )
 
+
+  method output_state = out_state
 end
 
 
-class http_reactor_input next_token in_cnt =
+class http_reactor_input next_token in_cnt fdi =
   (* an extension of rec_in_channel *)
 object(self)
   val mutable current_chunk = None
@@ -253,6 +263,7 @@ object(self)
   val mutable locked = true
 
   method private refill() =
+    dlogr (fun () -> sprintf "FD=%Ld: input.refill" fdi);
     match next_token() with
       | `Req_body(s,pos,len) ->
 	  assert(len > 0);
@@ -272,10 +283,11 @@ object(self)
 	  
 
   method input s spos slen =
+    dlogr (fun () -> sprintf "FD=%Ld: input.input" fdi);
     if closed then raise Closed_channel;
     if locked then failwith "Nethttpd_reactor: channel is locked";
     if eof then raise End_of_file;
-    if current_chunk = None then self#refill();
+    if current_chunk = None then self#refill();  (* may raise End_of_file *)
     match current_chunk with
       | Some(u,upos,ulen) ->
 	  (* We have [ulen] data, copy that to [s] *)
@@ -292,6 +304,7 @@ object(self)
 	  assert false
 
   method close_in() =
+    dlogr (fun () -> sprintf "FD=%Ld: input.close_in" fdi);
     if closed then raise Closed_channel;
     if locked then failwith "Nethttpd_reactor: channel is locked";
     (* It is no problem to ignore further arriving tokens. These will be "eaten" by
@@ -301,25 +314,32 @@ object(self)
     closed <- true;
 
   method unlock() =
+    dlogr (fun () -> sprintf "FD=%Ld: input.unlock" fdi);
     locked <- false;
 
   method drop() =
+    dlogr (fun () -> sprintf "FD=%Ld: input.drop" fdi);
     locked <- false;
     eof <- true
 
 end
 
 
-class http_reactor_output config resp synch (f_access : unit -> unit) =   
-  (* an extension of rec_in_channel *)
+class http_reactor_output config resp synch out_state 
+                          (f_access : unit -> unit) fdi =   
+  (* an extension of rec_out_channel *)
 object
   val mutable closed = false
   val mutable locked = true
 
   method output s spos slen =
+    dlogr (fun () -> sprintf "FD=%Ld: output.output" fdi);
     if closed then raise Closed_channel;
     if locked then failwith "Nethttpd_reactor: channel is locked";
+    if !out_state <> `Sending then 
+      failwith "output channel: Cannot output now";
     let u = String.sub s spos slen in
+prerr_endline ("OUTPUT: " ^ u);
     resp # send (`Resp_body(u, 0, String.length u));
     ( match config#config_reactor_synch with
 	| `Write ->
@@ -330,8 +350,11 @@ object
     slen
 
   method flush() =
+    dlogr (fun () -> sprintf "FD=%Ld: output.flush" fdi);
     if closed then raise Closed_channel;
     if locked then failwith "Nethttpd_reactor: channel is locked";
+    if !out_state <> `Sending then 
+      failwith "output channel: Cannot output now";
     match config#config_reactor_synch with
       | `Write
       | `Flush ->
@@ -340,9 +363,11 @@ object
 	  ()
 
   method close_out() =
+    dlogr (fun () -> sprintf "FD=%Ld: output.close_out" fdi);
     if closed then raise Closed_channel;
     if locked then failwith "Nethttpd_reactor: channel is locked";
     closed <- true;
+    out_state := `End;
     resp # send `Resp_end;
     ( match config#config_reactor_synch with
 	| `Write
@@ -358,7 +383,9 @@ object
 
 
   method close_after_send_file() =
+    dlogr (fun () -> sprintf "FD=%Ld: output.close_after_send_file" fdi);
     closed <- true;
+    out_state := `End;
     ( match config#config_reactor_synch with
 	| `Write
 	| `Flush
@@ -371,6 +398,7 @@ object
     f_access()
 
   method unlock() =
+    dlogr (fun () -> sprintf "FD=%Ld: output.unlock" fdi);
     locked <- false
 
 end
@@ -428,7 +456,7 @@ object(self)
   method finish() =
     self # finish_request();
     dlogr (fun () -> sprintf "req-%d: finish" (Oo.id self));
-    match env # output_state with
+    match !(env#output_state) with
       | `Start ->
 	  (* The whole response is missing! Generate a "Server Error": *)
 	  dlogr (fun () -> 
@@ -436,9 +464,8 @@ object(self)
 		     (Oo.id self));
 	  output_std_response config env `Internal_server_error None 
 	    (Some "Nethttpd: Missing response, replying 'Server Error'");
-	  env # set_output_state `End;
-      | `Sent_header
-      | `Sending_body ->
+	  (env#output_state) := `End
+      | `Sending ->
 	  (* The response body is probably incomplete or missing. Try to close
 	   * the channel.
 	   *)
@@ -446,16 +473,10 @@ object(self)
 		   sprintf "req-%d: incomplete response, trying to fix"
 		     (Oo.id self));
 	  ( try env # output_ch # close_out() with Closed_channel -> () );
-	  env # set_output_state `End;
-      | `Sent_body 
+	  (env#output_state) := `End;
       | `End ->
 	  (* Everything ok, just to be sure... *)
 	  ( try env # output_ch # close_out() with Closed_channel -> () );
-	  env # set_output_state `End;
-      | _ ->
-	  (* These states must not happen! *)
-	  assert false
-
 end
 
 
@@ -484,6 +505,9 @@ object(self)
 	config#config_timeout_next_request
       else
 	config#config_timeout in
+    dlogr (fun () -> 
+	     sprintf "FD %Ld: cycle block_tmo=%f" 
+	       (Netsys.int64_of_file_descr fd) block);
     proto # cycle ~block ();
 
   method private next_token() =
@@ -491,19 +515,34 @@ object(self)
       self # cycle();
       self # next_token()
     )
-    else
-      proto # receive() 
+    else (
+      let tok = proto # receive() in
+      dlogr (fun () ->
+	       sprintf "FD %Ld: next_token=%s"
+		 (Netsys.int64_of_file_descr fd)
+		 (Nethttpd_kernel.string_of_req_token tok));
+      tok
+    )
 
   method private peek_token() =
     if proto # recv_queue_len = 0 then (
       self # cycle();
       self # peek_token()
     )
-    else
-      proto # peek_recv() 
+    else (
+      let tok = proto # peek_recv() in
+      dlogr (fun () ->
+	       sprintf "FD %Ld: peek_token=%s"
+		 (Netsys.int64_of_file_descr fd)
+		 (Nethttpd_kernel.string_of_req_token tok));
+      tok
+    )
 
   method private finish_request() =
     (* Read the rest of the previous request, ignoring it *)
+    dlogr (fun () -> 
+	     sprintf "FD %Ld: reactor_finish_request" 
+	       (Netsys.int64_of_file_descr fd));
     match self # peek_token() with
       | `Req_header _
       | `Eof
@@ -537,9 +576,14 @@ object(self)
 
   method private synch() =
     (* Ensure that all written data are actually transmitted: *)
+    dlogr (fun () -> 
+	     sprintf "FD %Ld: synch loop" (Netsys.int64_of_file_descr fd));
     while proto # do_output do
       self # cycle();
     done;
+    dlogr (fun () -> 
+	     sprintf "FD %Ld: leaving synch loop"
+	       (Netsys.int64_of_file_descr fd));
     (* CHECK: Maybe we have to throw away the remaining tokens of the current request! *)
 
 
@@ -550,6 +594,9 @@ object(self)
 	  (* Ok, we have a new request. Initialize the new environment processing
 	   * it
 	   *)
+	  dlogr (fun () -> 
+		   sprintf "FD %Ld: reactor_next_request: got header" 
+		     (Netsys.int64_of_file_descr fd));
 	  let expect_100_continue =
 	    try
 	      proto # peek_recv() = `Req_expect_100_continue
@@ -562,10 +609,14 @@ object(self)
 
 	  let f_access = ref (fun () -> ()) in  (* set below *)
 	  let in_cnt = ref 0L in
-	  let input_ch = new http_reactor_input self#next_token in_cnt in
+	  let input_ch = 
+	    new http_reactor_input self#next_token in_cnt
+	      (Netsys.int64_of_file_descr fd)  in
+	  let output_state = ref `Start in
 	  let output_ch = 
 	    new http_reactor_output config resp self#synch 
-	      (fun () -> !f_access()) in
+	      output_state (fun () -> !f_access()) 
+	      (Netsys.int64_of_file_descr fd) in
 	  let lifted_input_ch = 
 	    lift_in ~buffered:false (`Rec (input_ch :> rec_in_channel)) in
 	  let lifted_output_ch = 
@@ -585,18 +636,29 @@ object(self)
 			      config 
                               req_meth req_uri req_version req_hdr 
                               fd_addr peer_addr
-		              lifted_input_ch in_cnt lifted_output_ch 
+		              lifted_input_ch in_cnt 
+			      lifted_output_ch output_state
 			      resp output_ch#close_after_send_file reqrej
+			      (Netsys.int64_of_file_descr fd)
 	      in
 	      f_access := env#log_access;
 	      let req_obj = new http_reactive_request_impl 
 			      config env input_ch output_ch resp expect_100_continue 
 			      self#finish_request reqrej
 	      in
+	      dlogr (fun () -> 
+		       sprintf 
+			 "FD %Ld: reactor_next_request: returning req-%d" 
+			 (Netsys.int64_of_file_descr fd)
+			 (Oo.id req_obj));
 	      Some req_obj
 	    with
 		Standard_response(status, hdr_opt, msg_opt) ->
 		  (* Probably a problem when decoding a header field! *)
+		  dlogr (fun () -> 
+			   sprintf 
+			     "FD %Ld: reactor_next_request: standard response" 
+			     (Netsys.int64_of_file_descr fd));
 		  ( match msg_opt with
 		      | Some msg ->
 			  config # config_log_error
@@ -616,11 +678,19 @@ object(self)
 	  )
 
       | `Eof ->
+	  dlogr (fun () -> 
+		   sprintf 
+		     "FD %Ld: reactor_next_request: got eof" 
+		     (Netsys.int64_of_file_descr fd));
 	  self # synch();
 	  None
 	  
       | `Fatal_error e ->
 	  (* The connection is already down. Just log the incident: *)
+	  dlogr (fun () -> 
+		   sprintf 
+		     "FD %Ld: reactor_next_request: got fatal error" 
+		     (Netsys.int64_of_file_descr fd));
 	  let msg = Nethttpd_kernel.string_of_fatal_error e in
 	  config # config_log_error 
 	    (Some fd_addr) (Some peer_addr) None None msg;
@@ -628,6 +698,10 @@ object(self)
 
       | `Bad_request_error (e, resp) ->
 	  (* Log the incident, and reply with a 400 response: *)
+	  dlogr (fun () -> 
+		   sprintf 
+		     "FD %Ld: reactor_next_request: got bad request" 
+		     (Netsys.int64_of_file_descr fd));
 	  let msg = string_of_bad_request_error e in
 	  let status = status_of_bad_request_error e in
 	  config # config_log_error
@@ -638,12 +712,20 @@ object(self)
 
       | `Timeout ->
 	  (* Just ignore. The next token will be `Eof *)
+	  dlogr (fun () -> 
+		   sprintf 
+		     "FD %Ld: reactor_next_request: got timeout" 
+		     (Netsys.int64_of_file_descr fd));
 	  self # next_request()
 
       | _ ->
 	  (* Everything else means that we lost synchronization, and this is a
 	   * fatal error!
 	   *)
+	  dlogr (fun () -> 
+		   sprintf 
+		     "FD %Ld: reactor_next_request: out of sync" 
+		     (Netsys.int64_of_file_descr fd));
 	  config # config_log_error 
 	    (Some fd_addr) (Some peer_addr) None None 
 	    "Nethttpd: Reactor out of synchronization";
@@ -651,6 +733,8 @@ object(self)
 	  self # next_request()
 
   method close () =
+    dlogr (fun () -> 
+	     sprintf "FD %Ld: reactor close" (Netsys.int64_of_file_descr fd));
     ( try
 	self # synch();
       with
@@ -660,6 +744,8 @@ object(self)
 	    raise err
     );
     if proto # need_linger then (
+      dlogr (fun () -> 
+	       sprintf "FD %Ld: lingering" (Netsys.int64_of_file_descr fd));
       let lc = 
 	new Nethttpd_kernel.lingering_close
 	  ~preclose:(fun () -> Netlog.Debug.release_fd fd)
@@ -705,11 +791,11 @@ let process_connection config fd (stage1 : 'a http_service) =
       | Redirect_response_legal(_,_) as e -> raise e
 
       | Standard_response(status, hdr_opt, errmsg_opt) 
-	  when env#output_state = `Start -> (
+	  when !(env#output_state) = `Start -> (
 	    output_std_response config env status hdr_opt errmsg_opt
 	  )
  
-      | err when env#output_state = `Start ->
+      | err when !(env#output_state) = `Start ->
 	  output_std_response config env `Internal_server_error None 
 	    (Some("Nethttpd: Uncaught exception: " ^ Netexn.to_string err));
   in
@@ -724,7 +810,7 @@ let process_connection config fd (stage1 : 'a http_service) =
 	  failwith "Caught Redirect_request in stage 3, \
                     but it is only allowed in stage 1"
       | Redirect_response(uri,hdr) ->
-	  if env#output_state <> `Start then
+	  if !(env#output_state) <> `Start then
 	    failwith "Caught Redirect_response, \
                       but it is too late for redirections";
 	  dlogr (fun () -> sprintf "req-%d: stage3 redirect_response"
@@ -736,7 +822,7 @@ let process_connection config fd (stage1 : 'a http_service) =
     dlogr (fun () -> sprintf "req-%d: stage2" (Oo.id req));
     let stage3 = 
       try
-	stage2 # process_body env 
+	stage2 # process_body env
       with
 	| Redirect_request(_,_) ->
 	    failwith "Caught Redirect_request in stage 2, \
@@ -750,7 +836,7 @@ let process_connection config fd (stage1 : 'a http_service) =
     do_stage3 req env stage3
   in
 
-  let rec process_request req redir_env redir_count =
+  let rec process_request req (redir_env:extended_environment) redir_count =
     (* [redir_env]: The environment of the request, possibly rewritten by redirects.
      * [redir_count]: The number of already performed redirections
      * [req]: Contains always the original environment
@@ -763,7 +849,8 @@ let process_connection config fd (stage1 : 'a http_service) =
       failwith "Too many redirections";
     dlogr (fun () -> sprintf "req-%d: stage1" (Oo.id req));
     let reaction = 
-      try (stage1 # process_header redir_env :> x_reaction)
+      try (stage1 # process_header 
+	     (redir_env :> extended_environment) :> x_reaction)
       with 
 	| Redirect_request(new_uri, new_hdr) ->
 	    `Redirect_request(new_uri, new_hdr)
@@ -823,14 +910,14 @@ let process_connection config fd (stage1 : 'a http_service) =
 		  new redirected_environment 
 		    ~properties:new_properties
 		    ~in_header:new_hdr
-		    ~in_channel:(redir_env # input_ch) redir_env in
+		    redir_env in
 		process_request req new_env (redir_count+1)
 	)
       with
 	| Redirect_response_legal(new_uri, new_hdr) ->
 	    dlogr (fun () -> sprintf "req-%d: redirect_response to: %s"
 		     (Oo.id req) new_uri);
-	    if redir_env # output_state <> `Start then
+	    if !(redir_env#output_state) <> `Start then
 	      failwith "Redirect_response is not allowed after \
                         output has started";
 	    let (new_script_name, new_query_string) = decode_query new_uri in
@@ -888,14 +975,20 @@ let process_connection config fd (stage1 : 'a http_service) =
       fetch_requests reactor
     with
 	err ->
+	  let msg = Netexn.to_string err in
+	  dlogr (fun () ->
+		   sprintf "Exception forwarding to error log: %s" msg);
 	  config # config_log_error None None None None
-	    ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
+	    ("Nethttpd: Exception: " ^ msg);
   );
   ( try
       reactor # close()
     with
 	err ->
+	  let msg = Netexn.to_string err in
+	  dlogr (fun () ->
+		   sprintf "Exception forwarding to error log: %s" msg);
 	  config # config_log_error None None None None
-	    ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
+	    ("Nethttpd: Exception: " ^ msg)
   )
 ;;

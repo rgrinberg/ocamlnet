@@ -83,31 +83,6 @@ object
 end
 
 
-(* TODO: Export Uq_engines.engine_mixin *)
-class [ 't ] engine_mixin (init_state : 't Uq_engines.engine_state) =
-object(self)
-  val mutable notify_list = []
-  val mutable notify_list_new = []
-  val mutable state = init_state
-
-  method state = state
-
-  method request_notification f =
-    notify_list_new <- f :: notify_list_new
-
-  method private set_state s =
-    if s <> state then (
-      state <- s;
-      self # notify();
-    )
-
-  method private notify() =
-    notify_list <- notify_list @ notify_list_new;
-    notify_list_new <- [];
-    notify_list <- List.filter (fun f -> f()) notify_list
-end ;;
-
-
 type conn_state =
     [ `Active of http_protocol
     | `Closing of lingering_close
@@ -115,23 +90,52 @@ type conn_state =
     ]
 
 
-exception Ev_output_filled of Unixqueue.group
-  (** Event: The output channel filled data into the [http_response] object, and
+type reset_cond = unit -> unit
+
+
+exception Ev_output_filled of Unixqueue.group * reset_cond
+  (** condition: The output channel filled data into the [http_response] object, and
     * notifies now the [http_engine] 
    *)
 
-exception Ev_output_empty of ((unit -> unit) * Unixqueue.group)
-  (** Event: The [http_response] object just got empty, and the function must
-    * be called for further notification.
-   *)
-
-exception Ev_input_empty of Unixqueue.group
-  (** Event: The input channel became empty, and the engine must be notified 
+exception Ev_input_empty of Unixqueue.group * reset_cond
+  (** condition: The input channel became empty, and the engine must be notified 
     * (used for input flow control)
    *)
 
 
-class http_engine_input config ues group in_cnt =
+class condition ues mk_ev =
+object(self)
+  val mutable signaled = false
+    (* Records whether there is [ev] on the event queue. As [ev] is used
+       only for expressing a condition, it is nonsense to add [ev] twice to
+       the queue.
+     *)
+
+  val mutable ev = lazy(assert false)
+
+  initializer (
+    let ev0 = mk_ev self#reset in
+    ev <- lazy ev0
+  )
+
+  method signal() =
+    if not signaled then (
+      Unixqueue.add_event ues (Lazy.force ev);
+      signaled <- true
+    )
+
+  method reset() =
+    (* To be called when [ev] is consumed by the event handler *)
+    signaled <- false
+end
+    
+
+
+class http_engine_input config ues group in_cnt fdi =
+  let cond_input_empty =
+    new condition ues 
+      (fun reset -> Unixqueue.Extra(Ev_input_empty(group,reset))) in
 object(self)
   (* The input channel is fed with data by the main event handler that invokes
    * [add_data] and [add_eof] to forward new input data to this channel.
@@ -147,8 +151,11 @@ object(self)
   val mutable notify_list = []
   val mutable notify_list_new = []
 
+  method cond_input_empty = 
+    cond_input_empty
 
   method input s spos slen =
+    dlogr (fun () -> sprintf "FD %Ld: input.input" fdi);
     if closed then raise Netchannels.Closed_channel;
     if locked then failwith "Nethttpd_engine: channel is locked";
     if aborted then failwith "Nethttpd_engine: channel aborted";
@@ -177,7 +184,7 @@ object(self)
 	   pos_in <- pos_in + len;
 	   if not (self # can_input) then (
 	     if config#config_input_flow_control then
-	       Unixqueue.add_event ues (Unixqueue.Extra(Ev_input_empty group));
+	       cond_input_empty # signal();
 	     self # notify();
 	   );
 	   len
@@ -187,6 +194,7 @@ object(self)
     pos_in
 
   method close_in() =
+    dlogr (fun () -> sprintf "FD %Ld: input.close_in" fdi);
     if closed then raise Netchannels.Closed_channel;
     if locked then failwith "Nethttpd_engine: channel is locked";
     front <- None;
@@ -205,6 +213,7 @@ object(self)
     notify_list <- List.filter (fun f -> f()) notify_list
 
   method add_data ((_,_,len) as data_chunk) =
+    dlogr (fun () -> sprintf "FD %Ld: input.add_data" fdi);
     assert(len > 0);
     if not eof then (
       let old_can_input = self # can_input in
@@ -215,6 +224,7 @@ object(self)
       (* else: we are probably dropping all data! *)
 
   method add_eof() =
+    dlogr (fun () -> sprintf "FD %Ld: input.add_eof" fdi);
     if not eof then (
       let old_can_input = self # can_input in
       eof <- true;
@@ -222,19 +232,26 @@ object(self)
     )
     
   method unlock() =
+    dlogr (fun () -> sprintf "FD %Ld: input.unlock" fdi);
     locked <- false
 
   method drop() =
+    dlogr (fun () -> sprintf "FD %Ld: input.drop" fdi);
     locked <- false;
     eof <- true
 
   method abort() =
+    dlogr (fun () -> sprintf "FD %Ld: input.abort" fdi);
     aborted <- true
 
 end
 
 
-class http_engine_output config ues group resp (f_access : unit->unit) =
+class http_engine_output config ues group resp output_state 
+                         (f_access : unit->unit) fdi =
+  let cond_output_filled =
+    new condition ues 
+      (fun reset -> Unixqueue.Extra(Ev_output_filled(group,reset))) in
 object(self)
   (* The output channel adds the incoming data to the [http_response] object
    * [resp]. The main [http_engine] is notified about new data by a
@@ -243,8 +260,8 @@ object(self)
    *
    * Note that [resp] is setup such that it calls [resp_notify] whenever the state
    * of [resp] changes, or the [resp] queue becomes empty. We do not immediately
-   * forward this notification, but generate another event [Ev_output_empty].
-   * When the event is processed, [notify] is finally called. This indirection
+   * forward this notification, but delay it a bit by pusing the invocation
+   * onto the event queue. This indirection
    * is necessary because the moment of the [resp_notify] invocation is quite
    * hairy, and failures must not be risked.
    *)
@@ -260,23 +277,25 @@ object(self)
     resp # set_callback self#resp_notify
   )
 
+  method cond_output_filled = cond_output_filled
+
   method output s spos slen =
     (* In principle we always accept any amount of output data. For practical reasons,
      * the length of an individual chunk is limited to 8K - it just prevents
      * some dumb programming errors.
      *)
+    dlogr (fun () -> sprintf "FD %Ld: output.output" fdi);
     if closed then raise Netchannels.Closed_channel;
     if locked then failwith "Nethttpd_engine: channel is locked";
     if aborted then failwith "Nethttpd_engine: channel aborted";
+    if !output_state <> `Sending then
+      failwith "output channel: cannot output now";
     let len = min slen 8192 in
     if len > 0 then (
       let old_can_output = self # can_output in    
       let u = String.sub s spos len in
       resp # send (`Resp_body(u,0,String.length u));
-      Unixqueue.add_event ues (Unixqueue.Extra(Ev_output_filled group));
-      (* CHECK: Maybe we should also add a mechanism to detect duplicate events,
-       * just to be sure that the event queue does not get jammed.
-       *)
+      cond_output_filled # signal();
       pos_out <- pos_out + len;
       if old_can_output <> self # can_output then self # notify();
     );
@@ -286,19 +305,23 @@ object(self)
     pos_out
 
   method flush() =
+    dlogr (fun () -> sprintf "FD %Ld: output.flush" fdi);
     ()
 
   method close_out() =
+    dlogr (fun () -> sprintf "FD %Ld: output.close_out" fdi);
     if closed then raise Netchannels.Closed_channel;
     if locked then failwith "Nethttpd_engine: channel is locked";
     let old_can_output = self # can_output in
     resp # send `Resp_end;
     closed <- true;
+    output_state := `End;
     f_access();
-    Unixqueue.add_event ues (Unixqueue.Extra(Ev_output_filled group));
+    cond_output_filled # signal();
     if old_can_output <> self # can_output then self # notify();
 
   method close_after_send_file() =
+    dlogr (fun () -> sprintf "FD %Ld: output.close_after_send_file" fdi);
     closed <- true;
     f_access();
     
@@ -307,11 +330,13 @@ object(self)
     ((resp # state = `Active) && resp # send_queue_empty)
 
   method unlock() =
+    dlogr (fun () -> sprintf "FD %Ld: output.unlock" fdi);
     locked <- false
 
   method resp_notify() =
-    Unixqueue.add_event ues (Unixqueue.Extra(Ev_output_empty(self # notify, group)));
-    (* CHECK: It is assumed that this event arrives before it is again invalid.
+    Unixqueue.once ues group 0.0 self#notify
+    (* CHECK: It is assumed that self#notify is called before the condition
+     * is again invalid.
      * If this turns out to be wrong, we have to implement a quicker way of
      * notification. It is known that [resp_notify] is called back from the
      * current [cycle]. One could check after every [cycle] whether the
@@ -327,6 +352,7 @@ object(self)
     notify_list <- List.filter (fun f -> f()) notify_list
 
   method abort() =
+    dlogr (fun () -> sprintf "FD %Ld: output.abort" fdi);
     aborted <- true
 
 end
@@ -335,7 +361,9 @@ end
 class http_async_environment config ues group
                              ((req_meth, req_uri), req_version) req_hdr 
                              fd_addr peer_addr
-                             in_ch_async in_cnt out_ch_async resp reqrej =
+
+                             in_ch_async in_cnt out_ch_async output_state
+                             resp reqrej fdi =
   let in_ch = 
     Netchannels.lift_in ~buffered:false 
                         (`Raw (in_ch_async :> Netchannels.raw_in_channel)) in
@@ -356,40 +384,43 @@ object (self)
                              config
                              req_meth req_uri req_version req_hdr 
   			     fd_addr peer_addr
-                             in_ch in_cnt out_ch resp 
-			     out_ch_async#close_after_send_file reqrej
+                             in_ch in_cnt out_ch output_state resp 
+			     out_ch_async#close_after_send_file reqrej fdi
 			     as super
 
-  method input_ch_async = (in_ch_async : Uq_engines.async_in_channel)
+  method input_ch_async = (in_ch_async :> Uq_engines.async_in_channel)
   method output_ch_async = (out_ch_async :> Uq_engines.async_out_channel)
 
   method send_output_header() =
+    let ok = !output_state = `Start in
     super # send_output_header();
-    Unixqueue.add_event ues (Unixqueue.Extra(Ev_output_filled group));
+    if ok then
+      out_ch_async # cond_output_filled # signal()
 
   method send_file fd length =
     super # send_file fd length;
       (* does not block, because [synch] is now [ fun () -> () ] *)
-    Unixqueue.add_event ues (Unixqueue.Extra(Ev_output_filled group));
+    out_ch_async # cond_output_filled # signal()
     
 
 end
 
 
 class http_request_manager config ues group req_line req_hdr expect_100_continue 
-                           fd_addr peer_addr resp =
+                           fd_addr peer_addr resp fdi =
   let f_access = ref (fun () -> ()) in  (* set below *)
   let in_cnt = ref 0L in
   let reqrej = ref false in
 
-  let in_ch = new http_engine_input config ues group in_cnt in
-  let out_ch = new http_engine_output config ues group resp 
-                 (fun () -> !f_access()) in
+  let output_state = ref `Start in
+  let in_ch = new http_engine_input config ues group in_cnt fdi in
+  let out_ch = new http_engine_output config ues group resp output_state
+                 (fun () -> !f_access()) fdi in
 
   let env = new http_async_environment 
 	      config ues group req_line req_hdr fd_addr peer_addr 
-	      (in_ch :> Uq_engines.async_in_channel) in_cnt
-	      out_ch resp reqrej in
+	      in_ch in_cnt
+	      out_ch output_state resp reqrej fdi in
      (* may raise Standard_response! *)
 
   let () =
@@ -400,6 +431,11 @@ object(self)
   (* This class also satisfies the types [http_request_notification] and
    * [http_request_header_notification]
    *)
+
+  initializer (
+    dlogr (fun () -> sprintf "FD=%Ld: new request_manager req-%d"
+	     fdi (Oo.id self))
+  )
 
   val mutable req_state = ( `Received_header : engine_req_state )
     (* When this object is created, the header has just been received *)  
@@ -419,6 +455,7 @@ object(self)
   method log_access = env#log_access
 
   method abort() =
+    dlogr (fun () -> sprintf "req-%d: abort" (Oo.id self));
     in_ch # abort();
     out_ch # abort();
 
@@ -427,7 +464,7 @@ object(self)
     (* Send the "100 Continue" response if requested: *)
     if expect_100_continue then (
       resp # send resp_100_continue;
-      Unixqueue.add_event ues (Unixqueue.Extra(Ev_output_filled group));
+      out_ch # cond_output_filled # signal();
     );
     (* Unlock everything: *)
     in_ch # unlock();
@@ -465,27 +502,21 @@ object(self)
     out_ch # unlock();
     env # unlock();
     req_state <- `Finishing;
-    match env # output_state with
+    match !(env # output_state) with
       | `Start ->
 	  (* The whole response is missing! Generate a "Server Error": *)
 	  output_std_response config env `Internal_server_error None
 	    (Some "Nethttpd: Missing response, replying 'Server Error'");
-	  env # set_output_state `End;
-      | `Sent_header
-      | `Sending_body ->
+	  (env # output_state) := `End;
+      | `Sending ->
 	  (* The response body is probably incomplete or missing. Try to close
 	   * the channel.
 	   *)
 	  ( try env # output_ch # close_out() with Netchannels.Closed_channel -> () );
-	  env # set_output_state `End;
-      | `Sent_body 
+	  (env # output_state) := `End;
       | `End ->
 	  (* Everything ok, just to be sure... *)
-	  ( try env # output_ch # close_out() with Netchannels.Closed_channel -> () );
-	  env # set_output_state `End;
-      | _ ->
-	  (* These states must not happen! *)
-	  assert false
+	  ( try env # output_ch # close_out() with Netchannels.Closed_channel -> () )
 end
 
 
@@ -510,8 +541,9 @@ class http_engine ~on_request_header () config fd ues =
    *)
   let _proto = new http_protocol config fd in
   let handle_event_lock = ref false in
+  let fdi = Netsys.int64_of_file_descr fd in
 object(self)
-  inherit [unit] engine_mixin (`Working 0)
+  inherit [unit] Uq_engines.engine_mixin (`Working 0)
 
   val fd_addr = Unix.getsockname fd
   val peer_addr = Netsys.getpeername fd
@@ -528,7 +560,7 @@ object(self)
    * - When to listen for output events? In principle, when [proto # do_output]
    *   indicates this. This flag can change after [proto # cycle], but also
    *   after new data have been output. Our output channel will tell us, and
-   *   sends [Ev_output_filled] or [Ev_output_empty] events to us.
+   *   sends [Ev_output_filled] events to us.
    *)
 
   val mutable cur_request_manager = None
@@ -612,18 +644,20 @@ object(self)
 		   | `Closing lc   -> self # cycle_lc lc
 		   | `Closed       -> ()  (* drop this event *)
 	       )
-	   | Unixqueue.Extra (Ev_output_filled g) when g = group ->
+	   | Unixqueue.Extra (Ev_output_filled(g,reset)) when g = group ->
 	       (* The output channel is filled with fresh data *)
+	       reset();
 	       ( match conn_state with
 		   | `Active proto -> (* Check whether to enable output now: *)
 		       self # enable_output proto#do_output
 		   | `Closing lc   -> ()  (* drop this event *)
 		   | `Closed       -> ()  (* drop this event *)
 	       )
-	   | Unixqueue.Extra (Ev_output_empty(f,g)) when g = group ->
-	       (* The current response object is (probably?) empty. Notify [f] *)
+	   | Unixqueue.Extra (Ev_input_empty(g,reset)) when g = group ->
+	       (* The input channel is empty. CHECK: why is this a no-op? *)
+	       reset();
 	       ( match conn_state with
-		   | `Active proto -> f()
+		   | `Active proto -> ()
 		   | `Closing lc   -> ()  (* drop this event *)
 		   | `Closed       -> ()  (* drop this event *)
 	       )
@@ -633,21 +667,25 @@ object(self)
       ()
 
   method private count() =
-    match state with
+    match self#state with
       | `Working n -> self # set_state(`Working(n+1))
       | _ -> ()
 
   method private cycle_proto proto =
     (* Do a HTTP protocol cycle, and check whether I/O is still enabled *)
+    dlogr (fun () -> sprintf "FD %Ld: cycle" (Netsys.int64_of_file_descr fd));
     proto # cycle();   (* do not block! *)
     self # goon_proto proto
 
   method private timeout_proto proto =
     (* Either input or output has timed out. *)
+    dlogr (fun () -> sprintf "FD %Ld: timeout"
+	     (Netsys.int64_of_file_descr fd));
     proto # timeout();
     self # goon_proto proto
 
   method private goon_proto proto =
+    dlogr (fun () -> sprintf "FD %Ld: go on" (Netsys.int64_of_file_descr fd));
     let enabled_input_flow =
       (not config#config_input_flow_control) || (
 	(* Input flow control: We stop reading from the descriptor when there are
@@ -674,6 +712,8 @@ object(self)
     (* Check whether the HTTP connection is processed and can be closed: *)
     if eof_seen && not proto#do_output then (
       if proto # need_linger then (
+	dlogr (fun () -> sprintf "FD %Ld: lingering"
+		 (Netsys.int64_of_file_descr fd));
 	let lc = 
 	  new lingering_close 
 	    ~preclose:(fun () -> Netlog.Debug.release_fd fd) 
@@ -684,6 +724,8 @@ object(self)
       )
       else (
 	(* Just close the descriptor and shut down the engine: *)
+	dlogr (fun () -> sprintf "FD %Ld: closing"
+		 (Netsys.int64_of_file_descr fd));
 	Netlog.Debug.release_fd fd;
 	conn_state <- `Closed;
 	Unix.close fd;
@@ -692,10 +734,20 @@ object(self)
       )
     )
 
+  method private receive proto =
+    let tok = proto # receive() in
+    dlogr (fun () -> sprintf "FD %Ld: next token: %s"
+	     (Netsys.int64_of_file_descr fd)
+	     (Nethttpd_kernel.string_of_req_token tok)
+	  );
+    tok
+
   method private forward_input_tokens proto =
     (* Interpret all available input tokens: *)
+    dlogr (fun () -> sprintf "FD %Ld: forward_input_tokens"
+	     (Netsys.int64_of_file_descr fd));
     while proto # recv_queue_len > 0 do
-      match proto # receive() with
+      match self # receive proto with
 	| `Req_header(req_line, req_hdr, resp) ->
 	    (* The next request starts. *)
 	    assert(cur_request_manager = None);
@@ -705,7 +757,7 @@ object(self)
 	      with
 		  Recv_queue_empty -> false in
 	    if expect_100_continue then
-	      ignore(proto # receive());
+	      ignore(self # receive proto);
 
 	    let f_access = ref (fun () -> ()) in
 
@@ -713,17 +765,30 @@ object(self)
 		let rm = new http_request_manager    (* or Standard_response *)
 			   config ues group
 			   req_line req_hdr expect_100_continue 
-			   fd_addr peer_addr resp in
+			   fd_addr peer_addr resp fdi in
 	    
 		f_access := rm # log_access;
 		cur_request_manager <- Some rm;
 	    
+		dlogr (fun () -> 
+			 sprintf "FD %Ld: got request req-%d, notifying user"
+			 (Netsys.int64_of_file_descr fd) (Oo.id rm));
+
 		(* Notify the user that we have received the header: *)
-		on_request_header (rm :> http_request_header_notification);
+		let () =
+		  on_request_header (rm :> http_request_header_notification) in
   	           (* Note: the callback may raise an arbitrary exception *)
+
+		dlogr (fun () -> 
+			 sprintf "FD %Ld: back from user for req-%d"
+			 (Netsys.int64_of_file_descr fd) (Oo.id rm))
+
 	      with
 		| Standard_response(status, hdr_opt, msg_opt) ->
 		    (* Probably a problem when decoding a header field! *)
+		    dlogr (fun () -> 
+			     sprintf "FD %Ld: got request -> std response"
+			       (Netsys.int64_of_file_descr fd));
                     ( match msg_opt with
 			| Some msg ->
 			    let (req_meth, req_uri) = fst req_line in
@@ -734,12 +799,13 @@ object(self)
                     );
                     (* CHECK: Also log to access log? *)
                     let body = config # config_error_response 400 in
-		  Nethttpd_kernel.send_static_response resp status hdr_opt body;
-		  Unixqueue.add_event ues (Unixqueue.Extra(Ev_output_filled group));
-		  (* Now [cur_request_manager = None]. This has the effect that 
-		   * all further input tokens for this request are silently
-		   * dropped.
-		   *)
+		    Nethttpd_kernel.send_static_response resp status hdr_opt body;
+		    Unixqueue.add_event ues
+		      (Unixqueue.Extra(Ev_output_filled(group,(fun () -> ()))));
+		    (* Now [cur_request_manager = None]. This has the effect that 
+	 	     * all further input tokens for this request are silently
+		     * dropped.
+		     *)
 	    )
 	    
 	| `Req_expect_100_continue ->
@@ -747,6 +813,9 @@ object(self)
 
 	| `Req_body data_chunk ->
 	    (* Just forward data to the current request manager: *)
+	    dlogr (fun () -> 
+		     sprintf "FD %Ld: got body data"
+		       (Netsys.int64_of_file_descr fd));
 	    ( match cur_request_manager with
 		| Some rm ->
 		    if rm # req_state <> `Finishing then
@@ -757,10 +826,16 @@ object(self)
 
 	| `Req_trailer _ ->
 	    (* Don't know what to do with the trailer. *)
+	    dlogr (fun () -> 
+		     sprintf "FD %Ld: got trailer"
+		       (Netsys.int64_of_file_descr fd));
 	    ()
 
 	| `Req_end ->
 	    (* Just forward this event to the current request manager: *)
+	    dlogr (fun () -> 
+		     sprintf "FD %Ld: got request end"
+		       (Netsys.int64_of_file_descr fd));
 	    ( match cur_request_manager with
 		| Some rm ->
 		    cur_request_manager <- None;
@@ -783,6 +858,9 @@ object(self)
 
 	| `Eof ->
 	    (* If there is still a request manager, finish the current request. *)
+	    dlogr (fun () -> 
+		     sprintf "FD %Ld: got eof"
+		       (Netsys.int64_of_file_descr fd));
 	    ( match cur_request_manager with
 		| Some rm ->
 		    cur_request_manager <- None;
@@ -809,6 +887,9 @@ object(self)
 
 	| `Fatal_error e ->
 	    (* The connection is already down. Just log the incident: *)
+	    dlogr (fun () -> 
+		     sprintf "FD %Ld: got fatal error"
+		       (Netsys.int64_of_file_descr fd));
 	    let msg = Nethttpd_kernel.string_of_fatal_error e in
 	    config # config_log_error 
 	      (Some fd_addr) (Some peer_addr) None None msg;
@@ -821,6 +902,9 @@ object(self)
 	     * request manager, because `Bad_request_error replaces `Req_header
 	     * when bad requests arrive.
 	     *)
+	    dlogr (fun () -> 
+		     sprintf "FD %Ld: got bad request"
+		       (Netsys.int64_of_file_descr fd));
 	    assert(cur_request_manager = None);
 	    let msg = string_of_bad_request_error e in
 	    let status = status_of_bad_request_error e in
@@ -828,25 +912,35 @@ object(self)
 	      (Some fd_addr) (Some peer_addr) None None msg;
 	    let body = config # config_error_response (int_of_http_status status) in
 	    Nethttpd_kernel.send_static_response resp status None body;
-	    Unixqueue.add_event ues (Unixqueue.Extra(Ev_output_filled group));
+	    Unixqueue.add_event ues
+	      (Unixqueue.Extra(Ev_output_filled(group,(fun () -> ()))));
 	    (* Note: The kernel ensures that the following token will be [`Eof].
 	     * Any necessary cleanup will be done when [`Eof] is processed.
 	     *)
 
 	| `Timeout -> 
 	    (* A non-fatal timeout. Always followed by [`Eof] *)
+	    dlogr (fun () -> 
+		     sprintf "FD %Ld: got timeout"
+		       (Netsys.int64_of_file_descr fd));
 	    ()
     done
 
 
   method private cycle_lc lc =
     (* Do a cycle of the [lc] engine. *)
+    dlogr (fun () -> 
+	     sprintf "FD %Ld: cycle_lc"
+	       (Netsys.int64_of_file_descr fd));
     lc # cycle();     (* do not block! *)
     let cont = lc # lingering in
     self # enable_output false;
     self # enable_input cont;
     if not cont then (
       (* Now stop the whole engine! *)
+      dlogr (fun () -> 
+	       sprintf "FD %Ld: cycle_lc transitioning to Done"
+		 (Netsys.int64_of_file_descr fd));
       conn_state <- `Closed;
       Unixqueue.clear ues group;    (* Stop in Unixqueue terms *)
       self # set_state (`Done());   (* Report the new state *)
@@ -862,7 +956,10 @@ object(self)
 
   method abort() =
     (* The hard way to stop everything: *)
-    match state with
+    dlogr (fun () -> 
+	     sprintf "FD %Ld: abort"
+	       (Netsys.int64_of_file_descr fd));
+    match self#state with
       | `Working _ ->
 	  Unixqueue.clear ues group;    (* Stop the queue immediately *)
 	  if conn_state <> `Closed then ( 
@@ -1112,7 +1209,7 @@ object(self)
 			      dlogr (fun () ->
 				       sprintf "req-%d: redirect_response \
                                                 to %s" req_id new_uri);
-			      if env # output_state <> `Start 
+			      if !(env # output_state) <> `Start 
 			      then
 				log_error req
 				  "Nethttpd: Redirect_response is not allowed \
@@ -1166,10 +1263,10 @@ object(self)
 	     | Redirect_response(new_uri, new_hdr) ->
 		 Some(new_uri, new_hdr)
              | Standard_response(status, hdr_opt, errmsg_opt) 
-		 when env'#output_state = `Start ->
+		 when !(env'#output_state) = `Start ->
 		   output_std_response config env' status hdr_opt errmsg_opt;
 		   None
-	     | err when env#output_state = `Start ->
+	     | err when !(env#output_state) = `Start ->
 		 output_std_response config env' `Internal_server_error None 
 		   (Some("Nethttpd: Uncaught exception: " ^ Netexn.to_string err));
 		 None
@@ -1254,10 +1351,10 @@ object(self)
                     but it is only allowed in stage 3";
 		 None
              | Standard_response(status, hdr_opt, errmsg_opt) 
-		 when env'#output_state = `Start ->
+		 when !(env'#output_state) = `Start ->
 		   output_std_response config env' status hdr_opt errmsg_opt;
 		   None
-	     | err when env#output_state = `Start ->
+	     | err when !(env#output_state) = `Start ->
 		 output_std_response config env' `Internal_server_error None 
 		   (Some("Nethttpd: Uncaught exception: " ^ 
 			   Netexn.to_string err));
@@ -1353,7 +1450,7 @@ object(self)
 	      new redirected_environment 
 		~properties:new_properties
 		~in_header:new_hdr
-		~in_channel:(redir_env # input_ch) redir_env in
+		~in_channel:(redir_env # input_channel) redir_env in
 	    self # process_request req new_env (redir_count+1)
     )
 

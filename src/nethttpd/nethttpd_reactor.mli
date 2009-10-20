@@ -51,7 +51,7 @@ object
   method config_timeout : float
     (** General timeout until new data arrives.  (-1) means no timeout. *)
 
-  method config_cgi : Netcgi1_compat.Netcgi_env.cgi_config
+  method config_cgi : Netcgi.config
     (** The CGI configuration to use in the Netcgi environment *)
 
   method config_error_response : int -> string
@@ -132,9 +132,9 @@ class http_environment : #http_processor_config ->
                          string -> string -> protocol -> http_header ->
                          Unix.sockaddr -> Unix.sockaddr ->
                          Netchannels.in_obj_channel -> int64 ref ->
-                         Netchannels.out_obj_channel -> 
+                         Netchannels.out_obj_channel -> output_state ref -> 
                          Nethttpd_kernel.http_response -> (unit -> unit) ->
-                         bool ref ->
+                         bool ref -> int64 ->
                            internal_environment
   (** For private use only *)
 

@@ -384,7 +384,7 @@ struct
     method finalize = arg#finalize
   end
 
-  type cgi_cookie = Nethttp.cookie = {
+  type cgi_cookie = Nethttp.netscape_cookie = {
     cookie_name : string;
     cookie_value : string;
     cookie_expires : float option;

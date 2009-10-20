@@ -176,10 +176,13 @@ class mime_argument : ?work_around_backslash_bug:bool ->
     supported.  You do not have to worry however, cookies are always
     sent in such a way older browsers understand them -- albeit not
     all attributes of course -- so your application can be ready for
-    the time RFC 2965 will be the norm.  *)
+    the time RFC 2965 will be the norm.
+
+    N.B. This module appears also as {!Nethttp.Cookie}.
+ *)
 module Cookie :
 sig
-  type t = Netcgi_common.Cookie.t
+  type t = Nethttp.Cookie.t
     (** Mutable cookie type. *)
 
   val make :
@@ -219,6 +222,21 @@ sig
   val ports : t -> int list option
     (** [port c] the ports to which the cookie may be returned or [[]] if
 	not set. *)
+  val max_age : t -> int option
+    (** The expiration time of the cookie, in seconds.  [None] means
+        that the cookie will be discarded when the browser exits.
+        This information is not returned by the browser. *)
+  val secure : t -> bool
+    (** Tells whether the cookie is secure.
+        This information is not returned by the browser. *)
+  val comment : t -> string
+    (** Returns the comment associated to the cookie or [""] if it
+        does not exists.  This information is not returned by the
+        browser. *)
+  val comment_url : t -> string
+    (** Returns the comment URL associated to the cookie or [""] if it
+        does not exists.  This information is not returned by the
+        browser. *)
 
   val set_value : t -> string -> unit
     (** [set_value c v] sets the value of the cookie [c] to [v]. *)
@@ -267,6 +285,12 @@ sig
 	that the cookie may be sent to any port.
 
 	Cookie version 1 (RFC 2965).  *)
+
+  val of_netscape_cookie : Nethttp.netscape_cookie -> t
+    (** Convert a Netscape cookie to the new representation *)
+
+  val to_netscape_cookie : t -> Nethttp.netscape_cookie
+    (** Convert to Netscape cookie (with information loss) *)
 end
 
 
@@ -274,6 +298,9 @@ end
 
 
 (** {2 The environment of a request} *)
+
+type http_method =
+    [`GET | `HEAD | `POST | `DELETE | `PUT]
 
 type config = Netcgi_common.config = {
   tmp_directory : string;
@@ -283,7 +310,7 @@ type config = Netcgi_common.config = {
   (** The name prefix for temporary files. This must be a non-empty
       string. It must not contain '/'.  *)
 
-  permitted_http_methods : [`GET | `HEAD | `POST | `DELETE | `PUT] list;
+  permitted_http_methods : http_method list;
   (** The list of accepted HTTP methods *)
   permitted_input_content_types : string list;
   (** The list of accepted content types in requests.
@@ -333,7 +360,6 @@ val default_config : config
       ]}
       (This syntax is also robust w.r.t. the possible addition of new
       config flields.) *)
-
 
 (** The environment of a request consists of the information available
     besides the data sent by the user (as key-value pairs).  *)
@@ -846,6 +872,21 @@ type output_type =
       `Transactional(fun _ ch -> new Netchannels.tempfile_output_channel ch)
       ]}
   *)
+
+
+val buffered_transactional_outtype : output_type
+  (** The [output_type] implementing transactions with a RAM-based buffer *)
+
+val buffered_transactional_optype : output_type
+  (** {b Deprecated} name for [buffered_transactional_outtype] *)
+
+val tempfile_transactional_outtype : output_type
+  (** The [output_type] implementing transactions with a tempfile-based
+      buffer
+   *)
+
+val tempfile_transactional_optype : output_type
+  (** {b Deprecated} name for [tempfile_transactional_outtype] *)
 
 
 type arg_store = cgi_environment -> string -> Netmime.mime_header_ro ->

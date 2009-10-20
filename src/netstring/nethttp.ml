@@ -271,7 +271,7 @@ class type http_trailer = Netmime.mime_header
 class type http_trailer_ro = Netmime.mime_header_ro
 
 
-type cookie =
+type netscape_cookie =
     { cookie_name : string;
       cookie_value : string;
       cookie_expires : float option;
@@ -279,6 +279,8 @@ type cookie =
       cookie_path : string option;
       cookie_secure : bool;
     }
+
+type cookie = netscape_cookie
 
 
 let status_re =
@@ -378,6 +380,353 @@ let uripath_decode s =
 	 u')
       l in
   Neturl.join_path l'
+
+let rev_split is_cut s =
+  (* exported *)
+  let rec seek_cut acc i0 i1 =
+    if i1 >= String.length s then
+      (String.sub s i0 (i1 - i0)) :: acc
+    else if is_cut(String.unsafe_get s i1) then
+      skip ((String.sub s i0 (i1 - i0)) :: acc) (i1 + 1) (i1 + 1)
+    else
+      seek_cut acc i0 (i1 + 1)
+  and skip acc i0 i1 =
+    if i1 >= String.length s then acc
+    else if is_cut(String.unsafe_get s i1) then skip acc i0 (i1 + 1)
+    else seek_cut acc i1 i1 in
+  skip [] 0 0
+    
+
+module Cookie = struct
+  (* This module has been written by Christophe Troestler.
+      For full copyright message see netcgi.ml
+   *)
+
+  (* Cookies are chosen to be mutable because they are stored on the
+   client -- there is no rollback possible -- and mutability kind of
+   reflects that... *)
+
+  type t =  {
+    mutable name : string;
+    mutable value : string;
+    mutable max_age : int option;
+    mutable domain : string option;
+    mutable path : string option;
+    mutable secure : bool;
+    mutable comment : string;
+    mutable comment_url : string;
+    mutable ports : int list option;
+  }
+
+  let make ?max_age ?domain ?path ?(secure=false)
+      ?(comment="") ?(comment_url="") ?ports name value =
+    { name = name;
+      value = value;
+      max_age = max_age;
+      domain = domain;
+      path = path;
+      secure = secure;
+      comment = comment;
+      comment_url = comment_url;
+      ports = ports;
+    }
+
+  (* Old version of cookies *)
+  let of_netscape_cookie c =
+    { name = c.cookie_name;
+      value = c.cookie_value;
+      max_age = (match c.cookie_expires with
+                 | None -> None
+                 | Some t -> Some(truncate(t -. Unix.time())));
+      domain = c.cookie_domain;
+      path = c.cookie_path;
+      secure = c.cookie_secure;
+      comment = "";
+      comment_url = "";
+      ports = None
+    }
+  let to_netscape_cookie cookie =
+    { cookie_name = cookie.name;
+      cookie_value = cookie.value;
+      cookie_expires = (match cookie.max_age with
+                          | None -> None
+                          | Some t -> Some(float t +. Unix.time()));
+      cookie_domain = cookie.domain;
+      cookie_path = cookie.path;
+      cookie_secure = cookie.secure;
+    }
+
+  let name cookie = cookie.name
+  let value cookie = cookie.value
+  let max_age cookie = cookie.max_age
+  let domain cookie = cookie.domain
+  let path cookie = cookie.path
+  let secure cookie = cookie.secure
+  let comment cookie = cookie.comment
+  let comment_url cookie = cookie.comment_url
+  let ports cookie = cookie.ports
+
+  let set_value cookie v = cookie.value <- v
+  let set_max_age cookie t = cookie.max_age <- t
+  let set_domain cookie dom = cookie.domain <- dom
+  let set_path cookie s = cookie.path <- s
+  let set_secure cookie b = cookie.secure <- b
+  let set_comment cookie s = cookie.comment <- s
+  let set_comment_url cookie s = cookie.comment_url <- s
+  let set_ports cookie p = cookie.ports <- p
+
+  (* Set -------------------------------------------------- *)
+
+  (* Escape '"', '\\',... and surround the string with quotes. *)
+  let escape s0 =
+    let len = String.length s0 in
+    let encoded_length = ref len in
+    for i = 0 to len - 1 do
+      match String.unsafe_get s0 i with
+      | '\"' | '\\' | '\n' | '\r' -> incr encoded_length
+      | '\000' .. '\031' -> decr encoded_length (* ignore *)
+      | _ -> ()
+    done;
+    let s = String.create (!encoded_length + 2) in
+    String.unsafe_set s 0 '\"';
+    let j = ref 1 in
+    for i = 0 to len - 1 do
+      (match String.unsafe_get s0 i with
+      | '\"' | '\\' as c ->
+	  String.unsafe_set s !j '\\'; incr j;
+	  String.unsafe_set s !j c; incr j
+      | '\n' ->
+	  String.unsafe_set s !j '\\'; incr j;
+	  String.unsafe_set s !j 'n'; incr j
+      | '\r' ->
+	  String.unsafe_set s !j '\\'; incr j;
+	  String.unsafe_set s !j 'r'; incr j
+      | '\000' .. '\031' ->
+	  () (* Ignore these control chars, useless for comments *)
+      | c ->
+	  String.unsafe_set s !j c; incr j
+      );
+    done;
+    String.unsafe_set s !j '\"';
+    s
+
+  (* [gen_cookie c] returns a buffer containing an attribute suitable
+     for "Set-Cookie" (RFC 2109) and "Set-Cookie2" (RFC 2965).
+     which is backward compatible with Netscape spec.  It is the
+     minimal denominator. *)
+  let gen_cookie c =
+    let buf = Buffer.create 128 in
+    (* Encode, do not quote, key-val for compatibility with old browsers. *)
+    Buffer.add_string buf (Netencoding.Url.encode ~plus:false c.name);
+    Buffer.add_string buf "=";
+    Buffer.add_string buf (Netencoding.Url.encode ~plus:false c.value);
+    Buffer.add_string buf ";Version=1";
+    (* FIXME: Although values of Domain and Path can be quoted since
+       RFC2109, it seems that browsers do not understand them -- they
+       take the quotes as part of the value.  One way to get correct
+       headers is to strip [d] and [p] of unsafe chars -- if they have any. *)
+    (match c.domain with
+     | None -> ()
+     | Some d ->
+	 Buffer.add_string buf ";Domain=";
+	 Buffer.add_string buf d);
+    (match c.path with
+     | None -> ()
+     | Some p ->
+	 Buffer.add_string buf ";Path=";
+	 Buffer.add_string buf p);
+    if c.secure then Buffer.add_string buf ";secure";
+    (match c.max_age with
+     | None -> ()
+     | Some s ->
+	 Buffer.add_string buf ";Max-Age=";
+	 Buffer.add_string buf (if s > 0 then string_of_int s else "0");
+	 (* For compatibility with old browsers: *)
+	 Buffer.add_string buf ";Expires=";
+	 Buffer.add_string buf
+	   (if s > 0 then Netdate.mk_mail_date (Unix.time() +. float s)
+	    else "Thu, 1 Jan 1970 00:00:00 GMT");
+    );
+    if c.comment <> "" then (
+      Buffer.add_string buf ";Comment=";
+      Buffer.add_string buf (escape c.comment);
+    );
+    buf
+
+
+  let set_set_cookie_ct (http_header:#Netmime.mime_header) cookies =
+    let add_cookie (c1, c2) c =
+      let buf = gen_cookie c in
+      (* In any case, we set a "Set-Cookie" header *)
+      let c1 = (Buffer.contents buf) :: c1 in
+      let c2 =
+	if c.comment_url = "" && c.ports = None then c2 else (
+	  (* When this is relevant, also set a "Set-Cookie2" header *)
+	  if c.comment_url <> "" then (
+	    Buffer.add_string buf ";CommentURL=";
+	    Buffer.add_string buf (escape c.comment_url));
+	  (match c.ports with
+	   | None -> ()
+	   | Some p ->
+	       Buffer.add_string buf ";Port=\"";
+	       Buffer.add_string buf (String.concat ","
+					(List.map string_of_int p));
+	       Buffer.add_string buf "\""
+	  );
+	  (Buffer.contents buf) :: c2
+	) in
+      (c1, c2) in
+    let cookie, cookie2 = List.fold_left add_cookie ([], []) cookies in
+    http_header#update_multiple_field "Set-Cookie"  cookie;
+    (* "Set-Cookie2" must come after in order, when they are
+       understood, to override the "Set-Cookie". *)
+    http_header#update_multiple_field "Set-Cookie2" cookie2
+
+
+  (* Get -------------------------------------------------- *)
+
+  (* According to RFC 2068:
+     	quoted-string  = ( <"> *(qdtext) <"> )
+     	qdtext         = <any TEXT except '\"'>
+     	quoted-pair    = "\\" CHAR
+     As there a no details, we decode the usual escapes and treat
+     other "\x" as simply "x". *)
+  let unescape_range s low up =
+    if low >= up then "" else
+      let len = up - low in
+      let s = String.sub s low len in
+      let rec decode i j =
+	if i < len then (
+	  match String.unsafe_get s i with
+	  | '\\' ->
+	      let i = i + 1 in
+	      if i < len then (
+		(match String.unsafe_get s i with
+		 | '\"' | '\\' as c -> String.unsafe_set s j c
+		 | 'n' -> String.unsafe_set s j '\n'
+		 | 'r' -> String.unsafe_set s j '\r'
+		 | 't' -> String.unsafe_set s j '\t'
+		 | c -> String.unsafe_set s j c
+		);
+		decode (i + 1) (j + 1)
+	      )
+	      else j
+	  | c ->
+	      String.unsafe_set s j c;
+	      decode (i + 1) (j + 1)
+	)
+	else j in
+      let j = decode 0 0 in
+      if j < len then String.sub s 0 j else s
+
+
+  let ports_of_string s =
+    let l = rev_split (fun c -> c = ',' || c = ' ') s in
+    List.fold_left (fun pl p ->
+		      try int_of_string p :: pl with _ -> pl) [] l
+
+ (* Given a new key-val data, update the list of cookies accordingly
+     (new cookie or update attributes of the current one). *)
+  let add_key_val key value cl =
+    if key <> "" && String.unsafe_get key 0 = '$' then
+      (* Keys starting with '$' are for control; ignore the ones we do
+	 not know about. *)
+      (match cl with
+       | [] -> []
+       | c :: _ ->
+	   (if key = "$Path" then c.path <- Some value
+	    else if key = "$Domain" then c.domain <- Some value
+	    else if key = "$Port" then
+	      c.ports <- Some (ports_of_string value));
+	   cl
+      )
+    else make key value :: cl
+
+
+  let decode_range s start _end = 
+    Netencoding.Url.decode ~pos:start ~len:(_end - start) s
+
+  (* The difference between version 0 and version 1 cookies is that
+     the latter start with $Version (present 1st or omitted).  Our
+     decoding function can handle both versions transparently, so
+     $Version is ignored.  In the absence of "=", the string is
+     treated as the VALUE. *)
+
+  (* [get_key cs i0 i len] scan the cookie string [cs] and get the
+     key-val pairs. keys and values are stripped of heading and
+     trailing spaces, except for quoted values. *)
+  let rec get_key cs i0 i len cl =
+    if i >= len then
+      let value = decode_range cs i0 len in
+      if value = "" then cl else make "" value :: cl
+    else
+      match String.unsafe_get cs i with
+      | ',' | ';' ->
+	  (* No "=", interpret as a value as Mozilla does.  We choose
+	     this over MSIE which is reported to return just "n"
+	     instead of "n=" when the value is empty.  *)
+	  let cl = make "" (decode_range cs i0 i) :: cl in
+	  skip_space_before_key cs (i + 1) len cl
+      | '=' ->
+	  let i1 = i + 1 in
+	  skip_value_space cs i1 len (decode_range cs i0 i) cl
+      | c ->
+	  get_key cs i0 (i + 1) len cl
+  and skip_space_before_key cs i len cl =
+    if i >= len then cl
+    else
+      match String.unsafe_get cs i with
+      | ' ' | '\t' | '\n' | '\r' -> skip_space_before_key cs (i + 1) len cl
+      | _ -> get_key cs i i len cl
+  and skip_value_space cs i len key cl =
+    if i >= len then add_key_val key "" cl (* no value *)
+    else
+      match String.unsafe_get cs i with
+      | ' ' | '\t' | '\n' | '\r' -> (* skip linear white space *)
+	  skip_value_space cs (i + 1) len key cl
+      | '\"' ->
+	  get_quoted_value cs (i + 1) (i + 1) len key cl
+      | _ ->
+	  get_value cs i i len key cl
+  and get_value cs i0 i len key cl =
+    if i >= len then add_key_val key (decode_range cs i0 len) cl
+    else
+      match String.unsafe_get cs i with
+      | ',' | ';' ->
+	  let cl = add_key_val key (decode_range cs i0 i) cl in
+	  (* Usually there is a space after ';' to skip *)
+	  skip_space_before_key cs (i + 1) len cl
+      | _ ->
+	  get_value cs i0 (i + 1) len key cl
+  and get_quoted_value cs i0 i len key cl =
+    if i >= len then (* quoted string not closed; try anyway *)
+      add_key_val key (unescape_range cs i0 len) cl
+    else
+      match String.unsafe_get cs i with
+      | '\\' -> get_quoted_value cs i0 (i + 2) len key cl
+      | '\"' ->
+	  let cl = add_key_val key (unescape_range cs i0 i) cl in
+	  skip_to_next cs (i + 1) len cl
+      | _ -> get_quoted_value cs i0 (i + 1) len key cl
+  and skip_to_next cs i len cl =
+    if i >= len then cl
+    else
+      match String.unsafe_get cs i with
+      | ',' | ';' -> skip_space_before_key cs (i + 1) len cl
+      | _ -> skip_to_next cs (i + 1) len cl
+
+
+
+  let get_cookie_ct (http_header:#http_header_ro) =
+    let cookies = http_header#multiple_field "Cookie" in
+    let cl = List.fold_left
+      (fun cl cs -> get_key cs 0 0 (String.length cs) cl) [] cookies in
+    (* The order of cookies is important for the Netscape ones since
+       "more specific path mapping should be sent before cookies with
+       less specific path mappings" -- for those, there will be only a
+       single "Cookie" line. *)
+    List.rev cl
+end
 
 
 module Header = struct
@@ -1438,6 +1787,9 @@ module Header = struct
       )
       parts
 
+  let get_cookie_ct =
+    Cookie.get_cookie_ct
+
   let set_cookie mh l =
     let s =
       String.concat ";"
@@ -1535,6 +1887,9 @@ module Header = struct
 	l
     in
     mh # update_multiple_field "Set-cookie" cookie_fields
+
+  let set_set_cookie_ct =
+    Cookie.set_set_cookie_ct
 
 
 end

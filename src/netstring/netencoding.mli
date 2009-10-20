@@ -212,9 +212,12 @@ module Url :
      *)
 
 
-    val decode : ?plus:bool -> string -> string
+    val decode : ?plus:bool -> ?pos:int -> ?len:int -> string -> string
 	(** Option [plus]: Whether '+' is converted to space. The default
 	 * is true. If false, '+' is returned as it is.
+         *
+         * The optional arguments [pos] and [len] may restrict the string
+         * to process to this substring.
 	 *)
     val encode : ?plus:bool -> string -> string
 	(** Option [plus]: Whether spaces are converted to '+'. The default

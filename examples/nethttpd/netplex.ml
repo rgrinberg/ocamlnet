@@ -7,7 +7,6 @@
 (* Dynamic page: The "adder", known from cgi                          *)
 (**********************************************************************)
 
-open Netcgi1_compat.Netcgi_types;;
 open Printf;;
 
 let text = Netencoding.Html.encode_from_latin1;;
@@ -100,7 +99,7 @@ let generate_page (cgi : Netcgi.cgi_activation) =
 ;;
 
 
-let process2 (cgi : Netcgi.cgi_activation) =
+let process (cgi : Netcgi.cgi_activation) =
   (* The [try] block catches errors during the page generation. *)
   try
     (* Set the header. The header specifies that the page must not be
@@ -149,11 +148,6 @@ let process2 (cgi : Netcgi.cgi_activation) =
 ;;
 
 
-let process1 (cgi : Netcgi1_compat.Netcgi_types.cgi_activation) =
-  let cgi' = Netcgi1_compat.Netcgi_types.of_compat_activation cgi in
-  process2 cgi'
-
-
 (**********************************************************************)
 (* Create the webserver                                               *)
 (**********************************************************************)
@@ -195,7 +189,7 @@ let start() =
     else
       Netplex_mp.mp() in  (* multi-processing *)
   let adder =
-    { Nethttpd_services.dyn_handler = (fun _ -> process1);
+    { Nethttpd_services.dyn_handler = (fun _ -> process);
       dyn_activation = Nethttpd_services.std_activation `Std_activation_buffered;
       dyn_uri = None;                 (* not needed *)
       dyn_translator = (fun _ -> ""); (* not needed *)

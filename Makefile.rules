@@ -26,16 +26,11 @@ INC_NETSYS         = -I $(TOP_DIR)/src/netsys
 INC_NETSTRING      = -I $(TOP_DIR)/src/netstring
 INC_EQUEUE         = -I $(TOP_DIR)/src/equeue
 INC_EQUEUE_SSL     = -I $(TOP_DIR)/src/equeue-ssl
-INC_NETCGI1        = -I $(TOP_DIR)/src/netcgi1
 INC_NETCGI2        = -I $(TOP_DIR)/src/netcgi2
 INC_NETCGI2_APACHE = -I $(TOP_DIR)/src/netcgi2-apache
 INC_NETPLEX        = -I $(TOP_DIR)/src/netplex
 INC_RPC            = -I $(TOP_DIR)/src/rpc
 INC_SHELL          = -I $(TOP_DIR)/src/shell
-
-# Select either "cgi" or "netcgi" as default CGI implementation (this
-# is normally set in Makefile.config):
-INC_CGI_OR_NETCGI ?= $(INC_CGI)
 
 # Standard definitions and rules
 

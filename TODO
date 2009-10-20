@@ -81,11 +81,6 @@ Plan for Ocamlnet 3
   * Revisit: Netplex + UDP
 
 
-- NetCGI cleanup
-  * remove netcgi1
-  * cgi = alias for netcgi2
-  * remove nethttpd-for-netcgi1, and fix types in nethttpd_for_netcgi2
-
 - Bug fixes:
   * RPC: prevent that xid's can be reused
   * nethttpd+netcgi2: GET /file//path?p=1
@@ -136,6 +131,11 @@ Plan for Ocamlnet 3
   * netclient: parsing fails of URL http://host?param
   * nethtml: <body> is now an essential block
   * netcgi2, url: better magic to enfore '/' between script name and path info
+
+- NetCGI cleanup
+  * remove netcgi1
+  * remove nethttpd-for-netcgi1, and fix types in nethttpd_for_netcgi2
+
 
 - Shell_uq/Shell_sys: Drop Shell_sys.wait implementation. Replace with
   engine. The system_handler is replaced by something like

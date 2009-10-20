@@ -483,7 +483,7 @@ let create_processor config_cgi handlers services log_error log_access
 ;;
 
 class nethttpd_factory ?(name = "nethttpd") 
-                       ?(config_cgi = Netcgi1_compat.Netcgi_env.default_config) 
+                       ?(config_cgi = Netcgi.default_config) 
                        ?(handlers=[]) 
 		       ?(services=default_services)
 		       ?(log_error = std_log_error)

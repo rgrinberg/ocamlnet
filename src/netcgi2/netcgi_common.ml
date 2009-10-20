@@ -74,20 +74,8 @@ let is_prefix =
     (String.length prefix <= String.length s)
     && is_pre 0 (String.length prefix) prefix s
 
-let rev_split is_cut s =
-  let rec seek_cut acc i0 i1 =
-    if i1 >= String.length s then
-      (String.sub s i0 (i1 - i0)) :: acc
-    else if is_cut(unsafe_get s i1) then
-      skip ((String.sub s i0 (i1 - i0)) :: acc) (i1 + 1) (i1 + 1)
-    else
-      seek_cut acc i0 (i1 + 1)
-  and skip acc i0 i1 =
-    if i1 >= String.length s then acc
-    else if is_cut(unsafe_get s i1) then skip acc i0 (i1 + 1)
-    else seek_cut acc i1 i1 in
-  skip [] 0 0
-
+let rev_split =
+  Nethttp.rev_split
 
 (* [rm_htspace s] returns the substring [s.[low .. up - 1]] stripped
    of heading and trailing spaces. *)
@@ -148,6 +136,18 @@ let filename_quote s =
   done;
   unsafe_set s' !n '\"';
   s'
+
+type http_method =
+    [`GET | `HEAD | `POST | `DELETE | `PUT]
+
+let string_of_http_method =
+  function
+    | `GET -> "GET"
+    | `HEAD -> "HEAD"
+    | `PUT -> "PUT"
+    | `POST -> "POST"
+    | `DELETE -> "DELETE"
+
 
 
 
@@ -244,186 +244,6 @@ struct
 	raise Not_found
       with Found i -> i
 
-end
-
-
-(* URL
- ***********************************************************************)
-
-(* TODO: Check the quality of this module. If it is really better than
-   Netencoding.Url, it should be moved there
- *)
-
-(** This module is a drop-in replacement of [Netencoding.Url].  Not
-    only it is much faster (about 10 times) but it also avoids the
-    dependency on PCRE (less dependencies are good, especially on
-    windows or if you need to install by hand).
-*)
-module type URL =
-sig
-  val decode : ?plus:bool -> string -> string
-  val encode : ?plus:bool -> string -> string
-  val mk_url_encoded_parameters : (string * string) list -> string
-  val dest_url_encoded_parameters : string -> (string * string) list
-
-  val decode_range : string -> int -> int -> string
-    (* internally used *)
-end
-
-
-module Url : URL =
-struct
-  (* Decoding -------------------------------------------------- *)
-
-  exception Hex_of_char
-
-  let hex_of_char =
-    let code_a = Char.code 'a' - 10
-    and code_A = Char.code 'A' - 10 in
-    function
-    | '0' .. '9' as c -> Char.code c - Char.code '0'
-    | 'a' .. 'f' as c -> Char.code c - code_a
-    | 'A' .. 'F' as c -> Char.code c - code_A
-    | _ -> raise Hex_of_char
-
-  (* Overwrite the part of the range [s.[i0 .. up-1]] with the decoded
-     string.  Returns [i] such that [s.[i0 .. i]] is the decoded
-     string.  Invalid '%XX' are left unchanged.  *)
-  let rec decode_range_loop plus i0 i up s =
-    if i0 >= up then i else begin
-      match unsafe_get s i0 with
-      | '+' ->
-	  unsafe_set s i plus;
-	  decode_range_loop plus (succ i0) (succ i) up s
-      | '%' when i0 + 2 < up ->
-          let i1 = succ i0 in
-          let i2 = succ i1 in
-          let i0_next =
-            try
-              let v = hex_of_char(unsafe_get s i1) lsl 4
-                + hex_of_char(unsafe_get s i2) in
-	      unsafe_set s i (Char.chr v);
-	      succ i2
-            with Hex_of_char ->
-	      unsafe_set s i '%';
-	      i1 in
-	  decode_range_loop plus i0_next (succ i) up s
-      | c ->
-	  unsafe_set s i c;
-	  decode_range_loop plus (succ i0) (succ i) up s
-    end
-
-  (* We do not strip heading and trailing spaces of key-value data
-     because it does not conform the specs.  However certain browsers
-     do it, so the user should not rely on them.  See e.g.
-     https://bugzilla.mozilla.org/show_bug.cgi?id=114997#c6 *)
-
-  let decode ?(plus=true) s =
-    let s = String.copy s
-    and len = String.length s in
-    let up = decode_range_loop (if plus then ' ' else '+') 0 0 len s in
-    if up <> len then String.sub s 0 up else s
-
-
-  (* Query parsing -------------------------------------------------- *)
-
-  (* It is ASSUMED that the range is valid i.e., [0 <= low] and [up <=
-     String.length s].  *)
-  let decode_range s low up =
-    if low >= up then "" else
-      let len = up - low in
-      let s = String.sub s low len in
-      let up = decode_range_loop ' ' 0 0 len s in
-      if up <> len then String.sub s 0 up else s
-
-  (* Split the query string [qs] into a list of pairs (key,value).
-     [i0] is the initial index of the key or value, [i] the current
-     index and [up-1] the last index to scan. *)
-  let rec get_key qs i0 i up =
-    if i >= up then [(decode_range qs i0 up, "")] else
-      match unsafe_get qs i with
-      | '=' -> get_val qs (i+1) (i+1) up (decode_range qs i0 i)
-      | '&' ->
-	  (* key but no val *)
-	  (decode_range qs i0 i, "") :: get_key qs (i+1) (i+1) up
-      | _ ->
-	  get_key qs i0 (i+1) up
-  and get_val qs i0 i up key =
-    if i >= up then [(key, decode_range qs i0 up)] else
-      match unsafe_get qs i with
-      | '&' -> (key, decode_range qs i0 i) :: get_key qs (i+1) (i+1) up
-      | _ -> get_val qs i0 (i+1) up key
-
-
-  let dest_url_encoded_parameters qs =
-    if qs = "" then [] else get_key qs 0 0 (String.length qs)
-
-
-
-  (* Encoding -------------------------------------------------- *)
-
-  let hex = [| '0'; '1'; '2'; '3'; '4'; '5'; '6'; '7'; '8'; '9';
-	       'A'; 'B'; 'C'; 'D'; 'E'; 'F' |]
-  let char_of_hex i = Array.(*unsafe_*)get hex i
-
-  let encode_wrt is_special s0 =
-    let len = String.length s0 in
-    let encoded_length = ref len in
-    for i = 0 to len - 1 do
-      if is_special(unsafe_get s0 i) then
-	encoded_length := !encoded_length + 2
-    done;
-    let s = String.create !encoded_length in
-    let rec do_enc i0 i = (* copy the encoded string in s *)
-      if i0 < len then begin
-	let s0i0 = unsafe_get s0 i0 in
-	(* It is important to check first that [s0i0] is special in
-	   case [' '] is considered as such a character. *)
-	if is_special s0i0 then begin
-          let c = Char.code s0i0 in
-          let i1 = succ i in
-          let i2 = succ i1 in
-          unsafe_set s i '%';
-          unsafe_set s i1 (char_of_hex (c lsr 4));
-          unsafe_set s i2 (char_of_hex (c land 0x0F));
-          do_enc (succ i0) (succ i2)
-	end
-	else if s0i0 = ' ' then begin
-	  unsafe_set s i '+';
-          do_enc (succ i0) (succ i)
-	end
-	else begin
-          unsafe_set s i s0i0;
-          do_enc (succ i0) (succ i)
-	end
-      end in
-    do_enc 0 0;
-    s
-
-
-  (* Unreserved characters consist of all alphanumeric chars and the
-     following limited set of punctuation marks and symbols: '-' | '_' |
-     '.' | '!' | '~' | '*' | '\'' | '(' | ')'.  According to RFC 2396,
-     they should not be escaped unless the context requires it. *)
-  let special_rfc2396 = function
-    | ';' | '/' | '?' | ':' | '@' | '&' | '=' | '+' | '$' | ',' (* Reserved *)
-    | '\000' .. '\031' | '\127' .. '\255' (* Control chars and non-ASCII *)
-    | '<' | '>' | '#' | '%' | '"'         (* delimiters *)
-    | '{' | '}' | '|' | '\\' | '^' | '[' | ']' | '`' (* unwise *)
-	-> true
-    | _ -> false
-  (* ' ' must also be encoded but its encoding '+' takes a single char. *)
-
-  let encode ?(plus=true) s =
-    let is_special =
-      if plus then special_rfc2396
-      else (fun c -> special_rfc2396 c || c = ' ') in
-    encode_wrt is_special s
-
-
-  let mk_url_encoded_parameters params =
-    String.concat "&"
-      (List.map (fun (name, value) -> encode name ^ "=" ^ encode value) params)
 end
 
 
@@ -536,336 +356,23 @@ end
 (* Cookies
  ***********************************************************************)
 
+(* The cookie implementation has been moved to nethttp.ml *)
 
-(* Cookies are chosen to be mutable because they are stored on the
-   client -- there is no rollback possible -- and mutability kind of
-   reflects that... *)
+module Cookie = struct
+  include Nethttp.Cookie
 
-module Cookie =
-struct
-  type t =  {
-    mutable name : string;
-    mutable value : string;
-    mutable max_age : int option;
-    mutable domain : string option;
-    mutable path : string option;
-    mutable secure : bool;
-    mutable comment : string;
-    mutable comment_url : string;
-    mutable ports : int list option;
-  }
+  let set = Nethttp.Header.set_set_cookie_ct
 
-  let make ?max_age ?domain ?path ?(secure=false)
-      ?(comment="") ?(comment_url="") ?ports name value =
-    { name = name;
-      value = value;
-      max_age = max_age;
-      domain = domain;
-      path = path;
-      secure = secure;
-      comment = comment;
-      comment_url = comment_url;
-      ports = ports;
-    }
+  let get header =
+    Nethttp.Header.get_cookie_ct
+      (header : #Nethttp.http_header :> Nethttp.http_header_ro)
 
-  (* Old version of cookies *)
-  let of_record c =
-    { name = c.Nethttp.cookie_name;
-      value = c.Nethttp.cookie_value;
-      max_age = (match c.Nethttp.cookie_expires with
-                 | None -> None
-                 | Some t -> Some(truncate(t -. Unix.time())));
-      domain = c.Nethttp.cookie_domain;
-      path = c.Nethttp.cookie_path;
-      secure = c.Nethttp.cookie_secure;
-      comment = "";
-      comment_url = "";
-      ports = None
-    }
-  let to_record cookie =
-    { Nethttp.cookie_name = cookie.name;
-      Nethttp.cookie_value = cookie.value;
-      Nethttp.cookie_expires = (match cookie.max_age with
-                                | None -> None
-                                | Some t -> Some(float t +. Unix.time()));
-      Nethttp.cookie_domain = cookie.domain;
-      Nethttp.cookie_path = cookie.path;
-      Nethttp.cookie_secure = cookie.secure;
-    }
+  let of_record =
+    of_netscape_cookie
 
-  let name cookie = cookie.name
-  let value cookie = cookie.value
-  let max_age cookie = cookie.max_age
-  let domain cookie = cookie.domain
-  let path cookie = cookie.path
-  let secure cookie = cookie.secure
-  let comment cookie = cookie.comment
-  let comment_url cookie = cookie.comment_url
-  let ports cookie = cookie.ports
-
-  let set_value cookie v = cookie.value <- v
-  let set_max_age cookie t = cookie.max_age <- t
-  let set_domain cookie dom = cookie.domain <- dom
-  let set_path cookie s = cookie.path <- s
-  let set_secure cookie b = cookie.secure <- b
-  let set_comment cookie s = cookie.comment <- s
-  let set_comment_url cookie s = cookie.comment_url <- s
-  let set_ports cookie p = cookie.ports <- p
-
-  (* Set -------------------------------------------------- *)
-
-  (* Escape '"', '\\',... and surround the string with quotes. *)
-  let escape s0 =
-    let len = String.length s0 in
-    let encoded_length = ref len in
-    for i = 0 to len - 1 do
-      match unsafe_get s0 i with
-      | '\"' | '\\' | '\n' | '\r' -> incr encoded_length
-      | '\000' .. '\031' -> decr encoded_length (* ignore *)
-      | _ -> ()
-    done;
-    let s = String.create (!encoded_length + 2) in
-    unsafe_set s 0 '\"';
-    let j = ref 1 in
-    for i = 0 to len - 1 do
-      (match unsafe_get s0 i with
-      | '\"' | '\\' as c ->
-	  unsafe_set s !j '\\'; incr j;
-	  unsafe_set s !j c; incr j
-      | '\n' ->
-	  unsafe_set s !j '\\'; incr j;
-	  unsafe_set s !j 'n'; incr j
-      | '\r' ->
-	  unsafe_set s !j '\\'; incr j;
-	  unsafe_set s !j 'r'; incr j
-      | '\000' .. '\031' ->
-	  () (* Ignore these control chars, useless for comments *)
-      | c ->
-	  unsafe_set s !j c; incr j
-      );
-    done;
-    unsafe_set s !j '\"';
-    s
-
-  (* [gen_cookie c] returns a buffer containing an attribute suitable
-     for "Set-Cookie" (RFC 2109) and "Set-Cookie2" (RFC 2965).
-     which is backward compatible with Netscape spec.  It is the
-     minimal denominator. *)
-  let gen_cookie c =
-    let buf = Buffer.create 128 in
-    (* Encode, do not quote, key-val for compatibility with old browsers. *)
-    Buffer.add_string buf (Url.encode ~plus:false c.name);
-    Buffer.add_string buf "=";
-    Buffer.add_string buf (Url.encode ~plus:false c.value);
-    Buffer.add_string buf ";Version=1";
-    (* FIXME: Although values of Domain and Path can be quoted since
-       RFC2109, it seems that browsers do not understand them -- they
-       take the quotes as part of the value.  One way to get correct
-       headers is to strip [d] and [p] of unsafe chars -- if they have any. *)
-    (match c.domain with
-     | None -> ()
-     | Some d ->
-	 Buffer.add_string buf ";Domain=";
-	 Buffer.add_string buf d);
-    (match c.path with
-     | None -> ()
-     | Some p ->
-	 Buffer.add_string buf ";Path=";
-	 Buffer.add_string buf p);
-    if c.secure then Buffer.add_string buf ";secure";
-    (match c.max_age with
-     | None -> ()
-     | Some s ->
-	 Buffer.add_string buf ";Max-Age=";
-	 Buffer.add_string buf (if s > 0 then string_of_int s else "0");
-	 (* For compatibility with old browsers: *)
-	 Buffer.add_string buf ";Expires=";
-	 Buffer.add_string buf
-	   (if s > 0 then Netdate.mk_mail_date (Unix.time() +. float s)
-	    else "Thu, 1 Jan 1970 00:00:00 GMT");
-    );
-    if c.comment <> "" then (
-      Buffer.add_string buf ";Comment=";
-      Buffer.add_string buf (escape c.comment);
-    );
-    buf
-
-
-  let set (http_header:#Netmime.mime_header) cookies =
-    let add_cookie (c1, c2) c =
-      let buf = gen_cookie c in
-      (* In any case, we set a "Set-Cookie" header *)
-      let c1 = (Buffer.contents buf) :: c1 in
-      let c2 =
-	if c.comment_url = "" && c.ports = None then c2 else (
-	  (* When this is relevant, also set a "Set-Cookie2" header *)
-	  if c.comment_url <> "" then (
-	    Buffer.add_string buf ";CommentURL=";
-	    Buffer.add_string buf (escape c.comment_url));
-	  (match c.ports with
-	   | None -> ()
-	   | Some p ->
-	       Buffer.add_string buf ";Port=\"";
-	       Buffer.add_string buf (String.concat ","
-					(List.map string_of_int p));
-	       Buffer.add_string buf "\""
-	  );
-	  (Buffer.contents buf) :: c2
-	) in
-      (c1, c2) in
-    let cookie, cookie2 = List.fold_left add_cookie ([], []) cookies in
-    http_header#update_multiple_field "Set-Cookie"  cookie;
-    (* "Set-Cookie2" must come after in order, when they are
-       understood, to override the "Set-Cookie". *)
-    http_header#update_multiple_field "Set-Cookie2" cookie2
-
-
-  (* Get -------------------------------------------------- *)
-
-  (* According to RFC 2068:
-     	quoted-string  = ( <"> *(qdtext) <"> )
-     	qdtext         = <any TEXT except '\"'>
-     	quoted-pair    = "\\" CHAR
-     As there a no details, we decode the usual escapes and treat
-     other "\x" as simply "x". *)
-  let unescape_range s low up =
-    if low >= up then "" else
-      let len = up - low in
-      let s = String.sub s low len in
-      let rec decode i j =
-	if i < len then (
-	  match unsafe_get s i with
-	  | '\\' ->
-	      let i = i + 1 in
-	      if i < len then (
-		(match unsafe_get s i with
-		 | '\"' | '\\' as c -> unsafe_set s j c
-		 | 'n' -> unsafe_set s j '\n'
-		 | 'r' -> unsafe_set s j '\r'
-		 | 't' -> unsafe_set s j '\t'
-		 | c -> unsafe_set s j c
-		);
-		decode (i + 1) (j + 1)
-	      )
-	      else j
-	  | c ->
-	      unsafe_set s j c;
-	      decode (i + 1) (j + 1)
-	)
-	else j in
-      let j = decode 0 0 in
-      if j < len then String.sub s 0 j else s
-
-
-  let ports_of_string s =
-    let l = rev_split (fun c -> c = ',' || c = ' ') s in
-    List.fold_left (fun pl p ->
-		      try int_of_string p :: pl with _ -> pl) [] l
-
-  (* Given a new key-val data, update the list of cookies accordingly
-     (new cookie or update attributes of the current one). *)
-  let add_key_val key value cl =
-    if key <> "" && unsafe_get key 0 = '$' then
-      (* Keys starting with '$' are for control; ignore the ones we do
-	 not know about. *)
-      (match cl with
-       | [] -> []
-       | c :: _ ->
-	   (if key = "$Path" then c.path <- Some value
-	    else if key = "$Domain" then c.domain <- Some value
-	    else if key = "$Port" then
-	      c.ports <- Some (ports_of_string value));
-	   cl
-      )
-    else make key value :: cl
-
-
-  let decode_range = Url.decode_range
-  (* let decode_range s i0 i1 =
-    Netencoding.Url.decode (String.sub s i0 (i1 - i0)) *)
-
-  (* The difference between version 0 and version 1 cookies is that
-     the latter start with $Version (present 1st or omitted).  Our
-     decoding function can handle both versions transparently, so
-     $Version is ignored.  In the absence of "=", the string is
-     treated as the VALUE. *)
-
-  (* [get_key cs i0 i len] scan the cookie string [cs] and get the
-     key-val pairs. keys and values are stripped of heading and
-     trailing spaces, except for quoted values. *)
-  let rec get_key cs i0 i len cl =
-    if i >= len then
-      let value = decode_range cs i0 len in
-      if value = "" then cl else make "" value :: cl
-    else
-      match unsafe_get cs i with
-      | ',' | ';' ->
-	  (* No "=", interpret as a value as Mozilla does.  We choose
-	     this over MSIE which is reported to return just "n"
-	     instead of "n=" when the value is empty.  *)
-	  let cl = make "" (decode_range cs i0 i) :: cl in
-	  skip_space_before_key cs (i + 1) len cl
-      | '=' ->
-	  let i1 = i + 1 in
-	  skip_value_space cs i1 len (decode_range cs i0 i) cl
-      | c ->
-	  get_key cs i0 (i + 1) len cl
-  and skip_space_before_key cs i len cl =
-    if i >= len then cl
-    else
-      match unsafe_get cs i with
-      | ' ' | '\t' | '\n' | '\r' -> skip_space_before_key cs (i + 1) len cl
-      | _ -> get_key cs i i len cl
-  and skip_value_space cs i len key cl =
-    if i >= len then add_key_val key "" cl (* no value *)
-    else
-      match unsafe_get cs i with
-      | ' ' | '\t' | '\n' | '\r' -> (* skip linear white space *)
-	  skip_value_space cs (i + 1) len key cl
-      | '\"' ->
-	  get_quoted_value cs (i + 1) (i + 1) len key cl
-      | _ ->
-	  get_value cs i i len key cl
-  and get_value cs i0 i len key cl =
-    if i >= len then add_key_val key (decode_range cs i0 len) cl
-    else
-      match unsafe_get cs i with
-      | ',' | ';' ->
-	  let cl = add_key_val key (decode_range cs i0 i) cl in
-	  (* Usually there is a space after ';' to skip *)
-	  skip_space_before_key cs (i + 1) len cl
-      | _ ->
-	  get_value cs i0 (i + 1) len key cl
-  and get_quoted_value cs i0 i len key cl =
-    if i >= len then (* quoted string not closed; try anyway *)
-      add_key_val key (unescape_range cs i0 len) cl
-    else
-      match unsafe_get cs i with
-      | '\\' -> get_quoted_value cs i0 (i + 2) len key cl
-      | '\"' ->
-	  let cl = add_key_val key (unescape_range cs i0 i) cl in
-	  skip_to_next cs (i + 1) len cl
-      | _ -> get_quoted_value cs i0 (i + 1) len key cl
-  and skip_to_next cs i len cl =
-    if i >= len then cl
-    else
-      match unsafe_get cs i with
-      | ',' | ';' -> skip_space_before_key cs (i + 1) len cl
-      | _ -> skip_to_next cs (i + 1) len cl
-
-
-
-  let get (http_header:#Netmime.mime_header) =
-    let cookies = http_header#multiple_field "Cookie" in
-    let cl = List.fold_left
-      (fun cl cs -> get_key cs 0 0 (String.length cs) cl) [] cookies in
-    (* The order of cookies is important for the Netscape ones since
-       "more specific path mapping should be sent before cookies with
-       less specific path mappings" -- for those, there will be only a
-       single "Cookie" line. *)
-    List.rev cl
+  let to_record =
+    to_netscape_cookie
 end
-
 
 (* Environment
  ***********************************************************************)
@@ -992,7 +499,7 @@ object(self)
       Mimestring.scan_mime_type_ep (self#input_header_field "content-type") []
     );
     (* Cache the extracted cookies *)
-    cookies <- lazy(Cookie.get self#input_header)
+    cookies <- lazy(Nethttp.Header.get_cookie_ct self#input_header)
 
 
   (* CGI properties *)
@@ -1065,7 +572,7 @@ object(self)
   method cookies = Lazy.force cookies (* init => fun of self#input_header *)
 
   method cookie name =
-    List.find (fun c -> Cookie.name c = name) self#cookies
+    List.find (fun c -> Nethttp.Cookie.name c = name) self#cookies
 
   method user_agent =
     self#input_header_field ~default:"" "USER-AGENT"
@@ -1345,7 +852,8 @@ object(self)
       url ^ "?" ^
 	(String.concat "&"
 	   (List.map (fun a ->
-			Url.encode(a#name) ^ "=" ^ Url.encode(a#value)) args
+			Netencoding.Url.encode(a#name) ^ "=" ^ 
+			  Netencoding.Url.encode(a#value)) args
 	   ))
 
 
@@ -1390,9 +898,9 @@ object(self)
       env#set_output_header_field "Content-style-type" style_type;
     (* Convert the deprecated [set_cookie] to the new format. *)
     let cookies =
-      List.fold_left (fun l c -> Cookie.of_record c :: l)
+      List.fold_left (fun l c -> Nethttp.Cookie.of_netscape_cookie c :: l)
         set_cookies set_cookie in
-    Cookie.set env#output_header cookies;
+    Nethttp.Header.set_set_cookie_ct env#output_header cookies;
     List.iter (fun (n,v) -> env#set_multiple_output_header_field n v) fields;
     match op with
     | `Direct _ -> env#send_output_header() (* before any other output! *)
@@ -1403,7 +911,7 @@ object(self)
 
   method set_redirection_header ?(set_cookies=[]) ?(fields=[]) loc =
     env#set_output_header_fields [];
-    Cookie.set env#output_header set_cookies;
+    Nethttp.Header.set_set_cookie_ct env#output_header set_cookies;
     List.iter (fun (n,v) -> env#set_multiple_output_header_field n v) fields;
     env#set_output_header_field "Location" loc;
     env#set_status `Found; (* be precise -- necessary for some connectors *)
@@ -1475,7 +983,7 @@ let mime_header_string_arg =
 (* Given a query string like [qs], return [None] is the argument is
    oversized or [Some arg].  *)
 let args_of_string env arg_store qs =
-  let name_val = Url.dest_url_encoded_parameters qs in
+  let name_val = Netencoding.Url.dest_url_encoded_parameters qs in
   let mk_arg (name, value) =
     let store = (try arg_store env name mime_header_string_arg
                  with _ -> `Discard) in
@@ -1886,13 +1394,9 @@ let handle_uncaught_exn (env:cgi_environment) = function
   | HTTP(`Method_not_allowed, s) ->
       (* Allow header must be sent *)
       let meths =
-	List.map (function
-		  | `GET -> "GET"
-		  | `HEAD -> "HEAD"
-		  | `POST -> "POST"
-		  | `DELETE -> "DELETE"
-		  | `PUT -> "PUT"
-		 ) env#config.permitted_http_methods in
+	List.map
+	  string_of_http_method 
+	  env#config.permitted_http_methods in
       let allow = String.concat ", " meths in
       error_page env `Method_not_allowed ["Allow", [allow]] s
 	("Only the following methods are allowed: " ^ allow)

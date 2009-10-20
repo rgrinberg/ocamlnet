@@ -13,7 +13,7 @@
 
 open Printf
 
-let error_service_connection (cgi : Netcgi_types.cgi_activation) host port finish err =
+let error_service_connection (cgi : Netcgi.cgi_activation) host port finish err =
   (* This is called when the connection with the proxied service could not be
    * established.
    *)
@@ -29,7 +29,7 @@ let error_service_connection (cgi : Netcgi_types.cgi_activation) host port finis
 ;;
 
 
-let on_service_connection env (cgi : Netcgi_types.cgi_activation) host port finish ues conn =
+let on_service_connection env (cgi : Netcgi.cgi_activation) host port finish ues conn =
   (* The connection with the proxied service is established. Now just copy all data
    * from the descriptor to the asynchronous output channel in [env].
    *)
@@ -60,7 +60,7 @@ let on_service_connection env (cgi : Netcgi_types.cgi_activation) host port fini
   )
 ;;
 
-let error_file_service (cgi : Netcgi_types.cgi_activation) filename finish err =
+let error_file_service (cgi : Netcgi.cgi_activation) filename finish err =
   printf "Error opening file\n";
   flush stdout;
   cgi # set_header
@@ -72,7 +72,7 @@ let error_file_service (cgi : Netcgi_types.cgi_activation) filename finish err =
   finish()
 ;;
 
-let setup_file_service env (cgi : Netcgi_types.cgi_activation) filename finish ues =
+let setup_file_service env (cgi : Netcgi.cgi_activation) filename finish ues =
   try
     let fd = Unix.openfile filename [Unix.O_RDONLY] 0 in
     Unix.set_nonblock fd;
@@ -115,9 +115,12 @@ let on_request ues notification =
        * are going to use the latter for our gateway.
        *)
       let cgi =
-	new Netcgi.std_activation
-	  ~env:(env :> Netcgi_env.cgi_environment)
-	  ~operating_type:(`Direct "") () in
+	Netcgi_common.cgi_with_args 
+	  (new Netcgi_common.cgi)
+	  (env :> Netcgi.cgi_environment)
+	  (`Direct "")
+	  env#input_channel
+	  (fun _ _ _ -> `Automatic) in
       let file = try Some( (cgi # argument "file")#value ) with Not_found -> None in
       let host = cgi # argument_value ~default:"127.0.0.1" "host" in
       let port = int_of_string (cgi # argument_value ~default:"37" "port") in
@@ -172,7 +175,7 @@ let serve_connection ues fd =
     object
       method config_timeout_next_request = 15.0
       method config_timeout = 300.0
-      method config_cgi = Netcgi_env.default_config
+      method config_cgi = Netcgi.default_config
       method config_error_response n = "<html>Error " ^ string_of_int n ^ "</html>"
       method config_log_error _ _ _ _ msg =
         (printf "Error log: %s\n" msg; flush stdout)

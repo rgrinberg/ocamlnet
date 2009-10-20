@@ -3,8 +3,6 @@
  *)
 
 open Netcgi;;
-open Netcgi_types;;
-open Netcgi_env;;
 open Nethttpd_reactor;;
 open Printf;;
 
@@ -17,9 +15,12 @@ let rec service_loop reactor netcgi_processor =
 	    let env =
 	      req # environment in
 	    let cgi = 
-	      new std_activation 
-		   ~env:(env :> cgi_environment) 
-		   ~operating_type:buffered_transactional_optype () in
+	      Netcgi_common.cgi_with_args 
+		(new Netcgi_common.cgi)
+		(env :> Netcgi.cgi_environment)
+		Netcgi.buffered_transactional_outtype
+		env#input_channel
+		(fun _ _ _ -> `Automatic) in
 	    netcgi_processor cgi
 	  with
 	      e ->
@@ -40,7 +41,7 @@ let serve fd netcgi_processor =
       method config_timeout_next_request = 15.0
       method config_timeout = 300.0
       method config_reactor_synch = `Write
-      method config_cgi = Netcgi_env.default_config 
+      method config_cgi = Netcgi.default_config 
       method config_error_response n = "<html>Error " ^ string_of_int n ^ "</html>"
       method config_log_error _ _ _ _ msg = 
 	printf "Error log: %s\n" msg

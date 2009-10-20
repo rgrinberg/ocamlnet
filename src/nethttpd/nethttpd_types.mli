@@ -51,12 +51,21 @@ exception Standard_response of http_status * http_header option * string option
 
 (** {1:environment Environment} *)
 
+type output_state =
+    [ `Start
+    | `Sending
+    | `End
+    ]
+
+val string_of_output_state : output_state -> string
+  (** Debugging *)
+
 (** An extension of [cgi_environment] for use with the daemon. The methods
-  * retrieve the socket addresses are virtual.
+  * retrieving the socket addresses are virtual.
  *)
 class type virtual v_extended_environment =
 object
-  inherit Netcgi1_compat.Netcgi_env.cgi_environment
+  inherit Netcgi.cgi_environment
 
   method virtual server_socket_addr : Unix.sockaddr
   method virtual remote_socket_addr : Unix.sockaddr
@@ -64,10 +73,16 @@ object
       * of the current connection.
      *)
 
+  method cgi_request_uri : string
+    (** The full request URI. Identical to the CGI property "REQUEST_URI" *)
+
   method log_props : (string * string) list -> unit
     (** Remember this version of [cgi_properties] as the one sent to the
         [config_log_access] function
      *)
+
+  method input_channel : Netchannels.in_obj_channel
+    (** The input channel for reading the body of the request *)
 
   method send_file : Unix.file_descr -> int64 -> unit
     (** Sends the output header with a file as body. The file must already be open,
@@ -83,6 +98,13 @@ object
      * Only one transmission method must be invoked.
      *)
 
+  method virtual output_state : output_state ref
+    (** Reflects the state of the output generation:
+        - [`Start]: Nothing is generated yet
+        - [`Sending]: Output is already being sent
+        - [`End]: The response (for a single request) has been fully sent
+     *)
+
 end
 
 
@@ -94,17 +116,17 @@ object
   inherit v_extended_environment
   method server_socket_addr : Unix.sockaddr
   method remote_socket_addr : Unix.sockaddr
+  method output_state : output_state ref
 end
+
 
 (** {2 Construction of environments} *)
 
 class virtual empty_environment :
 object
   inherit v_extended_environment
-  val mutable config : Netcgi1_compat.Netcgi_env.cgi_config
-  val mutable in_state : Netcgi1_compat.Netcgi_env.input_state
-  val mutable out_state : Netcgi1_compat.Netcgi_env.output_state
-  val mutable protocol : Netcgi1_compat.Netcgi_env.protocol
+  val mutable config : Netcgi.config
+  val mutable protocol : Nethttp.protocol
   val mutable in_header : http_header
   val mutable out_header : http_header
   val mutable properties : (string * string) list
@@ -123,14 +145,13 @@ end
    *)
 
 class redirected_environment : 
-        ?in_state : Netcgi1_compat.Netcgi_env.input_state ->
         ?in_header : http_header ->
         ?properties : (string * string) list ->
         ?in_channel : Netchannels.in_obj_channel ->
         extended_environment ->
           extended_environment
   (** This class overlays the input-side containers of an existing environment.
-    * The output-side containers ([out_state], [out_header], and [out_channel])
+    * The output-side containers ([out_header], and [out_channel])
     * are physically identical with the existing environment.
     *
     * If one of the argument is not passed on class instantiation, the corresponding

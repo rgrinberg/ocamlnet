@@ -2,7 +2,7 @@
 
 open Printf
 
-let generate (cgi : Netcgi_types.cgi_activation) =
+let generate (cgi : Netcgi.cgi_activation) =
   (* A Netcgi-based content provider *)
   cgi # set_header
     ~cache:`No_cache
@@ -41,9 +41,12 @@ let on_request notification =
   ( try
       let env = notification # environment in
       let cgi =
-	new Netcgi.std_activation
-	  ~env:(env :> Netcgi_env.cgi_environment)
-	  ~operating_type:Netcgi.buffered_transactional_optype () in
+	Netcgi_common.cgi_with_args 
+	  (new Netcgi_common.cgi)
+	  (env :> Netcgi.cgi_environment)
+	  Netcgi.buffered_transactional_outtype
+	  env#input_channel
+	  (fun _ _ _ -> `Automatic) in
       generate cgi;
     with
 	e ->
@@ -77,7 +80,7 @@ let serve_connection ues fd =
     object
       method config_timeout_next_request = 15.0
       method config_timeout = 300.0
-      method config_cgi = Netcgi_env.default_config
+      method config_cgi = Netcgi.default_config
       method config_error_response n = "<html>Error " ^ string_of_int n ^ "</html>"
       method config_log_error _ _ _ _ msg =
         (printf "Error log: %s\n" msg; flush stdout)

@@ -539,6 +539,30 @@ type req_token =
     | `Timeout
     ]
 
+let string_of_req_token =
+  function
+    | `Req_header(((req_method, req_uri), req_proto), hd, resp) ->
+	sprintf "Req_header(%s %s)" req_method req_uri
+    | `Req_expect_100_continue ->
+	"Req_expect_100_continue"
+    | `Req_body(s,pos,len) ->
+	let n = min len 20 in
+	sprintf "Req_body_data(%s%s)"
+	  (String.escaped (String.sub s pos n))
+	  (if len > n then "..." else "")
+    | `Req_trailer tr ->
+	"Req_trailer"
+    | `Req_end ->
+	"Req_end"
+    | `Eof ->
+	"Eof"
+    | `Fatal_error e ->
+	sprintf "Fatal_error(%s)" (string_of_fatal_error e)
+    | `Bad_request_error (e, resp) ->
+	sprintf "Bad_request_error(%s)" (string_of_bad_request_error e)
+    | `Timeout -> 
+	"Timeout"
+
 exception Recv_queue_empty
 
 exception Buffer_exceeded
@@ -1465,7 +1489,8 @@ object(self)
     try
       if block then (
 	let now = Unix.gettimeofday() in
-	let sel_time = timeout -. (now -. start_time) in
+	let sel_time = max (timeout -. (now -. start_time)) 0.0 in
+	if sel_time = 0.0 then raise Not_found;
 	ignore(Netsys.wait_until_readable fd_style fd sel_time);
 	()
       );
@@ -1481,7 +1506,8 @@ object(self)
 	  ()             (* socket not ready *)
       | Unix.Unix_error(Unix.EINTR,_,_) ->
 	  ()             (* got signal *)
-      | Unix.Unix_error(_, _,_) ->  (* Any other error means we are done! *)
+      | Unix.Unix_error(_, _,_) 
+      | Not_found ->  (* Any other error means we are done! *)
 	  lingering <- false;
 	  preclose();
 	  Unix.close fd

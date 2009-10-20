@@ -49,7 +49,6 @@ set_defaults () {
     enable_apache=0
     with_nethttpd=0
     with_rpc_auth_dh=0
-    prefer_netcgi2=0
     bindir=`dirname $ocamlc`
     tcl_defs=""
     tcl_libs=""
@@ -148,9 +147,6 @@ print_options () {
 	if [ -n "$apache" ]; then
 	    echo "    -apache $apache"
 	fi
-	if [ $prefer_netcgi2 -gt 0 ]; then
-	    echo "    -prefer-netcgi2"
-	fi
 }
 
 
@@ -199,8 +195,7 @@ _EOF_
         Set which apache executable to use for -enable-apache
 
 -prefer-netcgi2
-        Use netcgi2 as default CGI implementation instead of netcgi1.
-        This affects nethttpd.
+        This option is ignored for compatibility with older versions
 
 Defaults are:
 
@@ -301,7 +296,7 @@ while [ "$#" -gt 0 ]; do
                         shift
                         ;;
 	        -prefer-netcgi2)
-		        prefer_netcgi2=1
+		        # ignore!
 			shift ;;
 		-version)
 			echo "$version"
@@ -723,17 +718,6 @@ where PIC code differs from non-PIC\n    such as x86_64, hppa,..."
 fi
 
 ######################################################################
-# NETCGI1 or NETCGI2
-
-preferred_cgi_pkg=netcgi1
-inc_netcgi1or2='$(INC_NETCGI1)'
-
-if [ $prefer_netcgi2 -gt 0 ]; then
-    preferred_cgi_pkg=netcgi2
-    inc_netcgi1or2='$(INC_NETCGI2)'
-fi
-
-######################################################################
 # Summary
 
 echo
@@ -741,13 +725,13 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi1 netcgi2 netplex netcgi2-plex"
+pkglist="netsys netshm equeue shell netstring rpc-generator rpc pop smtp netclient netcgi2 netplex netcgi2-plex"
 
 if [ $enable_apache -gt 0 ]; then
     pkglist="$pkglist netcgi2-apache"
 fi
 
-full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi1 nethttpd-for-netcgi2 netzip"
+full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi2 netzip"
 
 if [ $disable_core -gt 0 ]; then
     # Omit the core packages:
@@ -757,7 +741,7 @@ if [ $disable_core -gt 0 ]; then
 fi
 
 if [ $with_nethttpd -gt 0 ]; then
-    pkglist="$pkglist nethttpd-for-netcgi1 nethttpd-for-netcgi2"
+    pkglist="$pkglist nethttpd nethttpd-for-netcgi2"
 fi
 
 for opt in rpc_xti $woptions rpc_auth_local equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl netzip; do
@@ -834,11 +818,6 @@ APACHE_CC = $apache_cc
 APACHE_CFLAGS = $apache_cflags
 APACHE_OCAMLLIBDIR = $apache_ocamllibdir
 APXS = $apxs
-
-# Preferred CGI implementation
-PREFERRED_CGI_PKG=$preferred_cgi_pkg
-INC_NETCGI1OR2=$inc_netcgi1or2
-
 _EOF_
 
 ######################################################################

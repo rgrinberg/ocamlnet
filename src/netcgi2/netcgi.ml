@@ -75,16 +75,19 @@ end
 (* Cookies
  ***********************************************************************)
 
-module Cookie = Netcgi_common.Cookie
+module Cookie = Nethttp.Cookie
 
 
 (* Config
  ***********************************************************************)
 
+type http_method =
+    [`GET | `HEAD | `POST | `DELETE | `PUT]
+
 type config = Netcgi_common.config = {
   tmp_directory : string;
   tmp_prefix : string;
-  permitted_http_methods : [`GET | `HEAD | `POST | `DELETE | `PUT] list;
+  permitted_http_methods : http_method list;
   permitted_input_content_types : string list;
   input_content_length_limit : int;
   workarounds :
@@ -238,3 +241,20 @@ type connection_directive =
     [ `Conn_close | `Conn_close_linger | `Conn_keep_alive
     | `Conn_error of exn
     ]
+
+let buffered_transactional_outtype =
+  `Transactional (fun config ch -> new Netchannels.buffered_trans_channel ch)
+
+let buffered_transactional_optype =
+  buffered_transactional_outtype
+
+let tempfile_transactional_outtype =
+  `Transactional
+    (fun config ch ->
+       let tmp_directory = config.tmp_directory in
+       let tmp_prefix = config.tmp_prefix in
+       new Netchannels.tempfile_trans_channel ~tmp_directory ~tmp_prefix ch
+    )
+
+let tempfile_transactional_optype =
+  tempfile_transactional_outtype

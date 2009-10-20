@@ -97,11 +97,13 @@ class mime_arg : ?work_around_backslash_bug:bool -> ?name:string ->
 
 (** {2 Cookies} *)
 
-(** Extended interface for {!Netcgi.Cookie} suitable for OCamlNet
-    developers. *)
+(** The cookie implementation has been moved to {!Nethttp.Cookie}.
+    New code should directly call the functions defined there.
+ *)
+
 module Cookie :
 sig
-  type t
+  type t = Nethttp.Cookie.t
 
   val make :
     ?max_age:int ->
@@ -148,16 +150,28 @@ sig
 	fields are used.  For better browser compatibility, if
 	"Set-cookie2" (RFC 2965) is issued, then a "Set-cookie"
 	precedes (declaring the same cookie with a limited number of
-	options). *)
+	options). 
+
+        {b Deprecated name.} Use {!Nethttp.Header.set_set_cookie_ct}.
+     *)
   val get : #Netmime.mime_header -> t list
-    (** Decode the cookie header, may they be version 0 or 1.  *)
+    (** Decode the cookie header, may they be version 0 or 1.  
+
+        {b Deprecated name.} Use {!Nethttp.Header.get_cookie_ct}.
+     *)
 
 
   val of_record : Nethttp.cookie -> t
-    (** Conversion from the deprecated style of cookie. *)
+    (** Conversion from the deprecated style of cookie.
+
+        {b Deprecated name.} Use {!Nethttp.Cookie.of_netscape_cookie}.
+     *)
   val to_record : t -> Nethttp.cookie
     (** Conversion to the deprecated style of cookie (some parameters
-        are dropped). *)
+        are dropped).
+
+        {b Deprecated name.} Use {!Nethttp.Cookie.to_netscape_cookie}.
+     *)
 end
 
 
@@ -528,3 +542,10 @@ val rev_split : (char -> bool) -> string -> string list
 
 val is_prefix : string -> string -> bool
   (** [is_prefix pre s] checks whether [pre] is a prefix of [s]. *)
+
+type http_method =
+    [`GET | `HEAD | `POST | `DELETE | `PUT]
+
+val string_of_http_method : http_method -> string
+  (** Returns the string value of the method *)
+

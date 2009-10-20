@@ -127,7 +127,7 @@ val default_services : (string * ('a,'b) service_factory) list
 
 val nethttpd_factory :
       ?name:string ->
-      ?config_cgi:Netcgi1_compat.Netcgi_env.cgi_config -> 
+      ?config_cgi:Netcgi.config -> 
       ?handlers:(string * 'a Nethttpd_services.dynamic_service) list ->
       ?services:(string * ('a,'b) service_factory) list ->
       ?log_error:(Netplex_types.container -> config_log_error) ->

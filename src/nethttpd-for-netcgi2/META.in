@@ -1,6 +1,3 @@
 version = "@VERSION@"
-requires = "netstring,netcgi2,equeue,netplex,netsys"
-description = "Ocamlnet - HTTP daemon (version for netcgi2)"
-
-archive(byte) = "nethttpd-for-netcgi2.cma"
-archive(native) = "nethttpd-for-netcgi2.cmxa"
+requires = "nethttpd"
+description = "Ocamlnet - HTTP daemon - Compat name for nethttpd"

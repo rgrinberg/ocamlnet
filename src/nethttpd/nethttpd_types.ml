@@ -70,20 +70,29 @@ let () =
 	 | _ -> assert false
     )
 
+type output_state =
+    [ `Start
+    | `Sending
+    | `End
+    ]
+
+let string_of_output_state =
+  function
+    | `Start -> "Start"
+    | `Sending -> "Sending"
+    | `End -> "End"
+
 class type virtual v_extended_environment =
 object
-  inherit Netcgi1_compat.Netcgi_env.cgi_environment
+  inherit Netcgi.cgi_environment
   method virtual server_socket_addr : Unix.sockaddr
   method virtual remote_socket_addr : Unix.sockaddr
 
-  method log_props : (string * string) list -> unit
   method cgi_request_uri : string
-  method log_error : string -> unit
-  method cgi_properties : (string * string) list
-  method input_header : http_header
-  method output_header : http_header
-  method set_status : http_status -> unit
+  method log_props : (string * string) list -> unit
+  method input_channel : Netchannels.in_obj_channel
   method send_file : Unix.file_descr -> int64 -> unit
+  method output_state : output_state ref
 end
 
 
@@ -97,18 +106,24 @@ end
 
 class virtual empty_environment =
 object(self)
-  val mutable config = Netcgi1_compat.Netcgi_env.default_config
-  val mutable in_state = (`Start : Netcgi1_compat.Netcgi_env.input_state)
-  val mutable out_state = (`Start : Netcgi1_compat.Netcgi_env.output_state)
+  val mutable config = Netcgi.default_config
   val mutable in_header = new Netmime.basic_mime_header []
   val mutable out_header = new Netmime.basic_mime_header []
   val mutable properties = []
   val mutable in_channel = new Netchannels.input_string ""
   val mutable out_channel = new Netchannels.output_null()
   val mutable protocol = `Other
+  val mutable cookies = lazy(assert false)
+  val output_state = ref (`Start : output_state)
+
+  initializer (
+    cookies <- lazy(Nethttp.Header.get_cookie_ct self#input_header)
+  )
 
   method virtual server_socket_addr : Unix.sockaddr
   method virtual remote_socket_addr : Unix.sockaddr
+
+  method output_state = output_state
 
   method config = config
 
@@ -144,9 +159,9 @@ object(self)
   method cgi_https             = match self # cgi_property ~default:"" "HTTPS" with
                                    | "" | "off" -> false | "on" -> true
                                    | _ -> failwith "Cannot interpret HTTPS property"
-  method cgi_request_uri       = self # cgi_property ~default:"" "REQUEST_URI"
+  method cgi_request_uri = self # cgi_property ~default:"" "REQUEST_URI"
 
-  method protocol = (protocol : Netcgi1_compat.Netcgi_env.protocol)
+  method protocol = (protocol : Nethttp.protocol)
 
   method send_output_header() = ()
 
@@ -155,13 +170,6 @@ object(self)
   method log_error (s : string) = ()
 
   method log_props (l : (string*string) list) = ()
-
-  method output_state = out_state
-
-  method set_output_state s =
-    out_state <- s;
-    if s = `End then
-      ( try out_channel # close_out() with Netchannels.Closed_channel -> () )
 
   method input_header = in_header
 
@@ -190,10 +198,12 @@ object(self)
   method user_agent =
     self # input_header_field ~default:"" "USER-AGENT"
 
-  method cookies =
-    get_cookie self#input_header
+  method cookies = Lazy.force cookies
 
-  method input_ch = in_channel
+  method cookie name =
+    List.find (fun c -> Netcgi.Cookie.name c = name) self#cookies
+
+  method input_channel = in_channel
 
   method input_content_length =
     int_of_string (self # input_header_field "CONTENT-LENGTH")
@@ -201,12 +211,8 @@ object(self)
   method input_content_type_string =
     self # input_header_field ~default:"" "CONTENT-TYPE"
 
-  method input_content_type =
+  method input_content_type() =
     Mimestring.scan_mime_type_ep (self # input_header_field "CONTENT-TYPE") []
-
-  method input_state = in_state
-
-  method set_input_state s = in_state <- s
 
   method output_header =
     out_header
@@ -227,6 +233,9 @@ object(self)
   method output_ch =
     out_channel
 
+  method out_channel =
+    out_channel
+
   method set_output_header_field name value =
     out_header # update_field name value
 
@@ -239,10 +248,9 @@ end
 
 
 class redirected_environment
-        ?in_state:new_in_state 
         ?in_header:new_in_header 
         ?properties:new_properties 
-        ?in_channel:(new_in_channel = new Netchannels.input_string "") 
+        ?in_channel:(new_in_channel = new Netchannels.input_string "")
         (env : extended_environment) =
 object(self)
   inherit empty_environment
@@ -250,7 +258,6 @@ object(self)
 
   initializer (
     config <- env # config;
-    in_state <- ( match new_in_state with Some s -> s | None -> env # input_state );
     in_header <- ( match new_in_header with 
 		     | Some h -> h 
 		     | None -> new Netmime.basic_mime_header env#input_header_fields );
@@ -270,8 +277,6 @@ object(self)
   method protocol = env # protocol
   method send_output_header = env # send_output_header
   method log_error = env # log_error
-  method output_state = env # output_state
-  method set_output_state = env # set_output_state
   method output_header = env # output_header
   method output_header_field = env # output_header_field
   method multiple_output_header_field = env # multiple_output_header_field
@@ -284,6 +289,9 @@ object(self)
   method send_file = env # send_file
 
   method log_props = env # log_props
+
+  method output_state = env # output_state
+    (* The variable is shared! *)
 end
 
 
@@ -372,7 +380,8 @@ object
 end
 
 
-let output_std_response config env status hdr_opt msg_opt =
+let output_std_response config (env : #extended_environment) 
+                        status hdr_opt msg_opt =
   ( match msg_opt with
       | Some msg ->
 	  let req_meth = env # cgi_request_method in

@@ -335,6 +335,9 @@ type req_token =
       * in time.
      *)
 
+val string_of_req_token : req_token -> string
+  (** For debugging *)
+
 exception Recv_queue_empty
 
 (** Configuration values for the HTTP kernel *)

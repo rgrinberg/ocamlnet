@@ -164,7 +164,7 @@ object(self)
       let new_env =
 	new redirected_environment 
 	  ~properties:new_properties
-	  ~in_channel:(env # input_ch) env in
+	  ~in_channel:(env # input_channel) env in
       (* Pass control over to the corresponding service: *)
       m_service # process_header new_env
 
@@ -419,8 +419,8 @@ end
 
 
 type std_activation_options =
-   { stdactv_processing : (string -> Netmime.mime_header -> Netcgi1_compat.Netcgi.argument_processing) option;
-     stdactv_operating_type : Netcgi1_compat.Netcgi.operating_type option;
+   { stdactv_processing : Netcgi.arg_store option;
+     stdactv_operating_type : Netcgi.output_type option;
    } 
 
 
@@ -438,7 +438,7 @@ type 'a dynamic_service =
       dyn_uri : string option;
       dyn_translator : string -> string;
       dyn_accept_all_conditionals : bool;
-  } constraint 'a = # Netcgi1_compat.Netcgi_types.cgi_activation
+  } constraint 'a = # Netcgi.cgi_activation
 
 let rec strip_prefix ~prefix l =
   match prefix, l with
@@ -456,29 +456,48 @@ let std_activation tag =
   match tag with
     | `Std_activation opts ->
 	(fun env ->
-	   new Netcgi1_compat.Netcgi.std_activation 
-	   ~env:(env :> Netcgi1_compat.Netcgi_env.cgi_environment)
-	   ?processing:opts.stdactv_processing
-	   ?operating_type:opts.stdactv_operating_type
-	   ())
+	   let out_type =
+	     match opts.stdactv_operating_type with
+	       | None -> `Direct ""
+	       | Some p -> p in
+	   let arg_store =
+	     match opts.stdactv_processing with
+	       | None -> (fun _ _ _ -> `Automatic)
+	       | Some f -> f in
+	   Netcgi_common.cgi_with_args 
+	     (new Netcgi_common.cgi)
+	     (env :> Netcgi.cgi_environment)
+	     out_type
+	     env#input_channel
+	     arg_store
+	)
     | `Std_activation_unbuffered ->
 	(fun env ->
-	   new Netcgi1_compat.Netcgi.std_activation 
-	   ~env:(env :> Netcgi1_compat.Netcgi_env.cgi_environment)
-	   ~operating_type:(`Direct "")
-	   ())
+	   Netcgi_common.cgi_with_args 
+	     (new Netcgi_common.cgi)
+	     (env :> Netcgi.cgi_environment)
+	     (`Direct "")
+	     env#input_channel
+	     (fun _ _ _ -> `Automatic)
+	)
     | `Std_activation_buffered ->
 	(fun env ->
-	   new Netcgi1_compat.Netcgi.std_activation 
-	   ~env:(env :> Netcgi1_compat.Netcgi_env.cgi_environment)
-	   ~operating_type:Netcgi1_compat.Netcgi.buffered_transactional_optype
-	   ())
+	   Netcgi_common.cgi_with_args 
+	     (new Netcgi_common.cgi)
+	     (env :> Netcgi.cgi_environment)
+	     Netcgi.buffered_transactional_outtype
+	     env#input_channel
+	     (fun _ _ _ -> `Automatic)
+	)
     | `Std_activation_tempfile ->
 	(fun env ->
-	   new Netcgi1_compat.Netcgi.std_activation 
-	   ~env:(env :> Netcgi1_compat.Netcgi_env.cgi_environment)
-	   ~operating_type:Netcgi1_compat.Netcgi.tempfile_transactional_optype
-	   ())
+	   Netcgi_common.cgi_with_args 
+	     (new Netcgi_common.cgi)
+	     (env :> Netcgi.cgi_environment)
+	     Netcgi.tempfile_transactional_outtype
+	     env#input_channel
+	     (fun _ _ _ -> `Automatic)
+	)
 
 
 class dynamic_out_channel enabled out_ch : Netchannels.out_obj_channel =
@@ -519,7 +538,7 @@ end
 
 
 class dynamic_env_wrapper (env:extended_environment) properties =
-  let in_channel = env#input_ch in
+  let in_channel = env#input_channel in
   let out_enabled = ref true in
   let out_channel = new dynamic_out_channel out_enabled env#output_ch in
 object(self)
@@ -539,6 +558,7 @@ object(self)
     )
 
   method output_ch = out_channel
+  method out_channel = out_channel
 end
 
 
@@ -563,7 +583,10 @@ object(self)
 	with Failure _ -> raise Not_found in
 
       let req_method = env # cgi_request_method in
-      let allowed = (env # config).Netcgi1_compat.Netcgi_env.permitted_http_methods in
+      let allowed = 
+	List.map 
+	  Netcgi_common.string_of_http_method 
+	  (env # config).Netcgi.permitted_http_methods in
       if not (List.mem req_method allowed) then (
 	let h = new Netmime.basic_mime_header [] in
 	set_allow h allowed;
@@ -652,7 +675,7 @@ type file_option =
     [ `Enable_gzip
     | `Enable_index_file of string list
     | `Enable_listings of 	
-	extended_environment -> Netcgi1_compat.Netcgi_types.cgi_activation -> file_service -> unit
+	extended_environment -> Netcgi.cgi_activation -> file_service -> unit
     ]
 
 and file_service =
@@ -1081,7 +1104,7 @@ object(self)
 end
 
 
-let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi1_compat.Netcgi_types.cgi_activation) fs =
+let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi.cgi_activation) fs =
   let dirname = env # cgi_path_translated in
   let col_name = 30 in
   let col_mtime = 20 in
@@ -1251,7 +1274,9 @@ let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi1_compat.Netcgi_typ
     )
     xfiles;
   out "</pre></body></html>\n";
-  cgi # output # commit_work()
+prerr_endline "commit_work";
+  cgi # output # commit_work();
+prerr_endline "back commit_work"
 
 
 type ac_by_host_rule =

@@ -7,7 +7,7 @@ open Printf
 
 let counter = ref 0
 
-let hit_counter env (cgi : Netcgi_types.cgi_activation) =
+let hit_counter env (cgi : Netcgi.cgi_activation) =
   let cur_counter = !counter in
   incr counter;
 
@@ -21,9 +21,9 @@ let hit_counter env (cgi : Netcgi_types.cgi_activation) =
   cgi # output # output_string "<html><body>\n";
   cgi # output # output_string (sprintf "Counter = %d<br>\n" cur_counter);
   List.iter
-    (fun (name, arg) ->
+    (fun arg ->
        cgi # output # output_string (sprintf "Arg %s = %s<br>\n"
-				   (Netencoding.Html.encode_from_latin1 name)
+				   (Netencoding.Html.encode_from_latin1 arg#name)
 				   (Netencoding.Html.encode_from_latin1 arg#value))
     )
     cgi # arguments;
@@ -80,7 +80,7 @@ let serve_connection ues fd =
     object
       method config_timeout_next_request = 15.0
       method config_timeout = 300.0
-      method config_cgi = Netcgi_env.default_config
+      method config_cgi = Netcgi.default_config
       method config_error_response n = "<html>Error " ^ string_of_int n ^ "</html>"
       method config_log_error _ _ _ _ msg =
         printf "Error log: %s\n" msg; flush stdout
