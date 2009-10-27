@@ -45,6 +45,20 @@ module ReliabilityCache : sig
 
       It is advantegeous to have only one cache per process, because
       this maximizes the usefulness. The cache is thread-safe.
+
+      A server endpoint is disabled when too many errors occur in
+      sequence. For a disabled endpoint the functions [host_is_enabled]
+      and/or [sockaddr_is_enabled] return [false]. The endpoint is
+      automatically enabled again after some timeout; this is initially
+      [disable_timeout_min], but is increased exponentially until
+      [disable_timeout_max] when further errors occur.
+
+      Independently of this machinery the functions [host_is_enabled]
+      and [sockaddr_is_enabled] may also return [false] when an
+      external availability checker says that the endpoint is down.
+      This information is not entered into the cache, and will also
+      not trigger the disable timeout. Instead, the hook function
+      getting the availability will be simply called again.
    *)
 
   type rcache
@@ -66,6 +80,10 @@ module ReliabilityCache : sig
         - [`Any_failing_port_disables_host]: When a connection to any TCP
           port repeatedly fails, the whole remote host is disabled
         - [`None]: Nothing is disabled
+
+        Note that the [rcache_availability] hook is not affected by the
+        policy; this hook is called anyway. The policy only determines
+        how the internal error counter is interpreted.
      *)
 
   type rcache_config =
@@ -76,23 +94,24 @@ module ReliabilityCache : sig
                                              are disabled at most *)
 	rcache_threshold : int;   (** How many errors are required 
                                       for disabling a port *)
-	rcache_hook : rcache -> unit;  (** Called by [is_*_enabled] before
-                                           the result is calculated *)
+	rcache_availability : rcache -> Unix.sockaddr -> bool;  (** External
+            availability checker. Called  by [sockaddr_is_enabled] before
+            the result is calculated *)
       }
 
   val create_rcache_config : ?policy:rcache_policy -> 
                              ?disable_timeout_min:float ->
                              ?disable_timeout_max:float ->
                              ?threshold:int ->
-                             ?hook:(rcache -> unit) ->
+                             ?availability:(rcache -> Unix.sockaddr -> bool) ->
                              unit -> rcache_config
     (** Create a config record. The optional arguments set the config
-        components with the same name. The defaults are:
+        components with the same name. The arguments default to:
          - [policy = `None]
          - [disable_timeout_min = 1.0]
          - [disable_timeout_max = 64.0]
          - [threshold = 1]
-         - [hook = fun () -> ()]
+         - [availability = fun _ _ -> true]
      *)
 
   val create_rcache : rcache_config -> rcache
@@ -102,6 +121,43 @@ module ReliabilityCache : sig
 
   val rcache_config : rcache -> rcache_config
     (** Return the config *)
+
+  val global_rcache_config : unit -> rcache_config
+    (** Returns the global config:
+         - [policy = `Independent]
+         - [disable_timeout_min = 1.0]
+         - [disable_timeout_max = 1.0]
+         - [threshold = 1]
+         - [availability = fun _ _ -> true]
+     *)
+
+  val set_global_rcache_config : rcache_config -> unit
+    (** Sets the new global config. This is only possible as long as
+        neither [default_global_config] nor [global_rcache] have been called.
+     *)
+
+  val global_rcache : unit -> rcache
+    (** The global cache. Initially, this cache has the default config.
+        It is possible to change the default config before using the
+        global cache for the first time.
+     *)
+
+  val derive_rcache : rcache -> rcache_config -> rcache
+    (** [derive_cache parent config]: Returns a new cache that shares the
+        error counters with [parent]. The interpretation of the counters,
+        however, may be differently configured in [config].
+
+        Because it is advantageous to share the error information as much
+        as possible, the recommended way to create a new cache object is
+        to derive it from the global cache.
+
+        What [derive_rcache] actually does (and this is not yet
+        optimal): Any [incr] and [reset] of an error counter is also
+        forwarded to the parent cache. The tests whether hosts and ports
+        are enabled do an AND of the results for the cache and its parent
+        (i.e. both must be ok to enable). This allows some information
+        sharing, but only in vertical direction.
+     *)
 
   val incr_rcache_error_counter : rcache -> Unix.sockaddr -> unit
     (** Increase the error counter for this sockaddr. If the threshold
@@ -119,7 +175,9 @@ module ReliabilityCache : sig
      *)
 
   val sockaddr_is_enabled : rcache -> Unix.sockaddr -> bool
-    (** Returns whether the sockaddr is enabled *)
+    (** Returns whether the sockaddr is enabled. This also calls the
+        [rcache_availability] hook.
+     *)
 
   val host_is_enabled : rcache -> Unix.inet_addr -> bool
     (** Returns whether the host is enabled *)
@@ -173,6 +231,11 @@ module ManagedClient : sig
               A positive
               value is a point in time in the future.
 	   *)
+	mclient_msg_timeout_is_fatal : bool;
+	  (** Whether a message timeout is to be considered as fatal error
+              (the client is shut down, and the error counter for the endpoint
+              is increased)
+	   *)
 	mclient_exception_handler : (exn -> unit) option;
 	  (** Whether to call {!Rpc_client.set_exception_handler} *)
 	mclient_auth_methods : Rpc_client.auth_method list;
@@ -180,6 +243,10 @@ module ManagedClient : sig
 	mclient_initial_ping : bool;
 	  (** Whether to call procedure 0 of the first program after
               connection establishment (see comments above)
+	   *)
+	mclient_max_response_length : int option;
+	  (** The maximum response length. See 
+              {!Rpc_client.set_max_response_length}.
 	   *)
       }
 
@@ -193,19 +260,23 @@ module ManagedClient : sig
                               ?idle_timeout:float ->
                               ?programs:Rpc_program.t list ->
                               ?msg_timeout:float ->
+                              ?msg_timeout_is_fatal:bool ->
                               ?exception_handler:(exn -> unit) ->
                               ?auth_methods:Rpc_client.auth_method list ->
                               ?initial_ping:bool ->
+                              ?max_response_length:int ->
                               unit -> mclient_config
     (** Create a config record. The optional arguments set the config
         components with the same name. The defaults are:
-         - [rcache]: Use the default reliability cache with default config
+         - [rcache]: Use the global reliability cache
          - [socket_config]: {!Rpc_client.default_socket_config}
          - [programs]: The empty list. It is very advisable to fill this!
          - [msg_timeout]: (-1), i.e. none
+         - [msg_timeout_is_fatal]: false
          - [exception_handler]: None
          - [auth_methods]: empty list
          - [initial_ping]: false
+         - [max_response_length]: None
      *)
 
   val create_mclient : mclient_config -> 
@@ -247,13 +318,41 @@ module ManagedClient : sig
         {!Rpc_client.trigger_shutdown}
      *)
 
+  val record_unavailability : mclient -> unit
+    (** Increases the error counter in the reliability cache for this
+        connection. The only effect can be that the error counter
+        exceeds the [rcache_threshold] so that the server endpoint
+        is disabled for some time. However, this only affects new 
+        connections, not existing ones.
+
+        For a stricter interpretation of errors see 
+        [enforce_unavailability].
+
+        The error counter is increased anyway when a socket error
+        happens, or an RPC call times out and [msg_timeout_is_fatal]
+        is set. This function can be used to also interpret other
+        misbehaviors as fatal errors.
+     *)
+    (* This is a strange function. Maybe it should go away. One could
+       call it after a successful RPC call when the result of this call
+       indicates that the server is not good enough for further use
+       (although it is still able to respond). However, after a successful
+       RPC the error counter is reset, and this cannot be prevented by
+       this function (too late)
+     *)
+
   val enforce_unavailability : mclient -> unit
     (** Enforces that all pending procedure calls get the
         [Service_unavailable] exception, and that the client is shut down.
         The background is this: When the reliability cache discovers an
         unavailable port or host, only the new call is stopped with this
         exception, but older calls remain unaffected. This function
-        can be used to change the policy, and to stop all pending calls.
+        can be used to change the policy, and to stop even pending calls.
+
+        The difference to [trigger_shutdown] is that the pending RPC
+        calls get the exception [Service_unavailable] instead of
+        {!Rpc_client.Message_lost}, and that it is enforced that the
+        shutdown is recorded as fatal error in the reliability cache.
      *)
 
   val set_batch_call : mclient -> unit
@@ -307,8 +406,10 @@ module ManagedSet : sig
           (** Wait this number of seconds before trying again *)
       }
 
-  exception Maximum_capacity
-    (** Raised by [mset_pick] when there is no capacity anymore *)
+  exception Cluster_service_unavailable
+    (** Raised by [mset_pick] when no available endpoint can be found,
+        or all available endpoints have reached their maximum load.
+     *)
 
   val create_mset_config : ?mclient_config:ManagedClient.mclient_config ->
                            ?policy:mset_policy ->
@@ -337,8 +438,17 @@ module ManagedSet : sig
         connections).
      *)
 
-  val mset_pick : mset -> ManagedClient.mclient
-    (** Pick an mclient for another call, or raise [Maximum_capacity] *)
+  val mset_pick : ?from:int list -> mset -> ManagedClient.mclient * int
+    (** Pick an mclient for another call, or raise [Cluster_service_unavailable].
+        The returned int is the index in the [mset_services] array.
+
+        If [from] is given, not all specified mclients qualify for this
+        call. In [from] one can pass a list of indexes pointing into
+        the [mset_services] array, and only from these mclients the 
+        mclient is picked. For [`Failover] policies, the order given
+        in [from] is respected, and the mclients are checked from left
+        to right.
+     *)
 
   val mset_services : mset -> (Rpc_client.connector * int) array
     (** Returns the service array *)
@@ -358,6 +468,7 @@ module ManagedSet : sig
      *)
 
   val idempotent_async_call :
+       ?from:int list -> 
        mset -> 
        (ManagedClient.mclient -> 'a -> ((unit -> 'b) -> unit) -> unit) ->
        'a ->
@@ -366,15 +477,24 @@ module ManagedSet : sig
     (** [idempotent_async_call
            mset async_call arg emit]: Picks a new
         [mclient] and calls [async_call mclient arg emit].
-        If the call times out or leads to a socket error, another [mclient]
+        If the call leads to a fatal error, a new [mclient]
         is picked, and the call is repeated. In total, the call may be
-        tried [mset_idempotent_max] times.
+        tried [mset_idempotent_max] times. It is recommended to set
+        [rcache_threshold] to 1 when using this function because this
+        enforces that a different mclient is picked when the first one
+        fails.
+
+        Note that a timeout is not considered as a fatal error by default;
+        one has to enable that by setting [mclient_msg_timeout_is_fatal].
 
         Note that this form of function is compatible with the 
         generated [foo'async] functions of the language mapping.
+
+        [from] has the same meaning as in [mset_pick].
      *)
 
   val idempotent_sync_call :
+       ?from:int list -> 
        mset -> 
        (ManagedClient.mclient -> 'a -> ((unit -> 'b) -> unit) -> unit) ->
        'a ->

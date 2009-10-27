@@ -850,6 +850,41 @@ static pthread_mutex_t      sigchld_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 
+/* Our use of pthread + signals is hard at the limit of what POSIX
+   allows, in some kind of grey zone. Normally, it is not allowed that
+   pthread functions are invoked from signal handlers. However, if one
+   reads POSIX carefully, it turns out to be this problem: The pthread
+   functions are not reentrant. When a signal handler invokes them, it
+   can happen that the signal interrupted the same function before
+   (reentrant call). This cannot happen here: We block the signal before
+   locking/unlocking the mutex, so it is excluded that the signal handler
+   interrupts a running pthread_lock/unlock ACCESSING OUR MUTEX. Of course,
+   it can interrupt any other pthread_lock/unlock...
+
+   POSIX: "when a signal interrupts an unsafe function and the
+   signal-catching function calls an unsafe function, the behavior is
+   undefined."
+
+   So I think it is legal. Not absolutely sure, though. If not, we
+   have to switch the implementation. Our problem, however, is that we
+   have no means to control which thread blocks SIGCHLD and which
+   thread doesn't, so the "text book implementation" is out of reach:
+   One thread is set up to get all SIGCHLD signals, and to process these
+   sequentially.
+
+   Sketch for a solution:
+   - Set up a special thread. It reads endlessly from a pipe, and gets
+     from there instructions what to do. This way the thread is notified
+     about waitpid tasks. As it runs outside of the signal context,
+     there is no problem to set the mutex while accessing the data structure.
+   - The signal handler simply writes the PID to the pipe when it gets
+     SIGCHLD
+
+   No need to fiddle with signal masks anymore. However, we consume
+   2 further file descriptors.
+
+*/
+
 static void sigchld_lock(int block_signal, int master_lock) {
     sigset_t set;
     int code;

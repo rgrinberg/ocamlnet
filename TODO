@@ -45,10 +45,18 @@ Plan for Ocamlnet 3
   - Uq_socks5
 
 
+- CHECK: watch subprocess: POSIX does not allow to access mutex
+  from signal handler
+
+- ocamlrpcgen: export _program variable in client interfaces
+
+- Example for Rpc_proxy
 
 - Focus Win32:
 
   * Documentation: What is supported on Win32?
+  * CHECK: Call CancelIo to cancel the overlapped I/O requests when
+    the pipe struct is freed?
 
 - Focus Netplex:
   * Netplex_control_routine:
@@ -194,11 +202,16 @@ A list of possible improvements, once interfaces are stable again:
 Implementation improvements after Ocamlnet 3.0
 ----------------------------------------------------------------------
 
+- Rpc_proxy: 
+  * revise shared reliability caches.
+  * idempotent calls: better the endpoint is immediately switched after
+    the first failure
+
 - Name_resulution_error
 
 - Configurable async name resolution
 
-- Cluster Message bus
+- Cluster Message bus (netfunk)
 
 - Improved shared memory support; RPC over shared memory
 

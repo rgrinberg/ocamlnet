@@ -16,7 +16,7 @@ module ReliabilityCache = struct
 	rcache_disable_timeout_min : float;
 	rcache_disable_timeout_max : float;
 	rcache_threshold : int;
-	rcache_hook : rcache -> unit;
+	rcache_availability : rcache -> Unix.sockaddr -> bool;
       }
 
   and entry =
@@ -34,28 +34,59 @@ module ReliabilityCache = struct
       { mutex : Netsys_oothr.mutex;
 	config : rcache_config;
 	ports : (Unix.sockaddr, entry) Hashtbl.t;
-	hosts : (Unix.inet_addr, host_entry) Hashtbl.t
+	hosts : (Unix.inet_addr, host_entry) Hashtbl.t;
+	parent : rcache option;
       }
 
   let create_rcache_config ?(policy = `None)
                            ?(disable_timeout_min = 1.0)
 			   ?(disable_timeout_max = 64.0)
 			   ?(threshold = 1)
-			   ?(hook = fun _ -> ())
+			   ?(availability = fun _ _ -> true)
 			   () =
     { rcache_policy = policy;
       rcache_disable_timeout_min = disable_timeout_min;
       rcache_disable_timeout_max = disable_timeout_max;
       rcache_threshold = threshold;
-      rcache_hook = hook;
+      rcache_availability = availability;
     }
 
   let create_rcache cfg =
     { mutex = !Netsys_oothr.provider # create_mutex ();
       config = cfg;
       ports = Hashtbl.create 10;
-      hosts = Hashtbl.create 10
+      hosts = Hashtbl.create 10;
+      parent = None
     }
+
+  let g_rcache_config =
+    ref (create_rcache_config
+	   ~policy:`Independent
+	   ~disable_timeout_max:1.0
+	   ())
+
+  let g_rcache_config_modifiable = ref true
+
+  let global_rcache_config() = 
+    g_rcache_config_modifiable := false;
+    !g_rcache_config
+
+  let set_global_rcache_config cfg =
+    if not !g_rcache_config_modifiable then
+      failwith "Cannot change config of global ReliabiltyCache after first use";
+    g_rcache_config := cfg
+
+  let g_rcache = lazy (
+    create_rcache (global_rcache_config())
+  )
+
+  let global_rcache() =
+    Lazy.force g_rcache
+
+  let derive_rcache rc cfg =
+    let rc' = create_rcache cfg in
+    { rc' with parent = Some rc }
+
 
   let rcache_config rc = rc.config
 
@@ -91,7 +122,7 @@ module ReliabilityCache = struct
     ip = Unix.inet_addr_loopback || ip = Unix.inet6_addr_loopback
 
 
-  let incr_rcache_error_counter rc sa =
+  let rec incr_rcache_error_counter rc sa =
     Netsys_oothr.serialize rc.mutex
       (fun () ->
 	 let e = get_entry rc sa in
@@ -136,9 +167,12 @@ module ReliabilityCache = struct
 	   )
 	 )
       )
-      ()
+      ();
+    match rc.parent with
+      | None -> ()
+      | Some rc' -> incr_rcache_error_counter rc' sa
 
-  let reset_rcache_error_counter rc sa =
+  let rec reset_rcache_error_counter rc sa =
     Netsys_oothr.serialize rc.mutex
       (fun () ->
 	 if Hashtbl.mem rc.ports sa then (
@@ -174,7 +208,10 @@ module ReliabilityCache = struct
 	   )
 	 )
       )
-      ()
+      ();
+    match rc.parent with
+      | None -> ()
+      | Some rc' -> reset_rcache_error_counter rc' sa
 
   let host_is_enabled_for rc ip now =
     try
@@ -185,19 +222,26 @@ module ReliabilityCache = struct
     with
       | Not_found -> true
 
-  let host_is_enabled rc ip =
-    rc.config.rcache_hook rc;
+  let rec host_is_enabled_1 rc ip now =
     Netsys_oothr.serialize rc.mutex
       (fun () ->
-	 host_is_enabled_for rc ip (Unix.gettimeofday())
+	 host_is_enabled_for rc ip now
       )
-      ()
+      () &&
+      ( match rc.parent with
+	  | None -> true
+	  | Some rc' -> host_is_enabled_1 rc' ip now
+      )
 
-  let sockaddr_is_enabled rc sa =
-    rc.config.rcache_hook rc;
-    Netsys_oothr.serialize rc.mutex
+  let host_is_enabled rc ip =
+    let now = Unix.gettimeofday() in
+    host_is_enabled_1 rc ip now
+     
+
+  let rec sockaddr_is_enabled_1 rc sa now =
+    rc.config.rcache_availability rc sa &&
+      Netsys_oothr.serialize rc.mutex
       (fun () ->
-	 let now = Unix.gettimeofday() in
 	 let ip = ip_of_sa sa in
 	 host_is_enabled_for rc ip now
 	 && ( try
@@ -209,7 +253,15 @@ module ReliabilityCache = struct
 		| Not_found -> true
 	    )
       )
-      ()
+      () &&
+      ( match rc.parent with
+	  | None -> true
+	  | Some rc' -> sockaddr_is_enabled_1 rc' sa now
+      )
+
+  let sockaddr_is_enabled rc sa =
+    let now = Unix.gettimeofday() in
+    sockaddr_is_enabled_1 rc sa now
 
 end
 
@@ -225,9 +277,11 @@ module ManagedClient = struct
 	mclient_idle_timeout : float;
 	mclient_programs : Rpc_program.t list;
 	mclient_msg_timeout : float;
+	mclient_msg_timeout_is_fatal : bool;
 	mclient_exception_handler : (exn -> unit) option;
 	mclient_auth_methods : Rpc_client.auth_method list;
 	mclient_initial_ping : bool;
+	mclient_max_response_length : int option;
       }
 
   type state = [ `Down | `Connecting | `Up of Unix.sockaddr option]
@@ -236,6 +290,7 @@ module ManagedClient = struct
       { client : Rpc_client.t;
 	mutable idle_timer : Unixqueue.group option;
 	mutable unavailable : bool;
+	mutable fatal_error : bool;
       }
 
   type conn_state =
@@ -243,6 +298,7 @@ module ManagedClient = struct
 	mutable c_when_up : (up_state -> unit) list;
 	mutable c_when_fail : (exn -> unit) list;
 	mutable c_unavailable : bool;
+	mutable c_fatal_error : bool;
       }
 
   type extended_state =
@@ -269,10 +325,6 @@ module ManagedClient = struct
   type t = mclient
       (* for USE_CLIENT compatibility *)
 
-  let default_rcache =
-    ReliabilityCache.create_rcache
-      (ReliabilityCache.create_rcache_config ())
-
   let get_null_proc_name config =
      if config.mclient_initial_ping then
 	match Rpc_program.null_proc_name (List.hd config.mclient_programs) with
@@ -283,14 +335,16 @@ module ManagedClient = struct
 	""
 
   let create_mclient_config
-        ?(rcache = default_rcache)
+        ?(rcache = ReliabilityCache.global_rcache())
 	?(socket_config = Rpc_client.default_socket_config)
 	?(idle_timeout = (-1.0))
 	?(programs = [])
 	?(msg_timeout = (-1.0))
+	?(msg_timeout_is_fatal = false)
 	?exception_handler
 	?(auth_methods = [])
 	?(initial_ping = false)
+	?max_response_length
 	() =
     if initial_ping && programs = [] then
       failwith
@@ -302,9 +356,11 @@ module ManagedClient = struct
 	mclient_idle_timeout = idle_timeout;
 	mclient_programs = programs;
 	mclient_msg_timeout = msg_timeout;
+	mclient_msg_timeout_is_fatal = msg_timeout_is_fatal;
 	mclient_exception_handler = exception_handler;
 	mclient_auth_methods = auth_methods;
 	mclient_initial_ping = initial_ping;
+	mclient_max_response_length = max_response_length;
       } in
     ignore(get_null_proc_name config);
     config
@@ -394,8 +450,30 @@ module ManagedClient = struct
     mc.estate <- `Down;
     change_pending_calls mc 0
 
+  let fatal_error mc =
+    (* We count a failed mclient only once *)
+    match mc.estate with
+      | `Down -> ()
+      | `Connecting c ->
+	  if not c.c_fatal_error then (
+	    c.c_fatal_error <- true;
+	    ReliabilityCache.incr_rcache_error_counter 
+	      mc.config.mclient_rcache
+	      (sockaddr_of_conn mc.conn)
+	  )
+      | `Up up ->
+	  if not up.fatal_error then (
+	    up.fatal_error <- true;
+	    ReliabilityCache.incr_rcache_error_counter 
+	      mc.config.mclient_rcache
+	      (sockaddr_of_conn mc.conn)
+	  )
+
+  let record_unavailability mc =
+    fatal_error mc
 
   let enforce_unavailability mc =
+    fatal_error mc;
     ( match mc.estate with
 	| `Down -> ()
 	| `Connecting c ->
@@ -429,10 +507,18 @@ module ManagedClient = struct
 	 )
       )
 
-  let create_up mc client =
+  let create_up mc cstate =
+    { client = cstate.c_client;
+      idle_timer = None;
+      unavailable = cstate.c_unavailable;
+      fatal_error = cstate.c_fatal_error;
+    }
+
+  let create_up1 mc client =
     { client = client;
       idle_timer = None;
-      unavailable = false
+      unavailable = false;
+      fatal_error = false;
     }
 
   let maybe_start_idle_timer mc =
@@ -471,6 +557,7 @@ module ManagedClient = struct
 	c_when_up = [when_up];
 	c_when_fail = [when_fail];
 	c_unavailable = false;
+	c_fatal_error = false;
       } in
     ( try
 	Rpc_client.unbound_async_call
@@ -482,8 +569,11 @@ module ManagedClient = struct
 	     try
 	       let _ = get_reply() in   (* or exn *)
 	       let g = Unixqueue.new_group mc.esys in
-	       let up = create_up mc client in
+	       let up = create_up mc cstate in
 	       mc.estate <- `Up up;
+	       ReliabilityCache.reset_rcache_error_counter
+		 mc.config.mclient_rcache
+		 (sockaddr_of_conn mc.conn);
 	       List.iter
 		 (fun f_up -> 
 		    Unixqueue.once mc.esys g 0.0 (fun () -> f_up up))
@@ -492,12 +582,14 @@ module ManagedClient = struct
 	     with error -> 
 	       Rpc_client.trigger_shutdown client (fun () -> ());
 	       let g = Unixqueue.new_group mc.esys in
+	       let p_unavail =
+		 (* Is this error the consequence of enforce_unavailability? *)
+		 error = Rpc_client.Message_lost && cstate.c_unavailable in
+	       if not p_unavail then
+		 fatal_error mc;
 	       mc.estate <- `Down;
 	       let error =
-		 if error = Rpc_client.Message_lost && cstate.c_unavailable then
-		   Service_unavailable
-		 else
-		   error in
+		 if p_unavail then Service_unavailable else error in
 	       List.iter
 		 (fun f_fail -> 
 		    Unixqueue.once mc.esys g 0.0 (fun () -> f_fail error))
@@ -506,6 +598,7 @@ module ManagedClient = struct
 	  )
       with
 	| error ->
+	    fatal_error mc;
 	    when_fail error
     );
     mc.estate <- `Connecting cstate;
@@ -530,6 +623,10 @@ module ManagedClient = struct
 	    (* The client remains unbound. We check program compatibility here
 	     *)
 	    Rpc_client.configure client 0 mc.config.mclient_msg_timeout;
+	    ( match mc.config.mclient_max_response_length with
+		| None -> ()
+		| Some m -> Rpc_client.set_max_response_length client m
+	    );
 	    ( match mc.config.mclient_exception_handler with
 		| None -> ()
 		| Some eh -> Rpc_client.set_exception_handler client eh
@@ -540,7 +637,7 @@ module ManagedClient = struct
 	      do_initial_ping mc client when_up when_fail
 	    else (
 	      (* Easier: just claim that the client is up *)
-	      let up = create_up mc client in
+	      let up = create_up1 mc client in
 	      mc.estate <- `Up up;
 	      change_pending_calls mc 0;
 	      when_up up
@@ -574,18 +671,38 @@ module ManagedClient = struct
 		receiver 
 		  (fun () ->
 		     try
-		       get_reply()
+		       let r = get_reply() in
+		       ReliabilityCache.reset_rcache_error_counter
+			 mc.config.mclient_rcache
+			 (sockaddr_of_conn mc.conn);
+		       r
 		     with
+			 (* Is this error the consequence of 
+                            enforce_unavailability? *)
 		       | Rpc_client.Message_lost when up.unavailable ->
 			   raise Service_unavailable
+			 (* Look for fatal errors and count them: *)
+		       | (Rpc_client.Message_lost
+			 | Rpc_client.Communication_error _
+			 ) as error ->
+			   fatal_error mc;
+			   raise error
+		       | Rpc_client.Message_timeout as error
+			   when mc.config.mclient_msg_timeout_is_fatal -> (
+			     fatal_error mc;
+			     trigger_shutdown mc (fun () -> ());
+			     raise error
+			   )
 		  )
 	     )
 	 with
 	   | error ->
+	       fatal_error mc;
 	       change_pending_calls mc (-1);
 	       receiver (fun () -> raise error)
       )
       (fun error ->
+	 (* fatal_error has already been called if needed *)
 	 change_pending_calls mc (-1);
 	 receiver (fun () -> raise error)
       );
@@ -634,7 +751,7 @@ module ManagedSet = struct
 	mutable timer_active : < cancel : unit -> unit > list;
       }
 
-  exception Maximum_capacity
+  exception Cluster_service_unavailable
 
   let default_mclient_config =
     ManagedClient.create_mclient_config()
@@ -800,26 +917,40 @@ module ManagedSet = struct
 
   let pick_from mset order =
     let rec next j =
-      try pick_from_service mset order.(j)
+      try 
+	let k = order.(j) in
+	let mc = pick_from_service mset k in
+	(mc, k)
       with
 	| Not_found -> 
 	    let j' = j+1 in
 	    if j' < Array.length order then
 	      next j'
 	    else
-	      raise Maximum_capacity in
+	      raise Cluster_service_unavailable in
     next 0
 
 
-  let mset_pick mset =
+  let mset_pick ?from mset =
+    let order =
+      match from with
+	| None ->
+	    Array.init (Array.length mset.services) (fun k -> k)
+	| Some l ->
+	    List.iter
+	      (fun k ->
+		 if k < 0 || k >= Array.length mset.services then
+		   invalid_arg "Rpc_proxy.ManagedSet.mset_pick"
+	      )
+	      l;
+	    Array.of_list l
+    in
     match mset.config.mset_policy with
       | `Failover ->
 	  (* Try the services in given order: *)
-	  let order = Array.init (Array.length mset.services) (fun k -> k) in
 	  pick_from mset order
       | `Balance_load ->
 	  (* Sort the services by total load first: *)
-	  let order = Array.init (Array.length mset.services) (fun k -> k) in
 	  Array.sort 
 	    (fun j1 j2 ->
 	       Pervasives.compare 
@@ -880,7 +1011,7 @@ module ManagedSet = struct
     else
       sync_shutdown mset 
 
-  let idempotent_async_call mset async_call arg emit =
+  let idempotent_async_call ?from mset async_call arg emit =
     let config_delay = mset.config.mset_idempotent_wait in
     let n = ref 0 in
     let rec next_attempt last_err delay =
@@ -899,7 +1030,7 @@ module ManagedSet = struct
 	     mset.timer_active <-
 	       List.filter (fun obj -> obj <> cancel_obj) mset.timer_active;
 	     try
-	       let mc = mset_pick mset in
+	       let mc, _ = mset_pick ?from mset in
 	       async_call mc arg
 		 (fun get_reply ->
 		    let repeat_flag =
@@ -921,7 +1052,7 @@ module ManagedSet = struct
 		 )
 	     with
 	       | (ManagedClient.Service_unavailable
-		 | Maximum_capacity
+		 | Cluster_service_unavailable
 		 ) as error ->
 		   next_attempt error config_delay
 	       | error ->
@@ -933,10 +1064,10 @@ module ManagedSet = struct
       Rpc_client.Message_lost   (* most appropriate *)
       0.0
 
-  let idempotent_sync_call mset async_call arg =
+  let idempotent_sync_call ?from mset async_call arg =
     Rpc_client.synchronize
       mset.esys
-      (idempotent_async_call mset async_call)
+      (idempotent_async_call ?from mset async_call)
       arg
 
 end
