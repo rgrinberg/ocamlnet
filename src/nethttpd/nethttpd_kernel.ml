@@ -972,7 +972,7 @@ object(self)
        * buffer.
        *)
       let ch = new Netchannels.input_string 
-		 ~pos:reqline_end ~len:(block_end - block_start) s in
+		 ~pos:reqline_end ~len:(block_end - reqline_end) s in
       let str = new Netstream.input_stream ch in
       (* TODO: This is quite expensive. Create a new netstream class for cheaper access 
        * in this case where we only read from a constant string.

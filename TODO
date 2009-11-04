@@ -188,6 +188,9 @@ A list of possible improvements, once interfaces are stable again:
 - Implement Netsys_posix.spawn with posix_spawn for systems 
   supporting that
 
+- Better Bigarray integration:
+  * read/write with bigarray as buffer
+
 - Improve Rtypes performance
 
 - RPC: generate direct mapping
@@ -207,7 +210,7 @@ Implementation improvements after Ocamlnet 3.0
   * idempotent calls: better the endpoint is immediately switched after
     the first failure
 
-- Name_resulution_error
+- Name_resolution_error
 
 - Configurable async name resolution
 
@@ -225,6 +228,10 @@ Implementation improvements after Ocamlnet 3.0
   (for cryptogrpahy)
 
 - CHECK: GSSAPI, krb5 for rpc
+
+- netplex component for monitoring:
+   - ping RPC services, but also support for plugging in other protocols
+   - post monitoring results to neighbors (UDP, optionally with multicasting)
 
 ----------------------------------------------------------------------
 Old stuff, check first
