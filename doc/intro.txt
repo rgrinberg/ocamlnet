@@ -61,6 +61,14 @@ are supported on which platform:
 - {!module:Netulex_tut}: The [Netulex] tutorial
 - {!module:Neturl_tut}: The [Neturl] tutorial
 
+{2:netzip The [netzip] library}
+
+Support for (un)compressing data on the fly with object channels.
+Requires ocamlzip.
+
+{!modules:
+    Netgzip}
+
 {2:netcgi1 The [netcgi1] library}
 
 The [netcgi1] library is no longer supported in Ocamlnet 3. Please
