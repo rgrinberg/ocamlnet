@@ -101,6 +101,7 @@ f src/netsys/configtests/main.ml
 p src/netsys/.*\.ml
 p src/netsys/.*\.mli
 p src/netsys/.*\.c
+p src/netsys/.*\.h
 
 d src/netshm
 f src/netshm/Makefile
