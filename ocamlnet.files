@@ -110,11 +110,6 @@ p src/netshm/.*\.ml
 p src/netshm/.*\.mli
 p src/netshm/.*\.txt
 
-d src/cgi
-f src/cgi/META.in
-f src/cgi/Makefile
-f src/cgi/Makefile.pre
-
 d src/netcgi2
 f src/netcgi2/Makefile
 f src/netcgi2/Makefile.pre
@@ -322,31 +317,6 @@ p src/netzip/.*\.c
 
 d examples
 d examples/cgi
-d examples/cgi/netcgi1
-
-d examples/cgi/netcgi1/cgi
-f examples/cgi/netcgi1/cgi/Makefile
-f examples/cgi/netcgi1/cgi/add.ml
-f examples/cgi/netcgi1/cgi/counter.ml
-f examples/cgi/netcgi1/cgi/filemanager.ml
-f examples/cgi/netcgi1/cgi/mailbox.ml
-
-d examples/cgi/netcgi1/jserv
-f examples/cgi/netcgi1/jserv/README.jserv
-f examples/cgi/netcgi1/jserv/README.httpd.conf
-f examples/cgi/netcgi1/jserv/README.properties
-f examples/cgi/netcgi1/jserv/Makefile
-f examples/cgi/netcgi1/jserv/add_sequential.ml
-f examples/cgi/netcgi1/jserv/add_forking.ml
-f examples/cgi/netcgi1/jserv/add_procpool.ml
-
-d examples/cgi/netcgi1/fcgi
-f examples/cgi/netcgi1/fcgi/Makefile
-f examples/cgi/netcgi1/fcgi/add_fastcgi.ml
-
-d examples/cgi/netcgi1/fcgi_raw
-f examples/cgi/netcgi1/fcgi_raw/Makefile
-f examples/cgi/netcgi1/fcgi_raw/fcgi_raw.ml
 
 d examples/cgi/netcgi2
 p examples/cgi/netcgi2/.*\.ml
@@ -415,6 +385,20 @@ f examples/rpc/finder/finder_client.ml
 f examples/rpc/finder/finder_daemon.ml
 f examples/rpc/finder/netplex.cfg
 
+d examples/rpc/matrixmult
+f examples/rpc/matrixmult/Makefile
+f examples/rpc/matrixmult/Makefile.code
+f examples/rpc/matrixmult/TIMINGS
+f examples/rpc/matrixmult/runtime.png
+f examples/rpc/matrixmult/runtime.ods
+f examples/rpc/matrixmult/mm_server.cfg
+f examples/rpc/matrixmult/mm_client.ml
+f examples/rpc/matrixmult/mm_controller.ml
+f examples/rpc/matrixmult/mm_proto.x
+f examples/rpc/matrixmult/mm_server.ml
+f examples/rpc/matrixmult/mm_worker.ml
+f examples/rpc/matrixmult/simple.ml
+
 d examples/equeue
 d examples/equeue/engines
 p examples/equeue/engines/.*\.ml
@@ -454,10 +438,16 @@ d examples/netclient/telnet_labltk
 p examples/netclient/telnet_labltk/.*\.ml
 f examples/netclient/telnet_labltk/Makefile
 
+d examples/netplex
+f examples/netplex/Makefile
+f examples/netplex/Makefile.code
+f examples/netplex/MORE_EXAMPLES
+f examples/netplex/helper_container.cfg
+f examples/netplex/helper_container.ml
+f examples/netplex/operation.x
+f examples/netplex/test_client.ml
+
 d doc
 d doc/html-main
 p doc/html-main/.*\.html
 p doc/html-main/.*\.css
-d doc/html-main/netcgi1
-p doc/html-main/netcgi1/.*\.html
-p doc/html-main/netcgi1/.*\.css
