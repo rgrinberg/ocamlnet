@@ -1,11 +1,9 @@
 (* $Id$ *)
 
-(*
 (** {1 Netplex support} *)
 
 (** The important function is [nethttpd_factory], see below. The
     other functions are only needed for special effects.
- *)
  *)
 
 type config_log_error =
@@ -40,8 +38,8 @@ type config_log_access =
      - [resp_size] is the size of the response body
  *)
 
-val std_log_error : Netplex_types.container -> config_log_error (** Returns 
-      a function that logs errors using the [log_subch] method of
+val std_log_error : Netplex_types.container -> config_log_error 
+  (** Returns a function that logs errors using the [log_subch] method of
       the passed container
    *)
 

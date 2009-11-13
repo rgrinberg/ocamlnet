@@ -1,6 +1,6 @@
 #! /bin/sh
 
 ./configure -with-nethttpd -enable-ssl -enable-gtk2 -enable-zip \
-	-with-rpc-auth-dh \
+	-with-rpc-auth-dh -enable-gtk \
 	-enable-tcl -equeue-tcl-defs -I/usr/include/tcl8.4 -equeue-tcl-libs -ltcl8.4 \
 	"$@"

@@ -9,7 +9,7 @@ URL module can handle a lot of URL types in a generic way.
 In order to parse an absolute URL (beginning with a scheme identifier 
 like "http:...") of unknown type just call
 {[ 
-let url = parse_url "http://me\@server/directory"
+let url = parse_url "http://me@server/directory"
 ]}
 
 By default, this function can parse all URL types listed
@@ -68,7 +68,7 @@ unambiguous representation as string.
 
 Internally, the parsed URL is decomposed into its components. This
 module supports two ways of decomposition:
-+ [scheme://user;userparams:password\@host:port/path;params?query#fragment]
++ [scheme://user;userparams:password@host:port/path;params?query#fragment]
 + [scheme:other;params?query#fragment]
 
 The first form is used for services that directly connect to a
@@ -77,17 +77,17 @@ be used for everything else not falling under this category.
 
 Examples:
 {ul
-{- [http://me:abrakadabra\@server/dir?x=5#section1]
+{- [http://me:abrakadabra@server/dir?x=5#section1]
 
    scheme=["http"], user=["me"], password=["abrakadabra"], host=["server"],
    path=["/dir"], query=["x=5"], fragment=["section1"] }
-{- [pop://you;auth=digest-md5\@mail]
+{- [pop://you;auth=digest-md5@mail]
 
    scheme=["pop"], user=["you"], user_params=[["auth=digest-md5"]], host=["mail"] }
-{- [mailto:gerd\@gerd-stolpmann.de?cc=you\@domain.com]
+{- [mailto:gerd@gerd-stolpmann.de?cc=you@domain.com]
 
-   scheme=["mailto"], other=["gerd\@gerd-stolpmann.de"],
-   query=["cc=you\@domain.com"] }
+   scheme=["mailto"], other=["gerd@gerd-stolpmann.de"],
+   query=["cc=you@domain.com"] }
 }
 
 It is important to mention that the decomposition is not fully
@@ -101,8 +101,8 @@ of analysis and the genericy of application.
 
 In order to represent the so-called unsafe characters, one can
 use [%]-escaping in URLs. For example, this URL contains a 
-password with [\@], an unsafe character encoded as [%40]:
-{[ http://user:!$%40?\@server ]}
+password with [@], an unsafe character encoded as [%40]:
+{[ http://user:!$%40?@server ]}
 The question is how this module handles such escapings.
 
 It is surprising that the URL parser does not decode these
@@ -113,7 +113,7 @@ The function [url_password] returns the password component.
 Applied to the above URL, one can get the password in
 its original, "encoded" form, or as decoded string:
 - [url_password ~encoded:true url] returns ["!$%40?"]
-- [url_password url] returns ["!$\@?"]
+- [url_password url] returns ["!$@?"]
 
 {2 Representation of URL Components}
 
@@ -175,7 +175,7 @@ In order to create a URL for a certain syntax, call [make_url]:
 let url = make_url 
             ~scheme:"http"
             ~user:"user"
-            ~password:"!$\@?"
+            ~password:"!$@?"
             ~host:"server"
             syntax
 ]}

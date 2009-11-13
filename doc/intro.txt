@@ -21,7 +21,10 @@ A number of ideas and concepts are used throughout the libraries:
 {2 Platform support}
 
 Please read this document for extended information which features
-are supported on which platform: {!Platform}.
+are supported on which platform: 
+
+- {!Platform}: Which functions are available on which platform
+  (POSIX/Win32). Also hints for portable programming.
 
 {2:netstring The [netstring] library}
 
@@ -46,7 +49,6 @@ are supported on which platform: {!Platform}.
    Nethttp
    Netstring_str
    Netstring_pcre
-   Netstring_mt
    Netmappings
    Netaux}
 
@@ -61,13 +63,8 @@ are supported on which platform: {!Platform}.
 
 {2:netcgi1 The [netcgi1] library}
 
-The [netcgi1] library is the old library for writing portable web
-applications, formerly known as [cgi] (this name is now an alias
-for [netcgi1]). Its features are frozen. A description
-of its interfaces can be found {{:netcgi1/index.html} here}.
-
-Note that it is not possible to use [netcgi1] and [netcgi2] at the same
-time.
+The [netcgi1] library is no longer supported in Ocamlnet 3. Please
+switch to [netcgi2].
 
 
 {2:netcgi2 The [netcgi2] library}
@@ -84,9 +81,6 @@ This is the revised library for Web applications, now called [netcgi2].
     Netcgi_test
     Netcgi_dbi
     Netcgi1_compat}
-
-Note that it is not possible to use [netcgi1] and [netcgi2] at the same
-time.
 
 {3:netcgi_intro Guides}
 
@@ -131,10 +125,14 @@ build web servers, and with [rpc] to build RPC servers.
     Netplex_sockserv
     Netplex_workload
     Netplex_kit
+    Netplex_cenv
     Netplex_log
     Netplex_main
     Netplex_mp
     Netplex_mt
+    Netplex_mutex
+    Netplex_semaphore
+    Netplex_sharedvar
     Rpc_netplex}
     
 {3:nethttpd_intro Guides}
@@ -311,12 +309,12 @@ other Ocamlnet libraries.
     Netsys
     Netsys_posix
     Netsys_oothr
+    Netsys_signal
     Netsys_pollset
     Netsys_pollset_generic
     Netsys_pollset_posix
     Netsys_pollset_win32
     Netsys_win32
-    Netsys_util
 }
 
 {2 Index}
