@@ -1520,6 +1520,45 @@ CAMLprim value netsys_shm_unlink(value path)
 
 
 /**********************************************************************/
+/* Bigarray helpers                                                   */
+/**********************************************************************/
+
+CAMLprim value netsys_blit_memory_to_string(value memv,
+					    value memoffv,
+					    value sv,
+					    value soffv,
+					    value lenv)
+{
+    struct caml_bigarray *mem = Bigarray_val(memv);
+    char * s = String_val(sv);
+    long memoff = Long_val(memoffv);
+    long soff = Long_val(soffv);
+    long len = Long_val(lenv);
+
+    memmove(s + soff, ((char*) mem->data) + memoff, len);
+
+    return Val_unit;
+}
+
+
+CAMLprim value netsys_blit_string_to_memory(value sv,
+					    value soffv,
+					    value memv,
+					    value memoffv,
+					    value lenv)
+{
+    struct caml_bigarray *mem = Bigarray_val(memv);
+    char * s = String_val(sv);
+    long memoff = Long_val(memoffv);
+    long soff = Long_val(soffv);
+    long len = Long_val(lenv);
+
+    memmove(((char*) mem->data) + memoff, s + soff, len);
+
+    return Val_unit;
+}
+
+/**********************************************************************/
 /* Multicast                                                          */
 /**********************************************************************/
 

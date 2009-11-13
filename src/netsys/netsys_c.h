@@ -56,6 +56,7 @@
 #include "caml/signals.h"
 #include "caml/custom.h"
 #include "caml/callback.h"
+#include "caml/bigarray.h"
 
 
 #ifdef HAVE_POLL

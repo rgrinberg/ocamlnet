@@ -1,3 +1,0 @@
-description = "Ocamlnet - HTTP daemon"
-version = "@VERSION@"
-requires = "nethttpd-for-@PREFERRED_CGI_PKG@"

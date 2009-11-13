@@ -1,23 +1,47 @@
 (* $Id$ *)
 
+(*
 (** {1 Netplex support} *)
 
 (** The important function is [nethttpd_factory], see below. The
     other functions are only needed for special effects.
  *)
+ *)
 
 type config_log_error =
     Unix.sockaddr option -> Unix.sockaddr option -> Nethttp.http_method option
      -> Nethttp.http_header option -> string -> unit
+(** The type of an error logging function: This function [f] is called
+    as [f sockaddr_opt peeraddr_opt meth_opt header_opt message], where
+     - [sockaddr_opt] is the address of the server socket
+     - [peeraddr_opt] is the address of the client socket
+     - [meth_opt] is the invoked HTTP method (GET/POST/...)
+     - [header_opt] is the request header submitted by the client
+     - [message] is the error message
+   *)
 
 type config_log_access =
     Unix.sockaddr -> Unix.sockaddr -> Nethttp.http_method ->
     Nethttp.http_header -> int64 -> (string * string) list -> bool -> 
     int -> Nethttp.http_header -> int64 -> unit
+(** The type of an access logging function: This function [f] is called
+    as [f sockaddr peeraddr meth req_header req_size props reject_flag 
+    resp_code resp_header resp_size], where
+     - [sockaddr] is the address of the server socket
+     - [peeraddr] is the address of the client socket
+     - [meth] is the invoked HTTP method (GET/POST/...)
+     - [req_header] is the request header submitted by the client
+     - [req_size] is the size of the request body submitted by the client
+     - [props] are the "CGI properties" as extracted from the request header.
+       For example, one finds here the remote user name ([REMOTE_USER]).
+     - [reject_flag] is true if the request body was rejected
+     - [resp_code] is the response HTTP code (e.g. 200 for success)
+     - [resp_header] is the response header
+     - [resp_size] is the size of the response body
+ *)
 
-
-val std_log_error : Netplex_types.container -> config_log_error
-  (** Returns a function that logs errors using the [log_subch] method of
+val std_log_error : Netplex_types.container -> config_log_error (** Returns 
+      a function that logs errors using the [log_subch] method of
       the passed container
    *)
 

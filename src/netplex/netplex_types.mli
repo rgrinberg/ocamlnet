@@ -17,9 +17,13 @@ type param_value_or_any =
 
 type level =
     [ `Emerg | `Alert | `Crit | `Err | `Warning | `Notice | `Info | `Debug ]
+  (** Log levels, modeled after syslog *)
 
+(** A logger receives log messages *)
 class type logger =
 object
+  (** A logger receives log messages *)
+
   method log_subch : component:string -> subchannel:string -> 
                      level:level -> message:string -> unit
     (** Receive a log [message] of [level] from [component]. The component
@@ -46,7 +50,6 @@ object
   method set_max_level : level -> unit
     (** Set the maximum global log level *)
 end
-  (** A logger receives log messages *)
 
 type parallelization_type =
     [ `Multi_processing
@@ -130,6 +133,9 @@ type extended_address =
          Win32 pipe
    *)
 
+(** The controller is the object in the Netplex master process/thread
+    that manages the containers, logging, and service definitions
+ *)
 class type controller = 
 object
   method ptype : parallelization_type
