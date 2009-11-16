@@ -3,6 +3,7 @@ TOP_DIR=../..
 PRE = 1
 PKGNAME = netsys
 GENERATE = META
+INSTALL_EXTRA = netsys_oothr.cmo
 
 include $(TOP_DIR)/Makefile.rules
 
