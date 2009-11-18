@@ -319,14 +319,15 @@ val xmap_list : (xmap_value -> string) -> string option ->
 
 
 val write : ?dtd:simplified_dtd ->            (* default: html40_dtd *) 
+            ?xhtml:bool ->
             Netchannels.out_obj_channel ->
             document list ->
 	      unit
   (** Writes the document to the output channel. No additional encoding or
    * decoding happens.
    *
-   * Empty elements are written without end tag; the rest is written 
-   * unabbreviated.
+   * Empty elements are written without end tag (see also optional argument
+   * [xhtml]); the rest is written unabbreviated.
    *
    * Example: To write the document to a file:
    * {[
@@ -337,4 +338,6 @@ val write : ?dtd:simplified_dtd ->            (* default: html40_dtd *)
    * ]}
    *
    * @param dtd The assumed simplified DTD, by default [html40_dtd]
+   * @param xhtml makes the output compatible with XHTML 1.0 Strict by
+   * closing [`Empty] tags with "/>" ([true] by default).
    *)

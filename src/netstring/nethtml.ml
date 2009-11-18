@@ -724,7 +724,7 @@ let decode ?(enc = `Enc_iso88591) ?subst ?entity_base ?lookup
 
 let quote_quot_re = Netstring_str.regexp "\"";;
 
-let write_ ~dtd write_os doc =
+let write_ ~dtd ~xhtml write_os doc =
   let quote_quot s =
     Netstring_str.global_substitute quote_quot_re 
       (fun _ _ -> "&quot;")
@@ -765,9 +765,13 @@ let write_ ~dtd write_os doc =
 		       write_os "\"";
 		    )
 		    atts;
-		  write_os ">";
-		  List.iter trav subdocs;
-		  if not is_empty then begin
+		  if is_empty then
+		    (* Ignore subdocs (even if <> []) because they should
+		       not be there. *)
+		    write_os (if xhtml then "/>" else ">")
+                  else begin
+		    write_os ">";
+		    List.iter trav subdocs;
 		    write_os "</";
 		    write_os name;
 		    write_os ">";
@@ -782,5 +786,5 @@ let write_ ~dtd write_os doc =
       Not_found -> failwith "write"
 ;;
 
-let write ?(dtd = html40_dtd) ch doc =
-  write_ ~dtd (ch # output_string) doc
+let write ?(dtd = html40_dtd) ?(xhtml = true) ch doc =
+  write_ ~dtd ~xhtml (ch # output_string) doc
