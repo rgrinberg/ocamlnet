@@ -464,11 +464,14 @@ val url_other     : ?encoded:bool -> url -> string
 val split_path : string -> string list
   (** Splits a ['/']-separated path into components (e.g. to set up the
    * [path] argument of [make_url]).
-   * E.g. 
+   * E.g.
    * {[
    * split_path "a/b/c" = [ "a"; "b"; "c" ],
    * split_path "/a/b"  = [ ""; "a"; "b" ],
    * split_path "a/b/"  = [ "a"; "b"; "" ] ]}
+   * Beware that [split_path ".."] returns [[".."]] while [split_path "../"]
+   * returns [[".."; ""]].  The two will behave differently, for example
+   * when used with {!Neturl.apply_relative_url}.
    *)
 
 val join_path : string list -> string
@@ -527,9 +530,17 @@ val apply_relative_url : url -> url -> url
    * function implements RFC 1808.
    *
    * It is not necessary that [rel] has the same syntax as [base].
-   * Note, however, that it is checked whether the resulting URL is syntactically
-   * correct with the syntax of [base]. If not, the exception [Malformed_URL] 
-   * will be raised.
+   * Note, however, that it is checked whether the resulting URL is
+   * syntactically correct with the syntax of [base]. If not, the
+   * exception [Malformed_URL] will be raised.
+   *
+   * Examples (the URLs are represented as strings, see {!Neturl.split_path}
+   * to split them for {!Neturl.make_url}):
+   *
+   * base="x/y", url="a/b" => result="x/a/b"
+   * base="x/y/", url="a/b" => result="x/y/a/b"
+   * base="x/y/..", url="a/b" => result="x/y/a/b"   (beware!)
+   * base="x/y/../", url="a/b" => result="x/a/b"
    *)
 
 val ensure_absolute_url : ?base:url -> url -> url
