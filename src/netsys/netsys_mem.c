@@ -278,14 +278,14 @@ int netsys_init_value_1(struct htab *t,
        new addresses, make a copy, and add these copies to t.
     */
 
-    fprintf(stderr, "first pass, orig_addr=%lx\n",
-	    (unsigned long) orig_addr);
+    /* fprintf(stderr, "first pass, orig_addr=%lx\n",
+       (unsigned long) orig_addr); */
 
     code = netsys_queue_take(q, &work_addr);
     while (code != (-3)) {
 	if (code != 0) return code;
 
-	fprintf(stderr, "work_addr=%lx\n", (unsigned long) work_addr);
+	/* fprintf(stderr, "work_addr=%lx\n", (unsigned long) work_addr); */
 
 	code = netsys_htab_lookup(t, work_addr, &copy_addr);
 	if (code != 0) return code;
@@ -472,7 +472,7 @@ int netsys_init_value_1(struct htab *t,
        memory block.
     */
 
-    fprintf(stderr, "second pass\n");
+    /* fprintf(stderr, "second pass\n"); */
 
     mem_ptr = mem_data + off;
     while (mem_ptr < mem_cur) {
@@ -502,7 +502,7 @@ int netsys_init_value_1(struct htab *t,
     *start_offset = off + sizeof(void *);
     *bytelen = mem_cur - mem_data - off;
 
-    fprintf(stderr, "return regularly\n");
+    /* fprintf(stderr, "return regularly\n");*/
 
     return 0;
 }
