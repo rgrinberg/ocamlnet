@@ -4,6 +4,7 @@ netsys_link_options=""
 have_posix_shm=0
 have_posix_fadvise=0
 have_posix_fallocate=0
+have_posix_memalign=0
 have_posix_pthread=0
 have_printexc_register_printer=0
 have_printexc_register_printer_bool=false
@@ -117,6 +118,33 @@ else
     echo "not found"
     def_have_posix_fallocate="#undef HAVE_POSIX_FALLOCATE"
 fi
+######################################################################
+
+printf "Checking for POSIX memalign... "
+
+posix_malign_compile=0
+posix_malign_link_options=""
+rm -f configtests/posix_memalign.err
+if (cd configtests; ocamlc -o posix_memalign posix_memalign.c main.ml -custom ) \
+      >>configtests/posix_memalign.err 2>&1
+then
+    posix_malign_compile=1
+fi
+
+if [ $posix_malign_compile -gt 0 ]; then
+    if ( cd configtests && ./posix_memalign >>posix_memalign.err 2>&1) ; then
+	have_posix_memalign=1
+	netsys_link_options="$netsys_link_options $posix_malign_link_options"
+    fi
+fi
+
+if [ $have_posix_memalign -gt 0 ]; then
+    echo "found"
+    def_have_posix_memalign="#define HAVE_POSIX_MEMALIGN"
+else
+    echo "not found"
+    def_have_posix_memalign="#undef HAVE_POSIX_MEMALIGN"
+fi
 
 ######################################################################
 
@@ -139,10 +167,10 @@ fi
 
 if [ $have_posix_pthread -gt 0 ]; then
     echo "found"
-    def_have_posix_fallocate="#define HAVE_PTHREAD"
+    def_have_posix_pthread="#define HAVE_PTHREAD"
 else
     echo "not found"
-    def_have_posix_fallocate="#undef HAVE_PTHREAD"
+    def_have_posix_pthread="#undef HAVE_PTHREAD"
 fi
 
 
@@ -170,6 +198,8 @@ cat <<EOF >config.h
 $def_have_posix_shm
 $def_have_posix_fadvise
 $def_have_posix_fallocate
+$def_have_posix_memalign
+$def_have_posix_pthread
 EOF
 
 cat <<EOF >netsys_conf.ml

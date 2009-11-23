@@ -20,3 +20,5 @@
 #define HAVE_POLL
 #define HAVE_FORK_EXEC
   /* fork, execve, pipe */
+#define HAVE_MMAP
+
