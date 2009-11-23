@@ -162,3 +162,10 @@ union sock_addr_union {
 #ifdef HAS_IPV6
 #define GET_INET6_ADDR(v) (*((struct in6_addr *) (v)))
 #endif
+
+
+/**********************************************************************/
+/* bigarrays                                                          */
+/**********************************************************************/
+
+extern int caml_ba_element_size[];

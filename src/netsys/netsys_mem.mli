@@ -147,14 +147,14 @@ val init_string_bytelen : int -> int
       [len].
    *)
 
-(*
 type init_value_flag =
-  | Copy_bigarray_data
-  | Copy_atoms
+  | Copy_bigarray
+  | Copy_custom
+  | Copy_atom
 
 val init_value : 
       memory -> int -> 'a -> init_value_flag list -> (int * int)
-  (** [let voffset, bytelen = post_value mem offset v flags]:
+  (** [let voffset, bytelen = init_value mem offset v flags]:
       Initializes the memory at [offset] and following bytes as
       copy of the heap-allocated value [v]. 
       Returns in [voffset] the offset where the value starts
@@ -164,26 +164,31 @@ val init_value :
       The copied value can then be accessed with
       {[ let v' = (as_value mem voffset : 'a) ]}
 
+      [offset] must be a multiple of the word size in bytes.
+
       The input value [v] must be heap-allocated. Also, a number of
       restrictions and caveats apply:
       - Objects, closures, and lazy values are not supported
-      - Bigarrays are only supported if the [Copy_bigarray_data] flag
+      - Bigarrays are only supported if the [Copy_bigarray] flag
         is given. In this case, a copy of the bigarray is also made
         and appended to the value copy. Memory-mapped bigarrays are
         not supported.
       - Abstract and custom values are not supported, except
-        [int32], [int64], and [nativeint] (and bigarrays if enabled)
+        [int32], [int64], and [nativeint] if the [Copy_custom]
+        is given, and except bigarrays if [Copy_bigarray] is
+        given. There is a function pointer in such data blocks which
+        might be invalid when the memory buffer is loaded into a 
+        different executable.
       - Atoms (i.e. zero-sized blocks such as empty arrays) are only
-        supported if the [Copy_atoms] flag is present. It is, however,
+        supported if the [Copy_atom] flag is present. It is, however,
         illegal to copy atoms because they lose then their atomic
-        property. It is unclear what this may break.
+        property. This breaks comparisons.
       - The input value may reside outside the Ocaml heap. This may break
         badly written C wrappers that do not use abstract or custom
         tags to mark foreign data.
 
       The function raises [Out_of_space] if the memory block is too small.
    *)
- *)
 
 val mem_read : Unix.file_descr -> memory -> int -> int -> int
   (** Experimental version of [Unix.read] that uses a [memory] buffer.

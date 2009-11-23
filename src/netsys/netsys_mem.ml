@@ -60,6 +60,11 @@ let init_string_bytelen len =
 
 exception Out_of_space
 
+let _ = 
+  Callback.register_exception "Netsys_mem.Out_of_space" Out_of_space
+
+
+
 let init_string mem offset len =
   let ws = Sys.word_size / 8 in  (* word size in bytes *)
   let memlen = Bigarray.Array1.dim mem in
@@ -70,6 +75,16 @@ let init_string mem offset len =
     raise Out_of_space;
   netsys_init_string mem offset len;
   (ws, blen)
+
+
+type init_value_flag =
+  | Copy_bigarray
+  | Copy_custom
+  | Copy_atom
+
+external init_value : 
+  memory -> int -> 'a -> init_value_flag list -> (int * int)
+  = "netsys_init_value"
 
 
 external netsys_mem_read : Unix.file_descr -> memory -> int -> int -> int
