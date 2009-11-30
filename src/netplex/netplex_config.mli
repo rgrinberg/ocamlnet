@@ -75,5 +75,11 @@ val read_netplex_config :
     * - [w32_pipe_file]: An emulation of Unix Domain sockets: A named
     *   pipe with an unpredictable random name is created instead. The
     *   name of this pipe is written to the file given by [path]
+    * - [container]: this special address causes that a separate [local]
+    *   socket is created for each started container. The name of the
+    *   socket file is automatically chosen. The names of the socket
+    *   files can be queried with {!Netplex_cenv.lookup_container_sockets}.
+    *   This type of socket is useful to control the load sent to each
+    *   container directly, e.g. to drive a farm of worker processes.
     * 
    *)

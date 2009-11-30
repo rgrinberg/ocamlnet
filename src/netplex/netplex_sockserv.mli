@@ -12,6 +12,18 @@ val create_socket_service :
       processor ->
       socket_service_config ->
         socket_service
+  (** Create the socket service (usually only internally used) *)
+
+val create_server_socket : string -> protocol -> extended_address -> 
+                              Unix.file_descr
+  (** [create_server_socket service_name proto addr]: Creates a server socket
+      as specified in [proto] for the address [addr] and returns it.
+
+      Addresses of type [`Container] are not supported.
+   *)
+
+val close_server_socket : Unix.file_descr -> unit
+  (** Closes a socket as opened with [create_server_socket] *)
 
 val any_file_client_connector : string -> Rpc_client.connector
   (** Interprets a file name as connector for a local RPC service. The

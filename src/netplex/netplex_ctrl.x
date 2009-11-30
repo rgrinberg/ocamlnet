@@ -7,6 +7,8 @@ typedef longstring *longstring_opt;
 typedef longstring *internal_port;
 /* The path of a Unix domain socket if the service is found and enabled */
 
+typedef longstring internal_ports<>;
+
 struct message {
     longstring msg_name;
     longstring msg_arguments<>;
@@ -128,6 +130,22 @@ program System {
 	/* Proc argument and return value are XDR-encoded according to the
            plugin program spec.
 	*/
+
+	void register_container_socket(longstring,  /* service name */
+				       longstring,  /* proto name */
+				       longstring   /* socket path */
+				       ) = 5;
+	/* Registers this socket under the passed service and protocol names.
+           It is automatically unregistered when the container finishes.
+	*/
+
+	internal_ports lookup_container_sockets(longstring,
+						longstring) = 6;
+	/* Returns all container sockets for these service and protocol
+           names. The list may be empty if there is no such socket.
+	*/
+
+
     } = 1;
 
 } = 2;

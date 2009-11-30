@@ -121,6 +121,7 @@ type extended_address =
     | `Socket_file of string
     | `W32_pipe of string
     | `W32_pipe_file of string
+    | `Container of string * string * string * [ thread_sys_id | `Any ]
     ]
   (** Possible addresses:
        - [`Socket s]: The socket at this socket address
@@ -131,6 +132,13 @@ type extended_address =
          be of the form "\\.\pipe\<pname>"
        - [`W32_pipe_file f]: The file [f] contains the (random) name of a 
          Win32 pipe
+       - [`Container(socket_dir,service_name,proto_name,thread_id)]: 
+         The special endpoint
+         of the container for [service_name] that is running as [thread_id].
+         It is system-dependent what this endpoint "is" in reality, usually
+         a socket or named pipe. If any container of a service is meant,
+         the value [`Any] is substituted as a placeholder for a not yet
+         known [thread_id].
    *)
 
 (** The controller is the object in the Netplex master process/thread
@@ -266,6 +274,8 @@ object
     (** A [socket_service] consists of a list of supported protocols
       * which are identified by a name. Every protocol is available 
       * on a list of sockets (which may be bound to different addresses).
+      * The sockets corresponding to [`Container] addresses are missing
+      * here.
      *)
 
   method socket_service_config : socket_service_config
@@ -299,6 +309,9 @@ object
       * starting the service. This is only possible in multi-processing mode.
       * In multi-threading mode, this parameter is ignored.
      *)
+
+  method controller_config : controller_config
+    (** Make this config accessible here too, for convenience *)
 end
 
 and protocol =
@@ -508,6 +521,13 @@ object
     (** [lookup service_name protocol_name] tries to find a Unix domain
       * socket for the service and returns it.
      *)
+
+  method lookup_container_sockets : string -> string -> string array
+    (** [lookup_container_sockets service_name protocol_name]: returns
+      the Unix Domain paths of all container sockets for this service and
+      protocol. These are the sockets declared with address type
+      "container" in the config file.
+   *)
 
   method send_message : string -> string -> string array -> unit
     (** [send_message service_pattern msg_name msg_arguments]: Sends

@@ -86,6 +86,7 @@ object(self)
     if not !Debug.enable then
       Rpc_client.Debug.disable_for_client sys_rpc_cl;
     sys_rpc <- Some sys_rpc_cl;
+    self # setup_container_sockets();
     dlogr 
       (fun () -> 
 	 sprintf "Container %d: Starting (start) in %s" 
@@ -104,6 +105,7 @@ object(self)
     self # protect "pre_finish_hook"
       (sockserv # processor # pre_finish_hook)
       (self : #container :> container);
+    self # close_container_sockets();
     rpc <- None;
 
     dlogr
@@ -325,7 +327,7 @@ object(self)
 		 )
 		 proto;
 	       if not !when_done_called then
-			    self # setup_polling();
+		 self # setup_polling();
 	    )
 
   method system =
@@ -345,6 +347,7 @@ object(self)
 	| Netplex_cenv.Not_in_container_thread -> ()
     );
     self # disable_accepting();
+    self # disable_container_sockets();
     ( match rpc with
 	| None -> ()
 	| Some r -> 
@@ -486,6 +489,135 @@ object(self)
 	       (self : #container :> container)
 	       msg.msg_name)
 	    msg.msg_arguments;
+
+
+  (* --- container sockets --- *)
+
+  (* Note that the container sockets do not interfer with event polling.
+     It is a completely separate execution thread.
+   *)
+
+  val mutable cs_engines = []
+  val mutable cs_sockets = []
+
+  method private setup_container_sockets() =
+    let protos = sockserv # socket_service_config # protocols in
+    List.iter
+      (fun proto ->
+	 Array.iter
+	   (function
+	      | `Container(dir,sname,pname,_) ->
+		  (* sname, pname: we use this only for registration
+                     purposes. Otherwise sockserv#name and proto#name are
+                     more reliable
+		   *)
+		  let (dir', path) =
+		    Netplex_util.path_of_container_socket
+		      dir sname pname (Netplex_cenv.current_sys_id()) in
+		  let () = Netplex_util.try_mkdir dir in
+		  let () = Netplex_util.try_mkdir dir' in
+		  let pseudo_addr =
+		    match Sys.os_type with
+		      | "Win32" ->
+			  `W32_pipe_file path
+		      | _ ->
+			  `Socket(Unix.ADDR_UNIX path) in
+		  let fd =
+		    Netplex_util.create_server_socket 
+		      ssn proto pseudo_addr in
+		  self # register_container_socket sname pname path;
+		  self # accept_on_container_socket proto fd;
+		  cs_sockets <- fd :: cs_sockets
+	      | _ -> ()
+	   )
+	   proto#addresses
+      )
+      protos
+
+  method private accept_on_container_socket proto fd =
+    dlogr
+      (fun () ->
+	 sprintf "Container %d: Accepting on fd %Ld"
+	   (Oo.id self)
+	   (Netsys.int64_of_file_descr fd));
+    let acc = new Uq_engines.direct_acceptor fd esys in
+    let e = acc # accept() in
+    Uq_engines.when_state
+      ~is_done:(fun (fd_slave,_) ->
+		  dlogr
+		    (fun () ->
+		       sprintf "Container %d: Accepted as fd %Ld"
+			 (Oo.id self)
+			 (Netsys.int64_of_file_descr fd_slave));
+		  let when_done_called = ref false in
+		  dlogr
+		    (fun () -> 
+		       sprintf
+			 "Container %d: processing container connection \
+                          on fd %Ld"
+			 (Oo.id self) 
+			 (Netsys.int64_of_file_descr fd_slave)
+		    );
+		  self # protect
+		    "process"
+		    (sockserv # processor # process
+		       ~when_done:(fun fd ->
+				     if not !when_done_called then (
+				       when_done_called := true;
+				       dlogr
+					 (fun () ->
+					    sprintf "Container %d: \
+                                    Done with container connection on fd %Ld"
+					      (Oo.id self) 
+					      (Netsys.int64_of_file_descr 
+						 fd_slave))
+				     )
+				  )
+		       (self : #container :> container)
+		       fd_slave)
+		    proto#name
+	       )
+      ~is_error:(fun err ->
+		   self # log `Crit
+		     ("accept: Exception " ^ 
+			Netexn.to_string err)
+		)
+      e;
+    cs_engines <- e :: cs_engines
+
+
+  method private disable_container_sockets() =
+    dlogr
+      (fun () ->
+	 sprintf "Container %d: No longer accepting cont conns" (Oo.id self));
+    List.iter (fun e -> e # abort()) cs_engines;
+    cs_engines <- []
+
+
+  method private close_container_sockets() =
+    List.iter
+      (fun fd ->
+	 Netplex_util.close_server_socket fd
+      )
+      cs_sockets;
+    cs_sockets <- []
+
+
+  method private register_container_socket sname pname path =
+    match sys_rpc with
+      | None -> failwith "#register_container_socket: No RPC client available"
+      | Some r ->
+	  Netplex_ctrl_clnt.System.V1.register_container_socket
+	    r (sname, pname, path)
+
+  method lookup_container_sockets service protocol =
+    match sys_rpc with
+      | None -> failwith "#lookup_container_sockets: No RPC client available"
+      | Some r ->
+	  Netplex_ctrl_clnt.System.V1.lookup_container_sockets
+	    r (service,protocol)
+
+ 
 end
 
 

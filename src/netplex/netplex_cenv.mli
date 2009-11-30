@@ -141,6 +141,38 @@ val system_restart : unit -> unit
      *)
 
 
+(** {2 Inter-Container Communication} *)
+
+val send_message : string -> string -> string array -> unit
+  (** [send_message service_pattern msg_name msg_arguments]: Sends
+       a message to all services and message receivers matching
+       [service_pattern]. The pattern may include the wildcard [*].
+
+       See the {!Netplex_types.controller.send_message} method for
+       the notification guarantees.
+   *)
+
+val lookup : string -> string -> string option
+  (** [lookup service_name protocol_name] tries to find a Unix domain
+      socket for the service and returns it.
+
+      On Win32, the returned path refers to a file describing the
+      IPC mechanism. Use {!Netplex_sockserv.any_file_client_connector}
+      to convert the path into an RPC connector.
+   *)
+
+val lookup_container_sockets : string -> string -> string array 
+  (** [lookup_container_sockets service_name protocol_name]: returns
+      the Unix Domain paths of all container sockets for this service and
+      protocol. These are the sockets declared with address type
+      "container" in the config file.
+
+      On Win32, the returned paths refer to files describing the
+      IPC mechanism. Use {!Netplex_sockserv.any_file_client_connector}
+      to convert the paths into RPC connectors.
+   *)
+
+
 (** {2 Direct container and admin interface access} *)
 
 val self_cont : unit -> container

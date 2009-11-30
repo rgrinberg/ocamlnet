@@ -344,7 +344,7 @@ let mk_absolute dir path =
     Filename.concat dir path
 
 
-let extract_address socket_dir cf addraddr =
+let extract_address socket_dir service_name proto_name cf addraddr =
   let typ =
     try
       cf # string_param
@@ -391,6 +391,10 @@ let extract_address socket_dir cf addraddr =
 	  cf # restrict_parameters addraddr [ "type"; "path" ];
 	  let path = get_path() in
 	  [ `W32_pipe_file path ]
+      | "container" ->
+	  cf # restrict_subsections addraddr [];
+	  cf # restrict_parameters addraddr [ "type" ];
+	  [ `Container(socket_dir,service_name,proto_name,`Any) ]
       | "internet" ->
 	  cf # restrict_subsections addraddr [];
 	  cf # restrict_parameters addraddr [ "type"; "bind" ];
@@ -569,7 +573,7 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 		let addresses =
 		  List.flatten
 		    (List.map
-		       (extract_address socket_dir cf)
+		       (extract_address socket_dir service_name prot_name cf)
 		       (cf # resolve_section protaddr "address")) in
 
 		( object
@@ -593,6 +597,7 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 	       method name = service_name
 	       method protocols = protocols
 	       method change_user_to = user_group_opt
+	       method controller_config = ctrl_cfg
 	     end
 	   ) in
 

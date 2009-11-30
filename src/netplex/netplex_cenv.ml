@@ -348,6 +348,18 @@ let system_shutdown() =
 let system_restart() =
   admin_call Netplex_ctrl_clnt.Admin.V2.restart_all
 
+let send_message pat msg args =
+  let cont = self_cont() in
+  cont # send_message pat msg args
+
+let lookup sname pname =
+  let cont = self_cont() in
+  cont # lookup sname pname
+
+let lookup_container_sockets sname pname =
+  let cont = self_cont() in
+  cont # lookup_container_sockets sname pname
+
 let run_in_esys esys f =
   let mutex = !Netsys_oothr.provider # create_mutex() in
   let cond = !Netsys_oothr.provider # create_condition() in

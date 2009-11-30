@@ -56,6 +56,7 @@ type ext_cont_state =
                                             (* during system_shutdown phase *)
       mutable shutting_down : bool;         (* real shutdown *)
       mutable t_accept : float;
+      mutable cs_paths : string list;   (* container sockets *)
     }
 
 
@@ -129,6 +130,9 @@ object(self)
 
   val eps_group = Unixqueue.new_group esys
     (* The group for Unixqueue.once 0.0 *)
+
+  val mutable cs_directory = []
+    (* tuples (service_name, proto_name, path, component) *)
 
 
   initializer (
@@ -433,6 +437,7 @@ object(self)
 	  shutting_down_system = `None;
 	  shutting_down = false;
 	  t_accept = 0.0;
+	  cs_paths = []
 	} in
       clist <- c :: clist;
       (* Now that the server descriptors are handed off to the rpc servers
@@ -496,6 +501,7 @@ object(self)
     if is_starting then
       n_failures <- n_failures + 1;
     clist <- List.filter (fun c' -> c' != c) clist;
+    self # unreg_cont_sockets c;
     dlogr
       (fun () ->
 	 sprintf "Service %s: Container %d: post_finish"
@@ -700,6 +706,8 @@ object(self)
       ~proc_send_message:(self # proc_send_message c)
       ~proc_log:(self # log c)
       ~proc_call_plugin:(self # call_plugin c)
+      ~proc_register_container_socket:(self # reg_cont_socket c)
+      ~proc_lookup_container_sockets:(self # lookup_cont_sockets c)
       sys_rpc
 
   method private poll c sess n reply =
@@ -853,6 +861,38 @@ object(self)
       )
       controller#services;
     reply !path
+
+  method private reg_cont_socket c sess (serv_name, proto_name, path) reply =
+    c.cs_paths <- path :: c.cs_paths;
+    let already_registered =
+      List.exists 
+	(fun (sn,pn,p,_) -> sn=serv_name && pn = proto_name && p = path)
+	cs_directory in
+    if not already_registered then
+      cs_directory <- (serv_name, proto_name, path, c) :: cs_directory;
+    reply ()
+
+  method private unreg_cont_sockets c =
+    cs_directory <-
+      (List.filter
+	 (fun (_,_,_,c') -> c != c')
+	 cs_directory
+      );
+    List.iter
+      (fun p ->
+	 (try Sys.remove p with _ -> ())
+      )
+      c.cs_paths;
+    c.cs_paths <- []
+
+  method private lookup_cont_sockets _ sess (serv_name, proto_name) reply =
+    let l =
+      List.map
+	(fun (_,_,path,_) -> path)
+	(List.filter
+	   (fun (sn,pn,_,_) -> sn = serv_name && pn = proto_name)
+	   cs_directory) in
+    reply (Array.of_list l)
 
   method private proc_send_message c sess (pat, msg) reply =
     controller # send_message pat msg.msg_name msg.msg_arguments;
@@ -1208,21 +1248,13 @@ object(self)
 end ;;
 
 
-let try_mkdir f =
-  try
-    Unix.mkdir f 0o777
-  with
-    | Unix.Unix_error(Unix.EEXIST,_,_) -> ()
-;;
-
-
 class controller_sockserv setup controller : socket_service =
   let processor = new controller_processor setup controller in
   let dir = controller#controller_config#socket_directory in
   let dir' = Filename.concat dir "netplex.controller" in
   let socket_name = Filename.concat dir' "admin" in
-  let () = try_mkdir dir in
-  let () = try_mkdir dir' in
+  let () = Netplex_util.try_mkdir dir in
+  let () = Netplex_util.try_mkdir dir' in
   let addr =
     match Sys.os_type with
       | "Win32" ->
@@ -1243,6 +1275,7 @@ class controller_sockserv setup controller : socket_service =
 	    end
 	  ]
 	method change_user_to = None
+	method controller_config = controller#controller_config
       end
     ) in
   let sockserv' = Netplex_sockserv.create_socket_service processor config in

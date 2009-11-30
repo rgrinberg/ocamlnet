@@ -83,9 +83,6 @@ Plan for Ocamlnet 3
     message queue, and other containers can send XDR-able messages.
     Queues are referenced by a global naming scheme.
 
-  * Container-private servers. Containers may define additional RPC
-    servers for local data traffic only.
-
   * Revisit: Netplex + UDP
 
 
@@ -139,6 +136,8 @@ Plan for Ocamlnet 3
   * netclient: parsing fails of URL http://host?param
   * nethtml: <body> is now an essential block
   * netcgi2, url: better magic to enfore '/' between script name and path info
+  * Container-private servers. Containers may define additional RPC
+    servers for local data traffic only. (-> address type "container")
 
 - NetCGI cleanup
   * remove netcgi1
