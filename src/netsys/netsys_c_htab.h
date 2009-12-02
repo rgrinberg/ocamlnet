@@ -1,9 +1,9 @@
 /* $Id$ */
 
-/* Hash table for netsys_mem.c */
+/* Hash table for netsys_c_mem.c */
 
-#ifndef NETSYS_HTAB
-#define NETSYS_HTAB
+#ifndef NETSYS_C_HTAB
+#define NETSYS_C_HTAB
 
 struct htab_cell {
     void *orig_addr;

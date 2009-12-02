@@ -1,6 +1,6 @@
 /* $Id$ */
 
-#include "netsys_htab.h"
+#include "netsys_c_htab.h"
 #include <stdlib.h>
 #include <errno.h>
 

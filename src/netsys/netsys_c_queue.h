@@ -2,8 +2,8 @@
 
 /* Queue for netsys_mem.c */
 
-#ifndef NETSYS_QUEUE
-#define NETSYS_QUEUE
+#ifndef NETSYS_C_QUEUE
+#define NETSYS_C_QUEUE
 
 struct queue {
     void          **table;

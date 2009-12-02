@@ -1,8 +1,8 @@
 /* $Id$ */
 
 #include "netsys_c.h"
-#include "netsys_htab.h"
-#include "netsys_queue.h"
+#include "netsys_c_htab.h"
+#include "netsys_c_queue.h"
 
 #ifdef HAVE_MMAP
 #include <sys/types.h>

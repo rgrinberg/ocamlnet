@@ -1,6 +1,6 @@
 /* $Id$ */
 
-#include "netsys_queue.h"
+#include "netsys_c_queue.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
