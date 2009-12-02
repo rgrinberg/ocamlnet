@@ -118,6 +118,7 @@ let merge part1_id part2_id partr_id cont () =
     with Not_found -> assert false in
   Hashtbl.remove kept_data part1_id;
   Hashtbl.remove kept_data part2_id;
+  Gc.major();
   let l1 = Array.length data1 in
   let l2 = Array.length data2 in
   let datar = Array.create (l1 + l2) "" in
@@ -168,5 +169,15 @@ let worker_factory() =
     ~name:"sort_worker"
     ~configure
     ~setup
+    ~post_start_hook:(fun _ ->
+			let _t =
+			  Netplex_cenv.create_timer
+			    (fun _ -> 
+			       Gc.major();
+			       true
+			    )
+			    1.0 in
+			()
+		     )
     ()
 
