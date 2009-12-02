@@ -186,4 +186,18 @@ let controller_factory() =
     ~name:"sort"
     ~configure
     ~setup
+    ~hooks:(fun _ ->
+	    object(self)
+              inherit Netplex_kit.empty_processor_hooks() 
+	      method post_start_hook _ =
+		let _t =
+		  Netplex_cenv.create_timer
+		    (fun _ -> 
+		       Gc.major();
+		       true
+		    )
+		    1.0 in
+		()
+	    end
+	   )
     ()
