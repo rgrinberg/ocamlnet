@@ -169,15 +169,19 @@ let worker_factory() =
     ~name:"sort_worker"
     ~configure
     ~setup
-    ~post_start_hook:(fun _ ->
-			let _t =
-			  Netplex_cenv.create_timer
-			    (fun _ -> 
-			       Gc.major();
-			       true
-			    )
-			    1.0 in
-			()
-		     )
+    ~hooks:(fun _ ->
+	      object(self)
+                inherit Netplex_kit.empty_processor_hooks() 
+		method post_start_hook _ =
+		  let _t =
+		    Netplex_cenv.create_timer
+		      (fun _ -> 
+			 Gc.major();
+			 true
+		      )
+		      1.0 in
+		  ()
+	      end
+	   )
     ()
 
