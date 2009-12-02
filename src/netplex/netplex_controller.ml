@@ -112,8 +112,9 @@ let create_pipe_pair() =
 
 class std_socket_controller ?(no_disable = false)
                             rm_service (par: parallelizer) 
-                            controller sockserv wrkmng
+                            controller sockserv wrkmng cs_directory
       : extended_socket_controller =
+  (* cs_directory: tuples (service_name, proto_name, path, component) *)
   let name = sockserv # name in
   let esys = controller # event_system in
 object(self)
@@ -130,9 +131,6 @@ object(self)
 
   val eps_group = Unixqueue.new_group esys
     (* The group for Unixqueue.once 0.0 *)
-
-  val mutable cs_directory = []
-    (* tuples (service_name, proto_name, path, component) *)
 
 
   initializer (
@@ -867,16 +865,18 @@ object(self)
     let already_registered =
       List.exists 
 	(fun (sn,pn,p,_) -> sn=serv_name && pn = proto_name && p = path)
-	cs_directory in
-    if not already_registered then
-      cs_directory <- (serv_name, proto_name, path, c) :: cs_directory;
+	!cs_directory in
+    if not already_registered then (
+      (* eprintf "Registering: %s %s\n%!" serv_name proto_name; *)
+      cs_directory := (serv_name, proto_name, path, c) :: !cs_directory;
+    );
     reply ()
 
   method private unreg_cont_sockets c =
-    cs_directory <-
+    cs_directory := 
       (List.filter
 	 (fun (_,_,_,c') -> c != c')
-	 cs_directory
+	 !cs_directory
       );
     List.iter
       (fun p ->
@@ -886,12 +886,13 @@ object(self)
     c.cs_paths <- []
 
   method private lookup_cont_sockets _ sess (serv_name, proto_name) reply =
+    (* eprintf "Look up: %s %s\n%!" serv_name proto_name; *)
     let l =
       List.map
 	(fun (_,_,path,_) -> path)
 	(List.filter
 	   (fun (sn,pn,_,_) -> sn = serv_name && pn = proto_name)
-	   cs_directory) in
+	   !cs_directory) in
     reply (Array.of_list l)
 
   method private proc_send_message c sess (pat, msg) reply =
@@ -1298,6 +1299,7 @@ class std_controller_for_esys esys
   let eps_group = Unixqueue.new_group esys in
   let startup_dir = Unix.getcwd() in
   let ctrl_sys_id = par # current_sys_id in
+  let cs_directory = ref [] in
 object(self)
   val mutable logger = (dl :> logger)
   val mutable services = []
@@ -1329,7 +1331,8 @@ object(self)
 	(new admin_par)
 	(self : #extended_controller :> extended_controller)
 	my_sockserv 
-	my_wrkmng in
+	my_wrkmng 
+	cs_directory in
     services <- (my_sockserv, my_sockctrl, my_wrkmng) :: services;
     socksrv_list <- my_sockserv :: socksrv_list;
     my_wrkmng # hello (self : #controller :> controller);
@@ -1361,7 +1364,8 @@ object(self)
 	par
 	(self : #extended_controller :> extended_controller)
 	sockserv 
-	wrkmng in
+	wrkmng 
+	cs_directory in
     services <- (sockserv, sockctrl, wrkmng) :: services;
     wrkmng # hello
       (self : #controller :> controller);

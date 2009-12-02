@@ -400,6 +400,16 @@ f examples/rpc/matrixmult/mm_server.ml
 f examples/rpc/matrixmult/mm_worker.ml
 f examples/rpc/matrixmult/simple.ml
 
+d examples/rpc/sort
+f examples/rpc/sort/Makefile
+f examples/rpc/sort/Makefile.code
+f examples/rpc/sort/sort_client.ml
+f examples/rpc/sort/sort_controller.ml
+f examples/rpc/sort/sort_server.ml
+f examples/rpc/sort/sort_worker.ml
+f examples/rpc/sort/sort_server.cfg
+f examples/rpc/sort/sort_proto.x
+
 d examples/equeue
 d examples/equeue/engines
 p examples/equeue/engines/.*\.ml

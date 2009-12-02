@@ -575,7 +575,8 @@ object(self)
 				  )
 		       (self : #container :> container)
 		       fd_slave)
-		    proto#name
+		    proto#name;
+		  self # accept_on_container_socket proto fd
 	       )
       ~is_error:(fun err ->
 		   self # log `Crit
