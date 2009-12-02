@@ -15,7 +15,7 @@ CLEAN_LIST += *.run *.opt
 
 all: sortlib.cma sort_server.run sort_client.run
 
-opt: sortlib.cmxa sort_server.opt sort_server.opt
+opt: sortlib.cmxa sort_server.opt sort_client.opt
 
 sort_server.run: $(SRV_EXPLICIT_OBJ)
 	$(OCAMLC) -o sort_server.run sortlib.cma $(SRV_EXPLICIT_OBJ) -linkpkg
