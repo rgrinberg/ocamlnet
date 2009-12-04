@@ -81,6 +81,7 @@ type init_value_flag =
   | Copy_bigarray
   | Copy_custom
   | Copy_atom
+  | Copy_simulate
 
 external init_value : 
   memory -> int -> 'a -> init_value_flag list -> (int * int)

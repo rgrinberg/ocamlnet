@@ -151,6 +151,7 @@ type init_value_flag =
   | Copy_bigarray
   | Copy_custom
   | Copy_atom
+  | Copy_simulate
 
 val init_value : 
       memory -> int -> 'a -> init_value_flag list -> (int * int)
@@ -188,6 +189,12 @@ val init_value :
         tags to mark foreign data.
 
       The function raises [Out_of_space] if the memory block is too small.
+
+      If the [Copy_simulate] flag is given, the bigarray is not modified.
+      In simulation mode, it is pretended that the bigarray is as large
+      as necessary to hold the value, no matter how large the bigarray really
+      is. The returned values [voffset] and [bytelen] reflect how much
+      of the bigarray would have been used.
    *)
 
 val mem_read : Unix.file_descr -> memory -> int -> int -> int

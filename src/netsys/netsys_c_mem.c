@@ -232,6 +232,7 @@ int netsys_init_value_1(struct htab *t,
 			int enable_bigarrays, 
 			int enable_customs,
 			int enable_atoms,
+			int simulation,
 			long *start_offset,
 			long *bytelen
 			)
@@ -264,7 +265,7 @@ int netsys_init_value_1(struct htab *t,
     mem_end = mem_data + Bigarray_val(memv)->dim[0];
     mem_cur = mem_data + off;
 
-    if (mem_cur >= mem_end) return (-4);   /* out of space */
+    if (mem_cur >= mem_end && !simulation) return (-4);   /* out of space */
 
     if (!Is_block(orig)) return (-2);
     if (off % sizeof(void *) != 0) return (-2);
@@ -317,12 +318,15 @@ int netsys_init_value_1(struct htab *t,
 		work_bytes = Bhsize_hp(work_header);
 		copy_header = mem_cur;
 		mem_cur += work_bytes;
-		if (mem_cur > mem_end) return (-4);
+		if (mem_cur > mem_end && !simulation) return (-4);
 		
-		
-		memcpy(copy_header, work_header, work_bytes);
-		copy = Val_hp(copy_header);
-		copy_addr = (void *) copy;
+		if (simulation) 
+		    copy_addr = work_addr;
+		else {
+		    memcpy(copy_header, work_header, work_bytes);
+		    copy = Val_hp(copy_header);
+		    copy_addr = (void *) copy;
+		}
 
 		/* Add the association (work_addr -> copy_addr) to t: */
 
@@ -407,12 +411,15 @@ int netsys_init_value_1(struct htab *t,
 		    work_bytes = Bhsize_hp(work_header);
 		    copy_header = mem_cur;
 		    mem_cur += work_bytes;
-		    if (mem_cur > mem_end) return (-4);
-		    
-		    memcpy(copy_header, work_header, work_bytes);
 
-		    copy = Val_hp(copy_header);
-		    copy_addr = (void *) copy;
+		    if (simulation)
+			copy_addr = work_addr;
+		    else {
+			if (mem_cur > mem_end) return (-4);
+			memcpy(copy_header, work_header, work_bytes);
+			copy = Val_hp(copy_header);
+			copy_addr = (void *) copy;
+		    }
 		    
 		    code = netsys_htab_add(t, work_addr, copy_addr);
 		    if (code < 0) return code;
@@ -444,19 +451,22 @@ int netsys_init_value_1(struct htab *t,
 		    data_header = mem_cur;
 		    data_copy = mem_cur + sizeof(void *);
 		    mem_cur += size_aligned + sizeof(void *);
-		    if (mem_cur > mem_end) return (-4);
 
-		    /* Initialize header: */
-		    
-		    data_header1 =
-			(size_aligned << 10) + (3 << 8) + Abstract_tag;
-		    memcpy(data_header, (char *) &data_header1,
-			   sizeof(header_t));
+		    if (!simulation) {
+			if (mem_cur > mem_end) return (-4);
 
-		    /* Copy bigarray: */
-		    
-		    memcpy(data_copy, b_work->data, size);
-		    b_copy->data = data_copy;
+			/* Initialize header: */
+			
+			data_header1 =
+			    (size_aligned << 10) + (3 << 8) + Abstract_tag;
+			memcpy(data_header, (char *) &data_header1,
+			       sizeof(header_t));
+
+			/* Copy bigarray: */
+			
+			memcpy(data_copy, b_work->data, size);
+			b_copy->data = data_copy;
+		    }
 		}
 
 	    } /* if (work_tag < No_scan_tag) */
@@ -474,30 +484,32 @@ int netsys_init_value_1(struct htab *t,
 
     /* fprintf(stderr, "second pass\n"); */
 
-    mem_ptr = mem_data + off;
-    while (mem_ptr < mem_cur) {
-	copy_header1 = *((header_t *) mem_ptr);
-	copy_tag = Tag_hd(copy_header1);
-	copy_words = Wosize_hd(copy_header1);
-	copy = (value) (mem_ptr + sizeof(void *));
-	
-	if (copy_tag < No_scan_tag) {
-	    for (i=0; i < copy_words; ++i) {
-		value field = Field(copy, i);
-		if (Is_block (field)) {
-		    /* It is a pointer. Try to fix it up. */
-		    code = netsys_htab_lookup(t, (void *) field,
-					      &fixup_addr);
-		    if (code != 0) return code;
-
-		    Field(copy,i) = (value) fixup_addr;
+    if (!simulation) {
+	mem_ptr = mem_data + off;
+	while (mem_ptr < mem_cur) {
+	    copy_header1 = *((header_t *) mem_ptr);
+	    copy_tag = Tag_hd(copy_header1);
+	    copy_words = Wosize_hd(copy_header1);
+	    copy = (value) (mem_ptr + sizeof(void *));
+	    
+	    if (copy_tag < No_scan_tag) {
+		for (i=0; i < copy_words; ++i) {
+		    value field = Field(copy, i);
+		    if (Is_block (field)) {
+			/* It is a pointer. Try to fix it up. */
+			code = netsys_htab_lookup(t, (void *) field,
+						  &fixup_addr);
+			if (code != 0) return code;
+			
+			Field(copy,i) = (value) fixup_addr;
+		    }
 		}
 	    }
+	    
+	    mem_ptr += (copy_words + 1) * sizeof(void *);
 	}
+    }	
 
-	mem_ptr += (copy_words + 1) * sizeof(void *);
-    }
-    
     /* hey, fine. Return result */
     *start_offset = off + sizeof(void *);
     *bytelen = mem_cur - mem_data - off;
@@ -508,7 +520,7 @@ int netsys_init_value_1(struct htab *t,
 }
 
 
-static int init_value_flags[] = { 1, 2, 4 };
+static int init_value_flags[] = { 1, 2, 4, 8 };
 
 value netsys_init_value(value memv, 
 			value offv, 
@@ -538,7 +550,7 @@ value netsys_init_value(value memv,
     t_init=1;
 
     code = netsys_init_value_1(&t, &q, memv, offv, orig, 
-			       cflags & 1, cflags & 2, cflags & 4,
+			       cflags & 1, cflags & 2, cflags & 4, cflags & 8,
 			       &start_offset, &bytelen);
     if (code != 0) goto exit;
 
