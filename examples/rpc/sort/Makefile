@@ -16,11 +16,11 @@ CLEAN_LIST += *.astamp *.cstamp *.s2stamp *.run *.opt \
 all:
 	$(MAKE) gen
 	$(MAKE) depend
-	$(MAKE) -f Makefile.code all
+	$(MAKE) -f Makefile1.code all
 
 opt:
 	$(MAKE) gen
 	$(MAKE) depend
-	$(MAKE) -f Makefile.code opt
+	$(MAKE) -f Makefile1.code opt
 
 gen: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.s2stamp)
