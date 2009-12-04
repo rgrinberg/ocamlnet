@@ -122,6 +122,67 @@ CAMLprim value netsys_alloc_aligned_memory(value alignv, value pv)
 }
 
 
+CAMLprim value netsys_map_file(value fdv,
+			       value posv,
+			       value addrv,
+			       value sharedv,
+			       value sizev)
+{
+#if defined(HAVE_MMAP) && defined(HAVE_SYSCONF) && !defined(_WIN32)
+    int fd, shared;
+    off64_t pos, savepos, eofpos;
+    void *addr, *eff_addr;
+    long size;
+    uintnat basize;
+    char c;
+    uintnat pagesize, delta;
+
+    fd = Int_val(fdv);
+    pos = Int64_val(posv);
+    addr = (void *) Nativeint_val(addrv);
+    if (addr == 0) addr = NULL;
+    shared = Bool_val(sharedv) ? MAP_SHARED : MAP_PRIVATE;
+    size = Long_val(sizev);
+
+    pagesize = sysconf(_SC_PAGESIZE);
+
+    savepos = lseek64(fd, 0, SEEK_CUR);
+    if (savepos == -1) uerror("lseek64", Nothing);
+    eofpos = lseek64(fd, 0, SEEK_END);
+    if (eofpos == -1) uerror("lseek64", Nothing);
+    
+    if (size == -1) {
+	if (eofpos < pos) 
+	    failwith("Netsys_mem: cannot mmap - file position exceeds file size");
+	basize = (uintnat) (eofpos - pos);
+    }
+    else {
+	if (size < 0)
+	    invalid_argument("netsys_map_file");
+	if (eofpos < pos + size) {
+	    if (lseek64(fd, pos + size - 1, SEEK_SET) == -1)
+		uerror("lseek64", Nothing);
+	    c = 0;
+	    if (write(fd, &c, 1) != 1) uerror("write", Nothing);
+	}
+	basize = size;
+    }
+    lseek64(fd, savepos, SEEK_SET);
+
+    delta = (uintnat) (pos % pagesize);
+    eff_addr = mmap64(addr, basize, PROT_READ | PROT_WRITE,
+		      shared, fd, pos - delta);
+    if (eff_addr == (void*) MAP_FAILED) uerror("mmap64", Nothing);
+    eff_addr = (void *) ((uintnat) eff_addr + delta);
+
+    return alloc_bigarray_dims(BIGARRAY_UINT8 | BIGARRAY_C_LAYOUT | 
+			       BIGARRAY_MAPPED_FILE, 1, addr, basize);
+#else
+    invalid_argument("Netsys_mem.memory_map_file not available");
+#endif
+}
+
+
 /* from mmap_unix.c: */
 static void ba_unmap_file(void * addr, uintnat len)
 {

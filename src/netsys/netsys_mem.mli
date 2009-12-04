@@ -73,7 +73,6 @@ val alloc_aligned_memory : int -> int -> memory
       This function is only available if the system has [posix_memalign].
    *)
 
-(*
 val memory_map_file : Unix.file_descr -> 
                       ?pos:int64 -> 
                       ?addr:nativeint ->
@@ -84,7 +83,6 @@ val memory_map_file : Unix.file_descr ->
       meaning as there. In [addr] one can suggest a start address.
       There is, however, no guarantee that this wish can be fulfilled.
    *)
- *)
 
 val memory_unmap_file : memory -> unit
   (** Unmaps the file. The memory block must have been allocated

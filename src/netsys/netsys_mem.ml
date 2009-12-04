@@ -44,6 +44,13 @@ let alloc_memory_pages ?(addr=0n) len =
 external alloc_aligned_memory : int -> int -> memory
   = "netsys_alloc_aligned_memory"
 
+external netsys_map_file : 
+           Unix.file_descr -> int64 -> nativeint -> bool -> int -> memory
+  = "netsys_map_file"
+
+let memory_map_file fd ?(pos=0L) ?(addr=0n) shared size =
+  netsys_map_file fd pos addr shared size
+
 external memory_unmap_file : memory -> unit
   = "netsys_memory_unmap_file"
 
