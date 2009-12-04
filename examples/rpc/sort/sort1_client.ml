@@ -72,14 +72,14 @@ let main() =
 		write_file data
 	    | `Server ->
 		let sorter =
-		  Sort_proto_clnt.Interface.V1.create_client2
+		  Sort1_proto_clnt.Interface.V1.create_client2
 		    (`Socket(Rpc.Tcp,
 			     Rpc_client.Inet(!host,!port),
 			     Rpc_client.default_socket_config)) in
 		let data' =
 		  time
 		    (fun () ->
-		       Sort_proto_clnt.Interface.V1.sort sorter data) in
+		       Sort1_proto_clnt.Interface.V1.sort sorter data) in
 		Rpc_client.shut_down sorter;
 		write_file data'
 	)

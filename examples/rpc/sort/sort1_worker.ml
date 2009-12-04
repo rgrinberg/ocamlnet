@@ -1,6 +1,6 @@
 (* Implementation of worker processes *)
 
-open Sort_proto_aux
+open Sort1_proto_aux
 
 let kept_data = Hashtbl.create 10
   (* Maps partition ID to sortdata *)
@@ -23,7 +23,7 @@ let get_worker_client endpoint =
 	let connector =
 	  Netplex_sockserv.any_file_client_connector endpoint in
 	let client =
-	  Sort_proto_clnt.Worker.V1.create_client2
+	  Sort1_proto_clnt.Worker.V1.create_client2
 	    ~esys
 	    (`Socket(Rpc.Tcp, connector, Rpc_client.default_socket_config)) in
 	Hashtbl.replace worker_clients endpoint client;
@@ -42,7 +42,7 @@ let get_controller_client endpoint =
 	let connector =
 	  Netplex_sockserv.any_file_client_connector endpoint in
 	let client =
-	  Sort_proto_clnt.Controller.V1.create_client2
+	  Sort1_proto_clnt.Controller.V1.create_client2
 	    ~esys
 	    (`Socket(Rpc.Tcp, connector, Rpc_client.default_socket_config)) in
 	Hashtbl.replace controller_clients endpoint client;
@@ -86,7 +86,7 @@ let execute_op part_id data cont =
 
     | `forward fwd ->
 	let client = get_worker_client fwd.destination in
-	Sort_proto_clnt.Worker.V1.merge_partition'async
+	Sort1_proto_clnt.Worker.V1.merge_partition'async
 	  client
 	  (fwd.merge_with_partition_id,
 	   part_id,
@@ -97,7 +97,7 @@ let execute_op part_id data cont =
 
     | `return ep ->
 	let client = get_controller_client ep in
-	Sort_proto_clnt.Controller.V1.return_result'async
+	Sort1_proto_clnt.Controller.V1.return_result'async
 	  client
 	  data
 	  (check_for_errors "return_result")
@@ -158,7 +158,7 @@ let proc_merge_partition session
 let configure cf addr = ()
 
 let setup srv () =
-  Sort_proto_srv.Worker.V1.bind_async
+  Sort1_proto_srv.Worker.V1.bind_async
     ~proc_null:(fun _ _ emit -> emit ())
     ~proc_sort_partition
     ~proc_merge_partition

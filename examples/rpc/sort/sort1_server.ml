@@ -26,8 +26,8 @@ let start() =
     parallelizer
     Netplex_log.logger_factories   (* allow all built-in logging styles *)
     Netplex_workload.workload_manager_factories (* ... all ways of workload management *)
-    [ Sort_worker.worker_factory();
-      Sort_controller.controller_factory()
+    [ Sort1_worker.worker_factory();
+      Sort1_controller.controller_factory()
     ]
     cmdline_cfg
 

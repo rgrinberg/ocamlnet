@@ -1,6 +1,6 @@
 (* Implementation of the controller process *)
 
-open Sort_proto_aux
+open Sort1_proto_aux
 
 type sort_merge_tree =
   | Sort of int * int * int
@@ -101,7 +101,7 @@ let get_worker_client endpoint =
 	let connector =
 	  Netplex_sockserv.any_file_client_connector endpoint in
 	let client =
-	  Sort_proto_clnt.Worker.V1.create_client2
+	  Sort1_proto_clnt.Worker.V1.create_client2
 	    ~esys
 	    (`Socket(Rpc.Tcp, connector, Rpc_client.default_socket_config)) in
 	Hashtbl.replace worker_clients endpoint client;
@@ -140,7 +140,7 @@ let proc_sort (n_workers, max_depth) session data emit =
   List.iter
     (fun (id, worker, k_start, k_length, cont) ->
        let client = get_worker_client worker in
-       Sort_proto_clnt.Worker.V1.sort_partition'async
+       Sort1_proto_clnt.Worker.V1.sort_partition'async
 	 client
 	 (id, Array.sub data k_start k_length, cont)
 	 (check_for_errors "sort_partition")
@@ -172,11 +172,11 @@ let configure cf addr =
   (n_workers, max_depth)
 
 let setup srv (n_workers, max_depth) =
-  Sort_proto_srv.Controller.V1.bind_async
+  Sort1_proto_srv.Controller.V1.bind_async
     ~proc_null:(fun _ _ emit -> emit())
     ~proc_return_result
     srv;
-  Sort_proto_srv.Interface.V1.bind_async
+  Sort1_proto_srv.Interface.V1.bind_async
     ~proc_null:(fun _ _ emit -> emit())
     ~proc_sort:(proc_sort (n_workers, max_depth))
     srv
