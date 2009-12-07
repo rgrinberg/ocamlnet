@@ -64,6 +64,11 @@ val read_uint8 : string -> int -> uint8
     * is bad. Network byte order is assumed.
    *)
 
+val read_int4_unsafe : string -> int -> int4
+val read_int8_unsafe : string -> int -> int8
+val read_uint4_unsafe : string -> int -> uint4
+val read_uint8_unsafe : string -> int -> uint8
+  (** Same, but no index check *)
 
 (* write integers into strings *)
 

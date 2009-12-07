@@ -33,12 +33,13 @@ let proc_alloc_shm session size emit =
     { shm_name = name;
       shm_addr = Int64.of_nativeint(Netsys_mem.memory_address mem) 
     } in
-  Hashtbl.replace shm_tbl name shm;
+  Hashtbl.replace shm_tbl name (shm, mem);
+  Netplex_cenv.logf `Info "addr=%Lx" shm.shm_addr;
   emit shm
   
 
 let proc_sort_shm session (shm,data_offset) emit =
-  let mem =
+  let (_, mem) =
     try
       Hashtbl.find shm_tbl shm.shm_name
     with
@@ -46,12 +47,17 @@ let proc_sort_shm session (shm,data_offset) emit =
 	  failwith("Shared mem object not found: " ^ shm.shm_name) in
   let data =
     (Netsys_mem.as_value mem data_offset : string array) in
-  Array.sort String.compare data;
+  Netplex_cenv.logf `Info
+    "Sorting %d elements" (Array.length data);
+  let t0 = Unix.gettimeofday() in
+  Array.sort Netsys_mem.cmp_string data;
+  let t1 = Unix.gettimeofday() in
+  Netplex_cenv.logf `Info "time for sort: %f" (t1-.t0);
   emit ()
 
 
 let proc_copy_shm session (shm1,data_offset1,shm2) emit =
-  let mem1 =
+  let (_, mem1) =
     try
       Hashtbl.find shm_tbl shm1.shm_name
     with
@@ -59,7 +65,7 @@ let proc_copy_shm session (shm1,data_offset1,shm2) emit =
 	  failwith("Shared mem object not found: " ^ shm1.shm_name) in
   let mem2, mem2_unmap_flag =
     try
-      (Hashtbl.find shm_tbl shm2.shm_name, false)
+      (snd(Hashtbl.find shm_tbl shm2.shm_name), false)
     with
       | Not_found ->
 	  let fd = 
@@ -74,15 +80,21 @@ let proc_copy_shm session (shm1,data_offset1,shm2) emit =
     Int64.to_nativeint shm2.shm_addr in
   let data1 =
     (Netsys_mem.as_value mem1 data_offset1 : string array) in
+  Netplex_cenv.logf `Info
+    "size_mem1=%d size_mem2=%d"
+    (Bigarray.Array1.dim mem1)
+    (Bigarray.Array1.dim mem2);
   let (data_offset2,_) =
     Netsys_mem.init_value ~targetaddr mem2 0 data1 [] in
+  Netplex_cenv.logf `Info
+    "Worker init_value done";
   if mem2_unmap_flag then
     Netsys_mem.memory_unmap_file mem2;
   emit data_offset2
 
 
 let free_shm shm =
-  let mem =
+  let (_, mem) =
     try
       Hashtbl.find shm_tbl shm.shm_name
     with
@@ -100,7 +112,7 @@ let proc_free_shm session shm emit =
 
 let free_all() =
   let shm_list =
-    Hashtbl.fold (fun _ shm acc -> shm::acc) shm_tbl [] in
+    Hashtbl.fold (fun _ (shm,_) acc -> shm::acc) shm_tbl [] in
   List.iter free_shm shm_list    
 
 
@@ -140,7 +152,7 @@ let worker_factory() =
 			 ~keep_default:true
 			 ()
 		    )
-		    [ Sys.sigint; Sys.sigterm ]
+		    [ Sys.sigint; Sys.sigterm ];
                   ()
 		method pre_finish_hook _ =
 		  free_all()

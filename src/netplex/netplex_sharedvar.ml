@@ -5,7 +5,7 @@ open Netplex_types
 let release = ref (fun () -> ())
 
 
-let plugin : plugin =
+let x_plugin =
   ( object (self)
       val mutable variables = Hashtbl.create 50
       val mutable owns = Hashtbl.create 50
@@ -55,7 +55,7 @@ let plugin : plugin =
 	      let (var_name) =
 		Netplex_ctrl_aux._to_Sharedvar'V1'get_value'arg arg in
 	      let valopt =
-		self # get_value ctrl cid var_name in
+		self # get_value ctrl var_name in
 	      reply(
 		Some(Netplex_ctrl_aux._of_Sharedvar'V1'get_value'res valopt))
 
@@ -163,7 +163,7 @@ let plugin : plugin =
 	      false
 
 
-      method private get_value ctrl cid var_name =
+      method get_value ctrl var_name =
 	try
 	  let (v, _, _, _, _) = Hashtbl.find variables (ctrl,var_name) in
 	  Some v
@@ -189,6 +189,9 @@ let plugin : plugin =
 
     end
   )
+
+let plugin = (x_plugin :> plugin)
+
 
 let () =
   (* Release memory after [fork]: *)
@@ -218,10 +221,13 @@ let set_value var_name var_value =
        (Netplex_ctrl_aux._of_Sharedvar'V1'set_value'arg (var_name,var_value)))
 
 let get_value var_name =
-  let cont = Netplex_cenv.self_cont() in
-  Netplex_ctrl_aux._to_Sharedvar'V1'get_value'res
-    (cont # call_plugin plugin "get_value"
-       (Netplex_ctrl_aux._of_Sharedvar'V1'get_value'arg var_name))
+  match Netplex_cenv.self_obj() with
+    | `Container cont ->
+	Netplex_ctrl_aux._to_Sharedvar'V1'get_value'res
+	  (cont # call_plugin plugin "get_value"
+	     (Netplex_ctrl_aux._of_Sharedvar'V1'get_value'arg var_name))
+    | `Controller ctrl ->
+	x_plugin # get_value ctrl var_name
 
 let wait_for_value var_name =
   let cont = Netplex_cenv.self_cont() in

@@ -119,6 +119,13 @@ val as_value : memory -> int -> 'a
       (polymorphic equality, marshalling, hashing).
    *)
 
+val cmp_string : string -> string -> int
+  (** Compares two strings like [String.compare]. This also works
+      when the strings reside outside the O'Caml heap, e.g. in a
+      [memory] block.
+   *)
+
+
 exception Out_of_space
 
 val init_string : memory -> int -> int -> (int * int)
@@ -152,6 +159,7 @@ type init_value_flag =
   | Copy_simulate
 
 val init_value : 
+      ?targetaddr:nativeint -> 
       memory -> int -> 'a -> init_value_flag list -> (int * int)
   (** [let voffset, bytelen = init_value mem offset v flags]:
       Initializes the memory at [offset] and following bytes as
@@ -193,6 +201,11 @@ val init_value :
       as necessary to hold the value, no matter how large the bigarray really
       is. The returned values [voffset] and [bytelen] reflect how much
       of the bigarray would have been used.
+
+      If the [targetaddr] argument is passed, it is assumed that the
+      memory block is mapped at this address and not at the address it
+      is really mapped. This is useful for preparing memory that is going
+      to be mapped at a different address than it is right now.
    *)
 
 val mem_read : Unix.file_descr -> memory -> int -> int -> int

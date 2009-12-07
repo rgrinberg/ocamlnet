@@ -626,7 +626,8 @@ object
      *)
 
   method ctrl_container_finished : controller -> container_id -> bool -> unit
-    (** This method is called when a container finishes.
+    (** This method is called when a container finishes 
+        (after [post_finish_hook]).
         The boolean is true if the container is the last of the terminated
         socket service.
  *)

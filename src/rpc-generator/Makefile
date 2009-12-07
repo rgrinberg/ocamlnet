@@ -10,6 +10,15 @@ ALL_EXTRA = ocamlrpcgen$(EXEC_SUFFIX) rpcgen-packlist
 
 PACKLIST = rpcgen-packlist
 
+# rtypes has some conditional stuff:
+RTYPES_DEFS = -ppopt -DWORDSIZE_$(WORD_SIZE)
+OCAMLC_OPTIONS_FOR_rtypes.ml = \
+	-syntax camlp4o -package camlp4.macro $(RTYPES_DEFS)
+OCAMLOPT_OPTIONS_FOR_rtypes.ml = \
+	-syntax camlp4o -package camlp4.macro $(RTYPES_DEFS)
+
+OCAMLDEP_OPTIONS = -syntax camlp4o -package camlp4.macro
+
 include $(TOP_DIR)/Makefile.rules
 
 ocamlrpcgen$(EXEC_SUFFIX): $(ARCHIVE).cma main.cmo

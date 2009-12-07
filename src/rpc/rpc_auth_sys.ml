@@ -141,7 +141,7 @@ object
 	    "machinename", XV_string hostname;
 	    "uid",         XV_uint uid;
 	    "gid",         XV_uint gid;
-	    "gids",        XV_array xdr_gids;
+	    "gids",        XV_array xdr_gids
 	  ]
 	->
 	  let gids = Array.map

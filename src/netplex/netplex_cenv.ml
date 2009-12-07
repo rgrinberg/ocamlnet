@@ -129,6 +129,9 @@ let self_cont_par() =
 let self_cont() =
   fst(self_cont_par())
 
+let self_obj() =
+  fst(self_obj_par())
+
 let self_par() =
   try
     snd(self_obj_par())
@@ -343,14 +346,25 @@ let admin_call f =
 	raise err
 
 let system_shutdown() =
-  admin_call Netplex_ctrl_clnt.Admin.V2.system_shutdown
+  match self_obj() with
+    | `Container _ ->
+	admin_call Netplex_ctrl_clnt.Admin.V2.system_shutdown
+    | `Controller ctrl ->
+	ctrl # shutdown()
 
 let system_restart() =
-  admin_call Netplex_ctrl_clnt.Admin.V2.restart_all
+  match self_obj() with
+    | `Container _ ->
+	admin_call Netplex_ctrl_clnt.Admin.V2.restart_all
+    | `Controller ctrl ->
+	ctrl # restart()
 
 let send_message pat msg args =
-  let cont = self_cont() in
-  cont # send_message pat msg args
+  match self_obj() with
+    | `Container cont ->
+	cont # send_message pat msg args
+    | `Controller ctrl ->
+	ctrl # send_message pat msg args
 
 let lookup sname pname =
   let cont = self_cont() in

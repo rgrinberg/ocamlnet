@@ -35,7 +35,7 @@ let get_worker_client endpoint =
         let connector =
           Netplex_sockserv.any_file_client_connector endpoint in
         let client =
-          Sort1_proto_clnt.Worker.V1.create_client2
+          Sort2_proto_clnt.Worker.V1.create_client2
             ~esys
             (`Socket(Rpc.Tcp, connector, Rpc_client.default_socket_config)) in
         Hashtbl.replace worker_clients endpoint client;
@@ -47,6 +47,7 @@ let get_subarray_info n_workers n =
   let m = n mod n_workers in
   let k = ref 0 in
   Array.init
+    n_workers
     (fun i ->
        let k0 = !k in
        let l =
@@ -54,7 +55,6 @@ let get_subarray_info n_workers n =
        k := !k + l;
        (k0, l)
     )
-    n_workers
 
 
 let shm_tbl = Hashtbl.create 10
@@ -89,7 +89,7 @@ let shm_open_existing shm =
 
 
 let free_shm shm =
-  let mem =
+  let (_,mem) =
     try
       Hashtbl.find shm_tbl shm.shm_name
     with
@@ -98,6 +98,12 @@ let free_shm shm =
   Netsys_posix.shm_unlink shm.shm_name;
   Netsys_mem.memory_unmap_file mem;
   Hashtbl.remove shm_tbl shm.shm_name
+
+
+let free_all() =
+  let shm_list =
+    Hashtbl.fold (fun _ (shm,_) acc -> shm::acc) shm_tbl [] in
+  List.iter free_shm shm_list    
 
 
 let dummy_mem =
@@ -111,23 +117,27 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
    *)
 
   let sdata = Array.sub data k l in   (* TODO: avoid this copy *)
+  Netplex_cenv.logf `Info
+    "sort_subarray k=%d l=%d" k l;
   
   (* First find out how large sdata is: *)
   let _,sdata_bytelen =
     Netsys_mem.init_value
       dummy_mem 0 sdata [Netsys_mem.Copy_simulate] in
+  Netplex_cenv.logf `Info "first init_value done bytelen=%d" sdata_bytelen;
   
   (* Alloc the buffer in the controller: *)
   let ctrl_mem_name, ctrl_mem_fd =
     shm_open_excl (Unix.getpid()) 0 in
   let ctrl_mem =
-    Netsys_mem.memory_map_file fd true bytelen in
+    Netsys_mem.memory_map_file ctrl_mem_fd true sdata_bytelen in
   Unix.close ctrl_mem_fd;
   let ctrl_shm =
     { shm_name = ctrl_mem_name;
       shm_addr = Int64.of_nativeint(Netsys_mem.memory_address ctrl_mem)
     } in
-  Hashtbl.replace shm_tbl ctrl_mem_name ctrl_shm;
+  Hashtbl.replace shm_tbl ctrl_mem_name (ctrl_shm, ctrl_mem);
+  Netplex_cenv.logf `Info "addr=%Lx" ctrl_shm.shm_addr;
 
   (* Alloc the buffer in the worker: *)
   let client = get_worker_client worker_endpoint in
@@ -143,6 +153,8 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
 	   Netsys_mem.init_value
 	     ~targetaddr:(Int64.to_nativeint worker_shm.shm_addr)
 	     worker_mem 0 sdata [] in
+	 Netplex_cenv.logf `Info
+	   "Second init_value done";
 	 (* Request the sort: *)
 	 Sort2_proto_clnt.Worker.V1.sort_shm'async
 	   client
@@ -190,7 +202,6 @@ exception Merge_done_array of int
 
 let rec merge_into_0 out k_out in_arrays k_in =
   let l_in = Array.length in_arrays in
-  let l_out = Array.length out in
 
   assert(l_in > 0);
 
@@ -205,6 +216,8 @@ let rec merge_into_0 out k_out in_arrays k_in =
   
 and merge_into_1 out k_out in_arrays k_in =
   (* at least two in_arrays *)
+  let l_in = Array.length in_arrays in
+  let l_out = Array.length out in
   try
     while true do
       (* Find the smallest in_array element: *)
@@ -223,7 +236,7 @@ and merge_into_1 out k_out in_arrays k_in =
       let k_new = k_in.( !smallest_p ) + 1 in
       k_in.( !smallest_p ) <- k_new;
       if k_new = Array.length in_arrays.( !smallest_p ) then
-	raise Merge_done_array !smallest_p
+	raise (Merge_done_array !smallest_p)
     done
   with
     | Merge_exit -> 
@@ -234,7 +247,7 @@ and merge_into_1 out k_out in_arrays k_in =
 	  Array.init
 	    (Array.length in_arrays - 1)
 	    (fun i ->
-	       if i < p then in_array.(i) else in_array.(i+1)
+	       if i < p then in_arrays.(i) else in_arrays.(i+1)
 	    ) in
 	let k_in' = 
 	  Array.init
@@ -246,60 +259,117 @@ and merge_into_1 out k_out in_arrays k_in =
 
 
 let merge_into out in_arrays =
+  let t0 = Unix.gettimeofday() in
+  Netplex_cenv.logf `Info "merge_into";
   let l_in = Array.length in_arrays in
   assert(l_in > 0);
   let k_out = ref 0 in
-  let k_in = Array.make l 0 in
+  let k_in = Array.make l_in 0 in
   merge_into_0 out k_out in_arrays k_in;
-  assert (!k_out = Array.length out)
+  assert (!k_out = Array.length out);
+  let t1 = Unix.gettimeofday() in
+  Netplex_cenv.logf `Info "time for merge_into: %f" (t1-.t0)
+
 
 
 let emit_error session =
   Rpc_server.reply_error session Rpc.System_err
 
 
-let proc_sort n_workers session data emit =
-  let worker_endpoints =
-    get_worker_endpoints n_workers in
-  let subarray_info = 
-    get_subarray_info n_workers (Array.length data) in
-  let to_merge =
-    Array.make n_workers [| |] in
+let proc_sort n_workers session (data,sort_flag) emit =
+  if sort_flag then (
+    let worker_endpoints =
+      get_worker_endpoints n_workers in
+    let subarray_info = 
+      get_subarray_info n_workers (Array.length data) in
+    let to_merge =
+      Array.make n_workers [| |] in
+    
+    let esys = (Netplex_cenv.self_cont()) # event_system in
+    let runcounter = ref 0 in
+    let errorflag = ref false in
+    
+    Array.iteri
+      (fun p (k,l) ->
+	 let worker_endpoint = worker_endpoints.(p) in
+	 sort_subarray
+	   esys worker_endpoint data (k,l) 
+	   (fun sdata_sorted ->  (* when_done *)
+	      decr runcounter;
+	      if not !errorflag then (
+		(* We copy the sub array (shm is going to be freed): *)
+		to_merge.(p) <- Array.map String.copy sdata_sorted;
+		(* If all subarrays have arrived, start the merge: *)
+		if !runcounter = 0 then (
+		  merge_into data to_merge;
+		  (* and reply: *)
+		  emit data
+		)
+	      );
+	      if !errorflag && !runcounter = 0 then
+		emit_error session
+	   )
+	   (fun error ->         (* when_error *)
+	      decr runcounter;
+	      Netplex_cenv.logf `Err
+		"Got exception: %s" (Netexn.to_string error);
+	      errorflag := true;
+	      if !runcounter = 0 then
+		emit_error session
+	   );
+	 incr runcounter
+      )
+      subarray_info
+  )
+  else
+    emit data
 
-  let esys = (Netplex_cenv.self_cont()) # event_system in
-  let runcounter = ref 0 in
-  let errorflag = ref false in
 
-  Array.iteri
-    (fun p (k,l) ->
-       let worker_endpoint = worker_endpoints.(p) in
-       sort_subarray
-	 esys worker_endpoint data (k,l) 
-	 (fun sdata_sorted ->  (* when_done *)
-	    decr runcounter;
-	    if not !errorflag then (
-	      (* We copy the sub array (shm is going to be freed): *)
-	      to_merge.(p) <- Array.copy sdata_sorted;
-	      (* If all subarrays have arrived, start the merge: *)
-	      if !runcounter = 0 then (
-		merge_into data to_merge;
-		(* and reply: *)
-		emit data
-	      )
-	    );
-	    if !errorflag && !runcounter = 0 then
-	      emit_error session
-	 )
-	 (fun error ->         (* when_error *)
-	    decr runcounter;
-	    Netplex_cenv.logf `Err
-	      "Got exception: %s" (Netexn.to_string error);
-	    errorflag := true;
-	    if !runcounter = 0 then
-	      emit_error session
-	 );
-       incr runcounter
-    )
-    subarray_info
+let configure cf addr =
+  let n_workers =
+    try cf # int_param(cf # resolve_parameter addr "n_workers") 
+    with Not_found -> 1 in
+  Netplex_cenv.logf `Info
+    "Using param n_workers=%d" n_workers;
+  (n_workers)
 
 
+
+let setup srv (n_workers) =
+  Sort2_proto_srv.Interface.V1.bind_async
+    ~proc_null:(fun _ _ emit -> emit ())
+    ~proc_sort:(proc_sort n_workers)
+    srv
+
+let controller_factory() =
+  Rpc_netplex.rpc_factory
+    ~name:"sort"
+    ~configure
+    ~setup
+    ~hooks:(fun _ ->
+              object(self)
+                inherit Netplex_kit.empty_processor_hooks() 
+                method post_start_hook _ =
+                  let _t =
+                    Netplex_cenv.create_timer
+                      (fun _ -> 
+                         Gc.major();
+                         true
+                      )
+                      1.0 in
+		  List.iter
+		    (fun signo ->
+		       Netsys_signal.register_handler
+			 ~name:"Sort2_controller"
+			 ~signal:signo
+			 ~callback:(fun _ -> free_all())
+			 ~keep_default:true
+			 ()
+		    )
+		    [ Sys.sigint; Sys.sigterm ];
+                  ()
+		method pre_finish_hook _ =
+		  free_all()
+              end
+           )
+    ()

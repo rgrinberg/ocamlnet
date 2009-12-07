@@ -352,6 +352,16 @@ fi
 echo "$mt_type $mt_comment"
 
 ######################################################################
+# Check word size
+
+printf "%s" "Checking word size... "
+cat <<_EOF_ >tmp/t.ml
+print_endline(string_of_int(Sys.word_size))
+_EOF_
+word_size="$(ocaml tmp/t.ml)"
+echo "$word_size bit"
+
+######################################################################
 # Check that pcre is available:
 
 printf "%s" "Checking for PCRE... "
@@ -792,6 +802,9 @@ INSTMETHOD = findlib
 
 # Multi-threading type:
 MT_TYPE = $mt_type
+
+# word size:
+WORD_SIZE = $word_size
 
 # Compiler switch to enable multi-threading:
 THREAD = $mt_switch

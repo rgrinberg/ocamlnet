@@ -3,9 +3,10 @@
 (** Container environment
   *
   * Some helper functions to explore the environment from a container.
-  * The following functions {b must} be called from a container context,
+  * Most of the following functions {b must} be called from a container context,
   * i.e. from a process or thread that acts as container, otherwise
-  * the exception [Not_in_container_thread] is raised.
+  * the exception [Not_in_container_thread] is raised. There are also some
+  * functions that can be called from controller context for convenience.
  *)
 
 open Netplex_types
@@ -15,8 +16,8 @@ exception Not_in_container_thread
 
 (** {2 Logging} *)
 
-(** The log messages work (as an exception of the foregoing) also
-    from the controller thread
+(** Logging functions can be invoked from both container and controller 
+    contexts.
  *)
 
 val log : level -> string -> unit
@@ -26,6 +27,8 @@ val logf : level -> ('a, unit, string, unit) format4 -> 'a
   (** Writes a log message like [printf] *)
 
 (** {2 Timer} *)
+
+(** Timer functions can only be invoked from container contexts. *)
 
 type timer
   (** A timer *)
@@ -58,6 +61,8 @@ val timer_id : timer -> int
 (** Container variables exist once per container. Primary access is
     done via the [var] and [set_var] methods of the container class.
     The following functions are often more convenient, however.
+
+    These functions can only be invoked from container contexts. 
  *)
 
 exception Container_variable_not_found of string
@@ -130,6 +135,10 @@ module Make_var_type(T:TYPE) : VAR_TYPE with type t = T.t
 
 (** {2 System control} *)
 
+(** System control functions can be invoked from both container and controller 
+    contexts.
+ *)
+
 val system_shutdown : unit -> unit
   (** Initiates a system shutdown (like the [shutdown] method of the
       controller)
@@ -143,6 +152,11 @@ val system_restart : unit -> unit
 
 (** {2 Inter-Container Communication} *)
 
+(** These functions can only be invoked from container contexts, 
+    except [send_message].
+ *)
+
+
 val send_message : string -> string -> string array -> unit
   (** [send_message service_pattern msg_name msg_arguments]: Sends
        a message to all services and message receivers matching
@@ -150,6 +164,9 @@ val send_message : string -> string -> string array -> unit
 
        See the {!Netplex_types.controller.send_message} method for
        the notification guarantees.
+
+       This function can be invoked from both container and controller
+       contexts.
    *)
 
 val lookup : string -> string -> string option
@@ -176,12 +193,21 @@ val lookup_container_sockets : string -> string -> string array
 (** {2 Direct container and admin interface access} *)
 
 val self_cont : unit -> container
-  (** Returns the container running the code of the caller *)
+  (** Returns the container running the code of the caller,
+      or raise [Not_in_container_thread] if called from outside a 
+      container context.
+   *)
+
+val self_obj : unit -> [ `Container of container |
+			 `Controller of controller ]
+  (** Returns the container or the controller running the code of the
+      caller, or raise [Not_in_container_thread] (sic!) if called from
+      neither a container not a controller thread.
+   *)
 
 val current_sys_id : unit -> [ `Thread of int | `Process of int ]
   (** Returns the system-dependent thread identifier of the caller
-      (which must be in container context - this function does not
-      work for arbitrary threads/processes)
+      (which must be in container or controller context)
    *)
 
 
@@ -200,6 +226,8 @@ val admin_connector : unit -> Rpc_client.mode2
 
       Note that the admin interface is going to evolve, and it is advisable
       to avoid admin calls whenever possible.
+
+      This function must be called from container context.
    *)
 
 val run_in_controller_context : controller -> (unit -> unit) -> unit

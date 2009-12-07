@@ -34,8 +34,10 @@ val plugin : plugin
 
 
 
-(** The folloing functions can {b only} be invoked in container
-    contexts. Outside of such a context the exception
+(** The folloing functions can all be invoked in container
+    contexts. In controller context, access is limited to [get_value].
+
+    If called from the wrong context the exception
     {!Netplex_cenv.Not_in_container_thread} is raised. 
  *)
 
@@ -50,7 +52,9 @@ val create_var : ?own:bool -> ?ro:bool -> string -> bool
       - [own]: If true, the created variable is owned by the calling
         socket service. Only the caller can delete it, and when the 
         last component of the socket service terminates, the variable is
-        automatically deleted.
+        automatically deleted. The deletion happens after the
+        [post_finish_hook] is executed, so the variable is still accessible
+        from this hook.
       - [ro]: if true, only the owner can set the value
 
       Variable names are global to the whole netplex system. By convention,

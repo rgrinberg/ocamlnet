@@ -52,7 +52,9 @@ program Interface {
     version V1 {
         void null(void) = 0;
         
-        sortdata sort(sortdata) = 1;
-        /* Sort this array and return it */
+        sortdata sort(sortdata, bool) = 1;
+        /* Sort this array and return it. The bool says whether to sort (true) -
+           if false, the input data are just returned
+         */
     } = 1;
 } = 3;

@@ -176,7 +176,7 @@ CAMLprim value netsys_map_file(value fdv,
     eff_addr = (void *) ((uintnat) eff_addr + delta);
 
     return alloc_bigarray_dims(BIGARRAY_UINT8 | BIGARRAY_C_LAYOUT | 
-			       BIGARRAY_MAPPED_FILE, 1, addr, basize);
+			       BIGARRAY_MAPPED_FILE, 1, eff_addr, basize);
 #else
     invalid_argument("Netsys_mem.memory_map_file not available");
 #endif
@@ -251,6 +251,26 @@ CAMLprim value netsys_as_value(value memv, value offv)
     return (value) (b->data + Long_val(offv));
 }
 
+CAMLprim value netsys_cmp_string(value s1, value s2)
+{
+    mlsize_t l1, l2, k;
+    unsigned char *c1, *c2;
+    if (s1 == s2) return Val_int(0);
+    l1 = caml_string_length(s1);
+    l2 = caml_string_length(s2);
+    c1 = (unsigned char *) String_val(s1);
+    c2 = (unsigned char *) String_val(s2);
+    k = 0;
+    while (k < l1 && k < l2) {
+	if (*c1 != *c2) 
+	    return Val_int( (int) *c1 - (int) *c2 );
+	c1++;
+	c2++;
+	k++;
+    }
+    return Val_long ( l1 - l2 );
+}
+
 
 CAMLprim value netsys_init_string(value memv, value offv, value lenv) 
 {
@@ -294,6 +314,7 @@ int netsys_init_value_1(struct htab *t,
 			int enable_customs,
 			int enable_atoms,
 			int simulation,
+			void *target_addr,
 			long *start_offset,
 			long *bytelen
 			)
@@ -318,6 +339,7 @@ int netsys_init_value_1(struct htab *t,
     char *mem_ptr;
     long  off;
     int code, i;
+    intnat addr_delta;
 
     copy = 0;
 
@@ -325,6 +347,7 @@ int netsys_init_value_1(struct htab *t,
     mem_data = (char *) Bigarray_val(memv)->data;
     mem_end = mem_data + Bigarray_val(memv)->dim[0];
     mem_cur = mem_data + off;
+    addr_delta = ((char *) target_addr) - mem_data;
 
     if (mem_cur >= mem_end && !simulation) return (-4);   /* out of space */
 
@@ -340,8 +363,8 @@ int netsys_init_value_1(struct htab *t,
        new addresses, make a copy, and add these copies to t.
     */
 
-    /* fprintf(stderr, "first pass, orig_addr=%lx\n",
-       (unsigned long) orig_addr); */
+    fprintf(stderr, "first pass, orig_addr=%lx simulation=%d addr_delta=%lx\n",
+       (unsigned long) orig_addr, simulation, addr_delta);
 
     code = netsys_queue_take(q, &work_addr);
     while (code != (-3)) {
@@ -543,9 +566,8 @@ int netsys_init_value_1(struct htab *t,
        memory block.
     */
 
-    /* fprintf(stderr, "second pass\n"); */
-
     if (!simulation) {
+	fprintf(stderr, "second pass\n");
 	mem_ptr = mem_data + off;
 	while (mem_ptr < mem_cur) {
 	    copy_header1 = *((header_t *) mem_ptr);
@@ -562,7 +584,8 @@ int netsys_init_value_1(struct htab *t,
 						  &fixup_addr);
 			if (code != 0) return code;
 			
-			Field(copy,i) = (value) fixup_addr;
+			Field(copy,i) = 
+			    (value) (((char *) fixup_addr) + addr_delta);
 		    }
 		}
 	    }
@@ -586,7 +609,9 @@ static int init_value_flags[] = { 1, 2, 4, 8 };
 value netsys_init_value(value memv, 
 			value offv, 
 			value orig,  
-			value flags)
+			value flags,
+			value targetaddrv
+			)
 {
     int code;
     struct htab t;
@@ -596,11 +621,13 @@ value netsys_init_value(value memv,
     value r;
     long start_offset, bytelen;
     int  cflags;
+    void *targetaddr;
     
     q_init=0;
     t_init=0;
 
     cflags = caml_convert_flag_list(flags, init_value_flags);
+    targetaddr = (void *) Nativeint_val(targetaddrv);
 
     code = netsys_queue_init(&q, 1000);
     if (code != 0) goto exit;
@@ -612,7 +639,7 @@ value netsys_init_value(value memv,
 
     code = netsys_init_value_1(&t, &q, memv, offv, orig, 
 			       cflags & 1, cflags & 2, cflags & 4, cflags & 8,
-			       &start_offset, &bytelen);
+			       targetaddr, &start_offset, &bytelen);
     if (code != 0) goto exit;
 
     netsys_queue_free(&q);

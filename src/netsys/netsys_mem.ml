@@ -57,6 +57,9 @@ external memory_unmap_file : memory -> unit
 external as_value : memory -> int -> 'a
   = "netsys_as_value"
 
+external cmp_string : string -> string -> int
+  = "netsys_cmp_string"
+
 external netsys_init_string : memory -> int -> int -> unit
   = "netsys_init_string"
 
@@ -90,9 +93,18 @@ type init_value_flag =
   | Copy_atom
   | Copy_simulate
 
-external init_value : 
-  memory -> int -> 'a -> init_value_flag list -> (int * int)
+external netsys_init_value : 
+  memory -> int -> 'a -> init_value_flag list -> nativeint -> (int * int)
   = "netsys_init_value"
+
+let init_value ?targetaddr mem offset v flags =
+  let taddr = 
+    match targetaddr with
+      | None ->
+	  memory_address mem
+      | Some a ->
+	  a in
+  netsys_init_value mem offset v flags taddr
 
 
 external netsys_mem_read : Unix.file_descr -> memory -> int -> int -> int

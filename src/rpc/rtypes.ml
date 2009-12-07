@@ -24,7 +24,8 @@ exception Cannot_represent of string;;
 
 exception Out_of_range;;
 
-let cannot_represent s =
+let rec cannot_represent s = 
+  (* "rec" because this prevents this function from being inlined *)
   raise (Cannot_represent s);;
 
 
@@ -83,10 +84,7 @@ let mk_uint8 = mk_int8;;
 (* read_[u]intn                                                       *)
 (**********************************************************************)
 
-let read_int4 s pos =
-  if pos < 0 || pos + 4 > String.length s then
-    raise Out_of_range;
-
+let read_int4_unsafe s pos =
   let n3 = Int32.of_int (Char.code (String.unsafe_get s pos)) in
   let x = Int32.shift_left n3 24 in
 
@@ -112,11 +110,14 @@ let read_int4 s pos =
 *)
 ;;
 
-
-let read_int8 s pos =
-  if pos < 0 || pos + 8 > String.length s then
+let read_int4 s pos =
+  if pos < 0 || pos + 4 > String.length s then
     raise Out_of_range;
+  read_int4_unsafe s pos
 
+
+
+let read_int8_unsafe s pos =
   let n7 = Int64.of_int (Char.code (String.unsafe_get s pos)) in
   let x = Int64.shift_left n7 56 in
 
@@ -142,8 +143,17 @@ let read_int8 s pos =
   Int64.logor x n0
 ;;
 
+
+let read_int8 s pos =
+  if pos < 0 || pos + 8 > String.length s then
+    raise Out_of_range;
+  read_int8_unsafe s pos
+
+
 let read_uint4 = read_int4;;
 let read_uint8 = read_int8;;
+let read_uint4_unsafe = read_int4_unsafe;;
+let read_uint8_unsafe = read_int8_unsafe;;
 
 
 (**********************************************************************)
@@ -291,127 +301,104 @@ let uint8_as_string x =
 (* int_of_[u]intn                                                     *)
 (**********************************************************************)
 
-let c_max_int_32 = Int32.of_int max_int;;  (* (1) *)
-let c_min_int_32 = Int32.of_int min_int;;  (* (1) *)
 let c_max_int_64 = Int64.of_int max_int;;
 let c_min_int_64 = Int64.of_int min_int;;
-(* (1) These constants are not meaningful if Sys.word_size = 64 *)
 
 
-let int_of_int4_32 x =
-  if x >= c_min_int_32 && x <= c_max_int_32 then
+let name_int_of_int4 = "int_of_int4"
+
+let int_of_int4 x =
+IFDEF WORDSIZE_64 THEN
+  Int32.to_int
+ELSE
+  if x >= 0xc000_0000l && x <= 0x3fff_ffffl then
     Int32.to_int x
   else
-    cannot_represent "int_of_int4"
+    cannot_represent name_int_of_int4
+END
 ;;
 
 
-let int_of_int4 =
-  if Sys.word_size = 32 then
-    int_of_int4_32
-  else if Sys.word_size = 64 then
-      Int32.to_int
-  else
-    assert false
-;;
+let name_int_of_uint4 = "int_of_uint4"
 
-
-let int_of_uint4_32 x =
-  if x >= Int32.zero && x <= c_max_int_32 then
-    Int32.to_int x
-  else
-    cannot_represent "int_of_uint4"
-;;
-
-
-let int_of_uint4_64 x =
+let int_of_uint4 x =
+IFDEF WORDSIZE_64 THEN
   Int64.to_int (Int64.logand (Int64.of_int32 x) 0xFFFF_FFFFL)
-;;
-
-
-let int_of_uint4 =
-  if Sys.word_size = 32 then
-    int_of_uint4_32
-  else if Sys.word_size = 64 then
-    int_of_uint4_64
+ELSE
+  if x >= 0l && x <= 0x3fff_ffffl then
+    Int32.to_int x
   else
-    failwith "word size not supported"
+    cannot_represent name_int_of_uint4
+END
 ;;
 
+
+let name_int_of_int8 = "int_of_int8"
 
 let int_of_int8 x =
   if x >= c_min_int_64 && x <= c_max_int_64 then
     Int64.to_int x
   else
-    cannot_represent "int_of_int8"
+    cannot_represent name_int_of_int8
 ;;
 
+
+let name_int_of_uint8 = "int_of_uint8"
 
 let int_of_uint8 x =
   if x >= Int64.zero && x <= c_max_int_64 then
     Int64.to_int x
   else
-    cannot_represent "int_of_uint8"
+    cannot_represent name_int_of_uint8
 ;;
 
 (**********************************************************************)
 (* intn_of_int                                                        *)
 (**********************************************************************)
 
-let int4_of_int_64 i =
+let name_int4_of_int = "int4_of_int"
+
+let int4_of_int i =
+IFDEF WORDSIZE_64 THEN
   let j = i asr 31 in
   if j = 0 || j = (-1) then
     Int32.of_int i
   else
-    cannot_represent "int4_of_int"
-;;
-
-
-let int4_of_int =
-  if Sys.word_size = 32 then
-    Int32.of_int
-  else if Sys.word_size = 64 then
-    int4_of_int_64
-  else
-    assert false
-;;
-
-
-let uint4_of_int_32 i =
-  if i >= 0 then
+    cannot_represent name_int4_of_int
+ELSE
     Int32.of_int i
-  else
-    cannot_represent "uint4_of_int"
+END
 ;;
 
 
-let uint4_of_int_64 i =
+let name_uint4_of_int = "uint4_of_int"
+
+let uint4_of_int i =
+IFDEF WORDSIZE_64 THEN
   let j = i asr 32 in
   if j = 0 then
     Int32.of_int i
   else
-    cannot_represent "uint4_of_int"
-;;
-
-
-let uint4_of_int =
-  if Sys.word_size = 32 then
-    uint4_of_int_32
-  else if Sys.word_size = 64 then
-    uint4_of_int_64
+    cannot_represent name_uint4_of_int
+ELSE
+  if i >= 0 then
+    Int32.of_int i
   else
-    assert false
+    cannot_represent name_uint4_of_int
+END
 ;;
 
 
 let int8_of_int = Int64.of_int ;;
 
 
+let name_uint8_of_int = "uint8_of_int"
+
 let uint8_of_int i =
   if i >= 0 then
     Int64.of_int i
   else
-    cannot_represent "uint8_of_int"
+    cannot_represent name_uint8_of_int
 ;;
 
 
@@ -421,30 +408,36 @@ let uint8_of_int i =
 
 let int32_of_int4 x = x ;;
 
+let name_int32_of_uint4 = "int32_of_uint4"
+
 let int32_of_uint4 x =
   if x >= Int32.zero then
     x
   else
-    cannot_represent "int32_of_uint4"
+    cannot_represent name_int32_of_uint4
 ;;
 
 
 let c_int32_min_int_64 = Int64.of_int32 Int32.min_int ;;
 let c_int32_max_int_64 = Int64.of_int32 Int32.max_int ;;
 
+let name_int32_of_int8 = "int32_of_int8"
+
 let int32_of_int8 x =
   if x >= c_int32_min_int_64 && x <= c_int32_max_int_64 then
     Int64.to_int32 x
   else
-    cannot_represent "int32_of_int8"
+    cannot_represent name_int32_of_int8
 ;;
 
+
+let name_int32_of_uint8 = "int32_of_uint8"
 
 let int32_of_uint8 x =
   if x >= Int64.zero && x <= c_int32_max_int_64 then
     Int64.to_int32 x
   else
-    cannot_represent "int32_of_uint8"
+    cannot_represent name_int32_of_uint8
 ;;
 
 
@@ -462,12 +455,13 @@ let int64_of_uint4 x =
 
 let int64_of_int8 x = x ;;
 
+let name_int64_of_uint8 = "int64_of_uint8"
 
 let int64_of_uint8 x =
   if x >= Int64.zero then
     x
   else
-    cannot_represent "int64_of_uint8"
+    cannot_represent name_int64_of_uint8
 ;;
 
 
@@ -477,9 +471,11 @@ let int64_of_uint8 x =
 
 let int4_of_int32 x = x ;;
 
+let name_uint4_of_int32 = "uint4_of_int32"
+
 let uint4_of_int32 i =
   if i < Int32.zero then
-    cannot_represent "uint4_of_int32";
+    cannot_represent name_uint4_of_int32;
   i
 ;;
 
@@ -487,31 +483,39 @@ let int8_of_int32 =
   Int64.of_int32
 ;;
 
+let name_uint8_of_int32 = "uint8_of_int32"
+
 let uint8_of_int32 i =
   if i < Int32.zero then
-    cannot_represent "uint8_of_int32";
+    cannot_represent name_uint8_of_int32;
   Int64.of_int32 i
 ;;
 
 let c_uint4_max_64 = Int64.of_string  "0xFFFFFFFF";;
 
+let name_int4_of_int64 = "int4_of_int64"
+
 let int4_of_int64 i =
   if i >= c_int32_min_int_64 && i <= c_int32_max_int_64 then
     Int64.to_int32 i
-  else cannot_represent "int4_of_int64"
+  else cannot_represent name_int4_of_int64
 ;;
+
+let name_uint4_of_int64 = "uint4_of_int64"
 
 let uint4_of_int64 i =
   if i < Int64.zero || i > c_uint4_max_64 then
-    cannot_represent "uint4_of_int64";
+    cannot_represent name_uint4_of_int64;
   Int64.to_int32 i
 ;;
 
 let int8_of_int64 i = i ;;
 
+let name_uint8_of_int64 = "uint8_of_int64"
+
 let uint8_of_int64 i =
   if i < Int64.zero then
-    cannot_represent "uint8_of_int64";
+    cannot_represent name_uint8_of_int64;
   i
 ;;
 

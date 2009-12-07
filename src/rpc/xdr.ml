@@ -837,143 +837,65 @@ let are_compatible (s1:xdr_type) (s2:xdr_type) : bool =
 (* common implementation of value_matches_type & pack_xdr_value       *)
 (**********************************************************************)
 
-let pack_buf
-      ?(rm = false)
+(* pack: interestingly, two loops over the value where one loop only
+   determines the size of the final buffer are _faster_ than a single
+   loop over the value doing everything. Whoever understands that.
+ *)
+
+
+let ( ++ ) x y =
+  (* pre: x >= 0 && y >= 0 *)
+  let s = x + y in
+  if s < 0 then raise Not_found;  (* overflow *)
+  s
+
+
+let pack_size
       (v:xdr_value)
       (t:xdr_type)
       (get_param:string->xdr_type)
-      (no_buffer:bool)              (* Only check whether unpacking is
-				     * possible; returns garbage
-				     *)
-    : string =
+    : int =
 
-  let buf = ref (String.create 256) in
-  let buf_len = ref 0 in
-
-  if rm then (
-    !buf.[0] <- '\000';
-    !buf.[1] <- '\000';
-    !buf.[2] <- '\000';
-    !buf.[3] <- '\000';
-    buf_len := 4
-  );
-
-  let resize() =
-    (* makes the buffer twice as large *)
-    if no_buffer then
-      buf_len := 0
-    else
-      let buf_len' = 2 * (String.length !buf) in
-      if buf_len' > Sys.max_string_length then
-	failwith "Xdr.pack: string too long";
-      let buf' = String.create buf_len' in
-      String.blit !buf 0 buf' 0 !buf_len;
-      buf := buf'
-  in
-
-  let print_int8 x =
-    if !buf_len + 8 > String.length !buf then resize();
-    Rtypes.write_int8_unsafe !buf !buf_len x;
-    buf_len := !buf_len + 8
-  in
-
-  let print_uint8 x =
-    if !buf_len + 8 > String.length !buf then resize();
-    Rtypes.write_uint8_unsafe !buf !buf_len x;
-    buf_len := !buf_len + 8
-  in
-
-  let print_fp4 x =
-    (* TODO *)
-    if !buf_len + 4 > String.length !buf then resize();
-    let s = fp4_as_string x in
-    String.blit s 0 !buf !buf_len 4;
-    buf_len := !buf_len + 4
-  in
-
-  let print_fp8 x =
-    (* TODO *)
-    if !buf_len + 8 > String.length !buf then resize();
-    let s = fp8_as_string x in
-    String.blit s 0 !buf !buf_len 8;
-    buf_len := !buf_len + 8
-  in
-
-  let print_string s =
-    if not no_buffer then begin
-      let l = String.length s in
-      let n = 4-(l mod 4) in
-      if n < 4 then begin
-	while !buf_len + l + n > String.length !buf do resize() done;
-	String.blit s 0 !buf !buf_len l;
-	String.fill !buf (!buf_len + l) n '\000';
-	buf_len := !buf_len + l + n
-      end
-      else begin
-	while !buf_len + l > String.length !buf do resize() done;
-	String.blit s 0 !buf !buf_len l;
-	buf_len := !buf_len + l
-      end
-    end
-  in
-
-  let rec pack v t =
+  let rec get_size v t =
     match t.term with
-	T_int ->
-	  let x = dest_xv_int v in
-	  if !buf_len + 4 > String.length !buf then resize();
-	  Rtypes.write_int4_unsafe !buf !buf_len x;
-	  buf_len := !buf_len + 4
+      | T_int ->
+	  4
       | T_uint ->
-	  let x = dest_xv_uint v in
-	  if !buf_len + 4 > String.length !buf then resize();
-	  Rtypes.write_uint4_unsafe !buf !buf_len x;
-	  buf_len := !buf_len + 4
+	  4
       | T_hyper ->
-	  let x = dest_xv_hyper v in
-	  print_int8 x
+	  8
       | T_uhyper ->
-	  let x = dest_xv_uhyper v in
-	  print_uint8 x
+	  8
       | T_enum e ->
-	  let i = map_xv_enum_fast t v in
-	  if !buf_len + 4 > String.length !buf then resize();
-	  Rtypes.write_int4_unsafe !buf !buf_len (int4_of_int32 i);
-	  buf_len := !buf_len + 4
+	  4
       | T_float ->
-	  let x = dest_xv_float v in
-	  print_fp4 x
+	  4
       | T_double ->
-	  let x = dest_xv_double v in
-	  print_fp8 x
+	  8
       | T_opaque_fixed n ->
-	  let x = dest_xv_opaque v in
-	  if String.length x = int_of_uint4 n then begin
-	    print_string x
-	  end
-	  else
-	    raise Not_found
+	  int_of_uint4 n
       | T_opaque n ->
 	  let m = int_of_uint4 n in
 	  let x = dest_xv_opaque v in
-	  if String.length x <= m then begin
-	    if !buf_len + 4 > String.length !buf then resize();
-	    Rtypes.write_uint4_unsafe !buf !buf_len
-	      (uint4_of_int (String.length x));
-	    buf_len := !buf_len + 4;
-	    print_string x
-	  end
+	  let x_len = String.length x in
+	  let x_len_mod_4 = x_len land 3 in
+	  if x_len <= m then
+	    (if x_len_mod_4 = 0
+	     then x_len + 4 
+	     else x_len + 8 - x_len_mod_4
+	    )
 	  else
 	    raise Not_found
       | T_string n ->
 	  let m = int_of_uint4 n in
 	  let x = dest_xv_string v in
-	  if String.length x <= m then begin
-	    if !buf_len + 4 > String.length !buf then resize();
-	    Rtypes.write_uint4_unsafe !buf !buf_len
-	      (uint4_of_int (String.length x));
-	    buf_len := !buf_len + 4;
-	    print_string x
+	  let x_len = String.length x in
+	  let x_len_mod_4 = x_len land 3 in
+	  if x_len <= m then begin
+	    (if x_len_mod_4 = 0
+	     then x_len + 4 
+	     else x_len + 8 - x_len_mod_4
+	    )
 	  end
 	  else
 	    raise Not_found
@@ -981,9 +903,11 @@ let pack_buf
 	  let m = int_of_uint4 n in
 	  let x = dest_xv_array v in
 	  if Array.length x = m then begin
+	    let s = ref 0 in
 	    Array.iter
-	      (fun v' -> pack v' t')
-	      x
+	      (fun v' -> s := !s ++ get_size v' t')
+	      x;
+	    !s
 	  end
 	  else
 	    raise Not_found
@@ -991,16 +915,169 @@ let pack_buf
 	  let m = int_of_uint4 n in
 	  let x = dest_xv_array v in
 	  if Array.length x <= m then begin
-	    if !buf_len + 4 > String.length !buf then resize();
-	    Rtypes.write_uint4_unsafe !buf !buf_len
-	      (uint4_of_int (Array.length x));
-	    buf_len := !buf_len + 4;
+	    let s = ref 4 in
 	    Array.iter
-	      (fun v' -> pack v' t')
-	      x
+	      (fun v' -> s := !s ++ get_size v' t')
+	      x;
+	    !s
 	  end
 	  else
 	    raise Not_found
+      | T_struct s ->
+	  let v_array = map_xv_struct_fast t v in
+	  let sum = ref 0 in
+	  Array.iteri
+	    (fun k v_component ->
+	       sum := !sum ++ get_size v_component (snd s.(k)))
+	    v_array;
+	  !sum
+      | T_union_over_int (u,default) ->
+	  let i,x = dest_xv_union_over_int v in
+	  let t' =
+      	    try
+	      Hashtbl.find u i
+	    with
+		Not_found ->
+		  match default with
+		      Some d -> d
+		    | None   -> raise Not_found
+	  in
+	  4 ++ get_size x t'
+      | T_union_over_uint (u,default) ->
+	  let i,x = dest_xv_union_over_uint v in
+	  let t' =
+      	    try
+	      Hashtbl.find u i
+	    with
+		Not_found ->
+		  match default with
+		      Some d -> d
+		    | None   -> raise Not_found
+	  in
+	  4 ++ get_size x t'
+      | T_union_over_enum (et,u,default) ->
+	  let k,i,x = map_xv_union_over_enum_fast t v in
+	  let t' =
+	    match u.(k) with
+		Some u_t -> u_t
+	      | None     ->
+		  ( match default with
+			Some d -> d
+		      | None -> raise Not_found
+		  )
+	  in
+	  4 ++ get_size x t'
+      | T_void ->
+	  0
+      | T_param n ->
+	  let t' = get_param n in
+	  get_size v t'
+      | T_rec (n, t') ->
+	  get_size v t'
+      | T_refer (n, t') ->
+	  get_size v t'
+  in
+  get_size v t
+
+
+let pack_buf
+      ?(rm = false)
+      (v:xdr_value)
+      (t:xdr_type)
+      (get_param:string->xdr_type)
+    : string =
+
+  let size = 
+    (if rm then 4 else 0) ++
+      pack_size v t get_param in  (* all sanity checks are done here! *)
+
+  let buf = String.create size in
+  let buf_len = ref 0 in
+
+  if rm then (
+    buf.[0] <- '\000';
+    buf.[1] <- '\000';
+    buf.[2] <- '\000';
+    buf.[3] <- '\000';
+    buf_len := 4
+  );
+
+  let print_string s l =  (* assert(l=String.length s) *)
+    let n = 4-(l land 3) in
+    if n < 4 then begin
+      String.unsafe_blit s 0 buf !buf_len l;
+      let l0 = !buf_len + l in
+      if n >= 1 then String.unsafe_set buf l0 '\000';
+      if n >= 2 then String.unsafe_set buf (l0 + 1) '\000';
+      if n >= 3 then String.unsafe_set buf (l0 + 2) '\000';
+      buf_len := l0 + n
+    end
+    else begin
+      String.unsafe_blit s 0 buf !buf_len l;
+      buf_len := !buf_len + l
+    end
+  in
+
+  let rec pack v t =
+    match t.term with
+	T_int ->
+	  let x = dest_xv_int v in
+	  Rtypes.write_int4_unsafe buf !buf_len x;
+	  buf_len := !buf_len + 4
+      | T_uint ->
+	  let x = dest_xv_uint v in
+	  Rtypes.write_uint4_unsafe buf !buf_len x;
+	  buf_len := !buf_len + 4
+      | T_hyper ->
+	  let x = dest_xv_hyper v in
+	  Rtypes.write_int8_unsafe buf !buf_len x;
+	  buf_len := !buf_len + 8
+      | T_uhyper ->
+	  let x = dest_xv_uhyper v in
+	  Rtypes.write_uint8_unsafe buf !buf_len x;
+	  buf_len := !buf_len + 8
+      | T_enum e ->
+	  let i = map_xv_enum_fast t v in
+	  Rtypes.write_int4_unsafe buf !buf_len (int4_of_int32 i);
+	  buf_len := !buf_len + 4
+      | T_float ->
+	  let x = dest_xv_float v in
+	  let s = fp4_as_string x in
+	  String.unsafe_blit s 0 buf !buf_len 4;
+	  buf_len := !buf_len + 4
+      | T_double ->
+	  let x = dest_xv_double v in
+	  let s = fp8_as_string x in
+	  String.unsafe_blit s 0 buf !buf_len 8;
+	  buf_len := !buf_len + 8
+      | T_opaque_fixed n ->
+	  let x = dest_xv_opaque v in
+	  print_string x (String.length x)
+      | T_opaque n ->
+	  let x = dest_xv_opaque v in
+	  let x_len = String.length x in
+	  Rtypes.write_uint4_unsafe buf !buf_len (uint4_of_int x_len);
+	  buf_len := !buf_len + 4;
+	  print_string x x_len
+      | T_string n ->
+	  let x = dest_xv_string v in
+	  let x_len = String.length x in
+	  Rtypes.write_uint4_unsafe buf !buf_len (uint4_of_int x_len);
+	  buf_len := !buf_len + 4;
+	  print_string x x_len
+      | T_array_fixed (t',n) ->
+	  let x = dest_xv_array v in
+	  Array.iter
+	    (fun v' -> pack v' t')
+	    x
+      | T_array (t',n) ->
+	  let x = dest_xv_array v in
+	  Rtypes.write_uint4_unsafe buf !buf_len
+	    (uint4_of_int (Array.length x));
+	  buf_len := !buf_len + 4;
+	  Array.iter
+	    (fun v' -> pack v' t')
+	    x
       | T_struct s ->
 	  let v_array = map_xv_struct_fast t v in
 	  Array.iteri
@@ -1018,8 +1095,7 @@ let pack_buf
 		      Some d -> d
 		    | None   -> raise Not_found
 	  in
-	  if !buf_len + 4 > String.length !buf then resize();
-	  Rtypes.write_int4_unsafe !buf !buf_len i;
+	  Rtypes.write_int4_unsafe buf !buf_len i;
 	  buf_len := !buf_len + 4;
 	  pack x t'
       | T_union_over_uint (u,default) ->
@@ -1033,8 +1109,7 @@ let pack_buf
 		      Some d -> d
 		    | None   -> raise Not_found
 	  in
-	  if !buf_len + 4 > String.length !buf then resize();
-	  Rtypes.write_uint4_unsafe !buf !buf_len i;
+	  Rtypes.write_uint4_unsafe buf !buf_len i;
 	  buf_len := !buf_len + 4;
 	  pack x t'
       | T_union_over_enum (et,u,default) ->
@@ -1048,23 +1123,21 @@ let pack_buf
 		      | None -> raise Not_found
 		  )
 	  in
-	  if !buf_len + 4 > String.length !buf then resize();
-	  Rtypes.write_int4_unsafe !buf !buf_len (int4_of_int32 i);
+	  Rtypes.write_int4_unsafe buf !buf_len (int4_of_int32 i);
 	  buf_len := !buf_len + 4;
 	  pack x t'
       | T_void ->
 	  ()
       | T_param n ->
 	  let t' = get_param n in
-	  pack v t' (* (fun n'->raise Not_found) print *)
+	  pack v t'
       | T_rec (n, t') ->
 	  pack v t'
       | T_refer (n, t') ->
 	  pack v t'
   in
   pack v t;
-  String.sub !buf 0 !buf_len
-;;
+  buf
 
 
 let value_matches_type
@@ -1075,7 +1148,7 @@ let value_matches_type
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
      List.for_all (fun (n,t') -> StringSet.is_empty t'.params) p then
     try
-      ignore(pack_buf v t (fun n -> List.assoc n p) true);
+      ignore(pack_size v t (fun n -> List.assoc n p));
       true
     with
       _ ->      (* we assume here that no other errors can occur *)
@@ -1102,7 +1175,7 @@ let pack_xdr_value
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
      List.for_all (fun (n,t') -> StringSet.is_empty t'.params) p then
     try
-      print (pack_buf v t (fun n -> List.assoc n p) false)
+      print (pack_buf v t (fun n -> List.assoc n p))
     with
       any ->
 	(* DEBUG *)
@@ -1123,7 +1196,7 @@ let pack_xdr_value_as_string
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
      List.for_all (fun (n,t') -> StringSet.is_empty t'.params) p then
     try
-      pack_buf ~rm v t (fun n -> List.assoc n p) false
+      pack_buf ~rm v t (fun n -> List.assoc n p)
     with
       any ->
 	(* DEBUG *)
@@ -1153,6 +1226,19 @@ let find_enum (e : (string * int32) array) (i : int32) =
 ;;
 
 
+exception Xdr_format_too_short
+
+let read_string str k k_end n =
+  let m = if n mod 4 = 0 then n else n+4-(n mod 4) in
+  if !k + m <= k_end then begin
+    k := !k + m;
+    let s = String.create n in
+    String.unsafe_blit str (!k - m) s 0 n;
+    s
+  end
+  else
+    raise Xdr_format_too_short
+
 let unpack_term
     ?(pos = 0)
     ?len
@@ -1169,7 +1255,7 @@ let unpack_term
       | Some l -> l
   in
 
-  if pos < 0 || len < 0 || pos+len > String.length str then
+  if pos < 0 || len < 0 || len > String.length str - pos then
     invalid_arg "Xdr.unpack_xdr_value";
 
   let k_end = pos+len in
@@ -1181,7 +1267,7 @@ let unpack_term
       mk_fp4 (str.[ !k - 4 ], str.[ !k - 3 ], str.[ !k - 2 ], str.[ !k - 1 ])
     end
     else
-      raise (Xdr_format "message too short")
+      raise Xdr_format_too_short
   in
 
   let read_fp8 () =
@@ -1191,17 +1277,7 @@ let unpack_term
               str.[ !k - 4 ], str.[ !k - 3 ], str.[ !k - 2 ], str.[ !k - 1 ])
     end
     else
-      raise (Xdr_format "message too short")
-  in
-
-  let read_string n =
-    let m = if n mod 4 = 0 then n else n+4-(n mod 4) in
-    if !k + m <= k_end then begin
-      k := !k + m;
-      String.sub str (!k - m) n
-    end
-    else
-      raise (Xdr_format "message too short")
+      raise Xdr_format_too_short
   in
 
   let rec unpack t =
@@ -1209,23 +1285,28 @@ let unpack_term
       T_int ->
 	let k' = !k in
 	k := !k + 4;
-	XV_int (Rtypes.read_int4 str k')
+	if !k > k_end then raise Xdr_format_too_short;
+	XV_int (Rtypes.read_int4_unsafe str k')
     | T_uint ->
 	let k' = !k in
 	k := !k + 4;
-	XV_uint (Rtypes.read_uint4 str k')
+	if !k > k_end then raise Xdr_format_too_short;
+	XV_uint (Rtypes.read_uint4_unsafe str k')
     | T_hyper ->
 	let k' = !k in
 	k := !k + 8;
-	XV_hyper (Rtypes.read_int8 str k')
+	if !k > k_end then raise Xdr_format_too_short;
+	XV_hyper (Rtypes.read_int8_unsafe str k')
     | T_uhyper ->
 	let k' = !k in
 	k := !k + 8;
-	XV_uhyper (read_uint8 str k')
+	if !k > k_end then raise Xdr_format_too_short;
+	XV_uhyper (read_uint8_unsafe str k')
     | T_enum e ->
 	let k' = !k in
 	k := !k + 4;
-	let i = Rtypes.int32_of_int4(Rtypes.read_int4 str k') in
+	if !k > k_end then raise Xdr_format_too_short;
+	let i = Rtypes.int32_of_int4(Rtypes.read_int4_unsafe str k') in
 	( try
 	    let k = find_enum e i in
 	    (* returns array position, or Not_found *)
@@ -1241,40 +1322,53 @@ let unpack_term
     | T_double ->
 	XV_double (read_fp8())
     | T_opaque_fixed n ->
-	XV_opaque (read_string (int_of_uint4 n))
+	XV_opaque (read_string str k k_end (int_of_uint4 n))
     | T_opaque n ->
 	let k' = !k in
 	k := !k + 4;
-	let m = Rtypes.read_uint4 str k' in
-	if int_of_uint4 m <= int_of_uint4 n then
-	  XV_opaque (read_string (int_of_uint4 m))
+	if !k > k_end then raise Xdr_format_too_short;
+	let m = Rtypes.read_uint4_unsafe str k' in
+	(* Test: m <= n as unsigned int32: *)
+	let m32 = logical_int32_of_uint4 m in
+	let n32 = logical_int32_of_uint4 n in
+	if (m32 >= 0l && (m32 <= n32 || n32 < 0l)) || (m32 < 0l && n32 <= m32)
+	then
+	  XV_opaque (read_string str k k_end (int_of_uint4 m))
 	else
 	  raise (Xdr_format "maximum length of field exceeded")
     | T_string n ->
 	let k' = !k in
 	k := !k + 4;
-	let m = Rtypes.read_uint4 str k' in
-	if int_of_uint4 m <= int_of_uint4 n then
-	  XV_string (read_string (int_of_uint4 m))
+	if !k > k_end then raise Xdr_format_too_short;
+	let m = Rtypes.read_uint4_unsafe str k' in
+	(* Test: m <= n as unsigned int32: *)
+	let m32 = logical_int32_of_uint4 m in
+	let n32 = logical_int32_of_uint4 n in
+	if (m32 >= 0l && (m32 <= n32 || n32 < 0l)) || (m32 < 0l && n32 <= m32)
+	then
+	  XV_string (read_string str k k_end (int_of_uint4 m))
 	else
 	  raise (Xdr_format "maximum length of field exceeded")
     | T_array_fixed (t',n) ->
 	let p = int_of_uint4 n in
 	let a = Array.create p XV_void in
 	for i = 0 to p-1 do
-	  a.(i) <- unpack t'
+	  Array.unsafe_set a i (unpack t')
 	done;
 	XV_array a
     | T_array (t',n) ->
 	let k' = !k in
 	k := !k + 4;
 	let m = Rtypes.read_uint4 str k' in
-	let q = int_of_uint4 n in
+	let q = logical_int32_of_uint4 n in
 	let p = int_of_uint4 m in
-	if p <= q then begin
+	let p32 = Int32.of_int p in
+	(* Test: p <= q, as unsigned int32: *)
+	if (p32 >= 0l && (p32 <= q || q < 0l)) || (p32 < 0l && q <= p32) 
+	then begin
 	  let a = Array.create p XV_void in
 	  for i = 0 to p-1 do
-	    a.(i) <- unpack t'
+	    Array.unsafe_set a i (unpack t')
 	  done;
 	  XV_array a
 	end
@@ -1368,6 +1462,8 @@ let unpack_term
       Cannot_represent _ ->
 	raise (Xdr_format "implementation restriction")
     | Out_of_range ->
+	raise (Xdr_format "message too short")
+    | Xdr_format_too_short ->
 	raise (Xdr_format "message too short")
 ;;
 
