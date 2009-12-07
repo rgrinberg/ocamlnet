@@ -309,7 +309,7 @@ let name_int_of_int4 = "int_of_int4"
 
 let int_of_int4 x =
 IFDEF WORDSIZE_64 THEN
-  Int32.to_int
+  Int32.to_int x
 ELSE
   if x >= 0xc000_0000l && x <= 0x3fff_ffffl then
     Int32.to_int x
