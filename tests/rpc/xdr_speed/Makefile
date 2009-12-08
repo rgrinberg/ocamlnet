@@ -23,6 +23,9 @@ opt:
 test: all
 	./prototest all
 
+read_int32: read_int32.ml
+	 OCAMLPATH=../../../src/ ocamlfind opt -o read_int32 -package rpc,bigarray -linkpkg read_int32.ml
+
 generate: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.sstamp)
 
 depend: *.ml *.mli
