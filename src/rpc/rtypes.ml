@@ -29,6 +29,23 @@ let rec cannot_represent s =
   raise (Cannot_represent s);;
 
 
+let lt_uint4 x y =
+  if x < y then 
+    x >= 0l 
+      (* because:
+         - if x < 0  && y < 0   ==> x >u y
+         - if x < 0  && y >= 0  ==> x >u y
+         - if x >= 0 && y => 0  ==> x <u y
+       *)
+  else (* ==>  y <= x *) 
+    y < x && y < 0l
+      (* because:
+         - if y < 0  && x < 0  ==> x <u y
+         - if y < 0  && x >= 0 ==> x <u y
+         - if y >= 0 && x >= 0 ==> x >u y
+       *)
+
+
 (**********************************************************************)
 (* mk_[u]intn                                                         *)
 (**********************************************************************)
@@ -154,6 +171,13 @@ let read_uint4 = read_int4;;
 let read_uint8 = read_int8;;
 let read_uint4_unsafe = read_int4_unsafe;;
 let read_uint8_unsafe = read_int8_unsafe;;
+
+
+let read_fp4 s pos =
+  read_int4 s pos
+
+let read_fp8 s pos =
+  read_int8 s pos
 
 
 (**********************************************************************)
@@ -683,13 +707,9 @@ let fp4_of_float x =
 ;;
 
 let mk_fp4 = mk_int4 ;;
-
 let mk_fp8 = mk_int8 ;;
-
 let dest_fp4 = dest_int4 ;;
-
 let dest_fp8 = dest_int8 ;;
-
 
 let fp4_as_string = int4_as_string;;
 let fp8_as_string = int8_as_string;;

@@ -157,6 +157,14 @@ val logical_int32_of_uint4 : uint4 -> int32
 val logical_uint8_of_int64 : int64 -> uint8
 val logical_int64_of_uint8 : uint8 -> int64
 
+(** Comparisons *)
+
+val lt_uint4 : uint4 -> uint4 -> bool
+  (** [lt_uint4] is true iff the first value is less than the second value 
+      as unsigned int
+   *)
+
+
 (** Floating-point stuff. The following functions all assume that the
  * system represents fp number in an IEEE-compliant way.
  *)
@@ -195,3 +203,5 @@ val dest_fp8 : fp8 -> char * char * char * char * char * char * char * char
 val fp4_as_string : fp4 -> string
 val fp8_as_string : fp8 -> string
 
+val read_fp4 : string -> int -> fp4
+val read_fp8 : string -> int -> fp8

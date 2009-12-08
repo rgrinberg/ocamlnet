@@ -912,6 +912,7 @@ let pack_size
 	  else
 	    raise Not_found
       | T_array (t',n) ->
+	  (* TODO: optimize arrays of types with fixed repr length *)
 	  let m = int_of_uint4 n in
 	  let x = dest_xv_array v in
 	  if Array.length x <= m then begin
@@ -1207,10 +1208,29 @@ let pack_xdr_value_as_string
 ;;
 
 
-let find_enum (e : (string * int32) array) (i : int32) =
+(* "let rec" prevents that these functions are inlined. This is wanted here,
+   because these are error cases, and for a function call less code
+   is generated than for raising an exception
+ *)
+
+let rec raise_xdr_format_too_short () =
+  raise (Xdr_format "message too short")
+
+let rec raise_xdr_format_value_not_included () =
+  raise (Xdr_format "value not included in enumeration")
+
+let rec raise_xdr_format_maximum_length () =
+  raise (Xdr_format "maximum length of field exceeded")
+
+let rec raise_xdr_format_undefined_descriminator() =
+  raise (Xdr_format "undefined discriminator")
+
+
+let rec find_enum (e : (string * int32) array) (i : int32) =
+  (* no inlining! *)
   let rec loop lb ub =
     (* The element is between lb and ub *)
-    if lb > ub then raise Not_found;
+    if lb > ub then raise_xdr_format_value_not_included ();
     let m = (ub + lb) lsr 1 in
     let x_m = snd(e.(m)) in
     if i = x_m then
@@ -1226,18 +1246,14 @@ let find_enum (e : (string * int32) array) (i : int32) =
 ;;
 
 
-exception Xdr_format_too_short
-
 let read_string str k k_end n =
-  let m = if n mod 4 = 0 then n else n+4-(n mod 4) in
-  if !k + m <= k_end then begin
-    k := !k + m;
-    let s = String.create n in
-    String.unsafe_blit str (!k - m) s 0 n;
-    s
-  end
-  else
-    raise Xdr_format_too_short
+  let k0 = !k in
+  let m = if n land 3 = 0 then n else n+4-(n land 3) in
+  if k0 > k_end - m then raise_xdr_format_too_short ();
+  let s = String.create n in
+  String.unsafe_blit str k0 s 0 n;
+  k := k0 + m;
+  s
 
 let unpack_term
     ?(pos = 0)
@@ -1261,119 +1277,86 @@ let unpack_term
   let k_end = pos+len in
   let k = ref pos in
 
-  let read_fp4 () =
-    if !k + 4 <= k_end then begin
-      k := !k + 4;
-      mk_fp4 (str.[ !k - 4 ], str.[ !k - 3 ], str.[ !k - 2 ], str.[ !k - 1 ])
-    end
-    else
-      raise Xdr_format_too_short
+  let rec read_fp4 k0 =
+    if k0 + 4 > k_end then raise_xdr_format_too_short();
+    k := !k + 4;
+    Rtypes.read_fp4 str k0
   in
 
-  let read_fp8 () =
-    if !k + 8 <= k_end then begin
-      k := !k + 8;
-      mk_fp8 (str.[ !k - 8 ], str.[ !k - 7 ], str.[ !k - 6 ], str.[ !k - 5 ],
-              str.[ !k - 4 ], str.[ !k - 3 ], str.[ !k - 2 ], str.[ !k - 1 ])
-    end
-    else
-      raise Xdr_format_too_short
+  let rec read_fp8 k0 =
+    if k0 + 8 > k_end then raise_xdr_format_too_short();
+    k := !k + 8;
+    Rtypes.read_fp8 str k0
   in
 
-  let rec unpack t =
+  let rec read_enum e k0 =
+    k := k0 + 4;
+    if !k > k_end then raise_xdr_format_too_short();
+    let i = Rtypes.int32_of_int4(Rtypes.read_int4_unsafe str k0) in
+    let j = find_enum e i in   (* returns array position, or Xdr_format *)
+    if fast then
+      XV_enum_fast j
+    else
+      XV_enum(fst(e.(j)))
+  in
+
+  let rec read_string_or_opaque n k0 =
+    k := k0 + 4;
+    if !k > k_end then raise_xdr_format_too_short();
+    let m = Rtypes.read_uint4_unsafe str k0 in
+    (* Test: n < m as unsigned int32: *)
+    if Rtypes.lt_uint4 n m then
+      raise_xdr_format_maximum_length ();
+    read_string str k k_end (int_of_uint4 m)
+  in
+
+  let rec unpack_array t' p =
+    let a = Array.create p XV_void in
+    for i = 0 to p-1 do
+      Array.unsafe_set a i (unpack t')
+    done;
+    XV_array a
+
+  and unpack t =
+    let k0 = !k in
     match t.term with
       T_int ->
-	let k' = !k in
-	k := !k + 4;
-	if !k > k_end then raise Xdr_format_too_short;
-	XV_int (Rtypes.read_int4_unsafe str k')
+	k := k0 + 4;
+	if !k > k_end then raise_xdr_format_too_short();
+	XV_int (Rtypes.read_int4_unsafe str k0)
     | T_uint ->
-	let k' = !k in
-	k := !k + 4;
-	if !k > k_end then raise Xdr_format_too_short;
-	XV_uint (Rtypes.read_uint4_unsafe str k')
+	k := k0 + 4;
+	if !k > k_end then raise_xdr_format_too_short();
+	XV_uint (Rtypes.read_uint4_unsafe str k0)
     | T_hyper ->
-	let k' = !k in
-	k := !k + 8;
-	if !k > k_end then raise Xdr_format_too_short;
-	XV_hyper (Rtypes.read_int8_unsafe str k')
+	k := k0 + 8;
+	if !k > k_end then raise_xdr_format_too_short();
+	XV_hyper (Rtypes.read_int8_unsafe str k0)
     | T_uhyper ->
-	let k' = !k in
 	k := !k + 8;
-	if !k > k_end then raise Xdr_format_too_short;
-	XV_uhyper (read_uint8_unsafe str k')
+	if k0 > k_end then raise_xdr_format_too_short();
+	XV_uhyper (read_uint8_unsafe str k0)
     | T_enum e ->
-	let k' = !k in
-	k := !k + 4;
-	if !k > k_end then raise Xdr_format_too_short;
-	let i = Rtypes.int32_of_int4(Rtypes.read_int4_unsafe str k') in
-	( try
-	    let k = find_enum e i in
-	    (* returns array position, or Not_found *)
-	    if fast then
-	      XV_enum_fast k
-	    else
-	      XV_enum(fst(e.(k)))
-	  with
-	    Not_found -> raise (Xdr_format "value not included in enumeration")
-	)
+	read_enum e k0
     | T_float ->
-	XV_float (read_fp4 ())
+	XV_float (read_fp4 k0)
     | T_double ->
-	XV_double (read_fp8())
+	XV_double (read_fp8 k0)
     | T_opaque_fixed n ->
 	XV_opaque (read_string str k k_end (int_of_uint4 n))
     | T_opaque n ->
-	let k' = !k in
-	k := !k + 4;
-	if !k > k_end then raise Xdr_format_too_short;
-	let m = Rtypes.read_uint4_unsafe str k' in
-	(* Test: m <= n as unsigned int32: *)
-	let m32 = logical_int32_of_uint4 m in
-	let n32 = logical_int32_of_uint4 n in
-	if (m32 >= 0l && (m32 <= n32 || n32 < 0l)) || (m32 < 0l && n32 <= m32)
-	then
-	  XV_opaque (read_string str k k_end (int_of_uint4 m))
-	else
-	  raise (Xdr_format "maximum length of field exceeded")
+	XV_opaque (read_string_or_opaque n k0)
     | T_string n ->
-	let k' = !k in
-	k := !k + 4;
-	if !k > k_end then raise Xdr_format_too_short;
-	let m = Rtypes.read_uint4_unsafe str k' in
-	(* Test: m <= n as unsigned int32: *)
-	let m32 = logical_int32_of_uint4 m in
-	let n32 = logical_int32_of_uint4 n in
-	if (m32 >= 0l && (m32 <= n32 || n32 < 0l)) || (m32 < 0l && n32 <= m32)
-	then
-	  XV_string (read_string str k k_end (int_of_uint4 m))
-	else
-	  raise (Xdr_format "maximum length of field exceeded")
+	XV_string (read_string_or_opaque n k0)
     | T_array_fixed (t',n) ->
 	let p = int_of_uint4 n in
-	let a = Array.create p XV_void in
-	for i = 0 to p-1 do
-	  Array.unsafe_set a i (unpack t')
-	done;
-	XV_array a
+	unpack_array t' p
     | T_array (t',n) ->
-	let k' = !k in
-	k := !k + 4;
-	let m = Rtypes.read_uint4 str k' in
-	let q = logical_int32_of_uint4 n in
-	let p = int_of_uint4 m in
-	let p32 = Int32.of_int p in
-	(* Test: p <= q, as unsigned int32: *)
-	if (p32 >= 0l && (p32 <= q || q < 0l)) || (p32 < 0l && q <= p32) 
-	then begin
-	  let a = Array.create p XV_void in
-	  for i = 0 to p-1 do
-	    Array.unsafe_set a i (unpack t')
-	  done;
-	  XV_array a
-	end
-	else
-	  raise (Xdr_format "maximum length of array exceeded")
+	k := k0 + 4;
+	let m = Rtypes.read_uint4 str k0 in
+	if Rtypes.lt_uint4 n m then
+	  raise_xdr_format_maximum_length ();
+	unpack_array t' (int_of_uint4 m)
     | T_struct s ->
 	if fast then
 	  XV_struct_fast
@@ -1388,69 +1371,70 @@ let unpack_term
 	       (Array.to_list s)
 	    )
     | T_union_over_int (u,default) ->
-	let k' = !k in
-	k := !k + 4;
-	let n = Rtypes.read_int4 str k' in
-	let t' =
-	  try
-	    Hashtbl.find u n
-	  with
-	    Not_found ->
-	      match default with
-		None   -> raise (Xdr_format "undefined discriminator")
-	      |	Some d -> d
-	in
-	XV_union_over_int (n, unpack t')
+	unpack_union_over_int u default k0
     | T_union_over_uint (u,default) ->
-	let k' = !k in
-	k := !k + 4;
-	let n = Rtypes.read_uint4 str k' in
-	let t' =
-	  try
-	    Hashtbl.find u n
-	  with
-	    Not_found ->
-	      match default with
-		None   -> raise (Xdr_format "undefined discriminator")
-	      |	Some d -> d
-	in
-	XV_union_over_uint (n, unpack t')
+	unpack_union_over_uint u default k0
     | T_union_over_enum ( { term = T_enum e },u,default) ->
-	let k' = !k in
-	k := !k + 4;
-	let i = Rtypes.int32_of_int4 (Rtypes.read_int4 str k') in
-	let k =
-	  try
-	    find_enum e i
-	    (* returns array position, or Not_found *)
-	  with
-	    Not_found -> raise (Xdr_format "value not included in enumeration")
-	in
-	let t' =
-	  match u.(k) with
-	      Some u_t -> u_t
-	    | None ->
-		( match default with
-		      Some d -> d
-		    | None ->
-			raise (Xdr_format "undefined discriminator"))
-	in
-	if fast then
-	  XV_union_over_enum_fast(k, unpack t')
-	else
-	  let name = fst(e.(k)) in
-	  XV_union_over_enum(name, unpack t')
+	unpack_union_over_enum e u default k0
     | T_void ->
 	XV_void
     | T_param p ->
 	let t' = get_param p in
 	unpack t'
-    | T_rec (n, t') ->
-	unpack t'
-    | T_refer (n, t') ->
+    | T_rec (_, t')
+    | T_refer (_, t') ->
 	unpack t'
     | _ ->
 	assert false
+
+  and unpack_union_over_int u default k0 =
+    k := k0 + 4;
+    let n = Rtypes.read_int4 str k0 in
+    let t' =
+      try
+	Hashtbl.find u n
+      with
+	  Not_found ->
+	    match default with
+		None   -> raise_xdr_format_undefined_descriminator()
+	      |	Some d -> d
+    in
+    XV_union_over_int (n, unpack t')
+
+  and unpack_union_over_uint u default k0 =
+    k := k0 + 4;
+    let n = Rtypes.read_uint4 str k0 in
+    let t' =
+      try
+	Hashtbl.find u n
+      with
+	  Not_found ->
+	    match default with
+		None   -> raise_xdr_format_undefined_descriminator()
+	      |	Some d -> d
+    in
+    XV_union_over_uint (n, unpack t')
+
+  and unpack_union_over_enum e u default k0 =
+    k := k0 + 4;
+    let i = Rtypes.int32_of_int4 (Rtypes.read_int4 str k0) in
+    let j = find_enum e i  (* returns array position, or Xdr_format *) in
+    let t' =
+      match u.(j) with
+	  Some u_t -> u_t
+	| None ->
+	    ( match default with
+		  Some d -> d
+		| None ->
+		    raise_xdr_format_undefined_descriminator()
+	    )
+    in
+    if fast then
+      XV_union_over_enum_fast(j, unpack t')
+    else
+      let name = fst(e.(j)) in
+      XV_union_over_enum(name, unpack t')
+	
   in
   try
     let v = unpack t in
@@ -1462,8 +1446,6 @@ let unpack_term
       Cannot_represent _ ->
 	raise (Xdr_format "implementation restriction")
     | Out_of_range ->
-	raise (Xdr_format "message too short")
-    | Xdr_format_too_short ->
 	raise (Xdr_format "message too short")
 ;;
 

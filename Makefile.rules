@@ -11,7 +11,7 @@ OCAMLC    = $(OCAMLFIND) ocamlc -g $(OCAMLC_OPTIONS) $(INCLUDES) -package "$(REQ
 OCAMLC_MLI= $(OCAMLFIND) ocamlc -g $(OCAMLC_OPTIONS) $(INCLUDES) -package "$(REQUIRES)"
 # Note that PP_OPTIONS do not affect .mli! (usually breaks ocamldoc)
 
-OCAMLOPT  = $(OCAMLFIND) ocamlopt -inline 10 $(OCAMLOPT_OPTIONS) $(INCLUDES) -package "$(REQUIRES)" $(PP_OPTIONS)
+OCAMLOPT  = $(OCAMLFIND) ocamlopt $(OCAMLOPT_OPTIONS) $(INCLUDES) -package "$(REQUIRES)" $(PP_OPTIONS)
 OCAMLDEP  = $(OCAMLFIND) ocamldep $(OCAMLDEP_OPTIONS) $(PP_OPTIONS)
 OCAMLFIND = ocamlfind
 OCAMLYACC = ocamlyacc
