@@ -40,7 +40,7 @@ let () =
   let t0 = Unix.gettimeofday() in
   let k = ref 0 in
   while !k < 40_000_000 do
-    let _i = read_int4_unsafe_1 s !k in
+    let _i = read_int4_unsafe_2 s !k in
     k := !k +4
   done;
   let t1 = Unix.gettimeofday() in
