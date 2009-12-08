@@ -1,4 +1,4 @@
-TOP_DIR = ../..
+TOP_DIR = ../../..
 include $(TOP_DIR)/Makefile.rules
 include $(TOP_DIR)/Makefile.xrules
 
@@ -24,17 +24,17 @@ test: all
 	./prototest all
 
 read_int32: read_int32.ml
-	 OCAMLPATH=../../../src/ ocamlfind opt -o read_int32 -package rpc,bigarray -linkpkg read_int32.ml
+	 OCAMLPATH=../../../src/ ocamlfind opt -o read_int32 -package rpc,bigarray -linkpkg -S read_int32.ml
 
 generate: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.sstamp)
 
 depend: *.ml *.mli
 	$(OCAMLDEP) *.ml *.mli >depend
 
-clean:
+clean::
 	rm -f $(CLEAN_LIST) protospeed_byte protospeed_opt
 
 CLEAN: clean
 
-distclean: clean
+distclean:: clean
 #	rm -f META
