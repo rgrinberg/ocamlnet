@@ -15,7 +15,7 @@ let read_int4_unsafe_1 s pos =
 
 let read_int4_unsafe_2 s pos =
   let n3 = Nativeint.of_int (Char.code (String.unsafe_get s pos)) in
-  let x = Nativeint.shift_left n3 24 in
+  let x = Nativeint.shift_right (Nativeint.shift_left n3 56) 32 in
 
   let n2 = Nativeint.of_int (Char.code (String.unsafe_get s (pos+1))) in
   let x = Nativeint.logor x (Nativeint.shift_left n2 16) in
@@ -24,7 +24,7 @@ let read_int4_unsafe_2 s pos =
   let x = Nativeint.logor x (Nativeint.shift_left n1 8) in
 
   let n0 = Nativeint.of_int (Char.code (String.unsafe_get s (pos+3))) in
-  Nativeint.to_int32(Nativeint.logor x n0)
+  Nativeint.logor x n0
 
 
 let () =
