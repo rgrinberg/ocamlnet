@@ -1,5 +1,32 @@
 open Printf
 
+let read_int4_unsafe_1 s pos =
+  let n3 = Int32.of_int (Char.code (String.unsafe_get s pos)) in
+  let x = Int32.shift_left n3 24 in
+
+  let n2 = Int32.of_int (Char.code (String.unsafe_get s (pos+1))) in
+  let x = Int32.logor x (Int32.shift_left n2 16) in
+
+  let n1 = Int32.of_int (Char.code (String.unsafe_get s (pos+2))) in
+  let x = Int32.logor x (Int32.shift_left n1 8) in
+
+  let n0 = Int32.of_int (Char.code (String.unsafe_get s (pos+3))) in
+  Int32.logor x n0
+
+let read_int4_unsafe_2 s pos =
+  let n3 = Int64.of_int (Char.code (String.unsafe_get s pos)) in
+  let x = Int64.shift_left n3 24 in
+
+  let n2 = Int64.of_int (Char.code (String.unsafe_get s (pos+1))) in
+  let x = Int64.logor x (Int64.shift_left n2 16) in
+
+  let n1 = Int64.of_int (Char.code (String.unsafe_get s (pos+2))) in
+  let x = Int64.logor x (Int64.shift_left n1 8) in
+
+  let n0 = Int64.of_int (Char.code (String.unsafe_get s (pos+3))) in
+  Int64.to_int32(Int64.logor x n0)
+
+
 let () =
   let s = String.create 40_000_000 in
   for k = 0 to 9_999_999 do
@@ -13,7 +40,7 @@ let () =
   let t0 = Unix.gettimeofday() in
   let k = ref 0 in
   while !k < 40_000_000 do
-    let _i = Rtypes.read_int4_unsafe s !k in
+    let _i = read_int4_unsafe_1 s !k in
     k := !k +4
   done;
   let t1 = Unix.gettimeofday() in
