@@ -13,7 +13,7 @@ let () =
   let t0 = Unix.gettimeofday() in
   let k = ref 0 in
   while !k < 40_000_000 do
-    let _i = Rtypes.read_int4 s !k in
+    let _i = Rtypes.read_int4_unsafe s !k in
     k := !k +4
   done;
   let t1 = Unix.gettimeofday() in
