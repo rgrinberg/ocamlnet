@@ -4,10 +4,10 @@ open Printf
 
 let () =
   (* Test 1: allocate and free by minor GC: *)
+  let r = ref 0n in
   let t0 = Unix.gettimeofday() in
   for k = 1 to 10_000_000 do
-    let _k = 42n in
-    ()
+    r := 42n
   done;
   let t1 = Unix.gettimeofday() in
   printf "Time for allocate+free: %f\n%!" (t1-.t0);
