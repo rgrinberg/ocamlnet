@@ -1,4 +1,10 @@
-/* Same in C */
+/* Speed of decoding XDR ints */
+
+/* Opteron 1354 with 8 GB RAM, 64 bit mode:
+
+   Time reading array: 0.012689   (around 1.2ns per loop cycle)
+   Time w/ endianess fixing: 0.016352 (around 1.6ns per loop cycle)
+*/
 
 #include <unistd.h>
 #include <time.h>

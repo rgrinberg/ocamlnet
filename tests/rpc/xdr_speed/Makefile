@@ -33,6 +33,9 @@ read_int32_c: read_int32_c.c
 alloc_nativeint: alloc_nativeint.ml
 	ocamlopt -o alloc_nativeint unix.cmxa -S alloc_nativeint.ml
 
+alloc_string: alloc_string.ml
+	ocamlopt -o alloc_string unix.cmxa alloc_string.ml
+
 
 generate: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.sstamp)
 

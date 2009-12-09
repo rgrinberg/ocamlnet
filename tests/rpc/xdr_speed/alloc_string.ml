@@ -1,23 +1,11 @@
-(* Speed of nativeint allocation *)
-
-(* Opteron 1354 with 8 GB RAM, 64 bit mode:
-
-   Time for empty loop: 0.009132
-   Time for allocate+free: 0.046222
-   Time for allocate+oldify: 3.345699
-
-   So roughly:
-   - 3.5 ns for the allocation of a temporary nativeint (w/o loop costs)
-   - 330 ns for the allocation of a nativeint in the major heap
-
-   If the size of the minor heap is extended, allocate+free becomes
-   slower (!), and allocate+oldify becomes faster.
- *)
+(* Speed of string allocation *)
 
 open Printf
 
 type r =
-    { mutable contents : nativeint }
+    { mutable contents : string }
+
+let s = "01234567890123456789012345678901"  (* 32 bytes *)
 
 let () =
   (* Test 0: empty loop *)
@@ -29,19 +17,19 @@ let () =
   printf "Time for empty loop: %f\n%!" (t1-.t0);
 
   (* Test 1: allocate and free by minor GC: *)
-  let r = { contents = 0n } in
+  let r = { contents = "" } in
   let t0 = Unix.gettimeofday() in
   for k = 1 to 10_000_000 do
-    r.contents <- Nativeint.succ 41n
+    r.contents <- String.copy s
   done;
   let t1 = Unix.gettimeofday() in
   printf "Time for allocate+free: %f\n%!" (t1-.t0);
 
   (* Test 2: allocate and oldify *)
-  let a = Array.make 10_000_000 0n in
+  let a = Array.make 10_000_000 "" in
   let t0 = Unix.gettimeofday() in
   for k = 0 to 9_999_999 do
-    let x = Nativeint.succ 41n in
+    let x = String.copy s in
     Array.unsafe_set a k x 
   done;
   let t1 = Unix.gettimeofday() in
