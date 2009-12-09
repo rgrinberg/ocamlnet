@@ -1,5 +1,7 @@
 open Printf
 
+(* Note: 64 bit only! *)
+
 let read_int4_unsafe_1 s pos =
   let n3 = Int32.of_int (Char.code (String.unsafe_get s pos)) in
   let x = Int32.shift_left n3 24 in
@@ -49,9 +51,13 @@ let () =
   printf "Sum: %ld\n" (Nativeint.to_int32 !sum);
   printf "Time for decoding: %f\n%!" (t1-.t0);
 
-  let t0 = Unix.gettimeofday() in
   let b = 
     Bigarray.Array1.create Bigarray.int32 Bigarray.c_layout 10_000_000 in
+  for p = 0 to 9_999_999 do
+    b.{p} <- 0x10111213l;
+  done;
+
+  let t0 = Unix.gettimeofday() in
   let k = ref 0 in
   let sum = ref 0l in
   while !k < 10_000_000 do
