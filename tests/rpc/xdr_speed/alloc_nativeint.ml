@@ -1,5 +1,19 @@
 (* Speed of allocation *)
 
+(* Opteron 1354 with 8 GB RAM, 64 bit mode:
+
+   Time for empty loop: 0.009132
+   Time for allocate+free: 0.046222
+   Time for allocate+oldify: 3.345699
+
+   So roughly:
+   - 3.5 ns for the allocation of a temporary nativeint (w/o loop costs)
+   - 330 ns for the allocation of a nativeint in the major heap
+
+   If the size of the minor heap is extended, allocate+free becomes
+   slower (!), and allocate+oldify becomes faster.
+ *)
+
 open Printf
 
 type r =
