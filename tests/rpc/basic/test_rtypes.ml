@@ -1,4 +1,4 @@
-#directory "../../src/rpc";;
+#directory "../../../src/rpc";;
 #load "rtypes.cmo";;
 
 open Rtypes;;
