@@ -39,21 +39,27 @@ let () =
 
   let t0 = Unix.gettimeofday() in
   let k = ref 0 in
+  let sum = ref 0n in
   while !k < 40_000_000 do
-    let _i = read_int4_unsafe_2 s !k in
+    let i = read_int4_unsafe_2 s !k in
+    sum := Nativeint.add !sum i;
     k := !k +4
   done;
   let t1 = Unix.gettimeofday() in
+  printf "Sum: %ld\n" (Nativeint.to_int32 !sum);
   printf "Time for decoding: %f\n%!" (t1-.t0);
 
   let t0 = Unix.gettimeofday() in
   let b = 
     Bigarray.Array1.create Bigarray.int32 Bigarray.c_layout 10_000_000 in
   let k = ref 0 in
+  let sum = ref 0l in
   while !k < 10_000_000 do
-    let _i = Bigarray.Array1.unsafe_get b !k in
+    let i = Bigarray.Array1.unsafe_get b !k in
+    sum := Int32.add !sum i;
     incr k
   done;
   let t1 = Unix.gettimeofday() in
+  printf "Sum: %ld\n" !sum;
   printf "Time for reading bigarray: %f\n%!" (t1-.t0)
 ;;

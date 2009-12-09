@@ -11,8 +11,8 @@ int main () {
     int k,p;
     struct timeval t0, t1;
     double d0, d1;
-    unsigned int i;
-    volatile unsigned int j;
+    int i;
+    int sum;
 
     c = (char *) malloc(40000000);
     for (k=0; k < 9999999; k++) {
@@ -25,16 +25,18 @@ int main () {
 
     gettimeofday(&t0, NULL);
     k = 0;
+    sum = 0;
     while (k < 40000000) {
 	i = * ((unsigned int *) (c+k));
+	sum += i;
 	k += 4;
     }
     gettimeofday(&t1, NULL);
-    j = i;  /* prevent that the above loop is optimized away! */
 
     d0 = t0.tv_sec + 0.000001 * t0.tv_usec;
     d1 = t1.tv_sec + 0.000001 * t1.tv_usec;
 
+    printf("Sum: %d\n", sum);
     printf("Time: %f\n", d1-d0);
 
     return 0;
