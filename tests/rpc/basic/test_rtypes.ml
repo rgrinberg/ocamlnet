@@ -26,6 +26,14 @@ let overflow f x =
 ;;
 
 
+let overflow32 f x =
+  if Sys.word_size = 32 then
+    overflow f x
+  else
+    true
+;;
+
+
 let test_sth_of_int4 () =
   let n1 = mk_int4 ('\000', '\000', '\000', '\001') in
   let n2 = mk_int4 ('\000', '\000', '\001', '\000') in
@@ -41,8 +49,8 @@ let test_sth_of_int4 () =
   (int_of_int4 n3 = 65536) &&
   (int_of_int4 n4 = 0x01000000) &&
   (int_of_int4 n5 = 0x20000000) &&
-  (overflow int_of_int4 n6) && 
-  (overflow int_of_int4 n7) &&
+  (overflow32 int_of_int4 n6) && 
+  (overflow32 int_of_int4 n7) &&
   (int_of_int4 n8 = -1) &&
 
   (int32_of_int4 n1 = Int32.of_int 1) &&
@@ -103,9 +111,9 @@ let test_sth_of_uint4 () =
   (int_of_uint4 n3 = 65536) &&
   (int_of_uint4 n4 = 0x01000000) &&
   (int_of_uint4 n5 = 0x20000000) &&
-  (overflow int_of_uint4 n6) && 
-  (overflow int_of_uint4 n7) &&
-  (overflow int_of_uint4 n8) &&
+  (overflow32 int_of_uint4 n6) && 
+  (overflow32 int_of_uint4 n7) &&
+  (overflow32 int_of_uint4 n8) &&
 
   (int32_of_uint4 n1 = Int32.of_int 1) &&
   (int32_of_uint4 n2 = Int32.of_int 256) &&
@@ -164,9 +172,9 @@ let test_sth_of_int8 () =
 
   (int_of_int8 n1 = 1) &&
   (int_of_int8 n2 = 0x01000000) &&
-  (overflow int_of_int8 n3) &&
-  (overflow int_of_int8 n4) &&
-  (overflow int_of_int8 n5) &&
+  (overflow32 int_of_int8 n3) &&
+  (overflow32 int_of_int8 n4) &&
+  (overflow32 int_of_int8 n5) &&
   (overflow int_of_int8 n6) &&
   (int_of_int8 n7 = -1) &&
 
@@ -223,9 +231,9 @@ let test_sth_of_uint8 () =
 
   (int_of_uint8 n1 = 1) &&
   (int_of_uint8 n2 = 0x01000000) &&
-  (overflow int_of_uint8 n3) &&
-  (overflow int_of_uint8 n4) &&
-  (overflow int_of_uint8 n5) &&
+  (overflow32 int_of_uint8 n3) &&
+  (overflow32 int_of_uint8 n4) &&
+  (overflow32 int_of_uint8 n5) &&
   (overflow int_of_uint8 n6) &&
   (overflow int_of_uint8 n7) &&
 
