@@ -6,6 +6,14 @@ type r =
     { mutable contents : nativeint }
 
 let () =
+  (* Test 0: empty loop *)
+  let t0 = Unix.gettimeofday() in
+  for k = 1 to 10_000_000 do
+    ()
+  done;
+  let t1 = Unix.gettimeofday() in
+  printf "Time for empty loop: %f\n%!" (t1-.t0);
+
   (* Test 1: allocate and free by minor GC: *)
   let r = { contents = 0n } in
   let t0 = Unix.gettimeofday() in
