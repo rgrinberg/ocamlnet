@@ -6,9 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void do_something(unsigned long i) {
-}
-
 int main () {
     char *c;
     int k,p;
