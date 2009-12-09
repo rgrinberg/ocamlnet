@@ -30,6 +30,10 @@ read_int32_c: read_int32_c.c
 	gcc -O2 -S read_int32_c.c
 	gcc -O2 -o read_int32_c read_int32_c.c
 
+alloc_nativeint: alloc_nativeint.ml
+	ocamlopt -o alloc_nativeint unix.cmxa alloc_nativeint.ml
+
+
 generate: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.sstamp)
 
 depend: *.ml *.mli
