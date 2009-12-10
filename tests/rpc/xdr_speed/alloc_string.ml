@@ -38,7 +38,11 @@ let () =
   let a = Array.make 10_000_000 "" in
   let t0 = Unix.gettimeofday() in
   for k = 0 to 9_999_999 do
-    let x = String.copy s in
+    (* let x = String.copy s in // the following is a bit faster, probably
+       because it does not need to determine the string length first 
+     *)
+    let x = String.create 32 in
+    String.unsafe_blit s 0 x 0 32;
     Array.unsafe_set a k x 
   done;
   let t1 = Unix.gettimeofday() in
