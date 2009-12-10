@@ -489,7 +489,7 @@ let name_int32_of_uint4 = "int32_of_uint4"
 IFDEF WORDSIZE_64 THEN
 let int32_of_uint4 x =
   if x >= 0 then
-    x
+    Int32.of_int x
   else
     cannot_represent name_int32_of_uint4
 ELSE
