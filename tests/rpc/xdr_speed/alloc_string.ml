@@ -24,6 +24,7 @@ let () =
   printf "Time for empty loop: %f\n%!" (t1-.t0);
 
   (* Test 1: allocate and free by minor GC: *)
+  Gc.full_major();
   let r = { contents = "" } in
   let t0 = Unix.gettimeofday() in
   for k = 1 to 10_000_000 do
@@ -33,6 +34,7 @@ let () =
   printf "Time for allocate+free: %f\n%!" (t1-.t0);
 
   (* Test 2: allocate and oldify *)
+  Gc.full_major();
   let a = Array.make 10_000_000 "" in
   let t0 = Unix.gettimeofday() in
   for k = 0 to 9_999_999 do
@@ -43,11 +45,13 @@ let () =
   printf "Time for allocate+oldify: %f\n%!" (t1-.t0);
 
   (* Test 3: slicing *)
+  Gc.full_major();
   let s0 = "\000\000\000\032" ^ s in
   let u = String.create ((32 + 4) * 10_000_000) in
   for k = 0 to 9_999_999 do
     String.blit s0 0 u (k*36) 36
   done;
+  let a = Array.make 10_000_000 "" in
   let t0 = Unix.gettimeofday() in
   let j = ref 0 in
   for k = 0 to 9_999_999 do
