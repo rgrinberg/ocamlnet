@@ -88,9 +88,9 @@ CAMLprim value netsys_s_read_string_array(value sv, value pv, value lv,
 	uv = av_in_heap ? netsys_alloc_string_shr(e) : caml_alloc_string(e);
 	s = String_val(sv);           /* see above */
 	memcpy(String_val(uv), s+p, e);
-	old_reftbl = caml_ref_table_ptr;
+	/* old_reftbl = caml_ref_table_ptr; */
 	caml_modify(&Field(av,k), uv);
-	if (old_reftbl != caml_ref_table_ptr) av_in_heap = 1;
+	/* if (old_reftbl != caml_ref_table_ptr) av_in_heap = 1; */
 	p += e;
 	if ((e&3) != 0) p += 4-(e&3);
 	k++;
