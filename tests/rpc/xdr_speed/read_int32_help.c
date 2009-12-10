@@ -7,14 +7,12 @@
    and puts the number into the _already allocated_ nativeint n
 */
 
-value decode_nativeint(value sv, value pv, value nv) 
+value decode_nativeint(value sv, value pv) 
 {
     char *s;
     long p;
 
     s = String_val(sv);
     p = Long_val(pv);
-    Nativeint_val(nv) = (intnat) (ntohl (*((unsigned int *) (s+p))));
-
-    return Val_unit;
+    return caml_copy_nativeint((intnat) (ntohl (*((unsigned int *) (s+p)))));
 }

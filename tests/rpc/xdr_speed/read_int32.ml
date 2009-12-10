@@ -46,8 +46,8 @@ let read_int4_unsafe s pos = (* this function is inlined *)
   Nativeint.logor x n0
 
 
-external decode_nativeint : string -> int -> nativeint -> unit
-  = "decode_nativeint" "noalloc"
+external decode_nativeint : string -> int -> nativeint
+  = "decode_nativeint" 
 
 let () =
   let s = String.create 40_000_000 in
@@ -93,8 +93,7 @@ let () =
   let k = ref 0 in
   let sum = ref 0n in
   while !k < 40_000_000 do
-    let i = 0n in
-    decode_nativeint s !k i;
+    let i = decode_nativeint s !k in
     sum := Nativeint.add !sum i;
     k := !k +4
   done;
