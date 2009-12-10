@@ -1371,7 +1371,7 @@ let unpack_term
   let rec unpack_array t' p =
     match t'.term with
       | T_string n ->
-prerr_endline "doing string";
+prerr_endline ("doing string p=" ^ string_of_int p);
 	  let n' = Rtypes.logical_int32_of_uint4 n in
 	  let a = Array.create p "" in
 	  let k' = 
