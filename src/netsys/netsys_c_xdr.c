@@ -61,6 +61,7 @@ CAMLprim value netsys_s_read_string_array(value sv, value pv, value lv,
     value **old_reftbl;
     CAMLparam2(sv,av);
 
+    fprintf(stderr, "netsys_s_read_string_array\n");
     s = String_val(sv);  /* will have to redo after each allocation */
     p = Long_val(pv);
     l = Long_val(lv) + p;
