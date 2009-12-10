@@ -70,7 +70,7 @@ let mk_int4 (c3,c2,c1,c0) =
   let n1 = (Char.code c1) in
   let n0 = (Char.code c0) in
   (* be careful to set the sign correctly: *)
-  ((n3 asl 55) asr 31) lor (n2 asl 16) lor (n1 asl 8) lor n0
+  ((n3 lsl 55) asr 31) lor (n2 lsl 16) lor (n1 lsl 8) lor n0
 ELSE
 let mk_int4 (c3,c2,c1,c0) =
   let n3 = Int32.of_int (Char.code c3) in
@@ -124,11 +124,11 @@ let mk_uint8 = mk_int8
 IFDEF WORDSIZE_64 THEN
 let read_int4_unsafe s pos =
   let n3 = Char.code (String.unsafe_get s pos) in
-  let x = (n3 asl 55) asr 31 in  (* sign! *)
+  let x = (n3 lsl 55) asr 31 in  (* sign! *)
   let n2 = Char.code (String.unsafe_get s (pos+1)) in
-  let x = x lor (n2 asl 16) in
+  let x = x lor (n2 lsl 16) in
   let n1 = Char.code (String.unsafe_get s (pos+2)) in
-  let x = x lor (n1 asl 8) in
+  let x = x lor (n1 lsl 8) in
   let n0 = Char.code (String.unsafe_get s (pos+3)) in
   x lor n0
 ELSE
@@ -395,7 +395,7 @@ let name_int_of_uint4 = "int_of_uint4"
 IFDEF WORDSIZE_64 THEN
 let int_of_uint4 x =
   (* x land 0xffff_ffff - "Integer literal exceeds the range..." grrrmpf *)
-  (x asl 31) lsr 31
+  (x lsl 31) lsr 31
 ELSE
 let int_of_uint4 x =
   if x >= 0l && x <= 0x3fff_ffffl then
@@ -449,7 +449,7 @@ IFDEF WORDSIZE_64 THEN
 let uint4_of_int i =
   let j = i asr 32 in
   if j = 0 then
-    (i asl 31) asr 31  (* fix sign *)
+    (i lsl 31) asr 31  (* fix sign *)
   else
     cannot_represent name_uint4_of_int
 ELSE
