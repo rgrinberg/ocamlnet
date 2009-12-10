@@ -24,7 +24,8 @@ test: all
 	./prototest all
 
 read_int32: read_int32.ml
-	 OCAMLPATH=../../../src/ ocamlfind opt -o read_int32 -package rpc,bigarray -linkpkg -S -inline 5 read_int32.ml
+	ocamlc -ccopt -O2 -c read_int32_help.c
+	OCAMLPATH=../../../src/ ocamlfind opt -o read_int32 -package rpc,bigarray -linkpkg -S -inline 5 read_int32_help.o read_int32.ml
 
 read_int32_c: read_int32_c.c
 	gcc -O2 -S read_int32_c.c

@@ -46,6 +46,9 @@ let read_int4_unsafe s pos = (* this function is inlined *)
   Nativeint.logor x n0
 
 
+external decode_nativeint : string -> int -> nativeint -> unit
+  = "decode_nativeint" "noalloc"
+
 let () =
   let s = String.create 40_000_000 in
   for k = 0 to 9_999_999 do
@@ -84,5 +87,19 @@ let () =
   done;
   let t1 = Unix.gettimeofday() in
   printf "Sum: %ld\n" !sum;
-  printf "Time for reading bigarray: %f\n%!" (t1-.t0)
+  printf "Time for reading bigarray: %f\n%!" (t1-.t0);
+
+  let t0 = Unix.gettimeofday() in
+  let k = ref 0 in
+  let sum = ref 0n in
+  while !k < 40_000_000 do
+    let i = 0n in
+    decode_nativeint s !k i;
+    sum := Nativeint.add !sum i;
+    k := !k +4
+  done;
+  let t1 = Unix.gettimeofday() in
+  printf "Sum: %ld\n" (Nativeint.to_int32 !sum);
+  printf "Time for decoding w/ C helper: %f\n%!" (t1-.t0);
+
 ;;

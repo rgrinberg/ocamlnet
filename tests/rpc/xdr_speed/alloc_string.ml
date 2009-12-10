@@ -2,9 +2,12 @@
 
 (* Opteron 1354 with 8 GB RAM, 64 bit mode:
 
-   Time for empty loop: 0.009117       (~1ns per loop cycle)
-   Time for allocate+free: 0.429139    (43 ns per loop cycle)
-   Time for allocate+oldify: 4.287054  (429ns per loop cycle)
+   Time for empty loop: 0.013679       (~1ns per loop cycle)
+   Time for allocate+free: 0.395558    (40 ns per loop cycle)
+   Time for allocate+oldify: 4.013421  (401ns per loop cycle)
+   Time for slicing: 3.866392          (387ns per loop cycle)
+
+   Really strange that the last test is faster than allocate+oldify!
  *)
 
 open Printf
