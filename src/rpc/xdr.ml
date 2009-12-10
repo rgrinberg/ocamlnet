@@ -1246,6 +1246,64 @@ let rec find_enum (e : (string * int32) array) (i : int32) =
 ;;
 
 
+let map_opt f o =
+  match o with
+    | None -> None
+    | Some x -> Some(f x)
+
+let map_hashtbl f t =
+  let acc = Hashtbl.create (Hashtbl.length t) in
+  Hashtbl.iter
+    (fun k v ->
+       let v' = f k v in
+       Hashtbl.add acc k v';  (* !!! reverses order of bindings !!! *)
+    )
+    t;
+  acc
+
+
+let rec elim_rec t = (* get rid of T_rec and T_refer *)
+  match t.term with
+    | T_int | T_uint | T_hyper | T_uhyper | T_enum _ | T_float
+    | T_double | T_opaque_fixed _ | T_opaque _ | T_string _ 
+    | T_void | T_param _ ->
+	t
+    | T_array_fixed(t',n) ->
+	{ t with term = T_array_fixed(elim_rec t', n) }
+    | T_array(t',n) ->
+	{ t with term = T_array_fixed(elim_rec t', n) }
+    | T_struct s ->
+	let s' = 
+	  Array.map
+	    (fun (n,t') ->  (n, elim_rec t'))
+	    s in
+	{ t with term = T_struct s' }
+    | T_union_over_int(ht, dt) ->
+	let ht' =
+	  map_hashtbl
+	    (fun c t' -> elim_rec t')
+	    ht in
+	let dt' = map_opt elim_rec dt in
+	{ t with term = T_union_over_int(ht', dt') }
+    | T_union_over_uint(ht, dt) ->
+	let ht' =
+	  map_hashtbl
+	    (fun c t' ->  elim_rec t')
+	    ht in
+	let dt' = map_opt elim_rec dt in
+	{ t with term = T_union_over_uint(ht', dt') }
+    | T_union_over_enum(et,ct,dt) ->
+	let et' = elim_rec et in
+	let ct' = Array.map (map_opt elim_rec) ct in
+	let dt' = map_opt elim_rec dt in
+	{ t with term = T_union_over_enum(et',ct',dt') }
+    | T_rec(n,t') ->
+	elim_rec t'
+    | T_refer(n,t') ->
+	elim_rec t'
+
+
+
 let read_string str k k_end n =
   let k0 = !k in
   let m = if n land 3 = 0 then n else n+4-(n land 3) in
@@ -1448,7 +1506,7 @@ let unpack_term
 	
   in
   try
-    let v = unpack t in
+    let v = unpack (elim_rec t) in
     if prefix || !k = k_end then
       (v, !k - pos)
     else
