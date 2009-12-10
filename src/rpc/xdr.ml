@@ -1271,7 +1271,7 @@ let rec elim_rec t = (* get rid of T_rec and T_refer *)
     | T_array_fixed(t',n) ->
 	{ t with term = T_array_fixed(elim_rec t', n) }
     | T_array(t',n) ->
-	{ t with term = T_array_fixed(elim_rec t', n) }
+	{ t with term = T_array(elim_rec t', n) }
     | T_struct s ->
 	let s' = 
 	  Array.map
@@ -1371,7 +1371,6 @@ let unpack_term
   let rec unpack_array t' p =
     match t'.term with
       | T_string n ->
-prerr_endline ("doing string p=" ^ string_of_int p);
 	  let n' = Rtypes.logical_int32_of_uint4 n in
 	  let a = Array.create p "" in
 	  let k' = 
@@ -1379,7 +1378,6 @@ prerr_endline ("doing string p=" ^ string_of_int p);
 	  if k' = (-1) then raise_xdr_format_too_short();
 	  if k' = (-2) then raise_xdr_format_maximum_length ();
 	  k := k';
-prerr_endline "done string";
 	  XV_array(Array.map (fun s -> XV_string s) a)
       | _ ->
 	  let a = Array.create p XV_void in

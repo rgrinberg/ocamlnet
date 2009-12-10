@@ -61,7 +61,7 @@ CAMLprim value netsys_s_read_string_array(value sv, value pv, value lv,
     value **old_reftbl;
     CAMLparam2(sv,av);
 
-    fprintf(stderr, "netsys_s_read_string_array\n"); fflush(stderr);
+    /* fprintf(stderr, "netsys_s_read_string_array\n"); fflush(stderr); */
     s = String_val(sv);  /* will have to redo after each allocation */
     p = Long_val(pv);
     l = Long_val(lv) + p;
@@ -82,7 +82,7 @@ CAMLprim value netsys_s_read_string_array(value sv, value pv, value lv,
     while (k < n) {
 	if (p+4 > l) break;
 	e = ntohl(*((unsigned int *) (s+p)));
-	fprintf(stderr, "e=%u\n", e); fflush(stderr);
+	/* fprintf(stderr, "e=%u\n", e); fflush(stderr); */
 	p += 4;
 	j = l-p;
 	if (e > j) { err=-1; break; }
