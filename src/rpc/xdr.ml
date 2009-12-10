@@ -1371,6 +1371,7 @@ let unpack_term
   let rec unpack_array t' p =
     match t'.term with
       | T_string n ->
+prerr_endline "doing string";
 	  let n' = Rtypes.logical_int32_of_uint4 n in
 	  let a = Array.create p "" in
 	  let k' = 
@@ -1378,6 +1379,7 @@ let unpack_term
 	  if k' = (-1) then raise_xdr_format_too_short();
 	  if k' = (-2) then raise_xdr_format_maximum_length ();
 	  k := k';
+prerr_endline "done string";
 	  XV_array(Array.map (fun s -> XV_string s) a)
       | _ ->
 	  let a = Array.create p XV_void in
