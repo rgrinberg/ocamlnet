@@ -184,7 +184,7 @@ module StringSet = Set.Make(String)
 ;;
 
 
-type xdr_type =
+type xdr_type0 =
   { mutable term   : xdr_term;
     mutable params : StringSet.t
       (* "params" is normally only non-empty in the top node *)
@@ -201,23 +201,30 @@ and xdr_term =
   | T_opaque_fixed of uint4
   | T_opaque of uint4
   | T_string of uint4
-  | T_array_fixed of xdr_type * uint4
-  | T_array of       xdr_type * uint4
-  | T_struct of (string * xdr_type) array
+  | T_array_fixed of xdr_type0 * uint4
+  | T_array of       xdr_type0 * uint4
+  | T_struct of (string * xdr_type0) array
   | T_union_over_int of
-      (int4, xdr_type) Hashtbl.t * xdr_type option
+      (int4, xdr_type0) Hashtbl.t * xdr_type0 option
   | T_union_over_uint of
-      (uint4, xdr_type) Hashtbl.t * xdr_type option
+      (uint4, xdr_type0) Hashtbl.t * xdr_type0 option
   | T_union_over_enum of
-      xdr_type * xdr_type option array * xdr_type option
+      xdr_type0 * xdr_type0 option array * xdr_type0 option
       (* The array corresponds to the T_enum array. None means that the
        * constant is not mapped.
        *)
   | T_void
   | T_param of string
-  | T_rec of (string * xdr_type)
-  | T_refer of (string * xdr_type)
+  | T_rec of (string * xdr_type0)
+  | T_refer of (string * xdr_type0)
 ;;
+
+type xdr_type =
+    xdr_type0 * xdr_type0
+      (* left: includes T_rec and T_refer,
+         right: does not include T_rec, T_refer
+       *)
+
 
 type xdr_type_term_system =
   (string * xdr_type_term) list
@@ -329,7 +336,7 @@ let dest_xv_union_over_enum_fast v =
 let fail_map_xv_enum_fast () =
   failwith "Xdr.map_xv_enum_fast" ;;
 
-let map_xv_enum_fast t v =
+let map_xv_enum_fast0 t v =
   match t.term with
       T_enum l ->
 	let m = Array.length l in
@@ -352,13 +359,16 @@ let map_xv_enum_fast t v =
 	)
     | _ ->
 	fail_map_xv_enum_fast()
-;;
+
+let map_xv_enum_fast (_,t) v =
+  map_xv_enum_fast0 t v
+
 
 
 let fail_map_xv_struct_fast () =
   failwith "Xdr.map_xv_struct_fast" ;;
 
-let map_xv_struct_fast t v =
+let map_xv_struct_fast0 t v =
   match t.term with
       T_struct decl ->
 	let m = Array.length decl in
@@ -382,13 +392,14 @@ let map_xv_struct_fast t v =
 	)
     | _ ->
 	fail_map_xv_struct_fast()
-;;
 
+let map_xv_struct_fast (_,t) v =
+  map_xv_struct_fast0 t v
 
 let fail_map_xv_union_over_enum_fast () =
   failwith "Xdr.map_xv_struct_fast" ;;
 
-let map_xv_union_over_enum_fast t v =
+let map_xv_union_over_enum_fast0 t v =
   match t.term with
       T_union_over_enum( { term = T_enum e }, u, u_dfl ) ->
 	let m = Array.length e in
@@ -412,7 +423,9 @@ let map_xv_union_over_enum_fast t v =
 	)
     | _ ->
 	fail_map_xv_union_over_enum_fast()
-;;
+
+let map_xv_union_over_enum_fast (_,t) v =
+  map_xv_union_over_enum_fast0 t v
 
 
 
@@ -433,10 +446,10 @@ exception Xdr_format_message_too_long of xdr_value;;
 
 
 let rec validate_xdr_type_i1
-        (r:xdr_type_term -> xdr_type)
-        (b:(string * xdr_type) list)
+        (r:xdr_type_term -> xdr_type0)
+        (b:(string * xdr_type0) list)
         (t:xdr_type_term)
-      : xdr_type =
+      : xdr_type0 =
 
   (* r: function that resolves X_type references
    * t: the xdr_type_term to validate
@@ -559,7 +572,7 @@ let rec validate_xdr_type_i1
 ;;
 
 
-let rec find_params (t:xdr_type) : StringSet.t =
+let rec find_params (t:xdr_type0) : StringSet.t =
   (* collect all parameters *)
   match t.term with
     T_param p ->
@@ -603,15 +616,76 @@ let rec find_params (t:xdr_type) : StringSet.t =
 ;;
 
 
+(* Elimination of rec/refer  *)
+
+let map_opt f o =
+  match o with
+    | None -> None
+    | Some x -> Some(f x)
+
+let map_hashtbl f t =
+  let acc = Hashtbl.create (Hashtbl.length t) in
+  Hashtbl.iter
+    (fun k v ->
+       let v' = f k v in
+       Hashtbl.add acc k v';  (* !!! reverses order of bindings !!! *)
+    )
+    t;
+  acc
+
+
+let rec elim_rec t = (* get rid of T_rec and T_refer *)
+  match t.term with
+    | T_int | T_uint | T_hyper | T_uhyper | T_enum _ | T_float
+    | T_double | T_opaque_fixed _ | T_opaque _ | T_string _ 
+    | T_void | T_param _ ->
+	t
+    | T_array_fixed(t',n) ->
+	{ t with term = T_array_fixed(elim_rec t', n) }
+    | T_array(t',n) ->
+	{ t with term = T_array(elim_rec t', n) }
+    | T_struct s ->
+	let s' = 
+	  Array.map
+	    (fun (n,t') ->  (n, elim_rec t'))
+	    s in
+	{ t with term = T_struct s' }
+    | T_union_over_int(ht, dt) ->
+	let ht' =
+	  map_hashtbl
+	    (fun c t' -> elim_rec t')
+	    ht in
+	let dt' = map_opt elim_rec dt in
+	{ t with term = T_union_over_int(ht', dt') }
+    | T_union_over_uint(ht, dt) ->
+	let ht' =
+	  map_hashtbl
+	    (fun c t' ->  elim_rec t')
+	    ht in
+	let dt' = map_opt elim_rec dt in
+	{ t with term = T_union_over_uint(ht', dt') }
+    | T_union_over_enum(et,ct,dt) ->
+	let et' = elim_rec et in
+	let ct' = Array.map (map_opt elim_rec) ct in
+	let dt' = map_opt elim_rec dt in
+	{ t with term = T_union_over_enum(et',ct',dt') }
+    | T_rec(n,t') ->
+	elim_rec t'
+    | T_refer(n,t') ->
+	t'
+
+
+
 let rec validate_xdr_type (t:xdr_type_term) : xdr_type =
   let r n =
     raise (Propagate "Cannot resolve X_type element")
   in
   try
-    let t' = validate_xdr_type_i1 r [] t in
-    let pl = find_params t' in
-    t'.params <- pl;
-    t'
+    let t0' = validate_xdr_type_i1 r [] t in
+    let pl = find_params t0' in
+    t0'.params <- pl;
+    let t1' = elim_rec t0' in
+    (t0', t1')
   with
     Not_found ->
       failwith "Xdr.validate_xdr_type: unspecified error"
@@ -620,7 +694,7 @@ let rec validate_xdr_type (t:xdr_type_term) : xdr_type =
 ;;
 
 
-let rec expand_X_type (s:xdr_type_system) (t:xdr_type_term) : xdr_type =
+let rec expand_X_type (s:xdr_type_system) (t:xdr_type_term) : xdr_type0 =
   match t with
     X_type n ->
       begin
@@ -629,7 +703,7 @@ let rec expand_X_type (s:xdr_type_system) (t:xdr_type_term) : xdr_type =
 	    []       -> raise (Propagate ("Cannot resolve X_type " ^ n))
 	  | (n',t') :: s2' ->
 	      if n = n' then
-		t'
+		fst t'
 	      else
 		r (s1 @ [n',t']) s2'
 	in
@@ -650,10 +724,11 @@ let validate_xdr_type_system (s:xdr_type_term_system) : xdr_type_system =
 	  let t2 =
 	  begin
 	    try
-	      let t' = validate_xdr_type_i1 (expand_X_type s1) [] t in
-	      let pl = find_params t' in
-	      t'.params <- pl;
-	      t'
+	      let t0' = validate_xdr_type_i1 (expand_X_type s1) [] t in
+	      let pl = find_params t0' in
+	      t0'.params <- pl;
+	      let t1' = elim_rec t0' in
+	      (t0',t1')
 	    with
 	      Not_found -> failwith "Xdr.validate_xdr_type_system: unspecified error"
 	    | Propagate s -> failwith ("Xdr.validate_xdr_type_system: " ^ s)
@@ -673,13 +748,13 @@ let validate_xdr_type_system (s:xdr_type_term_system) : xdr_type_system =
 (**********************************************************************)
 
 
-let rec xdr_type_term (t:xdr_type) : xdr_type_term =
+let rec xdr_type_term0 (t:xdr_type0) : xdr_type_term =
   let conv_list l =
-    List.map (fun (x, t') -> x, xdr_type_term t') l in
+    List.map (fun (x, t') -> x, xdr_type_term0 t') l in
   let conv_htbl htbl =
-    Hashtbl.fold (fun x t' l -> (x, xdr_type_term t') :: l) htbl [] in
+    Hashtbl.fold (fun x t' l -> (x, xdr_type_term0 t') :: l) htbl [] in
   let conv_option p =
-    match p with None -> None | Some t' -> Some (xdr_type_term t') in
+    match p with None -> None | Some t' -> Some (xdr_type_term0 t') in
 
   match t.term with
     T_int    -> X_int
@@ -697,10 +772,10 @@ let rec xdr_type_term (t:xdr_type) : xdr_type_term =
   | T_opaque_fixed n -> X_opaque_fixed n
   | T_opaque n       -> X_opaque n
   | T_string n       -> X_string n
-  | T_array_fixed (t', n) -> X_array_fixed (xdr_type_term t',n)
-  | T_array (t', n)       -> X_array       (xdr_type_term t',n)
+  | T_array_fixed (t', n) -> X_array_fixed (xdr_type_term0 t',n)
+  | T_array (t', n)       -> X_array       (xdr_type_term0 t',n)
   | T_struct s       -> X_struct (conv_list (Array.to_list s))
-  | T_rec (n, t')    -> X_rec (n, xdr_type_term t')
+  | T_rec (n, t')    -> X_rec (n, xdr_type_term0 t')
   | T_refer (n, t')  -> X_refer n
   | T_union_over_int (u,d)  -> X_union_over_int  (conv_htbl u, conv_option d)
   | T_union_over_uint (u,d) -> X_union_over_uint (conv_htbl u, conv_option d)
@@ -713,7 +788,7 @@ let rec xdr_type_term (t:xdr_type) : xdr_type_term =
 		   match t'_opt with
 		       Some t' ->
 			 let name = fst(e.(k)) in
-			 [ name, xdr_type_term t' ]
+			 [ name, xdr_type_term0 t' ]
 		     | None ->
 			 []
 		)
@@ -721,10 +796,14 @@ let rec xdr_type_term (t:xdr_type) : xdr_type_term =
 	     )
 	  )
       in
-      X_union_over_enum (xdr_type_term e_term, u', conv_option d)
+      X_union_over_enum (xdr_type_term0 e_term, u', conv_option d)
   | _ ->
       assert false
 ;;
+
+
+let xdr_type_term (t:xdr_type) : xdr_type_term =
+  xdr_type_term0 (fst t)
 
 
 let xdr_type_term_system (s:xdr_type_system) : xdr_type_term_system =
@@ -812,7 +891,9 @@ let rec expanded_xdr_type_term (s:xdr_type_term_system) (t:xdr_type_term)
 
 let expanded_xdr_type (s:xdr_type_system) (t:xdr_type_term) : xdr_type =
   try
-    validate_xdr_type_i1 (expand_X_type s) [] t
+    let t0 = validate_xdr_type_i1 (expand_X_type s) [] t in
+    let t1 = elim_rec t0 in
+    (t0,t1)
   with
     Not_found -> failwith "Xdr.expanded_xdr_type: unspecified error"
   | Propagate s -> failwith ("Xdr.expanded_xdr_type: " ^ s)
@@ -852,7 +933,7 @@ let ( ++ ) x y =
 
 let pack_size
       (v:xdr_value)
-      (t:xdr_type)
+      (t:xdr_type0)
       (get_param:string->xdr_type)
     : int =
 
@@ -925,7 +1006,7 @@ let pack_size
 	  else
 	    raise Not_found
       | T_struct s ->
-	  let v_array = map_xv_struct_fast t v in
+	  let v_array = map_xv_struct_fast0 t v in
 	  let sum = ref 0 in
 	  Array.iteri
 	    (fun k v_component ->
@@ -957,7 +1038,7 @@ let pack_size
 	  in
 	  4 ++ get_size x t'
       | T_union_over_enum (et,u,default) ->
-	  let k,i,x = map_xv_union_over_enum_fast t v in
+	  let k,i,x = map_xv_union_over_enum_fast0 t v in
 	  let t' =
 	    match u.(k) with
 		Some u_t -> u_t
@@ -972,7 +1053,7 @@ let pack_size
 	  0
       | T_param n ->
 	  let t' = get_param n in
-	  get_size v t'
+	  get_size v (fst t')
       | T_rec (n, t') ->
 	  get_size v t'
       | T_refer (n, t') ->
@@ -984,7 +1065,7 @@ let pack_size
 let pack_buf
       ?(rm = false)
       (v:xdr_value)
-      (t:xdr_type)
+      (t:xdr_type0)
       (get_param:string->xdr_type)
     : string =
 
@@ -1038,7 +1119,7 @@ let pack_buf
 	  Rtypes.write_uint8_unsafe buf !buf_len x;
 	  buf_len := !buf_len + 8
       | T_enum e ->
-	  let i = map_xv_enum_fast t v in
+	  let i = map_xv_enum_fast0 t v in
 	  Rtypes.write_int4_unsafe buf !buf_len (int4_of_int32 i);
 	  buf_len := !buf_len + 4
       | T_float ->
@@ -1080,7 +1161,7 @@ let pack_buf
 	    (fun v' -> pack v' t')
 	    x
       | T_struct s ->
-	  let v_array = map_xv_struct_fast t v in
+	  let v_array = map_xv_struct_fast0 t v in
 	  Array.iteri
 	    (fun k v_component ->
 	       pack v_component (snd s.(k)))
@@ -1114,7 +1195,7 @@ let pack_buf
 	  buf_len := !buf_len + 4;
 	  pack x t'
       | T_union_over_enum (et,u,default) ->
-	  let k,i,x = map_xv_union_over_enum_fast t v in
+	  let k,i,x = map_xv_union_over_enum_fast0 t v in
 	  let t' =
 	    match u.(k) with
 		Some u_t -> u_t
@@ -1131,7 +1212,7 @@ let pack_buf
 	  ()
       | T_param n ->
 	  let t' = get_param n in
-	  pack v t'
+	  pack v (fst t')
       | T_rec (n, t') ->
 	  pack v t'
       | T_refer (n, t') ->
@@ -1143,11 +1224,11 @@ let pack_buf
 
 let value_matches_type
     (v:xdr_value)
-    (t:xdr_type)
+    ((_,t):xdr_type)
     (p:(string * xdr_type) list)
   : bool =
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
-     List.for_all (fun (n,t') -> StringSet.is_empty t'.params) p then
+     List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
     try
       ignore(pack_size v t (fun n -> List.assoc n p));
       true
@@ -1165,7 +1246,7 @@ let value_matches_type
 
 let pack_xdr_value
     (v:xdr_value)
-    (t:xdr_type)
+    ((_,t):xdr_type)
     (p:(string * xdr_type) list)
     (print:string->unit)
   : unit =
@@ -1174,7 +1255,7 @@ let pack_xdr_value
   (* List.iter (fun pn -> prerr_endline ("param " ^ pn)) t.params; *)
 
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
-     List.for_all (fun (n,t') -> StringSet.is_empty t'.params) p then
+     List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
     try
       print (pack_buf v t (fun n -> List.assoc n p))
     with
@@ -1190,12 +1271,12 @@ let pack_xdr_value
 let pack_xdr_value_as_string
     ?(rm = false)
     (v:xdr_value)
-    (t:xdr_type)
+    ((_,t):xdr_type)
     (p:(string * xdr_type) list)
   : string =
 
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
-     List.for_all (fun (n,t') -> StringSet.is_empty t'.params) p then
+     List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
     try
       pack_buf ~rm v t (fun n -> List.assoc n p)
     with
@@ -1246,64 +1327,6 @@ let rec find_enum (e : (string * int32) array) (i : int32) =
 ;;
 
 
-let map_opt f o =
-  match o with
-    | None -> None
-    | Some x -> Some(f x)
-
-let map_hashtbl f t =
-  let acc = Hashtbl.create (Hashtbl.length t) in
-  Hashtbl.iter
-    (fun k v ->
-       let v' = f k v in
-       Hashtbl.add acc k v';  (* !!! reverses order of bindings !!! *)
-    )
-    t;
-  acc
-
-
-let rec elim_rec t = (* get rid of T_rec and T_refer *)
-  match t.term with
-    | T_int | T_uint | T_hyper | T_uhyper | T_enum _ | T_float
-    | T_double | T_opaque_fixed _ | T_opaque _ | T_string _ 
-    | T_void | T_param _ ->
-	t
-    | T_array_fixed(t',n) ->
-	{ t with term = T_array_fixed(elim_rec t', n) }
-    | T_array(t',n) ->
-	{ t with term = T_array(elim_rec t', n) }
-    | T_struct s ->
-	let s' = 
-	  Array.map
-	    (fun (n,t') ->  (n, elim_rec t'))
-	    s in
-	{ t with term = T_struct s' }
-    | T_union_over_int(ht, dt) ->
-	let ht' =
-	  map_hashtbl
-	    (fun c t' -> elim_rec t')
-	    ht in
-	let dt' = map_opt elim_rec dt in
-	{ t with term = T_union_over_int(ht', dt') }
-    | T_union_over_uint(ht, dt) ->
-	let ht' =
-	  map_hashtbl
-	    (fun c t' ->  elim_rec t')
-	    ht in
-	let dt' = map_opt elim_rec dt in
-	{ t with term = T_union_over_uint(ht', dt') }
-    | T_union_over_enum(et,ct,dt) ->
-	let et' = elim_rec et in
-	let ct' = Array.map (map_opt elim_rec) ct in
-	let dt' = map_opt elim_rec dt in
-	{ t with term = T_union_over_enum(et',ct',dt') }
-    | T_rec(n,t') ->
-	elim_rec t'
-    | T_refer(n,t') ->
-	t'
-
-
-
 let read_string str k k_end n =
   let k0 = !k in
   let m = if n land 3 = 0 then n else n+4-(n land 3) in
@@ -1319,7 +1342,7 @@ let unpack_term
     ?(fast = false)
     ?(prefix = false)
     (str:string)
-    (t:xdr_type)
+    (t:xdr_type0)
     (get_param:string->xdr_type)
   : xdr_value * int =
 
@@ -1449,7 +1472,7 @@ let unpack_term
 	XV_void
     | T_param p ->
 	let t' = get_param p in
-	unpack t'
+	unpack (fst t')
     | T_rec (_, t')
     | T_refer (_, t') ->
 	unpack t'
@@ -1506,9 +1529,7 @@ let unpack_term
 	
   in
   try
-    let t'= elim_rec t in
-    prerr_endline "elim done";
-    let v = unpack t' in
+    let v = unpack t in
     if prefix || !k = k_end then
       (v, !k - pos)
     else
@@ -1524,12 +1545,12 @@ let unpack_term
 let unpack_xdr_value
     ?pos ?len ?fast ?prefix
     (str:string)
-    (t:xdr_type)
+    ((_,t):xdr_type)
     (p:(string * xdr_type) list)
   : xdr_value =
 
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
-     List.for_all (fun (n,t') -> StringSet.is_empty t'.params) p then
+     List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
 
     fst(unpack_term ?pos ?len ?fast ?prefix str t (fun n -> List.assoc n p))
 
@@ -1541,12 +1562,12 @@ let unpack_xdr_value
 let unpack_xdr_value_l
     ?pos ?len ?fast ?prefix
     (str:string)
-    (t:xdr_type)
+    ((_,t):xdr_type)
     (p:(string * xdr_type) list)
   : xdr_value * int =
 
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
-     List.for_all (fun (n,t') -> StringSet.is_empty t'.params) p then
+     List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
 
     unpack_term ?pos ?len ?fast ?prefix str t (fun n -> List.assoc n p)
 

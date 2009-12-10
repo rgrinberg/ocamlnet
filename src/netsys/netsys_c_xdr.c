@@ -7,8 +7,6 @@
 #include <arpa/inet.h>
 #endif
 
-extern value **caml_ref_table_ptr;
-
 CAMLprim value netsys_s_read_int4_64(value sv, value pv) 
 {
     char *s;
@@ -67,14 +65,14 @@ CAMLprim value netsys_s_read_string_array(value sv, value pv, value lv,
     l = Long_val(lv) + p;
     m = (unsigned int) Int32_val(mv);
     n = Wosize_val(av);
-    av_in_heap = 1;
+    av_in_heap = (n > 5000) || (Long_val(lv) > 20000);
     /* If av is already in the major heap, it is an extra burden to allocate
        the new string in the minor heap. The new string would be a local
        root until the next minor collection. We avoid this by allocating the
        new string in the major heap directly if av is already there.
 
-       we don't have access to the Is_in_heap macro, so watch for changing
-       caml_ref_table_ptr
+       we don't have access to the Is_in_heap macro, so we just guess
+       it here
     */
 
     err = 0;
@@ -90,9 +88,7 @@ CAMLprim value netsys_s_read_string_array(value sv, value pv, value lv,
 	uv = av_in_heap ? netsys_alloc_string_shr(e) : caml_alloc_string(e);
 	s = String_val(sv);           /* see above */
 	memcpy(String_val(uv), s+p, e);
-	/* old_reftbl = caml_ref_table_ptr; */
 	caml_modify(&Field(av,k), uv);
-	/* if (old_reftbl != caml_ref_table_ptr) av_in_heap = 1; */
 	p += e;
 	if ((e&3) != 0) p += 4-(e&3);
 	k++;
