@@ -1300,7 +1300,7 @@ let rec elim_rec t = (* get rid of T_rec and T_refer *)
     | T_rec(n,t') ->
 	elim_rec t'
     | T_refer(n,t') ->
-	elim_rec t'
+	t'
 
 
 
@@ -1506,7 +1506,9 @@ let unpack_term
 	
   in
   try
-    let v = unpack (elim_rec t) in
+    let t'= elim_rec t in
+    prerr_endline "elim done";
+    let v = unpack t' in
     if prefix || !k = k_end then
       (v, !k - pos)
     else
