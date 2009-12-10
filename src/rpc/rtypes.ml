@@ -10,41 +10,52 @@
 
 (* representation types *)
 
-type int4 = nativeint;;   (* faster on 64 bit platforms! *)
-type int8 = int64;;
+IFDEF WORDSIZE_64 THEN
+type int4 = int   (* faster on 64 bit platforms! *)
+type uint4 = int
+  (* Note that values >= 0x8000_0000 are represented as negative ints, i.e.
+     the bits 32-62 are all set to 1.
+   *)
+ELSE
+type int4 = int32
+type uint4 = int32
+END
 
-type uint4 = nativeint;;
-type uint8 = int64;;
+type int8 = int64
+type uint8 = int64
 
 type fp4 = int32 (* string;; *)    (* IEEE representation of fp numbers *)
-type fp8 = int64;;
+type fp8 = int64
 
-exception Cannot_represent of string;;
+exception Cannot_represent of string
 (* raised if numbers are too big to map them to other type *)
 
-exception Out_of_range;;
+exception Out_of_range
 
 let rec cannot_represent s = 
   (* "rec" because this prevents this function from being inlined *)
-  raise (Cannot_represent s);;
+  raise (Cannot_represent s)
 
-
+IFDEF WORDSIZE_64 THEN
+let lt_uint4 x y =
+  if x < y then x >= 0 else y < x && y < 0
+ELSE
 let lt_uint4 x y =
   if x < y then 
-    x >= 0n
+    x >= 0l
       (* because:
          - if x < 0  && y < 0   ==> x >u y
          - if x < 0  && y >= 0  ==> x >u y
          - if x >= 0 && y => 0  ==> x <u y
        *)
   else (* ==>  y <= x *) 
-    y < x && y < 0n
+    y < x && y < 0l
       (* because:
          - if y < 0  && x < 0  ==> x <u y
          - if y < 0  && x >= 0 ==> x <u y
          - if y >= 0 && x >= 0 ==> x >u y
        *)
-
+END
 
 (**********************************************************************)
 (* mk_[u]intn                                                         *)
@@ -52,30 +63,29 @@ let lt_uint4 x y =
 
 (* compatibility interface *)
 
-let mk_int4 (c3,c2,c1,c0) =
-  let n3 = Nativeint.of_int (Char.code c3) in
-  let n2 = Nativeint.of_int (Char.code c2) in
-  let n1 = Nativeint.of_int (Char.code c1) in
-  let n0 = Nativeint.of_int (Char.code c0) in
-
 IFDEF WORDSIZE_64 THEN
-  Nativeint.logor
-    (Nativeint.shift_right (Nativeint.shift_left n3 56) 32)  (* sign! *)
-    (Nativeint.logor
-       (Nativeint.shift_left n2 16)
-       (Nativeint.logor
-	  (Nativeint.shift_left n1 8)
-	  n0))
+let mk_int4 (c3,c2,c1,c0) =
+  let n3 = (Char.code c3) in
+  let n2 = (Char.code c2) in
+  let n1 = (Char.code c1) in
+  let n0 = (Char.code c0) in
+  (* be careful to set the sign correctly: *)
+  ((n3 asl 55) asr 31) lor (n2 asl 16) lor (n1 asl 8) lor n0
 ELSE
-  Nativeint.logor
-    (Nativeint.shift_left n3 24)
-    (Nativeint.logor
-       (Nativeint.shift_left n2 16)
-       (Nativeint.logor
-	  (Nativeint.shift_left n1 8)
+let mk_int4 (c3,c2,c1,c0) =
+  let n3 = Int32.of_int (Char.code c3) in
+  let n2 = Int32.of_int (Char.code c2) in
+  let n1 = Int32.of_int (Char.code c1) in
+  let n0 = Int32.of_int (Char.code c0) in
+  Int32.logor
+    (Int32.shift_left n3 24)
+    (Int32.logor
+       (Int32.shift_left n2 16)
+       (Int32.logor
+	  (Int32.shift_left n1 8)
 	  n0))
 END
-;;
+
 
 let mk_int8 (c7,c6,c5,c4,c3,c2,c1,c0) =
   let n7 = Int64.of_int (Char.code c7) in
@@ -102,33 +112,36 @@ let mk_int8 (c7,c6,c5,c4,c3,c2,c1,c0) =
 		   (Int64.logor
 		      (Int64.shift_left n1 8)
 		      n0))))))
-;;
 
-let mk_uint4 = mk_int4;;
-let mk_uint8 = mk_int8;;
+
+let mk_uint4 = mk_int4
+let mk_uint8 = mk_int8
 
 (**********************************************************************)
 (* read_[u]intn                                                       *)
 (**********************************************************************)
 
-let read_int4_unsafe s pos =
-  let n3 = Nativeint.of_int (Char.code (String.unsafe_get s pos)) in
-  let x = 
 IFDEF WORDSIZE_64 THEN
-    Nativeint.shift_right (Nativeint.shift_left n3 56) 32  (* sign! *)
+let read_int4_unsafe s pos =
+  let n3 = Char.code (String.unsafe_get s pos) in
+  let x = (n3 asl 55) asr 31 in  (* sign! *)
+  let n2 = Char.code (String.unsafe_get s (pos+1)) in
+  let x = x lor (n2 asl 16) in
+  let n1 = Char.code (String.unsafe_get s (pos+2)) in
+  let x = x lor (n1 asl 8) in
+  let n0 = Char.code (String.unsafe_get s (pos+3)) in
+  x lor n0
 ELSE
-    Nativeint.shift_left n3 24
-END in
-  
-  let n2 = Nativeint.of_int (Char.code (String.unsafe_get s (pos+1))) in
-  let x = Nativeint.logor x (Nativeint.shift_left n2 16) in
-
-  let n1 = Nativeint.of_int (Char.code (String.unsafe_get s (pos+2))) in
-  let x = Nativeint.logor x (Nativeint.shift_left n1 8) in
-
-  let n0 = Nativeint.of_int (Char.code (String.unsafe_get s (pos+3))) in
-  Nativeint.logor x n0
-
+let read_int4_unsafe s pos =
+  let n3 = Int32.of_int (Char.code (String.unsafe_get s pos)) in
+  let x = Int32.shift_left n3 24 in
+  let n2 = Int32.of_int (Char.code (String.unsafe_get s (pos+1))) in
+  let x = Int32.logor x (Int32.shift_left n2 16) in
+  let n1 = Int32.of_int (Char.code (String.unsafe_get s (pos+2))) in
+  let x = Int32.logor x (Int32.shift_left n1 8) in
+  let n0 = Int32.of_int (Char.code (String.unsafe_get s (pos+3))) in
+  Int32.logor x n0
+END
 (*
   seems to be slightly better than
 
@@ -140,7 +153,7 @@ END in
 	  (Int32.shift_left n1 8)
 	  n0))
 *)
-;;
+
 
 let read_int4 s pos =
   if pos < 0 || pos + 4 > String.length s then
@@ -173,7 +186,7 @@ let read_int8_unsafe s pos =
 
   let n0 = Int64.of_int (Char.code (String.unsafe_get s (pos+7))) in
   Int64.logor x n0
-;;
+
 
 
 let read_int8 s pos =
@@ -182,14 +195,19 @@ let read_int8 s pos =
   read_int8_unsafe s pos
 
 
-let read_uint4 = read_int4;;
-let read_uint8 = read_int8;;
-let read_uint4_unsafe = read_int4_unsafe;;
-let read_uint8_unsafe = read_int8_unsafe;;
+let read_uint4 = read_int4
+let read_uint8 = read_int8
+let read_uint4_unsafe = read_int4_unsafe
+let read_uint8_unsafe = read_int8_unsafe
 
 
+IFDEF WORDSIZE_64 THEN
 let read_fp4 s pos =
-  Nativeint.to_int32(read_int4 s pos)
+  Int32.of_int(read_int4 s pos)
+ELSE
+let read_fp4 s pos =
+  read_int4 s pos
+END
 
 let read_fp8 s pos =
   read_int8 s pos
@@ -201,14 +219,21 @@ let read_fp8 s pos =
 
 (* compatibility interface *)
 
+IFDEF WORDSIZE_64 THEN
 let dest_int4 x =
-  let n3 = Nativeint.to_int (Nativeint.shift_right_logical x 24) land 0xff in
-  let n2 = Nativeint.to_int (Nativeint.shift_right_logical x 16) land 0xff in
-  let n1 = Nativeint.to_int (Nativeint.shift_right_logical x 8) land 0xff in
-  let n0 = Nativeint.to_int (Nativeint.logand x 0xffn) in
+  let n3 = (x lsr 24) land 0xff in
+  let n2 = (x lsr 16) land 0xff in
+  let n1 = (x lsr 8) land 0xff in
+  let n0 = x land 0xff in
   (Char.chr n3, Char.chr n2, Char.chr n1, Char.chr n0)
-;;
-
+ELSE
+let dest_int4 x =
+  let n3 = Int32.to_int (Int32.shift_right_logical x 24) land 0xff in
+  let n2 = Int32.to_int (Int32.shift_right_logical x 16) land 0xff in
+  let n1 = Int32.to_int (Int32.shift_right_logical x 8) land 0xff in
+  let n0 = Int32.to_int (Int32.logand x 0xffl) in
+  (Char.chr n3, Char.chr n2, Char.chr n1, Char.chr n0)
+END
 
 let dest_int8 x =
   let n7 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 56)
@@ -228,34 +253,46 @@ let dest_int8 x =
   let n0 = Int64.to_int (Int64.logand x 0xffL) in
   (Char.chr n7, Char.chr n6, Char.chr n5, Char.chr n4,
    Char.chr n3, Char.chr n2, Char.chr n1, Char.chr n0)
-;;
 
 
-let dest_uint4 = dest_int4;;
-let dest_uint8 = dest_int8;;
+
+let dest_uint4 = dest_int4
+let dest_uint8 = dest_int8
 
 (**********************************************************************)
 (* write_[u]intn                                                      *)
 (**********************************************************************)
 
+IFDEF WORDSIZE_64 THEN
 let write_int4_unsafe s pos x =
-  let n3 = Nativeint.to_int (Nativeint.shift_right_logical x 24) land 0xff in
+  let n3 = (x lsr 24) land 0xff in
   String.unsafe_set s pos (Char.unsafe_chr n3);
-  let n2 = Nativeint.to_int (Nativeint.shift_right_logical x 16) land 0xff in
+  let n2 = (x lsr 16) land 0xff in
   String.unsafe_set s (pos+1) (Char.unsafe_chr n2);
-  let n1 = Nativeint.to_int (Nativeint.shift_right_logical x 8) land 0xff in
+  let n1 = (x lsr 8) land 0xff in
   String.unsafe_set s (pos+2) (Char.unsafe_chr n1);
-  let n0 = Nativeint.to_int (Nativeint.logand x 0xffn) in
+  let n0 = x land 0xff in
   String.unsafe_set s (pos+3) (Char.unsafe_chr n0);
   ()
-;;
+ELSE
+let write_int4_unsafe s pos x =
+  let n3 = Int32.to_int (Int32.shift_right_logical x 24) land 0xff in
+  String.unsafe_set s pos (Char.unsafe_chr n3);
+  let n2 = Int32.to_int (Int32.shift_right_logical x 16) land 0xff in
+  String.unsafe_set s (pos+1) (Char.unsafe_chr n2);
+  let n1 = Int32.to_int (Int32.shift_right_logical x 8) land 0xff in
+  String.unsafe_set s (pos+2) (Char.unsafe_chr n1);
+  let n0 = Int32.to_int (Int32.logand x 0xffl) in
+  String.unsafe_set s (pos+3) (Char.unsafe_chr n0);
+  ()
+END
 
 
 let write_int4 s pos x =
   if pos < 0 || pos + 4 > String.length s then
     raise Out_of_range;
   write_int4_unsafe s pos x
-;;
+
 
 
 let write_int8_unsafe s pos x =
@@ -290,20 +327,20 @@ let write_int8_unsafe s pos x =
   let n0 = Int64.to_int (Int64.logand x 0xffL) in
   String.unsafe_set s (pos+7) (Char.unsafe_chr n0);
   ()
-;;
+
 
 
 let write_int8 s pos x =
   if pos < 0 || pos + 8 > String.length s then
     raise Out_of_range;
   write_int8_unsafe s pos x
-;;
 
 
-let write_uint4 = write_int4;;
-let write_uint8 = write_int8;;
-let write_uint4_unsafe = write_int4_unsafe;;
-let write_uint8_unsafe = write_int8_unsafe;;
+
+let write_uint4 = write_int4
+let write_uint8 = write_int8
+let write_uint4_unsafe = write_int4_unsafe
+let write_uint8_unsafe = write_int8_unsafe
 
 (**********************************************************************)
 (* [u]intn_as_string                                                  *)
@@ -313,59 +350,59 @@ let int4_as_string x =
   let s = String.create 4 in
   write_int4 s 0 x;
   s
-;;
+
 
 let uint4_as_string x =
   let s = String.create 4 in
   write_uint4 s 0 x;
   s
-;;
+
 
 let int8_as_string x =
   let s = String.create 8 in
   write_int8 s 0 x;
   s
-;;
+
 
 let uint8_as_string x =
   let s = String.create 8 in
   write_int8 s 0 x;
   s
-;;
+
 
 (**********************************************************************)
 (* int_of_[u]intn                                                     *)
 (**********************************************************************)
 
-let c_max_int_64 = Int64.of_int max_int;;
-let c_min_int_64 = Int64.of_int min_int;;
+let c_max_int_64 = Int64.of_int max_int
+let c_min_int_64 = Int64.of_int min_int
 
 
 let name_int_of_int4 = "int_of_int4"
 
-let int_of_int4 x =
 IFDEF WORDSIZE_64 THEN
-  Nativeint.to_int x
+let int_of_int4 x = x
 ELSE
-  if x < (-0x4000_0000n) || x > 0x3fff_ffffn then
+let int_of_int4 x =
+  if x < (-0x4000_0000l) || x > 0x3fff_ffffl then
     cannot_represent name_int_of_int4;
-  Nativeint.to_int x
+  Int32.to_int x
 END
-;;
 
 
 let name_int_of_uint4 = "int_of_uint4"
 
-let int_of_uint4 x =
 IFDEF WORDSIZE_64 THEN
-  Nativeint.to_int (Nativeint.logand x 0xffff_ffffn)
+let int_of_uint4 x =
+  (* x land 0xffff_ffff - "Integer literal exceeds the range..." grrrmpf *)
+  (x asl 31) lsr 31
 ELSE
-  if x >= 0n && x <= 0x3fff_ffffn then
-    Nativeint.to_int x
+let int_of_uint4 x =
+  if x >= 0l && x <= 0x3fff_ffffl then
+    Int32.to_int x
   else
     cannot_represent name_int_of_uint4
 END
-;;
 
 
 let name_int_of_int8 = "int_of_int8"
@@ -375,7 +412,7 @@ let int_of_int8 x =
     Int64.to_int x
   else
     cannot_represent name_int_of_int8
-;;
+
 
 
 let name_int_of_uint8 = "int_of_uint8"
@@ -385,7 +422,7 @@ let int_of_uint8 x =
     Int64.to_int x
   else
     cannot_represent name_int_of_uint8
-;;
+
 
 (**********************************************************************)
 (* intn_of_int                                                        *)
@@ -393,38 +430,38 @@ let int_of_uint8 x =
 
 let name_int4_of_int = "int4_of_int"
 
-let int4_of_int i =
 IFDEF WORDSIZE_64 THEN
+let int4_of_int i =
   let j = i asr 31 in
-  if j = 0 || j = (-1) then
-    Nativeint.of_int i
+  if j = 0 || j = (-1) then 
+    i
   else
     cannot_represent name_int4_of_int
 ELSE
-    Nativeint.of_int i
+let int4_of_int i =
+  Int32.of_int i
 END
-;;
 
 
 let name_uint4_of_int = "uint4_of_int"
 
-let uint4_of_int i =
 IFDEF WORDSIZE_64 THEN
+let uint4_of_int i =
   let j = i asr 32 in
   if j = 0 then
-    Nativeint.of_int i
+    (i asl 31) asr 31  (* fix sign *)
   else
     cannot_represent name_uint4_of_int
 ELSE
+let uint4_of_int i =
   if i >= 0 then
-    Nativeint.of_int i
+    Int32.of_int i
   else
     cannot_represent name_uint4_of_int
 END
-;;
 
 
-let int8_of_int = Int64.of_int ;;
+let int8_of_int = Int64.of_int 
 
 
 let name_uint8_of_int = "uint8_of_int"
@@ -434,27 +471,38 @@ let uint8_of_int i =
     Int64.of_int i
   else
     cannot_represent name_uint8_of_int
-;;
+
 
 
 (**********************************************************************)
 (* Int32 and Int64 support: int[32|64]_of_[u]intn                     *)
 (**********************************************************************)
 
-let int32_of_int4 x = Nativeint.to_int32 x ;;
+IFDEF WORDSIZE_64 THEN
+let int32_of_int4 x = Int32.of_int x 
+ELSE
+let int32_of_int4 x = x 
+END
 
 let name_int32_of_uint4 = "int32_of_uint4"
 
+IFDEF WORDSIZE_64 THEN
 let int32_of_uint4 x =
-  if x >= 0n then
-    Nativeint.to_int32 x
+  if x >= 0 then
+    x
   else
     cannot_represent name_int32_of_uint4
-;;
+ELSE
+let int32_of_uint4 x =
+  if x >= 0l then
+    x
+  else
+    cannot_represent name_int32_of_uint4
+END
 
 
-let c_int32_min_int_64 = Int64.of_int32 Int32.min_int ;;
-let c_int32_max_int_64 = Int64.of_int32 Int32.max_int ;;
+let c_int32_min_int_64 = Int64.of_int32 Int32.min_int 
+let c_int32_max_int_64 = Int64.of_int32 Int32.max_int 
 
 let name_int32_of_int8 = "int32_of_int8"
 
@@ -463,7 +511,7 @@ let int32_of_int8 x =
     Int64.to_int32 x
   else
     cannot_represent name_int32_of_int8
-;;
+
 
 
 let name_int32_of_uint8 = "int32_of_uint8"
@@ -473,20 +521,31 @@ let int32_of_uint8 x =
     Int64.to_int32 x
   else
     cannot_represent name_int32_of_uint8
-;;
 
 
-let int64_of_int4 = Int64.of_nativeint ;;
+IFDEF WORDSIZE_64 THEN
+let int64_of_int4 = Int64.of_int
+ELSE
+let int64_of_int4 = Int64.of_int32 
+END
 
 
+IFDEF WORDSIZE_64 THEN
 let int64_of_uint4 x =
-  if x >= 0n then
-    Int64.of_nativeint x
+if x >= 0 then
+    Int64.of_int x
   else
-    Int64.add (Int64.of_nativeint x) 0x1_0000_0000L
-;;
+    Int64.add (Int64.of_int x) 0x1_0000_0000L
+ELSE
+let int64_of_uint4 x =
+  if x >= 0l then
+    Int64.of_int32 x
+  else
+    Int64.add (Int64.of_int32 x) 0x1_0000_0000L
+END
 
-let int64_of_int8 x = x ;;
+
+let int64_of_int8 x = x 
 
 let name_int64_of_uint8 = "int64_of_uint8"
 
@@ -495,26 +554,31 @@ let int64_of_uint8 x =
     x
   else
     cannot_represent name_int64_of_uint8
-;;
+
 
 
 (**********************************************************************)
 (* Int32 and Int64 support: [u]intn_of_int[32|64]                     *)
 (**********************************************************************)
 
-let int4_of_int32 = Nativeint.of_int32 ;;
+IFDEF WORDSIZE_64 THEN
+let int4_of_int32 = Int32.to_int
+ELSE
+let int4_of_int32 x = x
+END
+
 
 let name_uint4_of_int32 = "uint4_of_int32"
 
 let uint4_of_int32 i =
   if i < 0l then
     cannot_represent name_uint4_of_int32;
-  Nativeint.of_int32 i
-;;
+  int4_of_int32 i
+
 
 let int8_of_int32 =
   Int64.of_int32
-;;
+
 
 let name_uint8_of_int32 = "uint8_of_int32"
 
@@ -522,15 +586,21 @@ let uint8_of_int32 i =
   if i < 0l then
     cannot_represent name_uint8_of_int32;
   Int64.of_int32 i
-;;
+
 
 let name_int4_of_int64 = "int4_of_int64"
 
+IFDEF WORDSIZE_64 THEN
 let int4_of_int64 i =
   if i >= (-0x8000_0000L) && i <= 0x7fff_ffffL then
-    Int64.to_nativeint i
+    Int64.to_int i
   else cannot_represent name_int4_of_int64
-;;
+ELSE
+let int4_of_int64 i =
+  if i >= (-0x8000_0000L) && i <= 0x7fff_ffffL then
+    Int64.to_int32 i
+  else cannot_represent name_int4_of_int64
+END
 
 let name_uint4_of_int64 = "uint4_of_int64"
 
@@ -538,13 +608,13 @@ let uint4_of_int64 i =
   if i < 0L || i > 0xffff_ffffL then
     cannot_represent name_uint4_of_int64;
 IFDEF WORDSIZE_64 THEN
-  Int64.to_nativeint(Int64.shift_right (Int64.shift_left i 32) 32)  (* sign! *)
+  Int64.to_int(Int64.shift_right (Int64.shift_left i 32) 32)  (* sign! *)
 ELSE
-  Int64.to_nativeint i
+  Int64.to_int32 i
 END
-;;
 
-let int8_of_int64 i = i ;;
+
+let int8_of_int64 i = i 
 
 let name_uint8_of_int64 = "uint8_of_int64"
 
@@ -552,16 +622,22 @@ let uint8_of_int64 i =
   if i < 0L then
     cannot_represent name_uint8_of_int64;
   i
-;;
+
 
 (**********************************************************************)
 (* logical_xxx_of_xxx                                                 *)
 (**********************************************************************)
 
-let logical_uint4_of_int32 x = Nativeint.of_int32 x;;
-let logical_int32_of_uint4 x = Nativeint.to_int32 x;;
-let logical_uint8_of_int64 x = x;;
-let logical_int64_of_uint8 x = x;;
+IFDEF WORDSIZE_64 THEN
+let logical_uint4_of_int32 x = Int32.to_int x
+let logical_int32_of_uint4 x = Int32.of_int x
+ELSE
+let logical_uint4_of_int32 x = x
+let logical_int32_of_uint4 x = x
+END
+
+let logical_uint8_of_int64 x = x
+let logical_int64_of_uint8 x = x
 
 (**********************************************************************)
 (* floating-point numbers                                             *)
@@ -569,9 +645,9 @@ let logical_int64_of_uint8 x = x;;
 
 (* Old fp8_of_fp4 implementation, the only way until O'Caml 3.07.
  * 
- * let n23 = Int64.of_string "0x7fffff";;
- * let n32 = Int64.of_string "0x80000000";;
- * let n52 = Int64.of_string "0x10000000000000";;
+ * let n23 = Int64.of_string "0x7fffff"
+ * let n32 = Int64.of_string "0x80000000"
+ * let n52 = Int64.of_string "0x10000000000000"
  * 
  * let fp8_of_fp4_int64 x =
  *   let m = Int64.logand x n23 in
@@ -605,7 +681,7 @@ let logical_int64_of_uint8 x = x;;
  * 	 !m'
  *       )
  *   end
- * ;;
+ * 
  *)
 
 
@@ -619,15 +695,15 @@ let fp8_of_fp4 x =
    *  let x' = x'_int64 in
    *  x'
    *)
-;;
+
 
 
 
 (* Old fp4_of_fp8 implementation, the only way until O'Caml 3.07.
  *
- * let n51 = Int64.of_string "0xfffffffffffff";;
- * let n64 = Int64.of_string "0x8000000000000000";;
- * let n22 = Int64.of_string "0x400000";;
+ * let n51 = Int64.of_string "0xfffffffffffff"
+ * let n64 = Int64.of_string "0x8000000000000000"
+ * let n22 = Int64.of_string "0x400000"
  *
  * let fp4_of_fp8_int64 x =
  *  let m = Int64.logand x n51 in
@@ -672,7 +748,7 @@ let fp8_of_fp4 x =
  *	 !m'
  *      )
  *  end
- *;;
+ *
  *)
 
 let fp4_of_fp8 x =
@@ -685,13 +761,13 @@ let fp4_of_fp8 x =
    * let x' = x'_int32 in
    * x'
    *)
-;;
+
 
 
 let float_of_fp8 x =
   (* Requires O'Caml >= 3.01 *)
   Int64.float_of_bits x
-;;
+
 
 
 let float_of_fp4 x =
@@ -700,13 +776,13 @@ let float_of_fp4 x =
   (* Old:
    *  float_of_fp8 (fp8_of_fp4 x)
    *)
-;;
+
 
 
 let fp8_of_float x =
   (* Requires O'Caml >= 3.01 *)
   Int64.bits_of_float x
-;;
+
 
 
 let fp4_of_float x =
@@ -715,13 +791,13 @@ let fp4_of_float x =
   (* Old:
    * fp4_of_fp8 (fp8_of_float x)
    *)
-;;
 
-let mk_fp4 x = Nativeint.to_int32 (mk_int4 x) ;;
-let mk_fp8 = mk_int8 ;;
-let dest_fp4 x = dest_int4 (Nativeint.of_int32 x) ;;
-let dest_fp8 = dest_int8 ;;
 
-let fp4_as_string x = int4_as_string (Nativeint.of_int32 x);;
-let fp8_as_string = int8_as_string;;
+let mk_fp4 x = int32_of_int4 (mk_int4 x)
+let mk_fp8 = mk_int8
+let dest_fp4 x = dest_int4 (int4_of_int32 x)
+let dest_fp8 = dest_int8
+
+let fp4_as_string x = int4_as_string (int4_of_int32 x)
+let fp8_as_string = int8_as_string
 
