@@ -67,7 +67,7 @@ CAMLprim value netsys_s_read_string_array(value sv, value pv, value lv,
     l = Long_val(lv) + p;
     m = (unsigned int) Int32_val(mv);
     n = Wosize_val(av);
-    av_in_heap = 0;
+    av_in_heap = 1;
     /* If av is already in the major heap, it is an extra burden to allocate
        the new string in the minor heap. The new string would be a local
        root until the next minor collection. We avoid this by allocating the
