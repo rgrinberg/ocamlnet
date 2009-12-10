@@ -46,8 +46,8 @@ let read_int4_unsafe s pos = (* this function is inlined *)
   Nativeint.logor x n0
 
 
-external decode_nativeint : string -> int -> nativeint
-  = "decode_nativeint" 
+external decode_nativeint : string -> int -> int
+  = "decode_nativeint"  "noalloc"   (* works only for 64 bit platforms *)
 
 let () =
   let s = String.create 40_000_000 in
@@ -94,7 +94,7 @@ let () =
   let sum = ref 0n in
   while !k < 40_000_000 do
     let i = decode_nativeint s !k in
-    sum := Nativeint.add !sum i;
+    sum := Nativeint.add !sum (Nativeint.of_int i);
     k := !k +4
   done;
   let t1 = Unix.gettimeofday() in

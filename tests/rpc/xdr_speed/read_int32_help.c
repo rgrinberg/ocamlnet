@@ -15,5 +15,5 @@ value decode_nativeint(value sv, value pv)
 
     s = String_val(sv);
     p = Long_val(pv);
-    return caml_copy_nativeint((intnat) (ntohl (*((unsigned int *) (s+p)))));
+    return Val_long((long) (ntohl (*((unsigned int *) (s+p)))));
 }
