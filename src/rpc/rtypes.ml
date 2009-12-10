@@ -122,6 +122,10 @@ let mk_uint8 = mk_int8
 (**********************************************************************)
 
 IFDEF WORDSIZE_64 THEN
+IFDEF USE_NETSYS_XDR THEN
+let read_int4_unsafe =
+  Netsys_xdr.s_read_int4_64_unsafe
+ELSE
 let read_int4_unsafe s pos =
   let n3 = Char.code (String.unsafe_get s pos) in
   let x = (n3 lsl 55) asr 31 in  (* sign! *)
@@ -131,6 +135,7 @@ let read_int4_unsafe s pos =
   let x = x lor (n1 lsl 8) in
   let n0 = Char.code (String.unsafe_get s (pos+3)) in
   x lor n0
+END
 ELSE
 let read_int4_unsafe s pos =
   let n3 = Int32.of_int (Char.code (String.unsafe_get s pos)) in
@@ -264,6 +269,10 @@ let dest_uint8 = dest_int8
 (**********************************************************************)
 
 IFDEF WORDSIZE_64 THEN
+IFDEF USE_NETSYS_XDR THEN
+let write_int4_unsafe =
+  Netsys_xdr.s_write_int4_64_unsafe
+ELSE
 let write_int4_unsafe s pos x =
   let n3 = (x lsr 24) land 0xff in
   String.unsafe_set s pos (Char.unsafe_chr n3);
@@ -274,6 +283,7 @@ let write_int4_unsafe s pos x =
   let n0 = x land 0xff in
   String.unsafe_set s (pos+3) (Char.unsafe_chr n0);
   ()
+END
 ELSE
 let write_int4_unsafe s pos x =
   let n3 = Int32.to_int (Int32.shift_right_logical x 24) land 0xff in

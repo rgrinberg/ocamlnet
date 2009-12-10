@@ -24,7 +24,7 @@ OCAMLC_OPTIONS_FOR_rpc_portmapper.ml = -w p
 OCAMLOPT_OPTIONS_FOR_rpc_portmapper.ml = -w p
 
 # rtypes has some conditional stuff:
-RTYPES_DEFS = -ppopt -DWORDSIZE_$(WORD_SIZE)
+RTYPES_DEFS = -ppopt -DWORDSIZE_$(WORD_SIZE) -ppopt -DUSE_NETSYS_XDR
 OCAMLC_OPTIONS_FOR_rtypes.ml = \
 	-syntax camlp4o -package camlp4.macro $(RTYPES_DEFS)
 OCAMLOPT_OPTIONS_FOR_rtypes.ml = \
