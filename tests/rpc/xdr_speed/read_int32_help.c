@@ -1,6 +1,7 @@
 /* C helpers */
 
 #include "caml/mlvalues.h"
+#include "caml/alloc.h"
 #include <arpa/inet.h>
 
 /* decodes the 32 bit int at s[p], converts from network byte order,
