@@ -17,3 +17,19 @@ external s_write_int4_64_unsafe : string -> int -> int -> unit
 
       There is no index bounds check!
    *)
+
+external s_read_string_array_unsafe : 
+  string -> int -> int -> int32 -> string array -> int
+  = "netsys_s_read_string_array"
+  (** [let pos' = s_read_string_array s pos len max a]: 
+      Decodes the XDR repr of an array of strings {b without} length field.
+      The array must start at [pos] in [s], and may have up to [len] bytes.
+      The array is passed in [a], and the elements are set by this routine.
+      Returns in [pos'] the position of the first
+      byte after the array. It is checked whether
+      the array is represented within the allowed [len] bytes. If not,
+      [pos'=-1] will be returned, together with an empty array.
+
+      [max] is the maximum length of the string elements. [max] is
+      unsigned. If this is violated, [pos'=-2] will be returned.
+   *)

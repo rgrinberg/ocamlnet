@@ -243,13 +243,13 @@ let x_optional t =
 
 
 let x_opaque_max =
-  X_opaque (mk_uint4 ('\063', '\255', '\255', '\255'));;
+  X_opaque (mk_uint4 ('\255', '\255', '\255', '\255'));;
 
 let x_string_max =
-  X_string (mk_uint4 ('\063', '\255', '\255', '\255'));;
+  X_string (mk_uint4 ('\255', '\255', '\255', '\255'));;
 
 let x_array_max t =
-  X_array (t,  (mk_uint4 ('\063', '\255', '\255', '\255')));;
+  X_array (t,  (mk_uint4 ('\255', '\255', '\255', '\255')));;
 
 (**********************************************************************)
 (* definition of XDR values                                           *)
@@ -875,11 +875,11 @@ let pack_size
       | T_opaque_fixed n ->
 	  int_of_uint4 n
       | T_opaque n ->
-	  let m = int_of_uint4 n in
 	  let x = dest_xv_opaque v in
 	  let x_len = String.length x in
+	  let x_len_u = uint4_of_int x_len in
 	  let x_len_mod_4 = x_len land 3 in
-	  if x_len <= m then
+	  if Rtypes.le_uint4 x_len_u n then
 	    (if x_len_mod_4 = 0
 	     then x_len + 4 
 	     else x_len + 8 - x_len_mod_4
@@ -887,11 +887,11 @@ let pack_size
 	  else
 	    raise Not_found
       | T_string n ->
-	  let m = int_of_uint4 n in
 	  let x = dest_xv_string v in
 	  let x_len = String.length x in
+	  let x_len_u = uint4_of_int x_len in
 	  let x_len_mod_4 = x_len land 3 in
-	  if x_len <= m then begin
+	  if Rtypes.le_uint4 x_len_u n then begin
 	    (if x_len_mod_4 = 0
 	     then x_len + 4 
 	     else x_len + 8 - x_len_mod_4
@@ -900,9 +900,9 @@ let pack_size
 	  else
 	    raise Not_found
       | T_array_fixed (t',n) ->
-	  let m = int_of_uint4 n in
 	  let x = dest_xv_array v in
-	  if Array.length x = m then begin
+	  let m = uint4_of_int (Array.length x) in
+	  if n = m then begin
 	    let s = ref 0 in
 	    Array.iter
 	      (fun v' -> s := !s ++ get_size v' t')
@@ -913,9 +913,9 @@ let pack_size
 	    raise Not_found
       | T_array (t',n) ->
 	  (* TODO: optimize arrays of types with fixed repr length *)
-	  let m = int_of_uint4 n in
 	  let x = dest_xv_array v in
-	  if Array.length x <= m then begin
+	  let m = uint4_of_int (Array.length x) in
+	  if Rtypes.le_uint4 m n then begin
 	    let s = ref 4 in
 	    Array.iter
 	      (fun v' -> s := !s ++ get_size v' t')
@@ -1311,11 +1311,22 @@ let unpack_term
   in
 
   let rec unpack_array t' p =
-    let a = Array.create p XV_void in
-    for i = 0 to p-1 do
-      Array.unsafe_set a i (unpack t')
-    done;
-    XV_array a
+    match t'.term with
+      | T_string n ->
+	  let n' = Rtypes.logical_int32_of_uint4 n in
+	  let a = Array.create p "" in
+	  let k' = 
+	    Netsys_xdr.s_read_string_array_unsafe str !k (k_end - !k) n' a in
+	  if k' = (-1) then raise_xdr_format_too_short();
+	  if k' = (-2) then raise_xdr_format_maximum_length ();
+	  k := k';
+	  XV_array(Array.map (fun s -> XV_string s) a)
+      | _ ->
+	  let a = Array.create p XV_void in
+	  for i = 0 to p-1 do
+	    Array.unsafe_set a i (unpack t')
+	  done;
+	  XV_array a
 
   and unpack t =
     let k0 = !k in

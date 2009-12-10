@@ -163,6 +163,10 @@ val lt_uint4 : uint4 -> uint4 -> bool
   (** [lt_uint4] is true iff the first value is less than the second value 
       as unsigned int
    *)
+val le_uint4 : uint4 -> uint4 -> bool
+val gt_uint4 : uint4 -> uint4 -> bool
+val ge_uint4 : uint4 -> uint4 -> bool
+  (** Other comparisons *)
 
 
 (** Floating-point stuff. The following functions all assume that the

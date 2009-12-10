@@ -1,4 +1,9 @@
+#directory "../../../src/netsys";;
 #directory "../../../src/rpc";;
+#load "bigarray.cma";;
+#load "unix.cma";;
+#load "netsys_oothr.cmo";;
+#load "netsys.cma";;
 #load "rtypes.cmo";;
 
 open Rtypes;;
