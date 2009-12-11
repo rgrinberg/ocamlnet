@@ -281,6 +281,7 @@ type xdr_value =
   | XV_enum_fast of int
   | XV_struct_fast of xdr_value array
   | XV_union_over_enum_fast of (int * xdr_value)
+  | XV_array_of_string_fast of string array
 ;;
 
 let xv_true = XV_enum_fast 1 (* "TRUE" *);;
@@ -313,6 +314,8 @@ let dest_xv_string v =
   match v with XV_string x -> x | _ -> raise Dest_failure;;
 let dest_xv_array v =
   match v with XV_array x -> x | _ -> raise Dest_failure;;
+let dest_xv_array_of_string_fast v =
+  match v with XV_array_of_string_fast x -> x | _ -> raise Dest_failure;;
 let dest_xv_struct v =
   match v with XV_struct x -> x | _ -> raise Dest_failure;;
 let dest_xv_struct_fast v =
@@ -969,42 +972,11 @@ let pack_size
 	    raise Not_found
       | T_string n ->
 	  let x = dest_xv_string v in
-	  let x_len = String.length x in
-	  let x_len_u = uint4_of_int x_len in
-	  let x_len_mod_4 = x_len land 3 in
-	  if Rtypes.le_uint4 x_len_u n then begin
-	    (if x_len_mod_4 = 0
-	     then x_len + 4 
-	     else x_len + 8 - x_len_mod_4
-	    )
-	  end
-	  else
-	    raise Not_found
+	  get_string_size x n
       | T_array_fixed (t',n) ->
-	  let x = dest_xv_array v in
-	  let m = uint4_of_int (Array.length x) in
-	  if n = m then begin
-	    let s = ref 0 in
-	    Array.iter
-	      (fun v' -> s := !s ++ get_size v' t')
-	      x;
-	    !s
-	  end
-	  else
-	    raise Not_found
+	  get_array_size v t' n (fun m n -> m=n)
       | T_array (t',n) ->
-	  (* TODO: optimize arrays of types with fixed repr length *)
-	  let x = dest_xv_array v in
-	  let m = uint4_of_int (Array.length x) in
-	  if Rtypes.le_uint4 m n then begin
-	    let s = ref 4 in
-	    Array.iter
-	      (fun v' -> s := !s ++ get_size v' t')
-	      x;
-	    !s
-	  end
-	  else
-	    raise Not_found
+	  4 + get_array_size v t' n Rtypes.le_uint4
       | T_struct s ->
 	  let v_array = map_xv_struct_fast0 t v in
 	  let sum = ref 0 in
@@ -1058,6 +1030,51 @@ let pack_size
 	  get_size v t'
       | T_refer (n, t') ->
 	  get_size v t'
+
+  and get_array_size v t' n cmp =  (* w/o array header *)
+    (* TODO: optimize arrays of types with fixed repr length *)
+    match v with
+      | XV_array x ->  (* generic *)
+	  let m = uint4_of_int (Array.length x) in
+	  if cmp m n then (
+	    let s = ref 0 in
+	    Array.iter
+	      (fun v' -> s := !s ++ get_size v' t')
+	      x;
+	    !s
+	  )
+	  else
+	    raise Not_found
+      | XV_array_of_string_fast x ->
+	  ( match t'.term with
+	      | T_string sn ->
+		  let m = uint4_of_int (Array.length x) in
+		  if cmp m n then (
+		    let sum = ref 0 in
+		    Array.iter
+		      (fun s -> sum := !sum ++ get_string_size s sn)
+		      x;
+		    !sum
+		  )
+		  else raise Not_found
+	      | _ -> 
+		  raise Dest_failure
+	  )
+      | _ ->
+	  raise Dest_failure
+
+  and get_string_size x n =
+    let x_len = String.length x in
+    let x_len_u = uint4_of_int x_len in
+    let x_len_mod_4 = x_len land 3 in
+    if Rtypes.le_uint4 x_len_u n then begin
+      (if x_len_mod_4 = 0
+       then x_len + 4 
+       else x_len + 8 - x_len_mod_4
+      )
+    end
+    else
+      raise Not_found
   in
   get_size v t
 
@@ -1148,18 +1165,9 @@ let pack_buf
 	  buf_len := !buf_len + 4;
 	  print_string x x_len
       | T_array_fixed (t',n) ->
-	  let x = dest_xv_array v in
-	  Array.iter
-	    (fun v' -> pack v' t')
-	    x
+	  pack_array v t' n false
       | T_array (t',n) ->
-	  let x = dest_xv_array v in
-	  Rtypes.write_uint4_unsafe buf !buf_len
-	    (uint4_of_int (Array.length x));
-	  buf_len := !buf_len + 4;
-	  Array.iter
-	    (fun v' -> pack v' t')
-	    x
+	  pack_array v t' n true
       | T_struct s ->
 	  let v_array = map_xv_struct_fast0 t v in
 	  Array.iteri
@@ -1217,6 +1225,34 @@ let pack_buf
 	  pack v t'
       | T_refer (n, t') ->
 	  pack v t'
+
+  and pack_array v t' n have_array_header =
+    match v with
+      | XV_array x ->  (* generic *)
+	  if have_array_header then pack_array_header (Array.length x);
+	  Array.iter
+	    (fun v' -> pack v' t')
+	    x
+      | XV_array_of_string_fast x ->
+	  ( match t'.term with
+	      | T_string n ->
+		  if have_array_header then pack_array_header (Array.length x);
+		  Array.iter
+		    (fun s ->
+		       let s_len = String.length s in
+		       Rtypes.write_uint4_unsafe
+			 buf !buf_len (uint4_of_int s_len);
+		       buf_len := !buf_len + 4;
+		       print_string s s_len
+		    )
+		    x
+	      | _ -> raise Dest_failure
+	  )
+      | _ -> raise Dest_failure
+
+  and pack_array_header x_len =
+    Rtypes.write_uint4_unsafe buf !buf_len (uint4_of_int x_len);
+    buf_len := !buf_len + 4;
   in
   pack v t;
   buf
@@ -1401,7 +1437,10 @@ let unpack_term
 	  if k' = (-1) then raise_xdr_format_too_short();
 	  if k' = (-2) then raise_xdr_format_maximum_length ();
 	  k := k';
-	  XV_array(Array.map (fun s -> XV_string s) a)
+	  if fast then
+	    XV_array_of_string_fast a
+	  else
+	    XV_array(Array.map (fun s -> XV_string s) a)
       | _ ->
 	  let a = Array.create p XV_void in
 	  for i = 0 to p-1 do

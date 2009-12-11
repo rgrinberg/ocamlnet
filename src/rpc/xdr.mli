@@ -198,6 +198,12 @@ type xdr_value =
       (** The integer is the _position_ in the [X_enum] list. "position"
        * means the same as for [XV_enum_fast]
        *)
+  (* New in 3.0: *)
+  | XV_array_of_string_fast of string array
+      (** To be used with an [X_array] or [X_array_fixed] with an inner
+          type of [X_string]
+       *)
+  (* TODO: arrays of int, uint, hyper, uhyper, opaque, float, double *)
 
 val xv_true : xdr_value
 val xv_false : xdr_value
@@ -224,6 +230,7 @@ val dest_xv_double : xdr_value -> fp8
 val dest_xv_opaque : xdr_value -> string
 val dest_xv_string : xdr_value -> string
 val dest_xv_array : xdr_value -> xdr_value array
+val dest_xv_array_of_string_fast : xdr_value -> string array
 val dest_xv_struct : xdr_value -> (string * xdr_value) list
 val dest_xv_struct_fast : xdr_value -> xdr_value array
 val dest_xv_union_over_int : xdr_value -> int4 * xdr_value

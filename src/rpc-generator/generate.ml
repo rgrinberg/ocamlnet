@@ -1108,11 +1108,27 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
   )
 
   and output_toconv_for_array var t' =
-    fprintf f "@[<hv>";
-    fprintf f "(Array.map@;<1 2>(fun x -> ";
-    output_toconv_for_type "x" t';
-    fprintf f ")@ (Xdr.dest_xv_array %s))" var;
-    fprintf f "@]";
+    let t1 = get_type_from_map typemap t' in
+    match t1 with
+      | T_string _
+      | T_string_unlimited ->
+	  fprintf f "@[<hv>";
+	  fprintf f "(match %s with@;" var;
+	  fprintf f "| Xdr.XV_array x ->@;<1 4>";
+	  fprintf f "Array.map@;<1 6>(fun x -> ";
+	  output_toconv_for_type "x" t';
+	  fprintf f ")@;<1 6>x@ ";
+	  fprintf f "| Xdr.XV_array_of_string_fast x ->@;<1 4>";
+	  fprintf f "x@ ";
+	  fprintf f "| _ -> raise Xdr.Dest_failure@ ";
+	  fprintf f ")";
+	  fprintf f "@]"
+      | _ ->
+	  fprintf f "@[<hv>";
+	  fprintf f "(Array.map@;<1 2>(fun x -> ";
+	  output_toconv_for_type "x" t';
+	  fprintf f ")@ (Xdr.dest_xv_array %s))" var;
+	  fprintf f "@]";
 
   and output_toconv_for_tuple var tl =
     fprintf f "@[<hv>";
@@ -1428,12 +1444,18 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
     fprintf f "@]"
   )
   and output_ofconv_for_array name var t' =
-    fprintf f "@[<hv 2>Xdr.XV_array@ ";
-    fprintf f "@[<hv 2>(Array.map@ ";
-    fprintf f "(fun x -> ";
-    output_ofconv_for_type name "x" t';
-    fprintf f ")@ %s)@]@]" var;
-
+    let t1 = get_type_from_map typemap t' in
+    match t1 with
+      | T_string _
+      | T_string_unlimited ->
+	  fprintf f "@[<hv 2>(Xdr.XV_array_of_string_fast %s)@]" var
+      | _ ->
+	  fprintf f "@[<hv 2>Xdr.XV_array@ ";
+	  fprintf f "@[<hv 2>(Array.map@ ";
+	  fprintf f "(fun x -> ";
+	  output_ofconv_for_type name "x" t';
+	  fprintf f ")@ %s)@]@]" var
+	  
   and output_ofconv_for_tuple name var tl =
     fprintf f "@[<hv 1>";
     fprintf f "(let (";
