@@ -1211,7 +1211,7 @@ let pack_buf
 	  ()
       | T_param n ->
 	  let t' = get_param n in
-	  pack v (fst t')
+	  pack v (snd t')
       | T_rec (n, t') ->
 	  pack v t'
       | T_refer (n, t') ->
@@ -1503,7 +1503,7 @@ let unpack_term
 	XV_void
     | T_param p ->
 	let t' = get_param p in
-	unpack (fst t')
+	unpack (snd t')
     | T_rec (_, t')
     | T_refer (_, t') ->
 	unpack t'
