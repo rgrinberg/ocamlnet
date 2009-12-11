@@ -1310,7 +1310,7 @@ let pack_xdr_value_as_string
       any ->
 	(* DEBUG *)
 	(* prerr_endline (Netexn.to_string any); *)
-	Printexc.print_backtrace stderr;
+	(* Printexc.print_backtrace stderr; *)
       	failwith "Xdr.pack_xdr_value_as_string [1]"
   else
     failwith "Xdr.pack_xdr_value_as_string [2]"
