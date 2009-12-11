@@ -960,16 +960,7 @@ let pack_size
 	  int_of_uint4 n
       | T_opaque n ->
 	  let x = dest_xv_opaque v in
-	  let x_len = String.length x in
-	  let x_len_u = uint4_of_int x_len in
-	  let x_len_mod_4 = x_len land 3 in
-	  if Rtypes.le_uint4 x_len_u n then
-	    (if x_len_mod_4 = 0
-	     then x_len + 4 
-	     else x_len + 8 - x_len_mod_4
-	    )
-	  else
-	    raise Not_found
+	  get_string_size x n
       | T_string n ->
 	  let x = dest_xv_string v in
 	  get_string_size x n
@@ -1319,9 +1310,10 @@ let pack_xdr_value_as_string
       any ->
 	(* DEBUG *)
 	(* prerr_endline (Netexn.to_string any); *)
-      	failwith "Xdr.pack_xdr_value_as_string"
+	Printexc.print_backtrace stderr;
+      	failwith "Xdr.pack_xdr_value_as_string [1]"
   else
-    failwith "Xdr.pack_xdr_value_as_string"
+    failwith "Xdr.pack_xdr_value_as_string [2]"
 ;;
 
 
