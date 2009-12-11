@@ -1016,7 +1016,7 @@ let pack_size
 	  0
       | T_param n ->
 	  let t' = get_param n in
-	  get_size v (fst t')
+	  get_size v (snd t')
       | T_rec (n, t') ->
 	  get_size v t'
       | T_refer (n, t') ->
