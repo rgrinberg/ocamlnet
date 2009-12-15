@@ -116,8 +116,8 @@ netdb-packlist: netdb_done
 
 .PHONY: install-netdb
 install-netdb:
-	mkdir -p $(DESTDIR)$(NET_DB_DIR)
-	cp netdb/*.netdb $(DESTDIR)$(NET_DB_DIR)
+	mkdir -p "$(DESTDIR)$(NET_DB_DIR)"
+	cp netdb/*.netdb "$(DESTDIR)$(NET_DB_DIR)"
 	@echo "Installed .netdb files into $(DESTDIR)$(NET_DB_DIR)"
 
 tools_done:

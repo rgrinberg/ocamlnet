@@ -49,7 +49,7 @@ set_defaults () {
     enable_apache=0
     with_nethttpd=0
     with_rpc_auth_dh=0
-    bindir=`dirname $ocamlc`
+    bindir=`dirname "$ocamlc"`
     tcl_defs=""
     tcl_libs=""
     adh_style=""

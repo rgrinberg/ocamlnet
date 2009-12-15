@@ -21,6 +21,6 @@ rtypes.mli: ../rpc/rtypes.mli
 
 .PHONY: install-rpcgen
 install-rpcgen:
-	mkdir -p $(DESTDIR)$(BINDIR)
-	cp ocamlrpcgen$(EXEC_SUFFIX) $(DESTDIR)$(BINDIR)
+	mkdir -p "$(DESTDIR)$(BINDIR)"
+	cp ocamlrpcgen$(EXEC_SUFFIX) "$(DESTDIR)$(BINDIR)"
 	@echo "Installed ocamlrpcgen$(EXEC_SUFFIX) into $(DESTDIR)$(BINDIR)"

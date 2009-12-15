@@ -106,7 +106,7 @@ system=`ocamlc -config | grep system | sed -e 's/system: //'`
 version=`ocamlc -version`
 
 case "$version" in
-	3.09|3.09.*|3.10|3.10.*)
+	3.09|3.09.*|3.10|3.10.*|3.11.0*)
 		case "$system" in
 			mingw*)
 				mingw_mklib "$@" ;;

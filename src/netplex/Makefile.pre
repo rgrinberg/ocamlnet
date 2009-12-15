@@ -28,8 +28,8 @@ netplex_ctrl_srv.ml: netplex_ctrl.x
 .PHONY: install-netplex-admin
 
 install-netplex-admin:
-	mkdir -p $(DESTDIR)$(BINDIR)
-	cp netplex-admin$(EXEC_SUFFIX) $(DESTDIR)$(BINDIR)
+	mkdir -p "$(DESTDIR)$(BINDIR)"
+	cp netplex-admin$(EXEC_SUFFIX) "$(DESTDIR)$(BINDIR)"
 	@echo "Installed netplex-admin$(EXEC_SUFFIX) into $(DESTDIR)$(BINDIR)"
 
 clean::
