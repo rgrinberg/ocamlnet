@@ -169,6 +169,7 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
 		  (worker_shm,worker_offset,ctrl_shm)
 		  (fun copy_shm_reply ->
 		     try
+		       Netlog.logf `Info "Got data in ctrl buffer";
 		       let ctrl_offset = copy_shm_reply() in
 		       (* Get the sorted subarray: *)
 		       let sdata_sorted =
