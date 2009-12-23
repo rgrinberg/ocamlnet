@@ -127,6 +127,7 @@ let main() =
 			 | Some sorted_data ->
 			     sorted_data
 		    ) in
+		ignore(data);   (* don't collect until here *)
 		write_file data'
 	    | `Xdr_only ->
 		let xdrt1 = Xdr.validate_xdr_type xdrt_sortdata in
