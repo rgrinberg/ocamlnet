@@ -3,6 +3,7 @@
 typedef string longstring<>;     /* just a string */
 typedef longstring sortdata<>;   /* an array of strings to sort, or sorted */
 typedef longstring endpoint;     /* the name of a socket */
+typedef longstring endpoints<>;  /* several sockets */
 
 struct shm {
     longstring shm_name;         /* the global name of the shm object */
@@ -56,5 +57,8 @@ program Interface {
         /* Sort this array and return it. The bool says whether to sort (true) -
            if false, the input data are just returned
          */
+
+	endpoints get_workers(void) = 2;
+	/* Get the worker sockets - for bypassing the controller */
     } = 1;
 } = 3;

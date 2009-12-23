@@ -12,26 +12,25 @@ let rec get_worker_endpoints n_workers =
   let endpoints = 
     Netplex_cenv.lookup_container_sockets "sort_worker" "Worker" in
   if Array.length endpoints < n_workers then (
-    Netplex_cenv.logf `Warning
+    Netlog.logf `Warning
       "Not enough workers found in registry (only %d)- will retry in 1 second"
       (Array.length endpoints);
     Unix.sleep 1;
     get_worker_endpoints n_workers
   )
   else (
-    Netplex_cenv.logf `Info
+    Netlog.logf `Info
       "Found %d endpoints, using the first %d" 
       (Array.length endpoints) n_workers;
     Array.sub endpoints 0 n_workers
   )
 
 
-let get_worker_client endpoint =
+let get_worker_client esys endpoint =
   try
     Hashtbl.find worker_clients endpoint
   with
     | Not_found ->
-        let esys = (Netplex_cenv.self_cont())#event_system in
         let connector =
           Netplex_sockserv.any_file_client_connector endpoint in
         let client =
@@ -117,14 +116,14 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
    *)
 
   let sdata = Array.sub data k l in   (* TODO: avoid this copy *)
-  Netplex_cenv.logf `Info
+  Netlog.logf `Info
     "sort_subarray k=%d l=%d" k l;
   
   (* First find out how large sdata is: *)
   let _,sdata_bytelen =
     Netsys_mem.init_value
       dummy_mem 0 sdata [Netsys_mem.Copy_simulate] in
-  Netplex_cenv.logf `Info "first init_value done bytelen=%d" sdata_bytelen;
+  Netlog.logf `Info "first init_value done bytelen=%d" sdata_bytelen;
   
   (* Alloc the buffer in the controller: *)
   let ctrl_mem_name, ctrl_mem_fd =
@@ -137,10 +136,10 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
       shm_addr = Int64.of_nativeint(Netsys_mem.memory_address ctrl_mem)
     } in
   Hashtbl.replace shm_tbl ctrl_mem_name (ctrl_shm, ctrl_mem);
-  Netplex_cenv.logf `Info "addr=%Lx" ctrl_shm.shm_addr;
+  Netlog.logf `Info "addr=%Lx" ctrl_shm.shm_addr;
 
   (* Alloc the buffer in the worker: *)
-  let client = get_worker_client worker_endpoint in
+  let client = get_worker_client esys worker_endpoint in
   Sort2_proto_clnt.Worker.V1.alloc_shm'async
     client
     (Int64.of_int sdata_bytelen)
@@ -153,7 +152,7 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
 	   Netsys_mem.init_value
 	     ~targetaddr:(Int64.to_nativeint worker_shm.shm_addr)
 	     worker_mem 0 sdata [] in
-	 Netplex_cenv.logf `Info
+	 Netlog.logf `Info
 	   "Second init_value done";
 	 (* Request the sort: *)
 	 Sort2_proto_clnt.Worker.V1.sort_shm'async
@@ -260,7 +259,7 @@ and merge_into_1 out k_out in_arrays k_in =
 
 let merge_into out in_arrays =
   let t0 = Unix.gettimeofday() in
-  Netplex_cenv.logf `Info "merge_into";
+  Netlog.logf `Info "merge_into";
   let l_in = Array.length in_arrays in
   assert(l_in > 0);
   let k_out = ref 0 in
@@ -268,8 +267,53 @@ let merge_into out in_arrays =
   merge_into_0 out k_out in_arrays k_in;
   assert (!k_out = Array.length out);
   let t1 = Unix.gettimeofday() in
-  Netplex_cenv.logf `Info "time for merge_into: %f" (t1-.t0)
+  Netlog.logf `Info "time for merge_into: %f" (t1-.t0)
 
+
+let sort esys data worker_endpoints when_done =
+  (* sorts asynchronously. Calls [when_done] with [Some sorted_data] on
+     success, or [when_done None] on error
+   *)
+  let n_workers = Array.length worker_endpoints in
+  let subarray_info = 
+    get_subarray_info n_workers (Array.length data) in
+  let to_merge =
+    Array.make n_workers [| |] in
+    
+  let runcounter = ref 0 in
+  let errorflag = ref false in
+    
+  Array.iteri
+    (fun p (k,l) ->
+       let worker_endpoint = worker_endpoints.(p) in
+       sort_subarray
+	 esys worker_endpoint data (k,l) 
+	 (fun sdata_sorted ->  (* when_done *)
+	    decr runcounter;
+	    if not !errorflag then (
+	      (* We copy the sub array (shm is going to be freed): *)
+	      to_merge.(p) <- Array.map String.copy sdata_sorted;
+	      (* If all subarrays have arrived, start the merge: *)
+	      if !runcounter = 0 then (
+		merge_into data to_merge;
+		(* and reply: *)
+		when_done (Some data)
+	      )
+	    );
+	    if !errorflag && !runcounter = 0 then
+	      when_done None
+	 )
+	 (fun error ->         (* when_error *)
+	    decr runcounter;
+	    Netlog.logf `Err
+	      "Got exception: %s" (Netexn.to_string error);
+	    errorflag := true;
+	    if !runcounter = 0 then
+	      when_done None
+	 );
+       incr runcounter
+    )
+    subarray_info
 
 
 let emit_error session =
@@ -278,58 +322,34 @@ let emit_error session =
 
 let proc_sort n_workers session (data,sort_flag) emit =
   if sort_flag then (
+    let esys = (Netplex_cenv.self_cont()) # event_system in
     let worker_endpoints =
       get_worker_endpoints n_workers in
-    let subarray_info = 
-      get_subarray_info n_workers (Array.length data) in
-    let to_merge =
-      Array.make n_workers [| |] in
-    
-    let esys = (Netplex_cenv.self_cont()) # event_system in
-    let runcounter = ref 0 in
-    let errorflag = ref false in
-    
-    Array.iteri
-      (fun p (k,l) ->
-	 let worker_endpoint = worker_endpoints.(p) in
-	 sort_subarray
-	   esys worker_endpoint data (k,l) 
-	   (fun sdata_sorted ->  (* when_done *)
-	      decr runcounter;
-	      if not !errorflag then (
-		(* We copy the sub array (shm is going to be freed): *)
-		to_merge.(p) <- Array.map String.copy sdata_sorted;
-		(* If all subarrays have arrived, start the merge: *)
-		if !runcounter = 0 then (
-		  merge_into data to_merge;
-		  (* and reply: *)
-		  emit data
-		)
-	      );
-	      if !errorflag && !runcounter = 0 then
-		emit_error session
-	   )
-	   (fun error ->         (* when_error *)
-	      decr runcounter;
-	      Netplex_cenv.logf `Err
-		"Got exception: %s" (Netexn.to_string error);
-	      errorflag := true;
-	      if !runcounter = 0 then
-		emit_error session
-	   );
-	 incr runcounter
+    sort 
+      esys data worker_endpoints
+      (function
+	 | Some sorted_data ->
+	     emit sorted_data
+	 | None ->
+	     emit_error session
       )
-      subarray_info
   )
   else
     emit data
+
+
+let proc_get_workers n_workers session () emit =
+  let worker_endpoints =
+    get_worker_endpoints n_workers in
+  emit worker_endpoints
+
 
 
 let configure cf addr =
   let n_workers =
     try cf # int_param(cf # resolve_parameter addr "n_workers") 
     with Not_found -> 1 in
-  Netplex_cenv.logf `Info
+  Netlog.logf `Info
     "Using param n_workers=%d" n_workers;
   (n_workers)
 
@@ -339,6 +359,7 @@ let setup srv (n_workers) =
   Sort2_proto_srv.Interface.V1.bind_async
     ~proc_null:(fun _ _ emit -> emit ())
     ~proc_sort:(proc_sort n_workers)
+    ~proc_get_workers:(proc_get_workers n_workers)
     srv
 
 let controller_factory() =

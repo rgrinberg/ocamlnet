@@ -54,6 +54,9 @@ let main() =
       "-xdr-only", Arg.Unit (fun () -> mode := `Xdr_only),
       "   Only XDR-encode and -decode the data";
 
+      "-bypass-controller", Arg.Unit (fun () -> mode := `Bypass_ctrl),
+      "   Bypass controller, and contact workers directly";
+
       "-gen-random", Arg.Int (fun n ->
 				for k = 1 to n do
 				  let k = Random.int n in
@@ -91,6 +94,35 @@ let main() =
 			 sorter
 			 (data, !sort_flag)) in
 		Rpc_client.shut_down sorter;
+		write_file data'
+	    | `Bypass_ctrl ->
+		let sorter =
+		  Sort2_proto_clnt.Interface.V1.create_client2
+		    (`Socket(Rpc.Tcp,
+			     Rpc_client.Inet(!host,!port),
+			     Rpc_client.default_socket_config)) in
+		let data' =
+		  time
+		    (fun () ->
+		       let workers =
+			 Sort2_proto_clnt.Interface.V1.get_workers sorter () in
+		       Rpc_client.shut_down sorter;
+		       let esys = Unixqueue.create_unix_event_system() in
+		       let r = ref None in
+		       Sort2_controller.sort
+			 esys data workers
+			 (fun data_opt -> r := data_opt);
+		       Unixqueue.run esys;
+		       Hashtbl.iter
+			 (fun _ c -> Rpc_client.shut_down c)
+			 Sort2_controller.worker_clients;
+		       Sort2_controller.free_all();
+		       match !r with
+			 | None ->
+			     failwith "Error"
+			 | Some sorted_data ->
+			     sorted_data
+		    ) in
 		write_file data'
 	    | `Xdr_only ->
 		let xdrt1 = Xdr.validate_xdr_type xdrt_sortdata in
