@@ -287,11 +287,7 @@ let sort esys data worker_endpoints when_done =
     
   let runcounter = ref 0 in
   let errorflag = ref false in
-  let cleanups = ref [] in
     
-  let do_cleanup() =
-    List.iter (fun f -> f()) !cleanups in
-
   Array.iteri
     (fun p (k,l) ->
        let worker_endpoint = worker_endpoints.(p) in
@@ -299,22 +295,22 @@ let sort esys data worker_endpoints when_done =
 	 esys worker_endpoint data (k,l) 
 	 (fun sdata_sorted cleanup ->  (* when_done *)
 	    decr runcounter;
-	    cleanups := cleanup :: !cleanups;
 	    if not !errorflag then (
 	      (* Note that sdata_sorted is only valid memory until [cleanup]
                  is called. Be careful with that!
 	       *)
 	      to_merge.(p) <- sdata_sorted;
+	      Gc.finalise 
+		(fun _ -> Netlog.logf `Info "Cleanup"; cleanup()) 
+		sdata_sorted;
 	      (* If all subarrays have arrived, start the merge: *)
 	      if !runcounter = 0 then (
 		merge_into data to_merge;
 		(* and reply: *)
-		do_cleanup();
 		when_done (Some data)
 	      )
 	    );
 	    if !errorflag && !runcounter = 0 then (
-	      do_cleanup();
 	      when_done None
 	    )
 	 )
@@ -324,7 +320,6 @@ let sort esys data worker_endpoints when_done =
 	      "Got exception: %s" (Netexn.to_string error);
 	    errorflag := true;
 	    if !runcounter = 0 then (
-	      do_cleanup();
 	      when_done None
 	    )
 	 );
