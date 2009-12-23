@@ -69,6 +69,7 @@ type fd_style =
     | `W32_output_thread
     ]
 
+
 let get_fd_style fd =
   let w32_obj_opt =
     try Some(Netsys_win32.lookup fd)
@@ -102,7 +103,7 @@ let get_fd_style fd =
 		`Recvfrom_sendto
 	    | Unix.Unix_error(Unix.ENOTSOCK,_,_) -> 
 		failwith "Got unexpected ENOTSOCK" (* hopefully we never see this *)
-	    | _ ->
+	    | _e ->
 		(* There are various error codes in use for socket types that
                    do not use addresses, e.g. socketpairs are considered
                    as not having addresses by some OS. Common are
@@ -129,6 +130,21 @@ let string_of_sockaddr =
 	Unix.string_of_inet_addr inet ^ ":" ^ string_of_int port
     | Unix.ADDR_UNIX path ->
 	String.escaped path
+
+let string_of_fd_style =
+  function
+    | `Read_write -> "Read_write"
+    | `Recv_send (sockaddr,peeraddr) ->
+	"Recv_send(" ^ string_of_sockaddr sockaddr ^ "," ^ 
+	  string_of_sockaddr peeraddr ^ ")"
+    | `Recv_send_implied -> "Recv_send_implied"
+    | `Recvfrom_sendto -> "Recvfrom_sendto"
+    | `W32_pipe -> "W32_pipe"
+    | `W32_pipe_server -> "W32_pipe_server"
+    | `W32_event -> "W32_event"
+    | `W32_process -> "W32_process" 
+    | `W32_input_thread -> "W32_input_thread"
+    | `W32_output_thread -> "W32_output_thread"
 
 let string_of_fd fd =
   let st = get_fd_style fd in

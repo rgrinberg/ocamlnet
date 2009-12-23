@@ -222,22 +222,168 @@ CAMLprim value netsys_memory_unmap_file(value memv)
 
 CAMLprim value netsys_mem_read(value fdv, value memv, value offv, value lenv)
 {
-    long numbytes;
-    void *data;
-    int ret;
-#ifndef _WIN32
-    Begin_root (memv);
+    intnat numbytes;
+    intnat ret;
+    char *data;
+#ifdef _WIN32
+    DWORD n;
+    DWORD err = 0;
+#endif
+
     numbytes = Long_val(lenv);
-    data = Bigarray_val(memv)->data;
+    data = ((char *) (Bigarray_val(memv)->data)) + Long_val(offv);
+#ifdef _WIN32
+    if (Descr_kind_val(fdv) == KIND_SOCKET) {
+	SOCKET h = Socket_val(fdv);
+	enter_blocking_section();
+	ret = recv(h, data, numbytes, 0);
+	if (ret == SOCKET_ERROR) err = WSAGetLastError();
+	leave_blocking_section();
+	ret = n;
+    } else {
+	HANDLE h = Handle_val(fdv);
+	enter_blocking_section();
+	if (! ReadFile(h, data, numbytes, &n, NULL)) err = GetLastError();
+	leave_blocking_section();
+	ret = n;
+    }
+    if (err) {
+	win32_maperr(err);
+	ret = -1;
+    }
+#else
     enter_blocking_section();
     ret = read(Int_val(fdv), data, (int) numbytes);
-    leave_blocking_section();
-    if (ret == -1) uerror("read", Nothing);
-  End_roots();
-  return Val_int(ret);
-#else
-    invalid_argument("Netsys_mem.mem_read not available");
+    leave_blocking_section();   /* keeps errno intact */
 #endif
+    if (ret == -1) uerror("mem_read", Nothing);
+    return Val_long(ret);
+}
+
+
+CAMLprim value netsys_mem_write(value fdv, value memv, value offv, value lenv)
+{
+    intnat numbytes;
+    intnat ret;
+    char *data;
+#ifdef _WIN32
+    DWORD n;
+    DWORD err = 0;
+#endif
+
+    numbytes = Long_val(lenv);
+    data = ((char *) (Bigarray_val(memv)->data)) + Long_val(offv);
+#ifdef _WIN32
+    if (Descr_kind_val(fdv) == KIND_SOCKET) {
+	SOCKET h = Socket_val(fdv);
+	enter_blocking_section();
+	ret = send(h, data, numbytes, 0);
+	if (ret == SOCKET_ERROR) err = WSAGetLastError();
+	leave_blocking_section();
+	ret = n;
+    } else {
+	HANDLE h = Handle_val(fdv);
+	enter_blocking_section();
+	if (! WriteFile(h, data, numbytes, &n, NULL)) err = GetLastError();
+	leave_blocking_section();
+	ret = n;
+    }
+    if (err) {
+	win32_maperr(err);
+	ret = -1;
+    }
+#else
+    enter_blocking_section();
+    ret = write(Int_val(fdv), data, (int) numbytes);
+    leave_blocking_section();
+#endif
+    if (ret == -1) uerror("mem_write", Nothing);
+    return Val_long(ret);
+}
+
+
+static int msg_flag_table[] = {
+  MSG_OOB, MSG_DONTROUTE, MSG_PEEK
+};
+
+
+CAMLprim value netsys_mem_recv(value fdv, value memv, value offv, value lenv,
+			       value flagsv)
+{
+    intnat numbytes;
+    intnat ret;
+    char *data;
+    int flags;
+#ifdef _WIN32
+    DWORD err = 0;
+    SOCKET s;
+#else
+    int s;
+#endif
+
+    numbytes = Long_val(lenv);
+    data = ((char *) (Bigarray_val(memv)->data)) + Long_val(offv);
+    flags = convert_flag_list(flagsv, msg_flag_table);
+
+#ifdef _WIN32
+    s = Socket_val(fdv);
+#else
+    s = Int_val(fdv);
+#endif
+
+    enter_blocking_section();
+    ret = recv(s, data, (int) numbytes, flags);
+
+#ifdef _WIN32
+    if (ret == -1) err = WSAGetLastError();
+    leave_blocking_section();
+    if (ret == -1) win32_maperr(err);
+#else
+    leave_blocking_section();
+#endif
+
+    if (ret == -1) uerror("mem_recv", Nothing);
+    return Val_long(ret);
+}
+
+
+CAMLprim value netsys_mem_send(value fdv, value memv, value offv, value lenv,
+			       value flagsv)
+{
+    intnat numbytes;
+    intnat ret;
+    char *data;
+    int flags;
+#ifdef _WIN32
+    DWORD err = 0;
+    SOCKET s;
+#else
+    int s;
+#endif
+
+    numbytes = Long_val(lenv);
+    data = ((char *) (Bigarray_val(memv)->data)) + Long_val(offv);
+    flags = convert_flag_list(flagsv, msg_flag_table);
+
+#ifdef _WIN32
+    s = Socket_val(fdv);
+#else
+    s = Int_val(fdv);
+#endif
+
+    enter_blocking_section();
+    ret = send(s, data, (int) numbytes, flags);
+
+#ifdef _WIN32
+    if (ret == -1) err = WSAGetLastError();
+    leave_blocking_section();
+    if (ret == -1) win32_maperr(err);
+#else
+    leave_blocking_section();
+#endif
+
+    if (ret == -1) uerror("mem_send", Nothing);
+    return Val_long(ret);
 }
 
 

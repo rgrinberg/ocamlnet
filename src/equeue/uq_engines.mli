@@ -1119,6 +1119,9 @@ object
   method alive : bool
     (** If the controller is alive, the socket is not yet completely down. *)
 
+  method mem_supported : bool
+    (** Whether [start_mem_reading] and [start_mem_writing] are possible *)
+
   method event_system : Unixqueue.event_system
     (** Returns the event system *)
 
@@ -1144,6 +1147,16 @@ object
       * from the underlying communication channel.
      *)
 
+  method start_mem_reading : 
+    ?peek:(unit -> unit) ->
+    when_done:(exn option -> int -> unit) -> Netsys_mem.memory -> int -> int ->
+    unit
+    (** Same as [start_reading], but puts the data into a [memory] buffer.
+        There is an optimization for the case that the descriptor is a
+        connected socket, or supports [Unix.read]. If this is not possible
+        the method raises [Mem_not_supported].
+     *)
+
   method cancel_reading : unit -> unit
     (** Cancels the read job. The [when_done] callback is invoked with the
       * number of bytes read so far (which may be 0) and the exception
@@ -1167,6 +1180,15 @@ object
       * after [when_done] has been invoked.
       *
       * It is an error to start writing several times.
+     *)
+
+  method start_mem_writing : 
+    when_done:(exn option -> int -> unit) -> Netsys_mem.memory -> int -> int ->
+    unit
+    (** Same as [start_writing], but takes the data from a [memory] buffer.
+        There is an optimization for the case that the descriptor is a
+        connected socket, or supports [Unix.write]. If this is not possible
+        the method raises [Mem_not_supported].
      *)
 
   method supports_half_open_connection : bool
@@ -1240,6 +1262,12 @@ object
      *)
 end
 
+
+exception Mem_not_supported
+  (** May be raised by multiplex controller methods [start_mem_reading] and
+      [start_mem_writing] if these methods are not supported for the kind
+      of file descriptor
+   *)
 
 val create_multiplex_controller_for_connected_socket : 
       ?close_inactive_descr:bool ->

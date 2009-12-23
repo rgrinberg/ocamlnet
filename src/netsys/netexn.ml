@@ -16,7 +16,7 @@ let registry =
 
 let register_printer e f =
   let anchor = Obj.field (Obj.repr e) 0 in
-  let name = (Obj.obj (Obj.field anchor 0) : string) in
+  let name = String.copy (Obj.obj (Obj.field anchor 0) : string) in
   
   let alist =
     try Hashtbl.find registry name with Not_found -> [] in
@@ -32,12 +32,25 @@ let register_printer e f =
 
 let to_string_opt (e : exn) : string option =
   let anchor = Obj.field (Obj.repr e) 0 in
-  let name = (Obj.obj (Obj.field anchor 0) : string) in
+  let name = String.copy (Obj.obj (Obj.field anchor 0) : string) in
 
   let f_opt =
     try
       let alist = Hashtbl.find registry name in
-      Some(List.assq anchor alist)
+      try
+	Some(List.assq anchor alist)
+      with
+	| Not_found ->
+(*
+	    prerr_endline "Strange: exn by name found, but not by anchor";
+	    prerr_endline ("name: " ^ name);
+	    prerr_endline ("anchor: " ^ 
+			     string_of_int(Obj.magic anchor : int));
+	    let ea = fst(List.hd alist) in
+	    prerr_endline ("expected anchor: " ^ 
+			     string_of_int(Obj.magic ea : int));
+ *)
+	    None
     with
       | Not_found ->
 	  None in

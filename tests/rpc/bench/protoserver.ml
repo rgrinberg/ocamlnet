@@ -271,7 +271,7 @@ let start_servers esys server_spec_list =
   let rec auto_restart f arg =
     try f arg
     with err ->
-      log ("Uncaught exception: " ^ Printexc.to_string err);
+      log ("Uncaught exception: " ^ Netexn.to_string err);
       auto_restart f arg
   in
 
@@ -296,7 +296,6 @@ let start_servers esys server_spec_list =
 	assert false
 ;;
 
-
 let main() =
   let want_tcp = ref false in
   let want_udp = ref false in
@@ -311,6 +310,18 @@ let main() =
 	      "           Listen on a Unix Domain Socket";
 	"-ssl", Arg.Set enable_ssl,
 	     "            Enable SSL (incompatible with -udp)";
+
+	"-debug", Arg.String (fun s -> Netlog.Debug.enable_module s),
+	"<module>  Enable debug messages for <module>";
+	
+	"-debug-all", Arg.Unit (fun () -> Netlog.Debug.enable_all()),
+	"  Enable all debug messages";
+	
+	"-debug-list", Arg.Unit (fun () -> 
+                                   List.iter print_endline (Netlog.Debug.names());
+                                   exit 0),
+	"  Show possible modules for -debug, then exit"
+	  
       ]
       (fun s -> raise(Arg.Bad("Unexpected argument")))
       "Usage: protoserver [ options ]";
@@ -320,7 +331,8 @@ let main() =
     if !enable_ssl then (
       Ssl.init();
       let ctx = 
-	Ssl.create_server_context Ssl.TLSv1 "testserver.crt" "testserver.key" in
+	Ssl.create_context Ssl.TLSv1 Ssl.Server_context in
+      Ssl.use_certificate ctx "testserver.crt" "testserver.key";
       Rpc_ssl.ssl_server_socket_config ctx
     )
     else

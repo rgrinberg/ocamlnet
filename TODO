@@ -85,6 +85,8 @@ Plan for Ocamlnet 3
 
   * Revisit: Netplex + UDP
 
+  * Netexn: does it work for exceptions raised from C? For ocamlopt?
+
 
 - Bug fixes:
   * RPC: prevent that xid's can be reused
@@ -97,6 +99,11 @@ Plan for Ocamlnet 3
 - syslog:
   * "syslog": Just calls syslog()
   * "syslog_emulation": The syslog protocol itself
+
+- mmap memory:
+  * also support for mprotect
+  * think about page pools, for cases where too many pages are mmap'ed.
+    Generalization of the free pages we manage in Netpagebuffer.
 
 
 - Other

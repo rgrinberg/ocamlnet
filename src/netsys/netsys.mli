@@ -352,6 +352,9 @@ val string_of_sockaddr : Unix.sockaddr -> string
       (for debug messages)
    *)
 
+val string_of_fd_style : fd_style -> string
+  (** Returns a string describing the fd style (debugging) *)
+
 val is_stdin : Unix.file_descr -> bool
 val is_stdout : Unix.file_descr -> bool
 val is_stderr : Unix.file_descr -> bool

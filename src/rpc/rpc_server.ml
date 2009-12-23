@@ -47,6 +47,7 @@ type rule =
     [ `Deny
     | `Drop
     | `Reject
+    | `Reject_with of Rpc.server_error
     | `Accept
     | `Accept_limit_length of (int * rule)
     ]
@@ -692,7 +693,7 @@ let rec unroll_rule r length =
   match r with
     | `Accept_limit_length(limit,r') ->
 	if length > limit then unroll_rule r' length else `Accept
-    | (`Drop | `Reject | `Deny | `Accept as other) -> 
+    | (`Drop | `Reject | `Reject_with _ | `Deny | `Accept as other) -> 
 	other
 ;;
 
@@ -751,7 +752,11 @@ let rec handle_incoming_message srv conn r =
 	      | `Reject pv ->
 		  process_incoming_message
 		    srv conn sockaddr peeraddr pv
-		    (Reject_procedure System_err)
+		    (Reject_procedure Auth_too_weak)
+	      | `Reject_with(pv,code) ->
+		  process_incoming_message
+		    srv conn sockaddr peeraddr pv
+		    (Reject_procedure code)
 	  );
 	  next_incoming_message srv conn  (* if still connected *)
 	)
@@ -789,6 +794,7 @@ and handle_before_record srv conn filter_var n trans_addr =
       | `Deny   -> terminate_connection srv conn; `Deny
       | `Drop   -> `Drop
       | `Reject -> `Reject
+      | `Reject_with code -> `Reject_with code
   )
 
 and peek_credentials srv conn =

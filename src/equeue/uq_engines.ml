@@ -994,18 +994,28 @@ end
 ;;
 
 
+exception Mem_not_supported
+
 class type multiplex_controller =
 object
   method alive : bool
+  method mem_supported : bool
   method event_system : Unixqueue.event_system
   method reading : bool
   method start_reading : 
     ?peek:(unit -> unit) ->
     when_done:(exn option -> int -> unit) -> string -> int -> int -> unit
+  method start_mem_reading : 
+    ?peek:(unit -> unit) ->
+    when_done:(exn option -> int -> unit) -> Netsys_mem.memory -> int -> int ->
+    unit
   method cancel_reading : unit -> unit
   method writing : bool
   method start_writing :
     when_done:(exn option -> int -> unit) -> string -> int -> int -> unit
+  method start_mem_writing : 
+    when_done:(exn option -> int -> unit) -> Netsys_mem.memory -> int -> int ->
+    unit
   method supports_half_open_connection : bool
   method start_writing_eof :
     when_done:(exn option -> unit) -> unit -> unit
@@ -1470,12 +1480,24 @@ class socket_multiplex_controller
       | `W32_pipe -> false
       | _ -> supports_half_open_connection in
 
+  let mem_supported =
+    match fd_style with
+      | `Read_write -> true
+      | `Recv_send _ -> true
+      | `Recv_send_implied -> true
+      | _ -> false in
+
+(*
+  let () =
+    prerr_endline ("fd style: " ^ Netsys.string_of_fd_style fd_style) in
+ *)
+
 object(self)
   val mutable alive = true
   val mutable read_eof = false
   val mutable wrote_eof = false
-  val mutable reading = None
-  val mutable writing = None
+  val mutable reading = `None
+  val mutable writing = `None
   val mutable writing_eof = None
   val mutable shutting_down = None
   val mutable disconnecting = None
@@ -1488,8 +1510,9 @@ object(self)
   val group = Unixqueue.new_group esys
 
   method alive = alive
-  method reading = reading <> None
-  method writing = writing <> None || writing_eof <> None
+  method mem_supported = mem_supported
+  method reading = reading <> `None
+  method writing = writing <> `None || writing_eof <> None
   method shutting_down = shutting_down <> None
   method read_eof = read_eof
   method wrote_eof = wrote_eof
@@ -1498,7 +1521,8 @@ object(self)
 
   method received_from =
     match rcvd_from with
-      | None -> failwith "#received_from: Nothing received yet, or unknown address"
+      | None -> 
+	  failwith "#received_from: Nothing received yet, or unknown address"
       | Some a -> a
 
   method send_to a =
@@ -1520,9 +1544,9 @@ object(self)
 	       (Oo.id self) (Netsys.int64_of_file_descr fd))
 
   method start_reading ?(peek = fun ()->()) ~when_done s pos len =
-    if pos < 0 || len < 0 || pos + len > String.length s then
+    if pos < 0 || len < 0 || pos > String.length s - len then
       invalid_arg "#start_reading";
-    if reading <> None then
+    if reading <> `None then
       failwith "#start_reading: already reading";
     if shutting_down <> None then
       failwith "#start_reading: already shutting down";
@@ -1530,7 +1554,27 @@ object(self)
       failwith "#start_reading: inactive connection";
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_in fd, -1.0);
-    reading <- Some(when_done, peek, s, pos, len);
+    reading <- `String(when_done, peek, s, pos, len);
+    disconnecting <- None;
+    dlogr (fun () ->
+	     sprintf
+	       "start_reading socket_multiplex_controller mplex=%d fd=%Ld"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd))
+
+
+  method start_mem_reading ?(peek = fun ()->()) ~when_done m pos len =
+    if not mem_supported then raise Mem_not_supported;
+    if pos < 0 || len < 0 || pos > Bigarray.Array1.dim m - len then
+      invalid_arg "#start_mem_reading";
+    if reading <> `None then
+      failwith "#start_mem_reading: already reading";
+    if shutting_down <> None then
+      failwith "#start_mem_reading: already shutting down";
+    if not alive then
+      failwith "#start_mem_reading: inactive connection";
+    self # check_for_connect();
+    Unixqueue.add_resource esys group (Unixqueue.Wait_in fd, -1.0);
+    reading <- `Mem(when_done, peek, m, pos, len);
     disconnecting <- None;
     dlogr (fun () ->
 	     sprintf
@@ -1540,18 +1584,23 @@ object(self)
 
   method cancel_reading () =
     match reading with
-      | None ->
+      | `None ->
 	  ()
-      | Some(f_when_done, _, _, _, _) ->
+      | `String(f_when_done, _, _, _, _) ->
+	  self # really_cancel_reading();
+	  anyway
+	    ~finally:self#check_for_disconnect
+	    (f_when_done (Some Cancelled)) 0
+      | `Mem(f_when_done, _, _, _, _) ->
 	  self # really_cancel_reading();
 	  anyway
 	    ~finally:self#check_for_disconnect
 	    (f_when_done (Some Cancelled)) 0
 
   method private really_cancel_reading() =
-    if reading <> None then (
+    if reading <> `None then (
       Unixqueue.remove_resource esys group (Unixqueue.Wait_in fd);
-      reading <- None;
+      reading <- `None;
       dlogr (fun () ->
 	       sprintf
 		 "cancel_reading socket_multiplex_controller mplex=%d fd=%Ld"
@@ -1559,9 +1608,9 @@ object(self)
     )
 
   method start_writing ~when_done s pos len =
-    if pos < 0 || len < 0 || pos + len > String.length s then
+    if pos < 0 || len < 0 || pos > String.length s - len then
       invalid_arg "#start_writing";
-    if writing <> None || writing_eof <> None then
+    if writing <> `None || writing_eof <> None then
       failwith "#start_writing: already writing";
     if shutting_down <> None then
       failwith "#start_writing: already shutting down";
@@ -1571,7 +1620,28 @@ object(self)
       failwith "#start_writing: inactive connection";
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_out fd, -1.0);
-    writing <- Some(when_done, s, pos, len);
+    writing <- `String(when_done, s, pos, len);
+    disconnecting <- None;
+    dlogr (fun () ->
+	     sprintf
+	       "start_writing socket_multiplex_controller mplex=%d fd=%Ld"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd))
+
+  method start_mem_writing ~when_done m pos len =
+    if not mem_supported then raise Mem_not_supported;
+    if pos < 0 || len < 0 || pos > Bigarray.Array1.dim m - len then
+      invalid_arg "#start_mem_writing";
+    if writing <> `None || writing_eof <> None then
+      failwith "#start_mem_writing: already writing";
+    if shutting_down <> None then
+      failwith "#start_mem_writing: already shutting down";
+    if wrote_eof then
+      failwith "#start_mem_writing: already past EOF";
+    if not alive then
+      failwith "#start_mem_writing: inactive connection";
+    self # check_for_connect();
+    Unixqueue.add_resource esys group (Unixqueue.Wait_out fd, -1.0);
+    writing <- `Mem(when_done, m, pos, len);
     disconnecting <- None;
     dlogr (fun () ->
 	     sprintf
@@ -1582,7 +1652,7 @@ object(self)
     if not supports_half_open_connection then
       failwith "#start_writing_eof: operation not supported";
     (* From here on we know fd is not a named pipe *)
-    if writing <> None || writing_eof <> None then
+    if writing <> `None || writing_eof <> None then
       failwith "#start_writing_eof: already writing";
     if shutting_down <> None then
       failwith "#start_writing_eof: already shutting down";
@@ -1602,14 +1672,14 @@ object(self)
 
   method cancel_writing () =
     match writing, writing_eof with
-      | None, None ->
+      | `None, None ->
 	  ()
-      | Some(f_when_done, _, _, _), None ->
+      | (`String(f_when_done, _, _, _) | `Mem(f_when_done, _, _, _)), None ->
 	  self # really_cancel_writing();
 	  anyway
 	    ~finally:self#check_for_disconnect
 	    (f_when_done (Some Cancelled)) 0
-      | None, Some f_when_done ->
+      | `None, Some f_when_done ->
 	  self # really_cancel_writing();
 	  anyway
 	    ~finally:self#check_for_disconnect
@@ -1618,9 +1688,9 @@ object(self)
 	  assert false
 
   method private really_cancel_writing() =
-    if writing <> None || writing_eof <> None then (
+    if writing <> `None || writing_eof <> None then (
       Unixqueue.remove_resource esys group (Unixqueue.Wait_out fd);
-      writing <- None;
+      writing <- `None;
       writing_eof <- None;
       dlogr (fun () ->
 	       sprintf
@@ -1630,7 +1700,7 @@ object(self)
     )
 
   method start_shutting_down ?(linger = 60.0) ~when_done () =
-    if reading <> None || writing <> None || writing_eof <> None then
+    if reading <> `None || writing <> `None || writing_eof <> None then
       failwith "#start_shutting_down: still reading or writing";
     if shutting_down <> None then
       failwith "#start_shutting_down: already shutting down";
@@ -1686,7 +1756,7 @@ object(self)
     disconnecting <- None
 
   method private check_for_disconnect() =
-    if reading = None && writing = None && writing_eof = None && 
+    if reading = `None && writing = `None && writing_eof = None && 
          shutting_down = None && disconnecting = None then
 	   (
 	     let wid = Unixqueue.new_wait_id esys in
@@ -1695,6 +1765,27 @@ object(self)
 	     disconnecting <- Some disconnector
 	   )
 
+  method private notify_rd f_when_done exn_opt n =
+    self # really_cancel_reading();
+    dlogr (fun () ->
+	     sprintf
+	       "input_done \
+                socket_multiplex_controller mplex=%d fd=%Ld"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd));
+    anyway
+      ~finally:self#check_for_disconnect
+      (f_when_done exn_opt) n
+
+  method private notify_wr f_when_done exn_opt n =
+    self # really_cancel_writing();
+    dlogr (fun () ->
+	     sprintf
+	       "output_done \
+                socket_multiplex_controller mplex=%d fd=%Ld"
+	       (Oo.id self) (Netsys.int64_of_file_descr fd));
+    anyway
+      ~finally:self#check_for_disconnect
+      (f_when_done exn_opt) n
 
   method private handle_event ev =
     match ev with
@@ -1705,50 +1796,57 @@ object(self)
                         socket_multiplex_controller mplex=%d fd=%Ld"
 		     (Oo.id self) (Netsys.int64_of_file_descr fd));
 	  ( match reading with
-	      | None -> ()
-	      | Some (f_when_done, peek, s, pos, len) ->
+	      | `None -> ()
+	      | `String (f_when_done, peek, _, _, _)
+	      | `Mem    (f_when_done, peek, _, _, _) -> (
 		  peek();
-		  let exn_opt, n, notify =
-		    try
-		      let n = 
-			match fd_style with
-			  | `Recv_send(_,a) ->
-			      let n = Unix.recv fd s pos len [] in
-			      rcvd_from <- Some a;
-			      n
-			  | `Recvfrom_sendto ->
-			      let (n, a) = Unix.recvfrom fd s pos len [] in
-			      rcvd_from <- Some a;
-			      n
-			  | _ ->
-			      Netsys.gread fd_style fd s pos len
-		      in
-		      if n = 0 then (
-			read_eof <- true;
-			need_linger <- false;
-			(Some End_of_file, 0, true)
-		      )
-		      else
-			(None, n, true)
-		    with
-		      | Unix.Unix_error(Unix.EAGAIN,_,_)
-		      | Unix.Unix_error(Unix.EWOULDBLOCK,_,_)
-		      | Unix.Unix_error(Unix.EINTR,_,_) ->
-			  (None, 0, false)
-		      | error ->
-			  (Some error, 0, true)
-		  in
-		  if notify then (
-		    self # really_cancel_reading();
-		    dlogr (fun () ->
-			     sprintf
-			       "input_done \
-                                  socket_multiplex_controller mplex=%d fd=%Ld"
-			       (Oo.id self) (Netsys.int64_of_file_descr fd));
-		    anyway
-		      ~finally:self#check_for_disconnect
-		      (f_when_done exn_opt) n
-		  )
+		  try
+		    rcvd_from <- None;
+		    let n = 
+		      match reading with
+			| `None -> assert false
+			| `String(_,_, s, pos, len) -> (
+			    match fd_style with
+			      | `Recv_send(_,a) ->
+				  let n = Unix.recv fd s pos len [] in
+				  rcvd_from <- Some a;
+				  n
+			      | `Recvfrom_sendto ->
+				  let (n, a) = Unix.recvfrom fd s pos len [] in
+				  rcvd_from <- Some a;
+				  n
+			      | _ ->
+				  Netsys.gread fd_style fd s pos len
+			  )
+			| `Mem(_,_, m, pos, len) -> (
+			    match fd_style with
+			      | `Recv_send(_,a) ->
+				  let n = 
+				    Netsys_mem.mem_recv fd m pos len [] in
+				  rcvd_from <- Some a;
+				  n
+			      | `Recv_send_implied ->
+				  Netsys_mem.mem_recv fd m pos len []
+			      | `Read_write ->
+				  Netsys_mem.mem_read fd m pos len
+			      | _ ->
+				  assert false
+			  )  in
+		    if n = 0 then (
+		      read_eof <- true;
+		      need_linger <- false;
+		      self # notify_rd f_when_done (Some End_of_file) 0
+		    )
+		    else
+		      self # notify_rd f_when_done None n
+		  with
+		    | Unix.Unix_error(Unix.EAGAIN,_,_)
+		    | Unix.Unix_error(Unix.EWOULDBLOCK,_,_)
+		    | Unix.Unix_error(Unix.EINTR,_,_) ->
+			()
+		    | error ->
+			self # notify_rd f_when_done (Some error) 0
+		)
 	  );
 	  ( match shutting_down with
 	      | Some (f_when_done, op) when op = Unixqueue.Wait_in fd ->
@@ -1791,41 +1889,43 @@ object(self)
                         socket_multiplex_controller mplex=%d fd=%Ld"
 		     (Oo.id self) (Netsys.int64_of_file_descr fd));
 	  ( match writing with
-	      | None -> ()
-	      | Some (f_when_done, s, pos, len) ->
-		  let exn_opt, n, notify =
-		    try
-		      let n = 
-			match fd_style with
-			  | `Recvfrom_sendto ->
-			      ( match send_to with
-				  | None ->
-				      failwith "socket_multiplex_controller: Unknown receiver of message to send"
-				  | Some a ->
-				      Unix.sendto fd s pos len [] a
-			      )
-			  | _ ->
-			      Netsys.gwrite fd_style fd s pos len in
-		      (None, n, true)
-		    with
-		      | Unix.Unix_error(Unix.EAGAIN,_,_)
-		      | Unix.Unix_error(Unix.EWOULDBLOCK,_,_)
-		      | Unix.Unix_error(Unix.EINTR,_,_) ->
-			  (None, 0, false)
-		      | error ->
-			  (Some error, 0, true)
-		  in
-		  if notify then (
-		    self # really_cancel_writing();
-		    dlogr (fun () ->
-			     sprintf
-			       "output_done \
-                                  socket_multiplex_controller mplex=%d fd=%Ld"
-			       (Oo.id self) (Netsys.int64_of_file_descr fd));
-		    anyway
-		      ~finally:self#check_for_disconnect
-		      (f_when_done exn_opt) n
-		  )
+	      | `None -> ()
+	      | `String (f_when_done, _, _, _)
+	      | `Mem    (f_when_done, _, _, _) -> (
+		  try
+		    let n = 
+		      match writing with
+			| `None -> assert false
+			| `String(_, s, pos, len) -> (
+			    match fd_style with
+			      | `Recvfrom_sendto ->
+				  ( match send_to with
+				      | None ->
+					  failwith "socket_multiplex_controller: Unknown receiver of message to send"
+				      | Some a ->
+					  Unix.sendto fd s pos len [] a
+				  )
+			      | _ ->
+				  Netsys.gwrite fd_style fd s pos len 
+			  )
+			| `Mem(_, m, pos, len) -> (
+			    match fd_style with
+			      | `Recv_send _ ->
+				  Netsys_mem.mem_send fd m pos len []
+			      | `Read_write ->
+				  Netsys_mem.mem_write fd m pos len
+			      | _ ->
+				  assert false
+			  ) in
+		    self # notify_wr f_when_done None n
+		  with
+		    | Unix.Unix_error(Unix.EAGAIN,_,_)
+		    | Unix.Unix_error(Unix.EWOULDBLOCK,_,_)
+		    | Unix.Unix_error(Unix.EINTR,_,_) ->
+			()
+		    | error ->
+			self # notify_wr f_when_done (Some error) 0
+		)
 	  );
 	  ( match writing_eof with
 	      | None -> ()

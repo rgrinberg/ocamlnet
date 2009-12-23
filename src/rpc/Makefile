@@ -35,7 +35,7 @@ OCAMLOPT_OPTIONS_FOR_xdr.ml = -inline 5
 
 OCAMLDEP_OPTIONS = -syntax camlp4o -package camlp4.macro
 
-INCLUDES += $(INC_EQUEUE) $(INC_NETSYS)
+INCLUDES += $(INC_EQUEUE) $(INC_NETSYS) $(INC_NETSTRING)
 
 include $(TOP_DIR)/Makefile.rules
 

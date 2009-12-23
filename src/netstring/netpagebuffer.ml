@@ -49,7 +49,12 @@ let alloc_pages buf n =
 	  buf.pages.(k) <- pg;
 	  buf.free_list <- free_list'
       | [] ->
-	  buf.pages.(k) <- Netsys_mem.alloc_memory_pages buf.pgsize
+	  let p =
+	    try Netsys_mem.alloc_memory_pages buf.pgsize
+	    with Invalid_argument _ -> (* OS does not support it... *)
+	      Bigarray.Array1.create
+		Bigarray.char Bigarray.c_layout buf.pgsize in
+	  buf.pages.(k) <- p
   done;
   buf.n_pages <- n_pages'
 

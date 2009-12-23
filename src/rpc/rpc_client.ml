@@ -1335,13 +1335,14 @@ let use cl prog =
 let is_up cl =
   cl.ready
 
-let configure cl max_retransmission_trials timeout =
-  cl.max_retransmissions <- max_retransmission_trials;
-  cl.timeout <- timeout
-
 let configure_next_call cl max_retransmission_trials timeout =
   cl.next_max_retransmissions <- max_retransmission_trials;
   cl.next_timeout <- timeout
+
+let configure cl max_retransmission_trials timeout =
+  cl.max_retransmissions <- max_retransmission_trials;
+  cl.timeout <- timeout;
+  configure_next_call cl max_retransmission_trials timeout
 
 let set_dgram_destination cl addr_opt =
   cl.next_destination <- addr_opt

@@ -92,6 +92,9 @@ object(self)
 
   method supports_half_open_connection = false
 
+  method mem_supported = false
+
+
 
   method start_ssl_connecting ~when_done () =
     if state <> `Unset then
@@ -221,6 +224,8 @@ object(self)
       );
     reading <- Some (when_done, cancel_flag)
 
+  method start_mem_reading ?(peek = fun() -> ()) ~when_done m pos len =
+    raise Uq_engines.Mem_not_supported
 
   method cancel_reading () =
     dlogr
@@ -282,6 +287,10 @@ object(self)
 	       (false, false, fun () -> when_done (Some err) 0)
       );
     writing <- Some (when_done, cancel_flag)
+
+
+  method start_mem_writing ~when_done m pos len =
+    raise Uq_engines.Mem_not_supported
 
 
   method start_writing_eof ~when_done () =

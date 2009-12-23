@@ -17,7 +17,7 @@ fi
 tcp_port=0
 udp_port=0
 unix_path=/dummy
-source ./protosettings
+. ./protosettings
 
 # Stop the test server when this script exits:
 trap "kill -2 $pid" EXIT

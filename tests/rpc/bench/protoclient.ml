@@ -25,7 +25,7 @@ let register_test name f =
 let register_test_triple ?(tcp=true) ?(udp=true) ?(unix=true) name f =
   let socket_config =
     if !enable_ssl then
-      let ctx = Ssl.create_client_context Ssl.TLSv1 in
+      let ctx = Ssl.create_context Ssl.TLSv1 Ssl.Client_context in
       Rpc_ssl.ssl_client_socket_config ctx
     else
       Rpc_client.default_socket_config in
@@ -120,6 +120,20 @@ let register_revert() =
        Rpc_client.shut_down client;
        s = rlarge && s' = rlarge
     );
+
+  let huge = String.create 1000000 in
+  for i = 0 to 999999 do huge.[i] <- Char.chr (i land 0xff) done;
+  let rhuge = String.create 1000000 in
+  for i = 0 to 999999 do rhuge.[999999-i] <- Char.chr (i land 0xff) done;
+
+  register_test_triple ~udp:false "huge_revert"
+    (fun client ->
+       let s = C.revert client huge in
+       Rpc_client.shut_down client;
+       s = rhuge
+    );
+
+
 ;;
 
 (**********************************************************************)
@@ -127,10 +141,16 @@ let register_revert() =
 
 
 let register_batch_in () =
+  let cb_batch_in get =
+    try let _ = get() in failwith "No Message_timeout exception!"
+    with Rpc_client.Message_timeout -> 
+      (* prerr_endline "OK" *) ()
+  in
+    
   let test_batch_in client =
     Rpc_client.configure client 0 0.0;  (* configure immediate timeout *)
-    C.batch_in'async client (true,false,"Remote ") (fun _ -> ());
-    C.batch_in'async client (false,false,"Procedure ") (fun _ -> ());
+    C.batch_in'async client (true,false,"Remote ") cb_batch_in;
+    C.batch_in'async client (false,false,"Procedure ") cb_batch_in;
     Rpc_client.configure client 0 (-1.0);  (* disable timeout *)
     let response = C.batch_in client (false,true,"Call") in
     Rpc_client.shut_down client;
@@ -368,14 +388,30 @@ let main() =
   Arg.parse
     [ "-tcp_port", Arg.Int (fun n -> tcp_port := n),
       "<n>          Set the TCP port of the test server";
+
       "-udp_port", Arg.Int (fun n -> udp_port := n),
       "<n>          Set the UDP port of the test server";
+
       "-unix_path", Arg.String (fun s -> unix_path := s),
       "<path>      Set the path name of the Unix domain socket";
+
       "-ssl", Arg.Set enable_ssl,
       "                  Enable SSL (incompatible with UDP)";
+
       "-print", Arg.Set print_test_names,
       "                Print the available tests";
+
+      "-debug", Arg.String (fun s -> Netlog.Debug.enable_module s),
+      "<module>  Enable debug messages for <module>";
+
+      "-debug-all", Arg.Unit (fun () -> Netlog.Debug.enable_all()),
+      "  Enable all debug messages";
+
+      "-debug-list", Arg.Unit (fun () -> 
+                                 List.iter print_endline (Netlog.Debug.names());
+                                 exit 0),
+      "  Show possible modules for -debug, then exit"
+
     ]
     (fun s -> args := !args @ [s])
     "Usage: protoclient [ options ] test ...";
@@ -429,7 +465,7 @@ let main() =
 	   | false -> printf "failed\n"; flush stdout
        with
 	   err ->
-	     printf "exception occurred: %s\n" (Printexc.to_string err);
+	     printf "exception occurred: %s\n" (Netexn.to_string err);
 	     flush stdout
     )
     !tests_to_do

@@ -8,7 +8,7 @@
     The idea of this buffer is that input data is added to the last
     page of the buffer only (with [add_inplace]). If then all previous
     input was already a multiple of the page size, it is ensured that
-    the new input is added to its own page. This kind of input operation
+    the new input is added at a page boundary. This kind of input operation
     can often be accelerated by the OS ("zero copy network I/O").
  *)
 

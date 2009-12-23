@@ -267,6 +267,7 @@ type rule =
     [ `Deny
     | `Drop
     | `Reject
+    | `Reject_with of Rpc.server_error
     | `Accept
     | `Accept_limit_length of (int * rule)
     ]
@@ -279,7 +280,9 @@ val set_session_filter : t -> (Rpc_transport.sockaddr -> rule) -> unit
    *
    * `Deny: TCP connections are immediately closed; UDP packets are dropped
    * `Drop: The call is dropped (it does not allocate memory)
-   * `Reject: A response is sent back that the call is rejected (unauthorized)
+   * `Reject_with: A response is sent back that the call is rejected. The
+   *   parameter specified the error code
+   * `Reject: The same as [`Reject_with Rpc.Auth_too_weak]
    * `Accept: The call is accepted without limitation (the default if no
    *   filter is installed)
    * `Accept_limit_length(n,r): If the call is longer than n bytes, the rule

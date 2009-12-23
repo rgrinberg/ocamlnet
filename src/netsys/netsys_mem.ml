@@ -110,9 +110,61 @@ let init_value ?targetaddr mem offset v flags =
 external netsys_mem_read : Unix.file_descr -> memory -> int -> int -> int
   = "netsys_mem_read"
 
+external netsys_mem_write : Unix.file_descr -> memory -> int -> int -> int
+  = "netsys_mem_write"
+
 let mem_read fd mem off len =
   if len < 0 || off < 0 || len > Bigarray.Array1.dim mem - off then
     invalid_arg "Netsys_mem.mem_read";
   netsys_mem_read fd mem off len
 
-    
+let mem_write fd mem off len =
+  if len < 0 || off < 0 || len > Bigarray.Array1.dim mem - off then
+    invalid_arg "Netsys_mem.mem_write";
+  netsys_mem_write fd mem off len
+
+external netsys_mem_recv : 
+  Unix.file_descr -> memory -> int -> int -> Unix.msg_flag list -> int
+  = "netsys_mem_recv"
+
+(*
+external netsys_mem_recvfrom :
+  Unix.file_descr -> memory -> int -> int -> Unix.msg_flag list ->
+  int * Unix.sockaddr
+  = "netsys_mem_recvfrom"
+ *)
+
+external netsys_mem_send :
+  Unix.file_descr -> memory -> int -> int -> Unix.msg_flag list -> int
+  = "netsys_mem_send"
+
+(*
+external netsys_mem_sendto :
+  Unix.file_descr -> memory -> int -> int -> Unix.msg_flag list -> 
+  Unix.sockaddr -> int
+  = "netsys_mem_sendto" "netsys_mem_sendto_native"
+ *)
+
+let mem_recv fd mem off len flags =
+  if len < 0 || off < 0 || len > Bigarray.Array1.dim mem - off then
+    invalid_arg "Netsys_mem.mem_recv";
+  netsys_mem_recv fd mem off len flags
+
+(*
+let mem_recvfrom fd mem off len flags =
+  if len < 0 || off < 0 || len > Bigarray.Array1.dim mem - off then
+    invalid_arg "Netsys_mem.mem_recvfrom";
+  netsys_mem_recvfrom fd mem off len flags
+ *)
+
+let mem_send fd mem off len flags =
+  if len < 0 || off < 0 || len > Bigarray.Array1.dim mem - off then
+    invalid_arg "Netsys_mem.mem_send";
+  netsys_mem_send fd mem off len flags
+
+(*
+let mem_sendto fd mem off len flags addr =
+  if len < 0 || off < 0 || len > Bigarray.Array1.dim mem - off then
+    invalid_arg "Netsys_mem.mem_sendto";
+  netsys_mem_sendto fd mem off len flags addr
+ *)

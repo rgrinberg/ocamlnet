@@ -209,16 +209,23 @@ val init_value :
    *)
 
 val mem_read : Unix.file_descr -> memory -> int -> int -> int
-  (** Experimental version of [Unix.read] that uses a [memory] buffer.
+  (** A version of [Unix.read] that uses a [memory] buffer.
      Some OS allow faster I/O when [memory] is page-aligned
      (see [alloc_memory_pages]). Also, a copy in the stub function
      can be avoided. Both effects can result in a considerable speedup.
    *)
 
+val mem_write : Unix.file_descr -> memory -> int -> int -> int
+  (** A version of [Unix.single_write] that uses a [memory] buffer. *)
 
-(* Later: versions of I/O functions using memory: read, write, recv, send.
-   Use that in socket_multiplex_controller only for now (-> avoids one
-   copy!)
+val mem_recv : Unix.file_descr -> memory -> int -> int -> Unix.msg_flag list ->
+                 int
+val mem_send : Unix.file_descr -> memory -> int -> int -> Unix.msg_flag list ->
+                  int
+  (** Versions of [Unix.recv], and [Unix.send]
+      using [memory] buffers.
+   *)
+ (* N.B. recvfrom, sendto missing because of difficulties accessing sockaddr
+    from C
+  *)
 
-   Maybe even sendfile (for free OS only, of course)
- *)

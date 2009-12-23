@@ -147,6 +147,12 @@ CAMLextern int caml_rev_convert_signal_number (int);
 /* From socketaddr.h                                                  */
 /**********************************************************************/
 
+#ifdef HAS_SOCKLEN_T
+typedef socklen_t socklen_param_type;
+#else
+typedef int socklen_param_type;
+#endif
+
 union sock_addr_union {
     struct sockaddr s_gen;
 #ifndef _WIN32

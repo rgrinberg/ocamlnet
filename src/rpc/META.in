@@ -1,6 +1,6 @@
 description = "Ocamlnet - Remote Procedure Call (RPC)"
 version = "@VERSION@"
-requires = "pcre,equeue,unix"
+requires = "pcre,equeue,unix,netstring"
 archive(byte) = "rpc.cma"
 archive(native) = "rpc.cmxa"
 

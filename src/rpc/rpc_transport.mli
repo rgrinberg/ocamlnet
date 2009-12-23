@@ -40,6 +40,7 @@ type in_rule =
     [ `Deny
     | `Drop
     | `Reject
+    | `Reject_with of Rpc.server_error
     | `Accept
     ]
 
@@ -47,6 +48,7 @@ type in_record =
     [ `Deny
     | `Drop
     | `Reject of packed_value  (* only the beginning of the message! *)
+    | `Reject_with of packed_value * Rpc.server_error
     | `Accept of packed_value  (* the full message *)
     ]
 
