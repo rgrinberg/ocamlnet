@@ -210,7 +210,7 @@ let rec merge_into_0 out k_out in_arrays k_in =
   assert(l_in > 0);
 
   if l_in = 1 then (
-    let a = in_arrays.(0) in
+    let a = !(in_arrays.(0)) in
     let l = Array.length a - k_in.(0) in
     Array.blit a k_in.(0) out !k_out l;
     k_out := !k_out + l
@@ -225,10 +225,10 @@ and merge_into_1 out k_out in_arrays k_in =
   try
     while true do
       (* Find the smallest in_array element: *)
-      let smallest_v = ref in_arrays.(0).(k_in.(0)) in
+      let smallest_v = ref !(in_arrays.(0)).(k_in.(0)) in
       let smallest_p = ref 0 in
       for i = 1 to l_in-1 do
-	let v = in_arrays.(i).(k_in.(i)) in
+	let v = !(in_arrays.(i)).(k_in.(i)) in
 	if v << !smallest_v then (
 	  smallest_v := v;
 	  smallest_p := i
@@ -239,7 +239,7 @@ and merge_into_1 out k_out in_arrays k_in =
       if !k_out = l_out then raise Merge_exit;
       let k_new = k_in.( !smallest_p ) + 1 in
       k_in.( !smallest_p ) <- k_new;
-      if k_new = Array.length in_arrays.( !smallest_p ) then
+      if k_new = Array.length !(in_arrays.( !smallest_p )) then
 	raise (Merge_done_array !smallest_p)
     done
   with
@@ -283,7 +283,7 @@ let sort esys data worker_endpoints when_done =
   let subarray_info = 
     get_subarray_info n_workers (Array.length data) in
   let to_merge =
-    Array.make n_workers [| |] in
+    Array.make n_workers (ref [| |]) in
     
   let runcounter = ref 0 in
   let errorflag = ref false in
@@ -297,12 +297,15 @@ let sort esys data worker_endpoints when_done =
 	    decr runcounter;
 	    if not !errorflag then (
 	      (* Note that sdata_sorted is only valid memory until [cleanup]
-                 is called. Be careful with that!
+                 is called. Be careful with that! We cannot attach a finaliser
+                 to sdata_sorted directly (it is living outside of the heap)
+                 but with some care the ref cell around it will work.
 	       *)
-	      to_merge.(p) <- sdata_sorted;
+	      let sdata_sorted_cell = ref sdata_sorted in
+	      to_merge.(p) <- sdata_sorted_cell;
 	      Gc.finalise 
 		(fun _ -> Netlog.logf `Info "Cleanup"; cleanup()) 
-		sdata_sorted;
+		sdata_sorted_cell;
 	      (* If all subarrays have arrived, start the merge: *)
 	      if !runcounter = 0 then (
 		merge_into data to_merge;
