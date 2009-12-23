@@ -33,6 +33,10 @@ let time f =
 
 
 let main() =
+  (* Turn off compaction: *)
+  let gc = Gc.get() in
+  Gc.set { gc with Gc.max_overhead = 1000000 };
+
   let host = ref "localhost" in
   let port = ref 2021 in
   let mode = ref `Server in

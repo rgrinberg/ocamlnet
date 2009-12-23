@@ -33,5 +33,9 @@ let start() =
 
 
 let () =
+  (* Turn off compaction: *)
+  let gc = Gc.get() in
+  Gc.set { gc with Gc.max_overhead = 1000000 };
+
   Netsys_signal.init();
   start()
