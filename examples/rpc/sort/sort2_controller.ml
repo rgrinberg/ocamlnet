@@ -174,15 +174,16 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
 		       (* Get the sorted subarray: *)
 		       let sdata_sorted =
 			 Netsys_mem.as_value ctrl_mem ctrl_offset in
-		       when_done sdata_sorted;
+		       when_done 
+			 sdata_sorted
+			 (fun () -> free_shm ctrl_shm);
 		       (* Do some cleanup. Note that we assume now that
                           we don't access sdata_sorted any longer! 
 			*)
 		       Sort2_proto_clnt.Worker.V1.free_shm'async
 			 client
 			 (worker_shm)
-			 (fun _ -> ());
-		       free_shm ctrl_shm
+			 (fun _ -> ())
 		     with
 		       | error ->
 			   when_error error
@@ -199,6 +200,9 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
 exception Merge_exit
 exception Merge_done_array of int
 
+
+let ( << ) s1 s2 =
+  Netsys_mem.cmp_string s1 s2 < 0
 
 let rec merge_into_0 out k_out in_arrays k_in =
   let l_in = Array.length in_arrays in
@@ -225,7 +229,7 @@ and merge_into_1 out k_out in_arrays k_in =
       let smallest_p = ref 0 in
       for i = 1 to l_in-1 do
 	let v = in_arrays.(i).(k_in.(i)) in
-	if v < !smallest_v then (
+	if v << !smallest_v then (
 	  smallest_v := v;
 	  smallest_p := i
 	)
@@ -283,34 +287,46 @@ let sort esys data worker_endpoints when_done =
     
   let runcounter = ref 0 in
   let errorflag = ref false in
+  let cleanups = ref [] in
     
+  let do_cleanup() =
+    List.iter (fun f -> f()) !cleanups in
+
   Array.iteri
     (fun p (k,l) ->
        let worker_endpoint = worker_endpoints.(p) in
        sort_subarray
 	 esys worker_endpoint data (k,l) 
-	 (fun sdata_sorted ->  (* when_done *)
+	 (fun sdata_sorted cleanup ->  (* when_done *)
 	    decr runcounter;
+	    cleanups := cleanup :: !cleanups;
 	    if not !errorflag then (
-	      (* We copy the sub array (shm is going to be freed): *)
-	      to_merge.(p) <- Array.map String.copy sdata_sorted;
+	      (* Note that sdata_sorted is only valid memory until [cleanup]
+                 is called. Be careful with that!
+	       *)
+	      to_merge.(p) <- sdata_sorted;
 	      (* If all subarrays have arrived, start the merge: *)
 	      if !runcounter = 0 then (
 		merge_into data to_merge;
 		(* and reply: *)
+		do_cleanup();
 		when_done (Some data)
 	      )
 	    );
-	    if !errorflag && !runcounter = 0 then
+	    if !errorflag && !runcounter = 0 then (
+	      do_cleanup();
 	      when_done None
+	    )
 	 )
 	 (fun error ->         (* when_error *)
 	    decr runcounter;
 	    Netlog.logf `Err
 	      "Got exception: %s" (Netexn.to_string error);
 	    errorflag := true;
-	    if !runcounter = 0 then
+	    if !runcounter = 0 then (
+	      do_cleanup();
 	      when_done None
+	    )
 	 );
        incr runcounter
     )
