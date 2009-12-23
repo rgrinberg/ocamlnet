@@ -87,7 +87,7 @@ let shm_open_existing shm =
   mem
 
 
-let free_shm shm =
+let free_shm ?(immediate_unmap=false) shm =
   let (_,mem) =
     try
       Hashtbl.find shm_tbl shm.shm_name
@@ -95,7 +95,8 @@ let free_shm shm =
       | Not_found ->
 	  failwith("Shared mem object not found: " ^ shm.shm_name) in
   Netsys_posix.shm_unlink shm.shm_name;
-  Netsys_mem.memory_unmap_file mem;
+  if immediate_unmap then
+    Netsys_mem.memory_unmap_file mem;   (* dangerous ! *)
   Hashtbl.remove shm_tbl shm.shm_name
 
 
@@ -176,7 +177,7 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
 			 Netsys_mem.as_value ctrl_mem ctrl_offset in
 		       when_done 
 			 sdata_sorted
-			 (fun () -> free_shm ctrl_shm);
+			 (fun () -> free_shm ~immediate_unmap:true ctrl_shm);
 		       (* Do some cleanup. Note that we assume now that
                           we don't access sdata_sorted any longer! 
 			*)
