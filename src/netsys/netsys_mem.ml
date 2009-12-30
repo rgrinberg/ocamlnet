@@ -59,6 +59,17 @@ external memory_unmap_file : memory -> unit
 external as_value : memory -> int -> 'a
   = "netsys_as_value"
 
+external netsys_value_area_add : memory -> unit 
+  = "netsys_value_area_add"
+
+external netsys_value_area_remove : memory -> unit 
+  = "netsys_value_area_remove"
+
+let value_area m =
+  netsys_value_area_add m;
+  Gc.finalise netsys_value_area_remove m;
+  ()
+
 external cmp_string : string -> string -> int
   = "netsys_cmp_string"
 
@@ -86,7 +97,7 @@ let init_string mem offset len =
   if blen > memlen - offset then
     raise Out_of_space;
   netsys_init_string mem offset len;
-  (ws, blen)
+  (offset+ws, blen)
 
 
 type init_value_flag =

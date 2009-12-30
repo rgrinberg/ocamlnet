@@ -9,9 +9,11 @@ have_posix_pthread=0
 have_printexc_register_printer=0
 have_printexc_register_printer_bool=false
 code_printexc_register_printer='()'
+have_ocaml_fancy_page_tables=0
 
 ######################################################################
 
+rm -f configtests/printexc_register_printer.err
 printf "Checking whether Ocaml has Printexc.register_printer... "
 if ( cd configtests; ocamlc -c printexc_register_printer.ml ) \
      >>configtests/printexc_register_printer.err 2>&1
@@ -24,6 +26,27 @@ fi
 if [ $have_printexc_register_printer -gt 0 ]; then
     echo "found"
 else
+    echo "not found"
+fi
+
+
+######################################################################
+
+rm -f configtests/ocaml_fancy_page_tables.err
+printf "Checking whether Ocaml has fancy page tables... "
+if ( cd configtests; ocamlc -o ocaml_fancy_page_tables ocaml_fancy_page_tables.c main.ml -custom ) \
+     >>configtests/ocaml_fancy_page_tables.err 2>&1
+then
+    if (cd configtests; ./ocaml_fancy_page_tables); then
+	have_ocaml_fancy_page_tables=1
+    fi
+fi
+
+if [ $have_ocaml_fancy_page_tables -gt 0 ]; then
+    def_have_ocaml_fancy_page_tables="#define FANCY_PAGE_TABLES"
+    echo "found"
+else
+    def_have_ocaml_fancy_page_tables="#undef FANCY_PAGE_TABLES"
     echo "not found"
 fi
 
@@ -200,6 +223,7 @@ $def_have_posix_fadvise
 $def_have_posix_fallocate
 $def_have_posix_memalign
 $def_have_posix_pthread
+$def_have_ocaml_fancy_page_tables
 EOF
 
 cat <<EOF >netsys_conf.ml

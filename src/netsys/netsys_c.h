@@ -77,6 +77,20 @@
 #endif
 
 /**********************************************************************/
+/* From memory.h                                                      */
+/**********************************************************************/
+
+#ifdef FANCY_PAGE_TABLES
+#define Not_in_heap 0
+#define In_heap 1
+#define In_young 2
+#define In_static_data 4
+#define In_code_area 8
+int caml_page_table_add(int kind, void * start, void * end);
+int caml_page_table_remove(int kind, void * start, void * end);
+#endif
+
+/**********************************************************************/
 /* From unixsupport.h                                                 */
 /**********************************************************************/
 

@@ -397,6 +397,37 @@ CAMLprim value netsys_as_value(value memv, value offv)
     return (value) (b->data + Long_val(offv));
 }
 
+CAMLprim value netsys_value_area_add(value memv) 
+{
+#ifdef FANCY_PAGE_TABLES
+    struct caml_bigarray *b = Bigarray_val(memv);
+    int code;
+    code = caml_page_table_add(In_static_data,
+			       b->data,
+			       b->data + b->dim[0]);
+    if (code != 0) 
+	failwith("Netsys_mem.value_area: error");
+    return Val_unit;
+#else
+    invalid_argument("Netsys_mem.value_area");
+#endif
+}
+
+CAMLprim value netsys_value_area_remove(value memv) 
+{
+#ifdef FANCY_PAGE_TABLES
+    struct caml_bigarray *b = Bigarray_val(memv);
+    int code;
+    code = caml_page_table_remove(In_static_data,
+				  b->data,
+				  b->data + b->dim[0]);
+    /* Silently ignore errors... */
+    return Val_unit;
+#else
+    invalid_argument("Netsys_mem.value_area");
+#endif
+}
+
 CAMLprim value netsys_cmp_string(value s1, value s2)
 {
     mlsize_t l1, l2, k;
@@ -440,8 +471,8 @@ CAMLprim value netsys_init_string(value memv, value offv, value lenv)
     m_b = (char *) m;
     wosize = (len + sizeof (value)) / sizeof (value);  /* >= 1 */
     
-    m[0] = /* Make_header (wosize, 0, Caml_black) */
-	(value) (((header_t) wosize << 10) + (3 << 8));
+    m[0] = /* Make_header (wosize, String_tag, Caml_black) */
+	(value) (((header_t) wosize << 10) + (3 << 8) + String_tag);
     m[wosize] = 0;
 
     offset_index = Bsize_wsize (wosize) - 1;

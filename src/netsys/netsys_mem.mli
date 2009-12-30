@@ -68,7 +68,8 @@ val alloc_aligned_memory : int -> int -> memory
 
       Aligned memory can be useful for ensuring that the whole memory
       block is in the same cache line. A cache line typically has
-      128 bytes - but this is very platform-specific.
+      64 or 128 bytes - but this is very platform-specific. (Linux:
+      look at [/proc/cpuinfo].)
 
       This function is only available if the system has [posix_memalign].
    *)
@@ -116,7 +117,19 @@ val as_value : memory -> int -> 'a
       to crashes may happen).
 
       Some Ocaml primitives might not work on the returned values
-      (polymorphic equality, marshalling, hashing).
+      (polymorphic equality, marshalling, hashing) unless 
+      {!Netsys_mem.value_area} is called for the memory block.
+   *)
+
+val value_area : memory -> unit
+  (** Marks the memory block as value area. This enables that the
+      value primitives (polymorphic equality, marshalling, hashing)
+      return meaningful results. The memory area is automatically
+      unmarked when the finaliser for the memory block is run.
+
+      Be careful when marking sub arrays.
+
+      This function is first available since O'Caml 3.11.
    *)
 
 val cmp_string : string -> string -> int
@@ -195,12 +208,13 @@ val init_value :
         tags to mark foreign data.
 
       The function raises [Out_of_space] if the memory block is too small.
+      Cyclic input values are supported.
 
-      If the [Copy_simulate] flag is given, the bigarray is not modified.
-      In simulation mode, it is pretended that the bigarray is as large
-      as necessary to hold the value, no matter how large the bigarray really
+      If the [Copy_simulate] flag is given, [mem] is not modified.
+      In simulation mode, it is pretended that [mem] is as large
+      as necessary to hold the value, no matter how large [mem] really
       is. The returned values [voffset] and [bytelen] reflect how much
-      of the bigarray would have been used.
+      of [mem] would have been used.
 
       If the [targetaddr] argument is passed, it is assumed that the
       memory block is mapped at this address and not at the address it
