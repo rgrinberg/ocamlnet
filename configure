@@ -64,6 +64,62 @@ set_defaults
 version="3.0test1"
 exec_suffix=""
 
+######################################################################
+# Check OS
+
+with_rpc_auth_local=0
+with_rpc_xti=0
+
+printf "%s" "Checking operating system... "
+u=`uname`
+case "$u" in
+	CYGWIN*)
+		echo "Cygwin"
+		exec_suffix=".exe" ;;
+        MINGW*)
+		echo "MinGW"
+		exec_suffix=".exe"
+		mingw_lib=`get_path gcc`
+		mingw_lib=`dirname "$mingw_lib"`/../lib
+		OCAMLOPTFLAGS="-ccopt -L\"${mingw_lib}\""
+		;;
+        Linux)
+	        echo "Linux"
+		with_rpc_auth_local=1
+		[ -n "$adh_style" ] || adh_style=unixdomain
+		;;
+        *FreeBSD)             # also GNU/kFreeBSD
+	        echo "FreeBSD"
+		[ -n "$adh_style" ] || adh_style=unixdomain
+		;;
+        NetBSD)
+	        echo "NetBSD"
+		[ -n "$adh_style" ] || adh_style=unixdomain
+		;;
+        SunOS)
+	        case `uname -r` in
+		    [1234]*)
+		        echo "SunOS" ;;
+		    *)
+			echo "Solaris"
+			with_rpc_xti=1
+			[ -n "$adh_style" ] || adh_style=tirpc
+			;;
+		esac ;;
+	*)
+		echo "Generic" ;;
+esac
+
+if [ $with_rpc_auth_local -gt 0 ]; then
+    echo "    This OS supports passing credentials over Unix domain sockets"
+    echo "    Building rpc-auth-local"
+fi
+
+if [ $with_rpc_xti -gt 0 ]; then
+    echo "    This OS supports XTI networking"
+    echo "    Building rpc-xti"
+fi
+
 #######################################################################
 # Option parsing
 
@@ -342,8 +398,8 @@ mkdir -p tmp
 cat <<_EOF_ >tmp/t.ml
 let _ = Mutex.create();;
 _EOF_
-if ocamlopt -thread -o tmp/t unix.cmxa threads.cmxa tmp/t.ml 2>/dev/null; then
-    if tmp/t 2>/dev/null; then
+if ocamlopt -thread -o tmp/t${exec_suffix} ${OCAMLOPTFLAGS} unix.cmxa threads.cmxa tmp/t.ml 2>/dev/null; then
+    if tmp/t${exec_suffix} 2>/dev/null; then
 	mt_type=posix
 	mt_switch="-thread"
 	mt_comment="(ok)"
@@ -373,55 +429,6 @@ else
     echo "Get the PCRE-OCaml library from:"
     echo "http://www.ocaml.info/home/ocaml_sources.html"
     exit 1
-fi
-
-######################################################################
-# Check OS
-
-with_rpc_auth_local=0
-with_rpc_xti=0
-
-printf "%s" "Checking operating system... "
-u=`uname`
-case "$u" in
-	CYGWIN*)
-		echo "Cygwin"
-		exec_suffix=".exe" ;;
-        Linux)
-	        echo "Linux"
-		with_rpc_auth_local=1
-		[ -n "$adh_style" ] || adh_style=unixdomain
-		;;
-        *FreeBSD)             # also GNU/kFreeBSD
-	        echo "FreeBSD"
-		[ -n "$adh_style" ] || adh_style=unixdomain
-		;;
-        NetBSD)
-	        echo "NetBSD"
-		[ -n "$adh_style" ] || adh_style=unixdomain
-		;;
-        SunOS)
-	        case `uname -r` in
-		    [1234]*)
-		        echo "SunOS" ;;
-		    *)
-			echo "Solaris"
-			with_rpc_xti=1
-			[ -n "$adh_style" ] || adh_style=tirpc
-			;;
-		esac ;;
-	*)
-		echo "Generic" ;;
-esac
-
-if [ $with_rpc_auth_local -gt 0 ]; then
-    echo "    This OS supports passing credentials over Unix domain sockets"
-    echo "    Building rpc-auth-local"
-fi
-
-if [ $with_rpc_xti -gt 0 ]; then
-    echo "    This OS supports XTI networking"
-    echo "    Building rpc-xti"
 fi
 
 ######################################################################
