@@ -301,6 +301,9 @@ let sort esys data worker_endpoints when_done =
                  is called. Be careful with that! We cannot attach a finaliser
                  to sdata_sorted directly (it is living outside of the heap)
                  but with some care the ref cell around it will work.
+
+                 Note that in there is a ref to the bigarray in the cleanup
+                 closure, and this ref prevents that the shm is unmapped.
 	       *)
 	      let sdata_sorted_cell = ref sdata_sorted in
 	      to_merge.(p) <- sdata_sorted_cell;

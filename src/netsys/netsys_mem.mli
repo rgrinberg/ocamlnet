@@ -208,6 +208,8 @@ val init_value :
       to be mapped at a different address than it is right now.
    *)
 
+(** {2 I/O using [memory] as buffers} *)
+
 val mem_read : Unix.file_descr -> memory -> int -> int -> int
   (** A version of [Unix.read] that uses a [memory] buffer.
      Some OS allow faster I/O when [memory] is page-aligned
@@ -229,3 +231,38 @@ val mem_send : Unix.file_descr -> memory -> int -> int -> Unix.msg_flag list ->
     from C
   *)
 
+(** {2 Buffer pools} *)
+
+type memory_pool
+  (** A pool of [memory] blocks that are all the same size and page-aligned
+      (if the OS supports this). The pool tries to bundle memory allocations
+      so that not for every block a system call is required. This reduces
+      the number of system calls, and the number of entries in the process
+      page table. Also, unused blocks are automatically returned to the
+      pool.
+   *)
+
+val create_pool : int -> memory_pool
+  (** Create a new pool. The argument is the size of the memory blocks
+      (must be a multiple of the page size) 
+   *)
+
+val pool_alloc_memory : memory_pool -> memory
+  (** [let (m,free) = pool_alloc_memory p]: 
+      Gets a memory block [m] from the pool [p]. If required, new blocks are 
+      automatically allocated and added to the pool. This function is
+      thread-safe.
+
+      The memory block is automatically garbage-collected.
+   *)
+
+val pool_block_size : memory_pool -> int
+  (** Returns the size of the memory blocks in bytes *)
+
+val default_pool : memory_pool
+  (** The default pool with the default block size. This pool is used
+      by Ocamlnet itself as much as possible
+   *)
+
+val pool_report : memory_pool -> string
+  (** Returns a report describing the memory allocation in the pool *)

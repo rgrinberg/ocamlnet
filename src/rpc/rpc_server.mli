@@ -151,6 +151,9 @@ val create :
     *   terminate if they see an EOF on the stream; in this case the stream
     *   is closed by the server
     * - the [create] function may block if the connector is Portmapped
+    *
+    * {b Note for UDP servers:} Due to limitations of the ocaml runtime
+    * there is a limit of 16K per message.
     *)
 
 class type socket_config =
@@ -297,7 +300,7 @@ val set_session_filter : t -> (Rpc_transport.sockaddr -> rule) -> unit
    * which accepts messages up to n bytes without limit, and denies longer
    * messages. n is the length of the longest sensible message.
    *
-   * For UDP servers, there is an implicit limit of 8000 bytes, so it is
+   * For UDP servers, there is an implicit limit of 16K, so it is
    * not necessary to care about this.
    *
    * Another application is to restrict which systems can contact this

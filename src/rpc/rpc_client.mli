@@ -194,7 +194,8 @@ val create2 :
    * programs/versions with the same client, use [unbound_create] instead.)
    *
    * All communication to the server is handled using the given queue
-   * [Unixqueue.event_system].
+   * [Unixqueue.event_system]. There is a limit of 2GB per message
+   * or [Sys.max_string_length], whatever is lower.
    *
    * If the protocol (passed along with [mode2]) is Tcp, the communication 
    * will be handled stream-oriented. In this case, no timeout is detected
@@ -205,6 +206,10 @@ val create2 :
    * bidirectional (Unix domain sockets are unidirectional and do not
    * work). For Udp, there is a timeout of 15 seconds and a maximum
    * of 3 retransmissions (i.e. a total of 4 transmission trials).
+   * For connected UDP sockets there is a limit of 64K per message
+   * (max. size of an Internet packet). For unconnected UDP sockets
+   * there is a limit of 16K per message due to restrictions in the
+   * OCaml runtime.
    *
    *
    * @param program_number Overrides the program number in [Rpc_program.t]

@@ -104,6 +104,7 @@ Plan for Ocamlnet 3
   * also support for mprotect
   * think about page pools, for cases where too many pages are mmap'ed.
     Generalization of the free pages we manage in Netpagebuffer.
+  * Netsys_mem support also for other protocol interpreters than RPC
 
 
 - Other

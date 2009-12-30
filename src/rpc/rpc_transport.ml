@@ -93,15 +93,13 @@ let () =
   Netlog.Debug.register_module "Rpc_transport" Debug.enable
 
 
-let mem_size = 65536        (* for allocated bigarrays *)
+let mem_size = Netsys_mem.pool_block_size Netsys_mem.default_pool
+  (* for allocated bigarrays *)
+
 let fallback_size = 16384   (* for I/O via Unix *)
 
 let mem_alloc() =
-  try
-    Netsys_mem.alloc_memory_pages mem_size
-  with Invalid_argument _ -> (* OS does not support it... *)
-    Bigarray.Array1.create
-      Bigarray.char Bigarray.c_layout mem_size
+  Netsys_mem.pool_alloc_memory Netsys_mem.default_pool
 
 
 let mem_dummy() =

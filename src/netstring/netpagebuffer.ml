@@ -10,11 +10,8 @@ type t =
       (* start_index: The first byte in the first page has this index *)
       mutable stop_index : int;
       (* stop_index: The first free byte in the last page *)
-      mutable free_list : (int * Netsys_mem.memory) list;
-      (* Pages that can be reclaimed. The int is the number of
-         major GC collections at the time the page was added to the free
-         list
-       *)
+      mutable pool : Netsys_mem.memory_pool
+      (* Pages that can be reclaimed *)
     }
 
 (* invariant: there is at least one free byte on the last page *)
@@ -44,39 +41,28 @@ let alloc_pages buf n =
   );
   let n_pages' = buf.n_pages + n in
   for k = buf.n_pages to n_pages'-1 do
-    match buf.free_list with
-      | (_,pg) :: free_list' ->
-	  buf.pages.(k) <- pg;
-	  buf.free_list <- free_list'
-      | [] ->
-	  let p =
-	    try Netsys_mem.alloc_memory_pages buf.pgsize
-	    with Invalid_argument _ -> (* OS does not support it... *)
-	      Bigarray.Array1.create
-		Bigarray.char Bigarray.c_layout buf.pgsize in
-	  buf.pages.(k) <- p
+    let p = Netsys_mem.pool_alloc_memory buf.pool in
+    buf.pages.(k) <- p
   done;
   buf.n_pages <- n_pages'
-
-
-let find_garbage buf =
-  let cur_age = (Gc.quick_stat()).Gc.major_collections in
-  buf.free_list <- (List.filter
-		      (fun (age, _) -> age >= cur_age - 1)
-		      buf.free_list)
 
 
 let create pgsize =
   let sys_pgsize = Netsys_mem.getpagesize() in
   if pgsize mod sys_pgsize <> 0 then
     failwith "Netpagebuffer.create: invalid pagesize";
-  let initial_page = Netsys_mem.alloc_memory_pages pgsize in
+  let pool = 
+    if pgsize = Netsys_mem.pool_block_size Netsys_mem.default_pool then
+      Netsys_mem.default_pool
+    else
+      Netsys_mem.create_pool pgsize in
+  let initial_page = Netsys_mem.pool_alloc_memory pool in
   { pgsize = pgsize;
     pages = [| initial_page |];
     n_pages = 1;
     start_index = 0;
     stop_index = 0;
-    free_list = []
+    pool = pool;
   }
 
 
@@ -206,8 +192,7 @@ let add_sub_string buf s pos len =
       buf.stop_index <- l;
       if l = buf.pgsize then buf.stop_index <- 0
     )
-  done;
-  find_garbage buf
+  done
   
 
 let add_string buf s =
@@ -246,20 +231,17 @@ let delete_hd buf n =
   if n < l_first_page then
     buf.start_index <- buf.start_index + n
   else (
-    let age = (Gc.quick_stat()).Gc.major_collections in
     let pages_to_delete =
       (n - l_first_page) / buf.pgsize + 1 in
     let new_start_index =
       (n - l_first_page) mod buf.pgsize in
-    for k = 0 to pages_to_delete-1 do
-      buf.free_list <- (age, buf.pages.(k)) :: buf.free_list;
-      buf.pages.(k) <- dummy_page
-    done;
     Array.blit
       buf.pages pages_to_delete buf.pages 0 (buf.n_pages - pages_to_delete);
     buf.n_pages <- buf.n_pages - pages_to_delete;
     buf.start_index <- new_start_index;
-    
+    for k = buf.n_pages to Array.length buf.pages - 1 do
+      buf.pages.(k) <- dummy_page
+    done
   );
   if buf.n_pages = 1 && buf.start_index = buf.stop_index then (
     buf.start_index <- 0;
@@ -268,9 +250,8 @@ let delete_hd buf n =
 
 
 let clear buf =
-  let age = (Gc.quick_stat()).Gc.major_collections in
   for k = 1 to buf.n_pages - 1 do
-    buf.free_list <- (age, buf.pages.(k)) :: buf.free_list
+    buf.pages.(k) <- dummy_page
   done;
   buf.n_pages <- 1;
   buf.start_index <- 0;
