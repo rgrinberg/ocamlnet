@@ -175,6 +175,7 @@ let sort_subarray esys worker_endpoint data (k,l) when_done when_error =
 		       (* Get the sorted subarray: *)
 		       let sdata_sorted =
 			 Netsys_mem.as_value ctrl_mem ctrl_offset in
+		       Netsys_mem.value_area ctrl_mem;
 		       when_done 
 			 sdata_sorted
 			 (fun () -> free_shm ~immediate_unmap:true ctrl_shm);
@@ -202,9 +203,6 @@ exception Merge_exit
 exception Merge_done_array of int
 
 
-let ( << ) s1 s2 =
-  Netsys_mem.cmp_string s1 s2 < 0
-
 let rec merge_into_0 out k_out in_arrays k_in =
   let l_in = Array.length in_arrays in
 
@@ -230,7 +228,7 @@ and merge_into_1 out k_out in_arrays k_in =
       let smallest_p = ref 0 in
       for i = 1 to l_in-1 do
 	let v = !(in_arrays.(i)).(k_in.(i)) in
-	if v << !smallest_v then (
+	if v < !smallest_v then (
 	  smallest_v := v;
 	  smallest_p := i
 	)

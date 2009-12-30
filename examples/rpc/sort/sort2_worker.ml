@@ -47,10 +47,11 @@ let proc_sort_shm session (shm,data_offset) emit =
 	  failwith("Shared mem object not found: " ^ shm.shm_name) in
   let data =
     (Netsys_mem.as_value mem data_offset : string array) in
+  Netsys_mem.value_area mem;
   Netplex_cenv.logf `Info
     "Sorting %d elements" (Array.length data);
   let t0 = Unix.gettimeofday() in
-  Array.sort Netsys_mem.cmp_string data;
+  Array.sort String.compare data;
   let t1 = Unix.gettimeofday() in
   Netplex_cenv.logf `Info "time for sort: %f" (t1-.t0);
   emit ()

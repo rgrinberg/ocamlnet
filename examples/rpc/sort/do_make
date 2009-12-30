@@ -1,0 +1,5 @@
+#! /bin/sh
+
+OCAMLPATH=../../../src \
+	make all opt \
+	OCAMLRPCGEN=../../../src/rpc-generator/ocamlrpcgen
