@@ -458,6 +458,10 @@ f examples/netplex/helper_container.ml
 f examples/netplex/operation.x
 f examples/netplex/test_client.ml
 
+d examples/netsys
+f examples/netsys/Makefile
+f examples/netsys/sem_pingpong.ml
+
 d doc
 d doc/html-main
 p doc/html-main/.*\.html

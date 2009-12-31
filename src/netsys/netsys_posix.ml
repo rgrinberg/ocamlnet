@@ -478,6 +478,104 @@ external shm_open : string -> shm_open_flag list -> int -> file_descr
   = "netsys_shm_open"
 external shm_unlink : string -> unit = "netsys_shm_unlink"
 
+type sem_kind = [ `Named | `Anonymous ]
+
+type sem_rep
+
+type 'sem_kind semaphore =
+    Netsys_types.memory * sem_rep
+      (* We keep a reference to the bigarray to prevent that it is
+         collected while a semaphore is stored in it
+       *)
+
+type named_semaphore = [ `Named ] semaphore
+type anon_sempahore = [ `Anonymous ] semaphore
+
+type sem_open_flag =
+  | SEM_O_CREAT
+  | SEM_O_EXCL
+
+type sem_wait_behavior =
+  | SEM_WAIT_BLOCK
+  | SEM_WAIT_NONBLOCK
+
+let dummy_mem =
+  Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
+
+external have_posix_semaphores : unit -> bool 
+  = "netsys_have_sem"
+
+external netsys_sem_size : unit -> int
+  = "netsys_sem_size"
+
+external netsys_sem_value_max : unit -> int
+  = "netsys_sem_value_max"
+
+let sem_size = netsys_sem_size()
+
+let sem_value_max = netsys_sem_value_max()
+
+
+external netsys_sem_open :
+  string -> sem_open_flag list -> int -> int -> sem_rep
+  = "netsys_sem_open"
+
+let sem_open name flags mode init_value =
+  if init_value < 0 || init_value > sem_value_max then
+    invalid_arg "Netsys_posix.sem_open";
+  let sr = netsys_sem_open name flags mode init_value in
+  (dummy_mem, sr)
+
+external netsys_sem_close : sem_rep -> unit 
+  = "netsys_sem_close"
+
+let sem_close (_,sr) = netsys_sem_close sr
+
+external sem_unlink : string -> unit 
+  = "netsys_sem_unlink"
+
+external netsys_sem_init : 
+  Netsys_types.memory -> int -> bool -> int -> sem_rep
+  = "netsys_sem_init"
+
+let sem_init mem pos pshared init_value =
+  if pos < 0 || pos > Bigarray.Array1.dim mem - sem_size then
+    invalid_arg "Netsys_posix.sem_init";
+  if init_value < 0 || init_value > sem_value_max then
+    invalid_arg "Netsys_posix.sem_init";
+  let sr = netsys_sem_init mem pos pshared init_value in
+  (mem,sr)
+
+external netsys_as_sem : Netsys_types.memory -> int -> sem_rep
+  = "netsys_as_sem"
+
+let as_sem mem pos = 
+  if pos < 0 || pos > Bigarray.Array1.dim mem - sem_size then
+    invalid_arg "Netsys_posix.as_sem";
+  let sr = netsys_as_sem mem pos in
+  (mem,sr)
+
+external netsys_sem_destroy : sem_rep -> unit
+  = "netsys_sem_destroy"
+
+let sem_destroy (_,sr) = netsys_sem_destroy sr
+  
+external netsys_sem_getvalue : sem_rep -> int
+  = "netsys_sem_getvalue"
+
+let sem_getvalue (_,sr) = netsys_sem_getvalue sr
+
+external netsys_sem_post : sem_rep -> unit
+  = "netsys_sem_post"
+
+let sem_post (_,sr) = netsys_sem_post sr
+
+external netsys_sem_wait : sem_rep -> sem_wait_behavior -> unit
+  = "netsys_sem_wait"
+
+let sem_wait (_,sr) b = netsys_sem_wait sr b
+
+
 type ioprio_target =
   | Ioprio_process of int
   | Ioprio_pgrp of int

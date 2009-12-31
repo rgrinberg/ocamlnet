@@ -475,8 +475,8 @@ external shm_open : string -> shm_open_flag list -> int -> Unix.file_descr
     *
     * On success, the function returns a file descriptor representing the
     * object. To access the object, one has to memory-map this file
-    * (in O'Caml use one of the [map_file] functions in the [Bigarray]
-    * module). Use [Unix.ftruncate] to resize the object.
+    * use one of the [map_file] functions in the [Bigarray]
+    * module, or in {!Netsys_mem}). Use [Unix.ftruncate] to resize the object.
     *
     * Note that it is unspecified whether this file pops up somewhere
     * in the file system, and if so, where.
@@ -487,6 +487,106 @@ external shm_open : string -> shm_open_flag list -> int -> Unix.file_descr
 
 external shm_unlink : string -> unit = "netsys_shm_unlink"
   (** Unlinks the name for a shared memory object *)
+
+
+(** {1 POSIX semaphores} *)
+
+val have_posix_semaphores : unit -> bool
+  (** Returns [true] if POSIX semaphores are supported on this system *)
+
+(** {b Constants.} *)
+
+val sem_value_max : int
+  (** The maximum value of a semaphore, but at most [max_int] *)
+
+val sem_size : int
+  (** The size of an anonymous semaphore in bytes ([sizeof(sem_t)]) *)
+
+(** {b Types.} *)
+
+type sem_kind = [ `Named | `Anonymous ]
+
+type 'sem_kind semaphore
+
+type named_semaphore = [ `Named ] semaphore
+type anon_sempahore = [ `Anonymous ] semaphore
+
+type sem_open_flag =
+  | SEM_O_CREAT
+  | SEM_O_EXCL
+
+(** {b Named semaphores.} *)
+
+val sem_open : 
+  string -> sem_open_flag list -> int -> int -> named_semaphore
+  (** [sem_open name flags mode init_value]: Opens a named semaphore
+      which is optionally created. Sempahore names usually begin with
+      a slash followed by a single name component (not containing a
+      further slash).
+
+      Interpretation of [flags]:
+      - [SEM_O_CREAT]: The semaphore is created if not yet existing.
+        The [mode] and [init_value] are interpreted if the creation
+        actually occurs. [mode] is the permission of the semaphore.
+        [init_value] is the (non-negative) initial value, up to
+        [sem_value_max].
+      - [SEM_O_EXCL]: The semaphore is only opened if the semaphore
+        does not exist yet. Othwerwise an [EEXIST] error is returned
+   *)
+
+val sem_close : named_semaphore -> unit
+  (** Closes a named semaphore. Semaphores are also automatically closed
+      when the GC finds that the semaphore is unreachable.
+   *)
+
+val sem_unlink : string -> unit
+  (** Unlinks the semaphore name *)
+
+(** {b Anonymous semaphores.} *)
+
+val sem_init : Netsys_types.memory -> int -> bool -> int -> 
+                 anon_sempahore
+  (** [sem_init mem pos pshared init_value]: Initializes the memory
+      at position [pos] to [pos + sem_size() - 1] as anonymous semaphore.
+      If [pshared] the semaphore is shared between processes. 
+      [init_value] is the initial non-negative value (max is 
+      [sem_value_max].
+   *)
+
+val sem_destroy : anon_sempahore -> unit
+  (** Destroys the anonymous semaphore *)
+
+val as_sem : Netsys_types.memory -> int -> anon_sempahore
+  (** [as_sem mem pos]: Interprets the memory at position [pos]
+      to [pos + sem_size() - 1] as anonymous semaphore.
+      The memory region must already have been initialized.
+   *)
+
+(** {b Operations.} *)
+
+val sem_getvalue : 'kind semaphore -> int
+  (** Returns the value of the semaphore. If the value is bigger than
+      what can be represented as [int], an [EINVAL] error is returned.
+
+      The returned value is non-negative - if the underlying POSIX
+      function reports a negative value zero is returned instead.
+   *)
+
+val sem_post : 'kind semaphore -> unit
+  (** Unlocks the semaphore (increases the value by 1) *)
+
+type sem_wait_behavior =
+  | SEM_WAIT_BLOCK
+  | SEM_WAIT_NONBLOCK
+
+val sem_wait : 'kind semaphore -> sem_wait_behavior -> unit
+  (** Locks the semaphore (decreases the value by 1). If the semaphore
+      value is already zero, and [SEM_WAIT_BLOCK] is given, the function
+      waits until another process or thread posts. If [SEM_WAIT_NONBLOCK]
+      the error [EAGAIN] is returned.
+
+      [sem_wait] may be interrupted by signals.
+   *)
 
 
 (** {1 Linux I/O Priorities} *)

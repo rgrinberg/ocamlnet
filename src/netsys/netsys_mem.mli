@@ -3,7 +3,7 @@
 (** Bigarrays as memory buffers *)
 
 type memory = 
-    (char,Bigarray.int8_unsigned_elt,Bigarray.c_layout) Bigarray.Array1.t
+    Netsys_types.memory
   (** We consider 1-dimensional bigarrays of chars as memory buffers.
       They have the useful property that the garbage collector cannot
       relocate them, i.e. the address is fixed. Also, one can mmap
@@ -165,7 +165,7 @@ val init_string_bytelen : int -> int
       [len].
    *)
 
-type init_value_flag =
+type init_value_flag = 
   | Copy_bigarray
   | Copy_custom
   | Copy_atom
