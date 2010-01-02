@@ -207,6 +207,15 @@ This library allows you to tunnel RPC through SSL/TLS.
     Rpc_ssl}
 
 
+{2:netcamlbox The [netcamlbox] library}
+
+Camlbox is a fast message-passing system between processes running on
+the same machine. It uses shared memory for communication. A message
+sent to a Camlbox is only copied once, not twice.
+
+{!modules:
+    Netcamlbox}
+
 {2:netclient The [netclient] library}
 
 This library includes clients for HTTP, Telnet, and (incomplete) FTP.
@@ -318,6 +327,7 @@ other Ocamlnet libraries.
     Netsys_posix
     Netsys_oothr
     Netsys_signal
+    Netsys_mem
     Netsys_pollset
     Netsys_pollset_generic
     Netsys_pollset_posix

@@ -1,22 +1,59 @@
 (* $Id$ *)
 
 (** Camlboxes are a fast IPC mechanism to send Ocaml values from one
-   process to another. (It is also a low-level mechanism that makes it
-   easy to crash the program. So be careful.)
+   process to another. Source and destination processes must run on
+   the same machine (no network). The Ocaml value is copied to a
+   shared memory object where it can be directly accessed by the
+   receiver without unmarshalling step. This means the sender writes
+   the value into the shared memory in a format that can immediately
+   interpreted by the receiver.
 
    A camlbox is owned by the single receiving process. Only this process
    (or a fork) can look for new messages and can read them. There can be
-   any number
-   of sending processes. The senders are not notified about whether
-   messages are received.
+   any number of sending processes, i.e. we have a n:1 message passing
+   scenario.
+
+   The receiver process creates the camlbox, and is seen as the owner.
+   The receiver is accountible for deleting the camlbox when it is no
+   longer needed.
+
+   The sender(s) can send messages to any existing camlbox. There is
+   no notification whether the messages are actually read. The sender,
+   however, blocks when the destination camlbox is full, and will only
+   proceed when the receiver makes room for new messages. If there is
+   space in the camlbox the sender does not need to synchronize with the
+   receiver, i.e. it is possible to put a message into the box when
+   the receiver is busy with something else (asynchronous send operation).
 
    Camlboxes have a fixed capacity of messages, and the message slots
-   have a fixed maximum length.
+   have a fixed maximum length. The messages can have any type with only
+   a few restrictions (e.g. no functions and no custom blocks). There is
+   no check whether the sender and the receiver assume the same type
+   of the messages. This is left to the user. Breaking this assumption
+   will lead to unpredictable effects, including program crashes.
+   It is strongly advised to only communicate between processes that
+   run the same executable.
+
+   The user is also responsible for keeping only references to 
+   existing messages. It is possible to get a value pointer 
+   for a certain message and then to delete the message. 
+   The user must no longer access the value - once the value is deleted
+   it may be overwritten, and the program may crash. Another danger
+   is that message values are modified so that pointers to heap
+   values are put into the message. This may lead to delayed crashes
+   when the heap value is moved to a different location or is even
+   deleted by the garbage collector. There is nothing the camlbox
+   implementation can do about that.
 
    On the system level, camlboxes are stored in POSIX shared memory
    objects. These objects have kernel persistence and continue to
    live after the process creating the camlbox has terminated without
    unlinking the box.
+
+   This module requires Ocaml 3.11 or newer. The system must support
+   POSIX shared memory and POSIX semaphores. Camlboxes may be used
+   in multi-threaded programs as long as the values [camlbox] and
+   [camlbox_sender] are not used by several threads at the same time.
  *)
 
 
@@ -90,10 +127,10 @@ val camlbox_delete : camlbox -> int -> unit
       raised.
    *)
 
-
 val camlbox_wait : camlbox -> int list
   (** Waits until new messages arrive, and return the message numbers.
-      A new message is only reported once by [camlbox_wait].
+      A new message is only reported once by [camlbox_wait]. The
+      order of the messages is not specified.
 
       Only one thread at a time must wait for new messages.
 
