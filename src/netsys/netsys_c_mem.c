@@ -540,8 +540,9 @@ int netsys_init_value_1(struct htab *t,
        new addresses, make a copy, and add these copies to t.
     */
 
-    fprintf(stderr, "first pass, orig_addr=%lx simulation=%d addr_delta=%lx\n",
+    /* fprintf(stderr, "first pass, orig_addr=%lx simulation=%d addr_delta=%lx\n",
        (unsigned long) orig_addr, simulation, addr_delta);
+    */
 
     code = netsys_queue_take(q, &work_addr);
     while (code != (-3)) {
@@ -744,7 +745,7 @@ int netsys_init_value_1(struct htab *t,
     */
 
     if (!simulation) {
-	fprintf(stderr, "second pass\n");
+	/* fprintf(stderr, "second pass\n"); */
 	mem_ptr = mem_data + off;
 	while (mem_ptr < mem_cur) {
 	    copy_header1 = *((header_t *) mem_ptr);
