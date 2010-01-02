@@ -32,7 +32,7 @@ let sender fd n =
   let bs = Netcamlbox.camlbox_sender_of_fd fd in
   for k = 1 to n do
     let (msg : int list ref) = 
-      ref [ 1 ] in
+      ref [ 1; 2; 3 ] in
     Netcamlbox.camlbox_send bs msg
   done;
   Netcamlbox.camlbox_send bs (ref [])
