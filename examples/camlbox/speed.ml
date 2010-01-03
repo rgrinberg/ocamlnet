@@ -1,4 +1,11 @@
-(* Send small messages to a forked subprocess *)
+(* Send small messages to a forked subprocess
+
+   Invoke like:
+
+   ./speed <n>
+
+   where <n> are the number of messages to send.
+ *)
 
 let name = "camlbox_" ^ string_of_int(Unix.getpid())
 
