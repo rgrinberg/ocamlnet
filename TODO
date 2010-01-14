@@ -85,8 +85,6 @@ Plan for Ocamlnet 3
 
   * Revisit: Netplex + UDP
 
-  * Netexn: does it work for exceptions raised from C? For ocamlopt?
-
 
 - Bug fixes:
   * RPC: prevent that xid's can be reused
@@ -102,8 +100,6 @@ Plan for Ocamlnet 3
 
 - mmap memory:
   * also support for mprotect
-  * think about page pools, for cases where too many pages are mmap'ed.
-    Generalization of the free pages we manage in Netpagebuffer.
   * Netsys_mem support also for other protocol interpreters than RPC
 
 
@@ -117,6 +113,7 @@ Plan for Ocamlnet 3
 
   * Gprof support (as for Wink)
   * Log of deprecated functions (Netlog). Enabled by default.
+  * Netdate: support for RFC 3339 dates (see webdav_xml)
 
 --- Already done:
 
@@ -146,6 +143,8 @@ Plan for Ocamlnet 3
   * netcgi2, url: better magic to enfore '/' between script name and path info
   * Container-private servers. Containers may define additional RPC
     servers for local data traffic only. (-> address type "container")
+  * think about page pools, for cases where too many pages are mmap'ed.
+    Generalization of the free pages we manage in Netpagebuffer.
 
 - NetCGI cleanup
   * remove netcgi1
@@ -177,6 +176,15 @@ Plan for Ocamlnet 3
         - GC hook: pointer to a finalisable block. When this block is collected
           the fd is set to state "garbage
     - which fd's to manage: the long-living fd's
+
+
+- Move new cookie implementation to Nethttp
+
+- Faster URL encoding functions can be moved to Netencoding
+  if really faster
+
+- Bug: Netplex daemonization doesn't wait until the inner process is
+  initialized (enough)
 
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0
@@ -254,25 +262,6 @@ Equeue:
    	- when_state style:
   	  eng1 >> (function Success _ -> | Error _ -> | ...)
 	- ...
-
-Netplex:
-	- Move accepted() from Control to System? Implement totally different
-	  mechanisms?
-
-	- Bug: daemonization doesn't wait until the inner process is
-	  initialized (enough)
-
-Integration of new netcgi2
-	- All the TODOs in Netcgi_common
-	  Sched: after 2.2.0 is out
-
-	- Move new cookie implementation to Nethttp, and make it a 
-	  class
-	  Sched: 2.3
-
-	- Faster URL encoding functions can be moved to Netencoding
-	  if really faster
-	  Sched: 2.3
 
 netcgi2-plex:
 	- Implement mount_dir/mount_at

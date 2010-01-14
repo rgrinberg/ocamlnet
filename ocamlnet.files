@@ -462,6 +462,12 @@ d examples/netsys
 f examples/netsys/Makefile
 f examples/netsys/sem_pingpong.ml
 
+d examples/camlbox
+f examples/camlbox/Makefile
+f examples/camlbox/speed.ml
+f examples/camlbox/manymult.ml
+f examples/camlbox/unimult.ml
+
 d doc
 d doc/html-main
 p doc/html-main/.*\.html
