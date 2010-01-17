@@ -27,7 +27,7 @@ let register_par par =
 ;;
 
 
-let register_cont cont thread =
+let register_cont (cont : container) thread =
   if thread#ptype <> `Controller_attached then (
     dlogr (fun () ->
 	     sprintf "register_cont cont=%d thread=%s"
@@ -44,7 +44,7 @@ let register_cont cont thread =
 ;;
 
 
-let register_ctrl ctrl =
+let register_ctrl (ctrl : controller) =
   if ctrl#ptype <> `Controller_attached then (
     let (lock, unlock, par, m) =
       try Hashtbl.find obj_of_thread ctrl#ptype
@@ -156,6 +156,22 @@ let log level msg =
 
 let logf level fmt =
   Printf.ksprintf (log level) fmt
+
+let report_connection_string fd detail =
+  let fd_name =
+    try Netsys.string_of_sockaddr(Unix.getsockname fd)
+    with _ -> "*" in
+  let fd_peer =
+    try Netsys.string_of_sockaddr(Netsys.getpeername fd)
+    with _ -> "*" in
+  let cid =
+    match current_sys_id() with
+      | `Process pid -> "pid " ^ string_of_int pid
+      | `Thread pid -> "thr " ^ string_of_int pid in
+  sprintf "netplex.connection (%s) %s -> %s: %s"
+    cid fd_peer fd_name
+    (if detail = "" then "(ok)" else detail)
+
 
 type timer = < f : timer -> bool; tmo : float; cont : container > ;;
 

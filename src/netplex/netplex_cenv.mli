@@ -26,6 +26,11 @@ val log : level -> string -> unit
 val logf : level -> ('a, unit, string, unit) format4 -> 'a
   (** Writes a log message like [printf] *)
 
+val report_connection_string : Unix.file_descr -> string -> string
+  (** Output a log line for the [netplex.connections] admin message.
+      The string is the detail to report.
+   *)
+
 (** {2 Timer} *)
 
 (** Timer functions can only be invoked from container contexts. *)

@@ -265,6 +265,9 @@ val get_protocol : t -> protocol
 val get_srv_event_system : t -> Unixqueue.unix_event_system
   (** Returns the event system *)
 
+val get_last_proc_info : t -> string
+  (** Get a debug string describing the last invoked procedure *)
+
 
 type rule =
     [ `Deny

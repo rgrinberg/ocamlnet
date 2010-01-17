@@ -115,9 +115,22 @@ let rpc_factory
 		pmap_unregister sockserv progs_and_versions port;
 	      super # post_add_hook sockserv
 
+	    method receive_admin_message cnt name args =
+	      match name with
+		| "netplex.connections" ->   (* intercept this one *)
+		    List.iter
+		      (fun (srv,fd) ->
+			 cnt # update_detail fd 
+			   ("Last action: " ^ 
+			      (Rpc_server.get_last_proc_info srv))
+		      )
+		      !srv_list;
+		| _ ->
+		    super#receive_admin_message cnt name args
+
 	    method shutdown () =
 	      List.iter
-		(fun srv ->
+		(fun (srv,_) ->
 		   Rpc_server.stop_server 
 		     ~graceful:true
 		     srv)
@@ -143,7 +156,7 @@ let rpc_factory
 			    let srv = 
 			      Rpc_server.create2 
 				(`Multiplexer_endpoint mplex) esys in
-			    srv_list := srv :: !srv_list;
+			    srv_list := (srv,fd) :: !srv_list;
 			    Rpc_server.set_exception_handler srv
 			      (fun err ->
 				 container # log
@@ -154,7 +167,7 @@ let rpc_factory
 			      srv (fun _ ->
 				     srv_list :=
 				       List.filter
-					 (fun srv' -> srv' != srv)
+					 (fun (srv',_) -> srv' != srv)
 					 !srv_list;
 				     let g = Unixqueue.new_group esys in
 				     Unixqueue.once esys g 0.0 when_done);

@@ -727,12 +727,15 @@ There are a few predefined messages understood by all containers:
 
 - The admin message [netplex.threadlist] outputs to the log file
   which process executes which service, and how loaded the processes are.
+- The admin message [netplex.connections] outputs a line for every
+  connection managed by Netplex, sometimes with details of the protocol
+  interpreter
 - The admin message [netplex.logger.set_max_level] changes the maximum
   log level for the container.
-- The admin message [netplex.debug_scheduling] enables debug messages
-  of the Netplex scheduler.
-- The admin message [netplex.debug_containers] enables debug messages
-  of the container implementation.
+- The admin message [netplex.debug.enable] enables debug messages.
+  The argument is the debug target as known by {!Netlog.Debug}.
+- The admin message [netplex.fd_table] outputs the file descriptor
+  table (debug)
 
 In general, messages starting with "netplex." are reserved for 
 Netplex itself.

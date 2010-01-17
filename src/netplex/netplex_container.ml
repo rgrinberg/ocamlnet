@@ -294,6 +294,7 @@ object(self)
 	    r Netplex_ctrl_aux.program_Control'V1 "accepted" Xdr.XV_void
 	    (fun _ ->
 	       nr_conns <- nr_conns + 1;
+	       let regid = self # reg_conn fd_slave in
 	       let when_done_called = ref false in
 	       dlogr
 		 (fun () -> 
@@ -308,8 +309,14 @@ object(self)
 		 "process"
 		 (sockserv # processor # process
 		    ~when_done:(fun fd ->
+				  (* Note: It is up to the user to close
+                                     the descriptor. So the descriptor can
+                                     already be used for different purposes
+                                     right now!
+				   *)
 				  if not !when_done_called then (
 				    nr_conns <- nr_conns - 1;
+				    self # unreg_conn fd_slave regid;
 				    when_done_called := true;
 				    self # setup_polling();
 				    dlogr
@@ -329,6 +336,37 @@ object(self)
 	       if not !when_done_called then
 		 self # setup_polling();
 	    )
+
+  val mutable reg_conns = Hashtbl.create 10
+  val mutable reg_conns_cnt = 0
+
+  method private reg_conn fd =
+    let ifd = Netsys.int64_of_file_descr fd in
+    let line = Netplex_cenv.report_connection_string fd "" in
+    let cnt = reg_conns_cnt in
+    reg_conns_cnt <- cnt+1;
+    Hashtbl.replace reg_conns ifd (cnt,line);
+    cnt
+
+  method private unreg_conn fd cnt =
+    let ifd = Netsys.int64_of_file_descr fd in
+    try
+      let cnt',_ = Hashtbl.find reg_conns ifd in
+      if cnt' = cnt then (
+	Hashtbl.remove reg_conns ifd
+      )
+    with
+      | Not_found -> ()
+
+  method update_detail fd detail =
+    let ifd = Netsys.int64_of_file_descr fd in
+    let line = Netplex_cenv.report_connection_string fd detail in
+    try
+      let (cnt,_) = Hashtbl.find reg_conns ifd in
+      Hashtbl.replace reg_conns ifd (cnt,line)
+    with
+      | Not_found ->
+	  failwith "#update_detail: unknown descriptor"
 
   method system =
     match sys_rpc with
@@ -482,13 +520,29 @@ object(self)
 	      )
 	      (Netlog.Debug.fd_table())
 	  )
+      | "netplex.connections" ->
+	  (* First forward the message, so user code can call [update_detail] *)
+	  self # forward_admin_message msg;
+	  Hashtbl.iter
+	    (fun _ (_,line) ->
+	       (* There is a chance that this connection is already closed,
+                  and even that fd is used for something else. So be very
+                  careful here.
+		*)
+	       self # log `Debug line
+	    )
+	    reg_conns
+
       | _ ->
-	  self # protect
-	    "receive_admin_message"
-	    (sockserv # processor # receive_admin_message
-	       (self : #container :> container)
-	       msg.msg_name)
-	    msg.msg_arguments;
+	  self # forward_admin_message msg
+
+  method private forward_admin_message msg =
+    self # protect
+      "receive_admin_message"
+      (sockserv # processor # receive_admin_message
+	 (self : #container :> container)
+	 msg.msg_name)
+      msg.msg_arguments
 
 
   (* --- container sockets --- *)

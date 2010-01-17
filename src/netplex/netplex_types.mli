@@ -546,6 +546,11 @@ object
         subchannel
      *)
 
+  method update_detail : Unix.file_descr -> string -> unit
+    (** Update the detail string output for the [netplex.connections]
+        admin message
+     *)
+
   method var : string -> param_value_or_any
     (** Returns the value of a container variable or [Not_found]. Container
       * variables can be used by the user of a container to store additional

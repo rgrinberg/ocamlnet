@@ -154,7 +154,8 @@ type t =
 	mutable connections : connection list;
 	mutable master_acceptor : server_socket_acceptor option;
 	mutable transport_timeout : float;
-	mutable nolog : bool
+	mutable nolog : bool;
+	mutable get_last_proc : unit->string;
       }
 
 and connection =
@@ -397,6 +398,8 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 	 ) in
 
   let make_immediate_answer xid procname result f_ptrace_result =
+    srv.get_last_proc <- 
+      (fun () -> if procname = "" then "Error" else "Response " ^ procname);
     { server = conn;
       prog = None;
       sess_conn_id = if srv.prot = Rpc.Tcp then conn.conn_id
@@ -575,6 +578,13 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 			 Rpc_packer.unpack_call_body
 			   prog procname message frame_len in
 
+		       srv.get_last_proc <-
+			 (fun () ->
+			    (* no [string_of_request] - we would keep a
+                               reference to param forever!
+			     *)
+			    "Invoke " ^ procname ^ "()"
+			 );
 
 		       dlogr_ptrace srv
 			 (fun () ->
@@ -640,6 +650,10 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 		      protect (fun () -> raise(Rpc_server code))
 	       )
 	 | Reject_procedure reason ->
+	     srv.get_last_proc <-
+	       (fun () ->
+		  "Reject " ^ Rpc.string_of_server_error reason
+	       );
 	     protect (fun () -> raise(Rpc_server reason))
     )
 ;;
@@ -943,7 +957,8 @@ let create2_srv prot esys =
     connections = [];
     master_acceptor = None;
     transport_timeout = (-1.0);
-    nolog = false
+    nolog = false;
+    get_last_proc = (fun () -> "");
   }
 ;;
 
@@ -1600,6 +1615,8 @@ let get_server sess = sess.server.whole_server
 let get_user sess = sess.auth_user
 
 let get_auth_method sess = sess.auth_method
+
+let get_last_proc_info srv = srv.get_last_proc()
 
   (*****)
 

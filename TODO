@@ -71,10 +71,6 @@ Plan for Ocamlnet 3
     let [| ... |] = call_control_routine "foo" [| ... |]
 
 
-@  * RPc_netplex:
-      - "netplex.activations": Print all activations at a certain time
-        (also for nethttpd?)
-
   * Revisit: helper containers for multi-processing. Make it easy to
     define a template at system startup time, and to instantiate it
     later at any time
@@ -147,6 +143,8 @@ Plan for Ocamlnet 3
   * Netdate: support for RFC 3339 dates (see webdav_xml)
   * ocamlrpcgen: export _program variable in client interfaces
   * Rpc_netplex: config var for Rpc_server.set_timeout
+  * new netplex admin command: netplex.connections. The detail string
+    is implemented for RPC only, so far.
 
 
 
