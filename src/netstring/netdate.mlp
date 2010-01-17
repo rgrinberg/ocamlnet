@@ -6,7 +6,7 @@
 (* Thanks to Nicolas George for contributing the parsing and format code *)
 
 type token =
-  | Number of int
+  | Number of int * int   (* number of digits, value *)
   | Day of int
   | Month of int
   | Meridian of bool
@@ -17,6 +17,8 @@ type token =
   | Comma
   | Colon
   | Slash
+  | Dot
+  | Time    (* "T" *)
   | Invalid
 ;;
 
@@ -69,6 +71,7 @@ let tokens_list = [
   "ut",		Zone ( 0000);
   "utc",	Zone ( 0000);
   "wet",	Zone ( 0000);
+  "z",          Zone ( 0000);
   "bst",	Zone ( 0100);	(*DST*)
   "cet",	Zone ( 0100);
   "cest",	Zone ( 0200);
@@ -116,6 +119,7 @@ let tokens_list = [
   "adt",	Zone (-0300);	(*DST*)
   "wat",	Zone (-0100);
   "at",		Zone (-0200);
+  "t",          Time
 ] ;;
 
 let find_token =
@@ -131,7 +135,7 @@ let find_token =
 let tokens_of_string str =
   let rec scan_any = parser
     | [< ' ('0'..'9') as c; rest >] ->
-	scan_number (int_of_char c - 48) rest
+	scan_number (1, int_of_char c - 48) rest
     | [< ' ('a'..'z' | 'A'..'Z') as c; rest >] ->
 	let b = Buffer.create 16 in
 	Buffer.add_char b (Char.lowercase c);
@@ -143,12 +147,13 @@ let tokens_of_string str =
     | [< '':'; rest >] -> [< 'Colon; scan_any rest >]
     | [< '','; rest >] -> [< 'Comma; scan_any rest >]
     | [< ''/'; rest >] -> [< 'Slash; scan_any rest >]
+    | [< ''.'; rest >] -> [< 'Dot; scan_any rest >]
     | [< ' _ ; rest >] -> [< 'Invalid; scan_any rest >]
     | [< >] -> [< >]
-  and scan_number a = parser
+  and scan_number (l,a) = parser
     | [< ' ('0'..'9') as c; rest >] ->
-	scan_number (a * 10 + (int_of_char c - 48)) rest
-    | [< rest >] -> [< 'Number a; scan_any rest >]
+	scan_number (l+1, a * 10 + (int_of_char c - 48)) rest
+    | [< rest >] -> [< 'Number(l,a); scan_any rest >]
   and scan_word b = parser
     | [< ' ('a'..'z' | 'A'..'Z') as c; rest >] ->
 	Buffer.add_char b (Char.lowercase c);
@@ -176,7 +181,7 @@ type t = {
   week_day : int	(* 0 = sunday; -1 if not given *)
 } ;;
 
-let parse str =
+let parse ?zone:(dzone=0) str =
   let tokens = tokens_of_string str in
   let hour = ref None
   and minute = ref None
@@ -186,7 +191,8 @@ let parse str =
   and day = ref None
   and month = ref None
   and year = ref None in
-  let add_data ?h ?m ?s ?mdn ?tz ?dst ?wd ?md ?mo ?y () =
+  let add_data ?h ?m ?s ?mdn ?tz ?dst ?wd ?md ?mo ?y ?y2 () =
+    (* tz as in the above table *)
     let may_store r = function
       | None -> ()
       | v when !r = None -> r := v
@@ -206,10 +212,12 @@ let parse str =
 	  | Some true when h > 0 && h <= 11 -> Some (h + 12)
 	  | Some true when h = 12 -> Some 12 in
     let y = match y with
-      | None -> None
-      | Some y when y >= 100 -> Some y
-      | Some y when y < 69 -> Some (2000 + y)
-      | Some y -> Some (1900 + y) in
+      | None ->
+	  ( match y2 with
+	      | Some y -> if y < 69 then Some (2000 + y) else Some(1900 + y)
+	      | None -> None
+	  )
+      | Some y -> Some y in
     may_store hour h;
     may_store minute m;
     may_store second s;
@@ -219,31 +227,43 @@ let parse str =
     may_store month mo;
     may_store year y in
   let rec scan_gen = parser
-    | [< 'Number n; rest >] -> scan_number n rest
+    | [< 'Number(l,n); rest >] -> scan_number (l,n) rest
+    | [< 'Time; 'Number((0|1|2),n); 'Colon; 'Number((0|1|2),m); rest >] ->
+	scan_hour n m rest
     | [< 'Zone tz; dst = scan_dst; rest >] ->
 	add_data ~tz ?dst ();
 	scan_gen rest
     | [< 'Day wd; _ = scan_opt_coma; rest >] ->
 	add_data ~wd ();
 	scan_gen rest
-    | [< 'Month mo; 'Number md; rest >] -> scan_date_m mo md rest
+    | [< 'Month mo; 'Number(lmd,md); rest >] -> scan_date_m mo (lmd,md) rest
     | [< '_ >] -> invalid_arg "Parse.date"
     | [< >] -> ()
-  and scan_number n = parser
+  and scan_number (l,n) = parser
     | [< 'Meridian mdn; rest >] ->
 	add_data ~h:n ~mdn ();
 	scan_gen rest
-    | [< 'Colon; 'Number m; rest >] -> scan_hour n m rest
-    | [< 'Slash; 'Number m; rest >] -> scan_date_s n m rest
-    | [< 'Minus; rest >] -> scan_date_d n rest
+    | [< 'Colon; 'Number((0|1|2),m); rest >]-> 
+	if l <= 2 then 
+	  scan_hour n m rest
+	else invalid_arg "Parse.date"
+    | [< 'Slash; 'Number((0|1|2),m); rest >] -> 
+	scan_date_s (l,n) m rest
+    | [< 'Dot; 'Number((0|1|2),m); rest >] ->
+	if l<=2 then
+	  scan_date_dot n m rest
+	else invalid_arg "Parse.date"
+    | [< 'Minus; rest >] -> scan_date_d (l,n) rest
     | [< 'Month mo; rest >] ->
 	add_data ~md:n ~mo ();
 	scan_gen rest
     | [< rest >] ->
-	add_data ~y:n ();
+	if l=4 then
+	  add_data ~y:n ()
+	else invalid_arg "Parse.date";
 	scan_gen rest
   and scan_hour h m = parser
-    | [< 'Colon; 'Number s; rest >] -> scan_hour_second h m s rest
+    | [< 'Colon; 'Number(_,s); rest >] -> scan_hour_second_frac h m s rest
     | [< tz = scan_tz; rest >] ->
 	add_data ~h ~m ~tz ();
 	scan_gen rest
@@ -251,8 +271,22 @@ let parse str =
 	add_data ~h ~m ?mdn ();
 	scan_gen rest
   and scan_tz = parser
-    | [< 'Plus; 'Number tz >] -> tz
-    | [< 'Minus; 'Number tz >] -> -tz
+    | [< 'Plus; rest >] -> scan_tz_details 1 rest
+    | [< 'Minus; rest >] -> scan_tz_details (-1) rest
+  and scan_tz_details sign = parser
+    | [< 'Number(l,tz) when l=4 >] -> sign * tz
+    | [< 'Number(l,tz) when l<=2; rest >] ->
+	scan_tz_details2 sign tz rest
+  and scan_tz_details2 sign tz1 = parser
+    | [< 'Colon; 'Number((0|1|2),tz2) >] ->
+	sign * (100 * tz1 + tz2)
+    | [< >] ->
+	sign * 100 * tz1
+  and scan_hour_second_frac h m s = parser
+    | [< 'Dot; 'Number(_,_); rest >] ->  (* e.g. 12:50:48.12345 *)
+	scan_hour_second h m s rest
+    | [< rest >] ->
+	scan_hour_second h m s rest
   and scan_hour_second h m s = parser
     | [< tz = scan_tz; rest >] ->
 	add_data ~h ~m ~s ~tz ();
@@ -260,24 +294,51 @@ let parse str =
     | [< mdn = scan_opt_meridian; rest >] ->
 	add_data ~h ~m ~s ?mdn ();
 	scan_gen rest
-  and scan_date_s n m = parser
-    | [< 'Slash; 'Number p; rest >] ->
-	if n >= 1000
+  and scan_date_s (ln,n) m = parser
+    | [< 'Slash; 'Number(lp,p); rest >] ->
+	if ln = 4
 	then add_data ~y:n ~mo:m ~md:p ()
-	else add_data ~y:p ~mo:n ~md:m ();
+	else
+	  if lp = 4 then
+	    add_data ~y:p ~mo:n ~md:m ()
+	  else
+	    if lp = 2 then
+	      add_data ~y2:p ~mo:n ~md:m ()
+	    else
+	      invalid_arg "Parse.date";
 	scan_gen rest
     | [< rest >] ->
-	add_data ~mo:n ~md:n ();
+	add_data ~mo:n ~md:m ();
 	scan_gen rest
-  and scan_date_d n = parser
-    | [< 'Number mo; 'Minus; 'Number md; rest >] ->
-	add_data ~y:n ~mo ~md ();
+  and scan_date_dot n m = parser
+    | [< 'Dot; 'Number(l,p); rest >] ->
+	if l=4 then
+	  add_data ~md:n ~mo:m ~y: p ()
+	else if l=2 then
+	  add_data ~md:n ~mo:m ~y2: p ()
+	else invalid_arg "Parse.date";
 	scan_gen rest
-    | [< 'Month mo; 'Minus; 'Number y; rest >] ->
-	add_data ~y ~mo ~md:n ();
+    | [< rest >] ->
+	add_data ~md:n ~mo:m ();
 	scan_gen rest
-  and scan_date_m mo md = parser
-    | [< 'Comma; 'Number y; rest >] ->
+  and scan_date_d (ln,n) = parser
+    | [< 'Number(_,mo); 'Minus; 'Number(_,md); rest >] ->
+	if ln=4 then
+	  add_data ~y:n ~mo ~md ()
+	else
+	  if ln=2 then
+	    add_data ~y2:n ~mo ~md ()
+	  else  invalid_arg "Parse.date";
+	scan_gen rest
+    | [< 'Month mo; 'Minus; 'Number(ly,y); rest >] ->
+	if ly=4 then
+	  add_data ~y ~mo ~md:n ()
+	else if ly=2 then
+	  add_data ~y2:y ~mo ~md:n ()
+	else invalid_arg "Parse.date";
+	scan_gen rest
+  and scan_date_m mo (lmd,md) = parser
+    | [< 'Comma; 'Number(4,y); rest >] ->
 	add_data ~y ~mo ~md ();
 	scan_gen rest
     | [< rest >] ->
@@ -312,7 +373,7 @@ let parse str =
     hour = get_default 0 hour;
     minute = get_default 0 minute;
     second = get_default 0 second;
-    zone = get_default 0 zone;
+    zone = get_default dzone zone;
     week_day = get_default (-1) week_day
   }
 ;;
@@ -338,7 +399,7 @@ let since_epoch date =
   86400.0 *. (float_of_int days) +. in_day
 ;;
 
-let parse_epoch str = since_epoch (parse str) ;;
+let parse_epoch ?zone str = since_epoch (parse ?zone str) ;;
 
 let create ?(zone = 0) time =
   let time = time +. (float_of_int (zone * 60)) in
@@ -394,7 +455,7 @@ let abbr_day_names =
   [| "Sun"; "Mon"; "Tue"; "Wed"; "Thu"; "Fri"; "Sat" |] ;;
 
 let full_month_names =
-  [| "January"; "February"; "March"; "April"; "May"; "June"; "Jully";
+  [| "January"; "February"; "March"; "April"; "May"; "June"; "July";
      "August"; "September"; "October"; "November"; "December" |] ;;
 
 let abbr_month_names =
@@ -427,7 +488,7 @@ let format_to out_ch ~fmt date =
     date.week_day in
   let yd () =
     months_start.(date.month - 1) + date.day in
-  let rec do_format = function
+  let rec do_format ?(have_colon=false) = function
     | 'a' -> add_string abbr_day_names.(date.week_day)
     | 'A' -> add_string full_day_names.(date.week_day)
     | 'b' | 'h' -> add_string abbr_month_names.(date.month - 1)
@@ -456,6 +517,7 @@ let format_to out_ch ~fmt date =
 	  else ('-', -date.zone) in
 	add_char s;
 	add_digits false 10 (z / 60);
+	if have_colon then add_char ':';
 	add_digits false 10 (z mod 60)
     | 'U' -> add_digits false 10 (((yd ()) - (wd ()) + 6) / 7)
     | 'V' -> failwith "TODO"
@@ -500,8 +562,14 @@ let format_to out_ch ~fmt date =
     else match fmt.[i] with
       | '%' when i = String.length fmt - 1 -> fail ()
       | '%' ->
-	  do_format fmt.[i + 1];
-	  aux (i + 2)
+	  if fmt.[i + 1] = ':' then (
+	    do_format ~have_colon:true fmt.[i + 2];
+	    aux (i + 3)
+	  )
+	  else (
+	    do_format fmt.[i + 1];
+	    aux (i + 2)
+	  )
       | c -> add_char c; aux (i + 1) in
   try aux 0
   with _ -> fail ()
@@ -543,4 +611,8 @@ let mk_mail_date ?zone t =
 
 let mk_usenet_date ?zone t =
   format "%A, %d-%b-%y %H:%M:%S %z" (create ?zone t)
+;;
+
+let mk_internet_date ?zone t =
+  format "%Y-%m-%dT%H:%M:%S%:z" (create ?zone t)
 ;;

@@ -16,7 +16,7 @@ DOBJECTS = netsys.mli netsys_posix.mli netsys_pollset.mli netlog.mli \
            netexn.mli netsys_win32.mli netsys_pollset_posix.mli \
            netsys_pollset_win32.mli netsys_pollset_generic.mli \
            netsys_signal.mli netsys_oothr.mli netsys_xdr.mli \
-	   netsys_types.mli
+	   netsys_types.mli netsys_mem.mli
 LINK_OPTIONS = $(NETSYS_LINK_OPTIONS)
 
 ALL_EXTRA = netsys_oothr.cma netsys_oothr_mt_init.cmo

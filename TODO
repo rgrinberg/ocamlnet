@@ -2,11 +2,15 @@
 Plan for Ocamlnet 3
 ----------------------------------------------------------------------
 
+- Doc:
+  * Doc: Tutorial for Rpc_proxy. Upgrade one example.
+  * container sockets
+
+
 - Focus RPC:
   * Rpc_server: Allow to set timeout for the server response itself
     (self-watching)
   * Annotations
-  * Doc: Tutorial for Rpc_proxy. Upgrade one example.
 
 - Netlog:
 
@@ -44,13 +48,15 @@ Plan for Ocamlnet 3
 
   - Uq_socks5
 
+@ - Netshm: use new blitting functions
 
-- CHECK: watch subprocess: POSIX does not allow to access mutex
+@ - CHECK: watch subprocess: POSIX does not allow to access mutex
   from signal handler
 
-- ocamlrpcgen: export _program variable in client interfaces
+@ - ocamlrpcgen: export _program variable in client interfaces
 
-- Example for Rpc_proxy
+@ - Example for Rpc_proxy
+  upgrade finder
 
 - Focus Win32:
 
@@ -69,9 +75,9 @@ Plan for Ocamlnet 3
     let [| ... |] = call_control_routine "foo" [| ... |]
 
 
-  * Rpc_netplex: config var for Rpc_server.set_timeout
+@  * Rpc_netplex: config var for Rpc_server.set_timeout
 
-  * RPc_netplex:
+@  * RPc_netplex:
       - "netplex.activations": Print all activations at a certain time
         (also for nethttpd?)
 
@@ -87,15 +93,15 @@ Plan for Ocamlnet 3
 
 
 - Bug fixes:
-  * RPC: prevent that xid's can be reused
-  * nethttpd+netcgi2: GET /file//path?p=1
+@  * RPC: prevent that xid's can be reused
+@  * nethttpd+netcgi2: GET /file//path?p=1
     parameters like p are not recognized when there is "//" in path
-  * CHECK nethttpd: if PATH_TRANSLATED points to a directory, omit the
+@  * CHECK nethttpd: if PATH_TRANSLATED points to a directory, omit the
     trailing slash. See also Nethtttpd_services.w32_fix_trailing_slash -
     but this is a hack
 
 - syslog:
-  * "syslog": Just calls syslog()
+@  * "syslog": Just calls syslog()
   * "syslog_emulation": The syslog protocol itself
 
 - mmap memory:
@@ -104,16 +110,15 @@ Plan for Ocamlnet 3
 
 
 - Other
-  * Nethttpd: configurable error response (Nethttpd_plex, look for "TODO")
-  * Nethttpd: suppress "broken pipe"
-  * Check $Id$
+@  * Nethttpd: configurable error response (Nethttpd_plex, look for "TODO")
+@  * Nethttpd: suppress "broken pipe"
+@  * Check $Id$
   * Go through examples. Fix programming style
       nethttpd DONE
       rpc/finder DONE
 
-  * Gprof support (as for Wink)
+@  * Gprof support (as for Wink)
   * Log of deprecated functions (Netlog). Enabled by default.
-  * Netdate: support for RFC 3339 dates (see webdav_xml)
 
 --- Already done:
 
@@ -145,6 +150,7 @@ Plan for Ocamlnet 3
     servers for local data traffic only. (-> address type "container")
   * think about page pools, for cases where too many pages are mmap'ed.
     Generalization of the free pages we manage in Netpagebuffer.
+  * Netdate: support for RFC 3339 dates (see webdav_xml)
 
 - NetCGI cleanup
   * remove netcgi1
@@ -186,6 +192,9 @@ Plan for Ocamlnet 3
 - Bug: Netplex daemonization doesn't wait until the inner process is
   initialized (enough)
 
+- Better Bigarray integration:
+  * read/write with bigarray as buffer
+
 ----------------------------------------------------------------------
 Performance improvements after Ocamlnet 3.0
 ----------------------------------------------------------------------
@@ -202,9 +211,6 @@ A list of possible improvements, once interfaces are stable again:
 
 - Implement Netsys_posix.spawn with posix_spawn for systems 
   supporting that
-
-- Better Bigarray integration:
-  * read/write with bigarray as buffer
 
 - Improve Rtypes performance
 
@@ -233,8 +239,6 @@ Implementation improvements after Ocamlnet 3.0
 
 - Improved shared memory support; RPC over shared memory
 
-- Netdate: support for newer RFC date formats
-
 - Fix netplex + nethttpd + async API: netcgi cannot be used right now
 
 - Netclient: Support for CONNECT
@@ -247,6 +251,8 @@ Implementation improvements after Ocamlnet 3.0
 - netplex component for monitoring:
    - ping RPC services, but also support for plugging in other protocols
    - post monitoring results to neighbors (UDP, optionally with multicasting)
+
+- Fix ocamldoc warnings
 
 ----------------------------------------------------------------------
 Old stuff, check first

@@ -40,6 +40,7 @@ are supported on which platform:
    Neturl
    Netaddress
    Netbuffer
+   Netpagebuffer
    Netdate
    Netencoding
    Netulex
