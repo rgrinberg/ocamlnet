@@ -48,12 +48,8 @@ Plan for Ocamlnet 3
 
   - Uq_socks5
 
-@ - Netshm: use new blitting functions
-
 @ - CHECK: watch subprocess: POSIX does not allow to access mutex
   from signal handler
-
-@ - ocamlrpcgen: export _program variable in client interfaces
 
 @ - Example for Rpc_proxy
   upgrade finder
@@ -151,6 +147,8 @@ Plan for Ocamlnet 3
   * think about page pools, for cases where too many pages are mmap'ed.
     Generalization of the free pages we manage in Netpagebuffer.
   * Netdate: support for RFC 3339 dates (see webdav_xml)
+  * ocamlrpcgen: export _program variable in client interfaces
+
 
 - NetCGI cleanup
   * remove netcgi1
@@ -221,6 +219,8 @@ A list of possible improvements, once interfaces are stable again:
   the message fully.
 
 - RPC: server should support caching for configured procedures
+
+- Netshm: use blitting functions encoded in C (for int32 bigarrays)
 
 ----------------------------------------------------------------------
 Implementation improvements after Ocamlnet 3.0

@@ -1699,6 +1699,7 @@ let output_client (mli:formatter) (f:formatter) (dl:xdr_def list) auxname =
 	| `Make ->
 	    fprintf mli "type t = U'C.t@ ";
     );
+    fprintf mli "val _program : Rpc_program.t@ ";
     (* ML: *)
     fprintf f "@[<v>";
     fprintf f "@[<v 2>module %s = struct@ " vers.version_symbol.ocaml_name;
