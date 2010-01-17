@@ -23,10 +23,15 @@ val rpc_factory :
     *    }
     * ]}
     *
-    * Currently, there is only one parameter [portmapper]. If set to true,
-    * the Internet port is registered with the portmapper program.
-    * This will fail if there are several Internet bindings with distinct
-    * port numbers!
+    * Parameters may be included in the [processor] section:
+    * - [portmapper]: This is a boolean parameter. If set to true,
+    *   the Internet port is registered with the portmapper program.
+    *   This will fail if there are several Internet bindings with distinct
+    *   port numbers!
+    * - [timeout]: This is a float parameter. It sets the transport
+    *   timeout of the RPC server (see {!Rpc_server.set_timeout}).
+    *   If a connection hangs for this number of seconds, it is 
+    *   shut down by the server.
     *
     * Further parameters and subsections can be defined by the user. These
     * parameters should be parsed and checked for correctness by the

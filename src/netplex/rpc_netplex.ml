@@ -72,6 +72,10 @@ let rpc_factory
 	  try
 	    cf # bool_param (cf # resolve_parameter addr "portmapper") 
 	  with Not_found -> false in
+	let timeout_opt =
+	  try
+	    Some(cf # float_param (cf # resolve_parameter addr "timeout"))
+	  with Not_found -> None in
 	let custom_cfg = configure cf addr in
 	let sconf = socket_config custom_cfg in
 
@@ -154,6 +158,12 @@ let rpc_factory
 					 !srv_list;
 				     let g = Unixqueue.new_group esys in
 				     Unixqueue.once esys g 0.0 when_done);
+			    ( match timeout_opt with
+				| Some t ->
+				    Rpc_server.set_timeout srv t
+				| None ->
+				    ()
+			    );
 			    setup srv custom_cfg)
 		~is_error:(fun err ->
 			     container # log `Crit 

@@ -71,8 +71,6 @@ Plan for Ocamlnet 3
     let [| ... |] = call_control_routine "foo" [| ... |]
 
 
-@  * Rpc_netplex: config var for Rpc_server.set_timeout
-
 @  * RPc_netplex:
       - "netplex.activations": Print all activations at a certain time
         (also for nethttpd?)
@@ -148,6 +146,8 @@ Plan for Ocamlnet 3
     Generalization of the free pages we manage in Netpagebuffer.
   * Netdate: support for RFC 3339 dates (see webdav_xml)
   * ocamlrpcgen: export _program variable in client interfaces
+  * Rpc_netplex: config var for Rpc_server.set_timeout
+
 
 
 - NetCGI cleanup
