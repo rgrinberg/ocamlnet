@@ -48,9 +48,6 @@ Plan for Ocamlnet 3
 
   - Uq_socks5
 
-@ - CHECK: watch subprocess: POSIX does not allow to access mutex
-  from signal handler
-
 @ - Example for Rpc_proxy
   upgrade finder
 
@@ -165,6 +162,7 @@ Plan for Ocamlnet 3
   * Shell for POSIX systems: fix the style how ocamlnet waits for 
     forked processes. The current solution does not work well for
     mt programs because it is undefined which thread gets the SIGCHLD.
+      - ocamlnet-3.0test1 has had some issues here. These are now fixed.
 
   * Netplex:
       - set logger earlier (if external logger is used): Now using Netlog.

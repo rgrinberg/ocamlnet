@@ -390,22 +390,8 @@ val install_subprocess_handler : unit -> unit
       case. [install_subprocess_handler] can safely called several times.
       The handler is installed every time the function is called, but the
       required data structures are only initialized at the first call.
-
-      About the handler and [fork](): If [fork] is not followed by [exec],
-      and there are watched subprocesses, the mechanism does not work anymore.
-      The reason is that the event notification is done via file descriptors,
-      and these are inherited by [fork], but not closed. So the parent
-      process will never see the notification anymore. So don't use this
-      mechanism in processes that [fork] for creating worker processes,
-      like in the [Netplex] master process.
-
-      The things are even worse when such a [fork] happens, and the program
-      is multi-threaded. In that case the underlying data structure may
-      even get destroyed when the [fork] happens while another thread modifies
-      the structure. (Well, you know, don't even think about [fork]ing
-      in multi-threaded programs. It is unsafe anyway.)
    *)
- 
+
 val register_subprocess_handler : unit -> unit
   (** Uses the {!Netsys_signal} framework to manage the installation of
       the SIGCHLD handler.
@@ -414,6 +400,40 @@ val register_subprocess_handler : unit -> unit
    *)
 
 
+  (** {b Further notes.} *)
+
+  (** The subprocess handler and [fork()]: The subprocess handler uses
+      pipes for notification, and because of this it is sensitive to
+      unpredicted duplicates of the pipe descriptors. [fork()] duplicates
+      these pipe descriptors. If nothing is done about this issue, it
+      can happen that the notification does not work anymore as it relies
+      on detecting closed pipes.
+
+      If [fork()] is immediately followed by [exec()] (as it is done
+      to run subcommands), the problem does not occur, because the relevant
+      descriptors are closed at [exec()] time.
+
+      If [fork()] is used to start worker processes, however, we have
+      to be careful. The descriptors need to be closed, so that the
+      parent can continue to monitor subprocesses, and to allow the worker
+      processes to use this mechanism. This module defines post fork
+      handlers (see above), and a handler is automatically added that
+      cleans the descriptors up. All user code has to do is to call
+      [run_post_fork_handlers] immediately after [fork()] has spawned
+      the new child, from the new child. This completely resets
+      everything.
+   *)
+
+  (** The subprocess handler and multi-threading: The handler has been
+      carefully designed, and works even in multi-threaded programs.
+      However, one should know that multi-threading and [fork()] do not
+      interact well with each other. Again, the problems do not occur
+      if [fork()] is followed by [exec()]. There is no solution for the
+      case that worker processes are started with [fork()], though.
+      The (very generic) problem is that the state of mutexes and other
+      multi-threading primitives is not well-defined after a [fork()].
+   *)
+ 
 (** {1 Optional POSIX functions} *)
 
 external have_fadvise : unit -> bool = "netsys_have_posix_fadvise"

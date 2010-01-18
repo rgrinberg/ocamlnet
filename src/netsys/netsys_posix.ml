@@ -395,6 +395,9 @@ external netsys_get_subprocess_status : int -> Unix.process_status option
 external install_subprocess_handler : unit -> unit
   = "netsys_install_sigchld_handler"
 
+external subprocess_cleanup_after_fork : unit -> unit
+  = "netsys_subprocess_cleanup_after_fork"
+
 external netsys_kill_subprocess : int -> int -> unit
   = "netsys_kill_subprocess"
 
@@ -439,6 +442,14 @@ let killpg_subprocess signal ws =
   if ws.alive then
     netsys_killpg_subprocess signal ws.atom_idx
 
+
+let () =
+  register_post_fork_handler
+    ( object 
+	method name = "subprocess_cleanup_after_fork"
+	method run = subprocess_cleanup_after_fork
+      end
+    )
 
 let register_subprocess_handler() =
   Netsys_signal.register_exclusive_handler

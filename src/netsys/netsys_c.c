@@ -850,44 +850,13 @@ static struct sigchld_atom *sigchld_list = NULL;   /* an array of atoms */
 static int                  sigchld_list_len = 0;  /* length of array */
 
 #ifdef HAVE_PTHREAD
-static pthread_mutex_t      sigchld_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int                  sigchld_init = 0;
+static int                  sigchld_mutex_init = 0;
+static pthread_mutex_t      sigchld_mutex;
+static int                  sigchld_pipe_wr = (-1);
+static int                  sigchld_pipe_rd = (-1);
 #endif
 
-
-/* Our use of pthread + signals is hard at the limit of what POSIX
-   allows, in some kind of grey zone. Normally, it is not allowed that
-   pthread functions are invoked from signal handlers. However, if one
-   reads POSIX carefully, it turns out to be this problem: The pthread
-   functions are not reentrant. When a signal handler invokes them, it
-   can happen that the signal interrupted the same function before
-   (reentrant call). This cannot happen here: We block the signal before
-   locking/unlocking the mutex, so it is excluded that the signal handler
-   interrupts a running pthread_lock/unlock ACCESSING OUR MUTEX. Of course,
-   it can interrupt any other pthread_lock/unlock...
-
-   POSIX: "when a signal interrupts an unsafe function and the
-   signal-catching function calls an unsafe function, the behavior is
-   undefined."
-
-   So I think it is legal. Not absolutely sure, though. If not, we
-   have to switch the implementation. Our problem, however, is that we
-   have no means to control which thread blocks SIGCHLD and which
-   thread doesn't, so the "text book implementation" is out of reach:
-   One thread is set up to get all SIGCHLD signals, and to process these
-   sequentially.
-
-   Sketch for a solution:
-   - Set up a special thread. It reads endlessly from a pipe, and gets
-     from there instructions what to do. This way the thread is notified
-     about waitpid tasks. As it runs outside of the signal context,
-     there is no problem to set the mutex while accessing the data structure.
-   - The signal handler simply writes the PID to the pipe when it gets
-     SIGCHLD
-
-   No need to fiddle with signal masks anymore. However, we consume
-   2 further file descriptors.
-
-*/
 
 static void sigchld_lock(int block_signal, int master_lock) {
     sigset_t set;
@@ -904,6 +873,9 @@ static void sigchld_lock(int block_signal, int master_lock) {
     }
     if (master_lock)
 	caml_enter_blocking_section();
+    if (!sigchld_mutex_init) 
+	pthread_mutex_init(&sigchld_mutex, NULL);
+    sigchld_mutex_init = 1;
     pthread_mutex_lock(&sigchld_mutex);
     if (master_lock)
 	caml_leave_blocking_section();
@@ -925,7 +897,8 @@ static void sigchld_unlock(int unblock_signal) {
     sigaddset(&set, SIGCHLD);
 
 #ifdef HAVE_PTHREAD
-    pthread_mutex_unlock(&sigchld_mutex);
+     if (sigchld_mutex_init)
+	 pthread_mutex_unlock(&sigchld_mutex);
     if (unblock_signal) {
 	code = pthread_sigmask(SIG_UNBLOCK, &set, NULL);
 	if (code != 0)
@@ -941,49 +914,146 @@ static void sigchld_unlock(int unblock_signal) {
 }
 
 
-static void sigchld_action(int signo, siginfo_t *info, void *ctx) {
-    /* This is the sa_sigaction-style signal handler */
-    pid_t pid;
+static void sigchld_process(pid_t pid) {
     int k;
     struct sigchld_atom *atom;
-    int saved_errno;
-
-    saved_errno = errno;
 
     /* The SIGCHLD signal is blocked in the current thread during the
-       execution of this function. However, other threads can also
+       execution of sigchld_action. However, other threads can also
        try to access sigchld_list in parallel, so we have to protect
        that with a mutex.
     */
     sigchld_lock(0, 0);
 
+    /* Now search for the PID */
+    atom = NULL;
+    for (k=0; k<sigchld_list_len && atom==NULL; k++) {
+	if (sigchld_list[k].pid == pid) {
+	    atom = &(sigchld_list[k]);
+	}
+    }
+    
+    if (atom != NULL) {
+	waitpid(pid, &(atom->status), WNOHANG);
+	if (! atom->ignore && ! atom->terminated) {
+	    close(atom->pipe_fd);
+	}
+	atom->terminated = 1;
+    }
+
+    sigchld_unlock(0);
+}
+
+
+
+#ifdef HAVE_PTHREAD
+/* This function runs in a separate thread */
+static void *sigchld_consumer(void *arg) {
+    int cont = 1;
+    int n;
+    char buf[sizeof(pid_t)];
+    pid_t pid;
+
+    while (cont) {
+	n=read(sigchld_pipe_rd, buf, sizeof(pid_t));
+	if (n==0)
+	    cont=0;
+	else if(n==-1) {
+	    if (errno != EINTR)
+		cont=0;
+	}
+	if (cont) {
+	    memcpy(&pid, buf, sizeof(pid_t));
+	    sigchld_process(pid);
+	}
+    }
+
+    return NULL;
+}
+
+/* This function can be called from the signal handler */
+static void sigchld_producer(pid_t pid) {
+    char buf[sizeof(pid_t)];
+    int n;
+
+    if (!sigchld_init) return;   /* careful */
+
+    memcpy(buf, &pid, sizeof(pid_t));
+    while (1) {
+	n=write(sigchld_pipe_wr, buf, sizeof(pid_t));
+	if (n != -1 || errno != EINTR) break;
+    }
+}
+#endif
+
+
+static void sigchld_action(int signo, siginfo_t *info, void *ctx) {
+    /* This is the sa_sigaction-style signal handler */
+    pid_t pid;
+    int saved_errno;
+
+    saved_errno = errno;
+
     if (info->si_code == CLD_EXITED || info->si_code == CLD_KILLED 
 	|| info->si_code == CLD_DUMPED
 	) {
 
-	/* Now search for the PID */
 	pid = info->si_pid;
-	atom = NULL;
-	for (k=0; k<sigchld_list_len && atom==NULL; k++) {
-	    if (sigchld_list[k].pid == pid) {
-		atom = &(sigchld_list[k]);
-	    }
-	}
-	
-	if (atom != NULL) {
-	    waitpid(pid, &(atom->status), WNOHANG);
-	    if (! atom->ignore && ! atom->terminated) {
-		close(atom->pipe_fd);
-	    }
-	    atom->terminated = 1;
-	}
+	/* In a single-threaded environment, we can directly call
+           sigchld_process here. It is ensured that there is no other
+           accessor of sigchld_list as SIGCHLD is blocked.
+      
+           In a multi-threaded environment, we call sigchld_producer
+           instead. This writes the pid to a pipe, where another thread
+           (sigchld_consumer) expects it, and the other thread calls
+           then sigchld_process. This construction is necessary because
+           there is no other way of ensuring that there is only one
+           accessor of sigchld_list at a time
+	*/
+#ifdef HAVE_PTHREAD
+	sigchld_producer(pid);
+#else
+	sigchld_process(pid);
+#endif
     }
-
-    sigchld_unlock(0);
 
     errno = saved_errno;
 }
 
+
+static int sigchld_init_mt(void) {
+#ifdef HAVE_PTHREAD
+    int filedes[2];
+    pthread_t pthr;
+    int close_sigchld_pipe_rd = 0;
+    int close_sigchld_pipe_wr = 0;
+    int eflag = 1;
+    
+    do {  /* to define an exit for [break] */
+	if (sigchld_init) { eflag = 0; break; };  /* already initialized */
+	if (pipe(filedes) == -1) break;
+	sigchld_pipe_rd = filedes[0];
+	sigchld_pipe_wr = filedes[1];
+	close_sigchld_pipe_rd = 1;
+	close_sigchld_pipe_wr = 1;
+	if (fcntl(sigchld_pipe_rd, F_SETFD, FD_CLOEXEC) == -1) break;
+	if (fcntl(sigchld_pipe_wr, F_SETFD, FD_CLOEXEC) == -1) break;
+	if (pthread_create(&pthr, NULL, &sigchld_consumer, NULL) != 0)
+	    break;
+	eflag = 0;
+	sigchld_init = 1;
+    } while (0);
+    
+    if (eflag) {
+	int saved_errno = errno;
+	if (close_sigchld_pipe_rd) close(sigchld_pipe_rd);
+	if (close_sigchld_pipe_wr) close(sigchld_pipe_wr);
+	errno = saved_errno;
+	return (-1);
+    };
+    return 0;
+#endif
+}
 
 #endif  /* HAVE_POSIX_SIGNALS */
 
@@ -993,7 +1063,7 @@ CAMLprim value netsys_install_sigchld_handler(value dummy) {
     int code;
     struct sigaction action;
     int k;
-    
+
     sigchld_lock(1, 1);
  
     action.sa_sigaction = sigchld_action;
@@ -1028,6 +1098,38 @@ CAMLprim value netsys_install_sigchld_handler(value dummy) {
 #else
     invalid_argument("Netsys_posix.install_subprocess_handler not available");
 #endif
+}
+
+
+CAMLprim value netsys_subprocess_cleanup_after_fork(value dummy) {
+#ifdef HAVE_POSIX_SIGNALS
+    int k;
+    struct sigchld_atom *atom;
+    int reinit = 0;
+    if (sigchld_list != NULL) {
+	reinit = 1;
+	for (k=0; k<sigchld_list_len; k++) {
+	    atom = &(sigchld_list[k]);
+	    if (atom->pid != 0 && ! atom->ignore && ! atom->terminated) {
+		close(atom->pipe_fd);
+	    }
+	};
+	free(sigchld_list);
+	sigchld_list = NULL;
+    }
+#ifdef HAVE_PTHREAD
+    if (sigchld_init) {
+	close(sigchld_pipe_rd);
+	close(sigchld_pipe_wr);
+	sigchld_init = 0;
+	if (!sigchld_mutex_init) pthread_mutex_init(&sigchld_mutex, NULL);
+	sigchld_mutex_init = 1;
+    }
+#endif
+    if (reinit)
+	netsys_install_sigchld_handler(dummy);
+#endif
+    return Val_unit;
 }
 
 
@@ -1072,8 +1174,25 @@ CAMLprim value netsys_watch_subprocess(value pid_v, value pgid_v,
     */
     sigchld_lock(1, 1);
 
+    if (!sigchld_init) {
+	/* Delayed initialization of the helper thread, and the descriptors
+           communicating with it. This cannot not be done at install time
+           as this collides with fork() requirements: After a fork() it is
+           unclear whether this whole machinery is still used. The fork
+           cleanup function above reinstalls the signal handler (which is ok
+           and expected). It would be too much to also do this stuff then.
+	*/
+	if (sigchld_init_mt() == -1) {
+	    int saved_errno = errno;
+	    sigchld_unlock(1);
+	    unix_error(saved_errno,
+		       "netsys_watch_subprocess [delayed init]",
+		       Nothing);
+	}
+    }
+
     /* Search for a free atom: */
-    atom=0;
+    atom=NULL;
     atom_idx = 0;
     for (k=0; k<sigchld_list_len && atom==NULL; k++) {
 	if (sigchld_list[k].pid == 0) {
