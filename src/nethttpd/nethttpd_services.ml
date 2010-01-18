@@ -690,18 +690,27 @@ and file_service =
 
 let file_translator spec uri =
   let rem_slash s =
-    if s<>"" && s.[0] = '/' then
-      String.sub s 1 (String.length s - 1)
-    else
-      s in
+    let s1 =
+      if s<>"" && s.[0] = '/' then
+	String.sub s 1 (String.length s - 1)
+      else
+	s in
+    let s2 =
+      if s1 <> "" && s1.[String.length s1-1] = '/' then
+	String.sub s1 0 (String.length s1-1)
+      else
+	s1 in
+    s2 in
+  let concat p1 p2 =
+    if p2="" then p1 else Filename.concat p1 p2 in
   let rec translate pat_l l =
     match (pat_l, l) with
       | ([], [""]) ->
 	  spec.file_docroot
       | ([], path) ->
-	  Filename.concat spec.file_docroot (rem_slash(Neturl.join_path path))
+	  concat spec.file_docroot (rem_slash(Neturl.join_path path))
       | ([""], path) ->
-	  Filename.concat spec.file_docroot (rem_slash(Neturl.join_path path))
+	  concat spec.file_docroot (rem_slash(Neturl.join_path path))
       | (pat_dir :: pat_l', dir :: l') when pat_dir = dir ->
 	  translate pat_l' l'
       | _ ->
@@ -769,7 +778,10 @@ let merge_byte_ranges st ranges =
   merge ranges
 
 let w32_fix_trailing_slash s =
-  (* background: Win32 dislikes Unix.stat "directory/" *)
+  (* background: Win32 dislikes Unix.stat "directory/". It is unclear whether
+     this function is still required - file_translator is now changed so
+     that trailing slashes are normally not returned.
+   *)
   if Sys.os_type = "Win32" then (
     if s <> "" && s <> "/" && s.[ String.length s - 1 ] = '/' then
       s ^ "."

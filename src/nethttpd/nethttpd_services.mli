@@ -180,7 +180,14 @@ val file_service : file_service -> [> `File_service of file_service ] http_servi
   (** Configures a file service *)
 
 val file_translator : file_service -> string -> string
-  (** Translates an URI path to a file name. Raises [Not_found] if not possible. *)
+  (** Translates an URI path to a file name. Raises [Not_found] if not
+      possible. It is not checked whether the resulting file exists.
+
+      This function removes a trailing slash of the translated path, if any,
+      and if resulting from appending the path info component.
+      Trailing slashes must not be used to deduce that directories are
+      accessed.
+   *)
 
 val simple_listing : ?hide:string list -> 
              extended_environment -> Netcgi.cgi_activation -> file_service -> unit

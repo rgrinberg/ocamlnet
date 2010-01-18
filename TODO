@@ -77,12 +77,6 @@ Plan for Ocamlnet 3
 
   * Revisit: Netplex + UDP
 
-
-- Bug fixes:
-@  * CHECK nethttpd: if PATH_TRANSLATED points to a directory, omit the
-    trailing slash. See also Nethtttpd_services.w32_fix_trailing_slash -
-    but this is a hack
-
 - syslog:
 @  * "syslog": Just calls syslog()
   * "syslog_emulation": The syslog protocol itself
@@ -143,6 +137,9 @@ Plan for Ocamlnet 3
   * nethttpd_services: GET /file//path?p=1
     parameters like p were not recognized when there is "//" in path
     (redirect_request bug)
+  * nethttpd_services: if PATH_TRANSLATED points to a directory, omit the
+    trailing slash. See also Nethtttpd_services.w32_fix_trailing_slash -
+    but this is a hack
 
 
 - NetCGI cleanup
