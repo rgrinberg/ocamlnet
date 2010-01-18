@@ -133,6 +133,7 @@ and t =
 	mutable pending_calls : call SessionMap.t;
 
 	mutable next_xid : int;
+	mutable used_xids : unit SessionMap.t;
 	mutable last_replier : Unix.sockaddr option;
 
 	(* configs: *)
@@ -309,6 +310,7 @@ let close ?error ?(ondown=fun()->()) cl =
 	| Some e -> pass_exception_to_all cl e
     );
     cl.pending_calls <- SessionMap.empty;
+    cl.used_xids <- SessionMap.empty;
     Queue.clear cl.waiting_calls;
     match cl.trans with
       | None -> 
@@ -342,6 +344,16 @@ let find_or_make_auth_session cl =
 
   (*****)
 
+let rec next_xid cl =
+  if SessionMap.mem cl.next_xid cl.used_xids then
+    next_xid cl
+  else (
+    let xid = cl.next_xid in
+    cl.next_xid <- xid + 1;
+    xid
+  )
+
+
 let add_call_again cl call =
   (* Add a call again to the queue of waiting calls. The call is authenticated
    * again.
@@ -354,21 +366,28 @@ let add_call_again cl call =
 
   let (cred_flav, cred_data, verf_flav, verf_data) = s # next_credentials cl in
 
+  let xid = next_xid cl in
+  (* Get new xid. Reusing the old xid seems to be too risky - there are
+     servers that cache requests by xid's
+   *)
+
   let value =
     Rpc_packer.pack_call
       call.prog
-      (uint4_of_int call.xid)                   (* use old XID again (CHECK) *)
+      (uint4_of_int xid)
       call.proc
       cred_flav cred_data verf_flav verf_data
       call.xdr_value
   in
 
+  call.xid <- xid;
   call.value <- value;           (* the credentials may have changed *)
   call.state <- Waiting;
   call.retrans_count <- cl.max_retransmissions;
   call.timeout_group <- None;
 
   Queue.add call cl.waiting_calls;
+  cl.used_xids <- SessionMap.add xid () cl.used_xids;
 
   !check_for_output cl
 ;;
@@ -377,6 +396,7 @@ let add_call_again cl call =
 
 let remove_pending_call cl call =
   cl.pending_calls <- SessionMap.remove call.xid cl.pending_calls;
+  cl.used_xids <- SessionMap.remove call.xid cl.used_xids;
   stop_retransmission_timer cl call
 ;;
 
@@ -388,6 +408,7 @@ let retransmit cl call =
       dlog cl "Retransmitting";
       (* Make the 'call' waiting again *)
       Queue.add call cl.waiting_calls;
+      cl.used_xids <- SessionMap.add call.xid () cl.used_xids;
       (* Decrease the retransmission counter *)
       call.retrans_count <- call.retrans_count - 1;
       (* Check state of reources: *)
@@ -491,7 +512,7 @@ let unbound_async_call_r cl prog procname param receiver =
       get_result = receiver;
       state = Waiting;
       retrans_count = cl.next_max_retransmissions;
-      xid = cl.next_xid;
+      xid = next_xid cl;
       destination = cl.next_destination;
       call_timeout = cl.next_timeout;
       timeout_group = None;
@@ -502,7 +523,7 @@ let unbound_async_call_r cl prog procname param receiver =
   in
 
   Queue.add new_call cl.waiting_calls;
-  cl.next_xid <- cl.next_xid + 1;
+  cl.used_xids <- SessionMap.add new_call.xid () cl.used_xids;
   cl.next_timeout <- cl.timeout;
   cl.next_max_retransmissions <- cl.max_retransmissions;
   cl.next_batch_flag <- false;
@@ -607,6 +628,7 @@ let process_incoming_message cl message peer =
 	    (* else: in the meantime the method has already been
 	     * switched
 	     *)
+	    remove_pending_call cl call;
 	    dlogr_ptrace cl
 	      (fun () ->
 		 sprintf
@@ -841,6 +863,7 @@ and next_outgoing_message' cl trans =
 	      | Waiting ->
 		  cl.pending_calls <-
 		    SessionMap.add call.xid call cl.pending_calls;
+		  (* The xid is already in used_xids *)
 		  call.state <- Pending;
 		  dlogr_ptrace cl
 		    (fun () ->
@@ -1070,6 +1093,7 @@ let rec internal_create initial_xid
       shutdown_connector = shutdown;
       waiting_calls = Queue.create();
       pending_calls = SessionMap.empty;
+      used_xids = SessionMap.empty;
       next_xid = initial_xid;
       next_destination = None;
       next_timeout = (-1.0);

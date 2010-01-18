@@ -317,7 +317,9 @@ object(self)
 	       * environment.
 	       *)
 	      if req_uri_norm <> req_path then (
-               let req_uri_esc = uripath_encode req_uri_norm in
+		let qs =  env#cgi_query_string in
+		let qm_qs = if qs = "" then "" else "?" ^ qs in
+		let req_uri_esc = uripath_encode req_uri_norm ^ qm_qs in
 		raise(Redirect_request(req_uri_esc, env # input_header)));
 	      (* Search the URI to match: *)
 	      ( match

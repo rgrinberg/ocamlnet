@@ -15,9 +15,10 @@ CRYPTOKIT_LIBS= nums.cma cryptokit.cma
 INCLUDES += -I $(CRYPTOKIT_PATH)
 endif
 
-LIBS_CMA	= str.cma pcre.cma unix.cma netsys.cma netstring.cma \
+LIBS_CMA	= str.cma pcre.cma unix.cma bigarray.cma netsys_oothr.cmo netsys.cma netstring.cma \
   $(CRYPTOKIT_LIBS)
-LIBS_CMXA	= $(LIBS_CMA:.cma=.cmxa)
+LIBS_CMXA1	= $(LIBS_CMA:.cma=.cmxa)
+LIBS_CMXA 	= $(LIBS_CMXA1:.cmo=.cmx)
 OCAMLC_FLAGS	= -dtypes $(INCLUDES)
 OCAMLOPT_FLAGS	= -dtypes $(INCLUDES)
 
