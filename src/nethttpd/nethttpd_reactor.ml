@@ -46,7 +46,10 @@ object
   method config_timeout_next_request : float
   method config_timeout : float
   method config_cgi : Netcgi.config
-  method config_error_response : int -> string
+  method config_error_response :
+    int -> 
+    Unix.sockaddr option -> Unix.sockaddr option -> http_method option ->
+    http_header option -> string -> string
   method config_log_error : 
     Unix.sockaddr option -> Unix.sockaddr option -> http_method option ->
     http_header option -> string -> unit
@@ -339,7 +342,6 @@ object
     if !out_state <> `Sending then 
       failwith "output channel: Cannot output now";
     let u = String.sub s spos slen in
-prerr_endline ("OUTPUT: " ^ u);
     resp # send (`Resp_body(u, 0, String.length u));
     ( match config#config_reactor_synch with
 	| `Write ->
@@ -659,16 +661,21 @@ object(self)
 			   sprintf 
 			     "FD %Ld: reactor_next_request: standard response" 
 			     (Netsys.int64_of_file_descr fd));
-		  ( match msg_opt with
-		      | Some msg ->
-			  config # config_log_error
-			    (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri)) 
-			    (Some req_hdr) msg
-		      | None -> ()
-		  );
+		  let msg, have_msg =
+		    match msg_opt with
+		      | Some msg -> msg, true
+		      | None -> "", false in
+		  if have_msg then
+		    config # config_log_error
+		      (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri)) 
+		      (Some req_hdr) msg;
 		  (* CHECK: Also log to access log? *)
 		  let code = int_of_http_status status in
-		  let body = config # config_error_response code in
+		  let body =
+		    config # config_error_response
+		      code
+		      (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri)) 
+		      (Some req_hdr) msg in
 		  Nethttpd_kernel.send_static_response resp status hdr_opt body;
 		  
 		  self # synch();
@@ -691,9 +698,11 @@ object(self)
 		   sprintf 
 		     "FD %Ld: reactor_next_request: got fatal error" 
 		     (Netsys.int64_of_file_descr fd));
-	  let msg = Nethttpd_kernel.string_of_fatal_error e in
-	  config # config_log_error 
-	    (Some fd_addr) (Some peer_addr) None None msg;
+	  if e <> `Broken_pipe_ignore then (
+	    let msg = Nethttpd_kernel.string_of_fatal_error e in
+	    config # config_log_error 
+	      (Some fd_addr) (Some peer_addr) None None msg;
+	  );
 	  None
 
       | `Bad_request_error (e, resp) ->
@@ -706,7 +715,9 @@ object(self)
 	  let status = status_of_bad_request_error e in
 	  config # config_log_error
 	    (Some fd_addr) (Some peer_addr) None None msg;
-	  let body = config # config_error_response (int_of_http_status status) in
+	  let body = 
+	    config # config_error_response 
+	      400 (Some fd_addr) (Some peer_addr) None None msg in
 	  Nethttpd_kernel.send_static_response resp status None body;
 	  self # next_request()
 

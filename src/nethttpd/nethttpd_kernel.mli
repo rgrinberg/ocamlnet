@@ -38,6 +38,7 @@ open Nethttpd_types
 
 type fatal_error =
     [ `Broken_pipe
+    | `Broken_pipe_ignore
     | `Message_too_long
     | `Timeout
     | `Unix_error of Unix.error
@@ -47,6 +48,8 @@ type fatal_error =
       * any further processing.
       *
       * Note that [`Timeout] refers to a timeout in the middle of a request.
+      * [`Broken_pipe_ignore] is the "harmless" version of [`Broken_pipe]
+      * (see [config_suppress_broken_pipe]).
       *
       * Long messages are fatal because it is suspected that they are denial
       * of service attacks. The kernel generates [`Message_too_long] only for
@@ -378,6 +381,11 @@ object
      * - [`Ocamlnet_and s]: Announce this web server as [s] and append
      *   the Ocamlnet string.
      * - [`As s]: Announce this web server as [s]
+     *)
+
+  method config_suppress_broken_pipe : bool
+    (** Whether to suppress [`Broken_pipe] errors. Instead 
+      * [`Broken_pipe_ignore] is reported.
      *)
 
 end

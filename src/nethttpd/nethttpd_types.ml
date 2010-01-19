@@ -374,7 +374,10 @@ let output_file_response env status
 
 class type min_config =
 object
-  method config_error_response : int -> string
+  method config_error_response : 
+    int -> Unix.sockaddr option -> Unix.sockaddr option -> 
+    Nethttp.http_method option -> Nethttp.http_header option -> string -> 
+    string
   method config_log_error : 
     Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> http_header option -> string -> unit
 end
@@ -382,11 +385,11 @@ end
 
 let output_std_response config (env : #extended_environment) 
                         status hdr_opt msg_opt =
+  let req_meth = env # cgi_request_method in
+  let req_uri = env # cgi_request_uri in
+  let req_hdr = new Netmime.basic_mime_header env#input_header_fields in
   ( match msg_opt with
       | Some msg ->
-	  let req_meth = env # cgi_request_method in
-	  let req_uri = env # cgi_request_uri in
-	  let req_hdr = new Netmime.basic_mime_header env#input_header_fields in
 	  config # config_log_error
 	    (Some env#server_socket_addr) (Some env#remote_socket_addr) 
 	    (Some(req_meth,req_uri)) (Some req_hdr) msg
@@ -398,7 +401,12 @@ let output_std_response config (env : #extended_environment)
       | `No_content
       | `Reset_content
       | `Not_modified -> ""
-      | _ -> config # config_error_response code in
+      | _ ->
+	  config # config_error_response 
+	    code (Some env#server_socket_addr) (Some env#remote_socket_addr) 
+	    (Some(req_meth,req_uri)) (Some req_hdr) 
+	    (match msg_opt with Some m -> m | None -> "")
+  in
   let hdr_opt' =
     match hdr_opt with
       | Some h -> Some h

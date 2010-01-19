@@ -42,7 +42,8 @@ let serve fd netcgi_processor =
       method config_timeout = 300.0
       method config_reactor_synch = `Write
       method config_cgi = Netcgi.default_config 
-      method config_error_response n = "<html>Error " ^ string_of_int n ^ "</html>"
+      method config_error_response n _ _ _ _  _ =
+	"<html>Error " ^ string_of_int n ^ "</html>"
       method config_log_error _ _ _ _ msg = 
 	printf "Error log: %s\n" msg
       method config_log_access _ _ _ _ _ _ _ _ _ _ = ()
@@ -52,6 +53,7 @@ let serve fd netcgi_processor =
       method config_limit_pipeline_length = 5
       method config_limit_pipeline_size = 250000
       method config_announce_server = `Ocamlnet
+      method config_suppress_broken_pipe = false
     end in
   let reactor = new http_reactor config fd in
   service_loop reactor netcgi_processor;

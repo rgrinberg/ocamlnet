@@ -81,7 +81,8 @@ let serve_connection ues fd =
       method config_timeout_next_request = 15.0
       method config_timeout = 300.0
       method config_cgi = Netcgi.default_config
-      method config_error_response n = "<html>Error " ^ string_of_int n ^ "</html>"
+      method config_error_response n _ _ _ _ _ =
+	"<html>Error " ^ string_of_int n ^ "</html>"
       method config_log_error _ _ _ _ msg =
         printf "Error log: %s\n" msg; flush stdout
       method config_log_access _ _ _ _ _ _ _ _ _ _ = ()
@@ -94,6 +95,7 @@ let serve_connection ues fd =
       method config_input_flow_control = true
       method config_output_flow_control = true
       method config_announce_server = `Ocamlnet
+      method config_suppress_broken_pipe = false
     end in
   
   let pconfig = new Nethttpd_engine.buffering_engine_processing_config in

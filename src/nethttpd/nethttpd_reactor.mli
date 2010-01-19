@@ -54,7 +54,9 @@ object
   method config_cgi : Netcgi.config
     (** The CGI configuration to use in the Netcgi environment *)
 
-  method config_error_response : int -> string
+  method config_error_response : 
+    int -> Unix.sockaddr option -> Unix.sockaddr option -> 
+    Nethttp.http_method option -> Nethttp.http_header option -> string -> string
     (** Get HTML error text for the HTTP status code. Must return a generic
       * text for unknown codes.
      *)

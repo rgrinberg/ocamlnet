@@ -194,9 +194,13 @@ val output_file_response : #extended_environment ->
 
 class type min_config =
 object
-  method config_error_response : int -> string
+  method config_error_response :
+    int -> 
+    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> 
+    http_header option -> string -> string
   method config_log_error : 
-    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> http_header option -> string -> unit
+    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> 
+    http_header option -> string -> unit
 end
   (** Minimal configuration needed for [output_std_response] *)
 

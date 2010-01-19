@@ -87,8 +87,6 @@ Plan for Ocamlnet 3
 
 
 - Other
-@  * Nethttpd: configurable error response (Nethttpd_plex, look for "TODO")
-@  * Nethttpd: suppress "broken pipe"
 @  * Check $Id$
   * Go through examples. Fix programming style
       nethttpd DONE
@@ -140,6 +138,8 @@ Plan for Ocamlnet 3
   * nethttpd_services: if PATH_TRANSLATED points to a directory, omit the
     trailing slash. See also Nethtttpd_services.w32_fix_trailing_slash -
     but this is a hack
+  * Nethttpd: configurable error response
+  * Nethttpd: option for suppressing "broken pipe"
 
 
 - NetCGI cleanup

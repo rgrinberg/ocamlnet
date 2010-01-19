@@ -64,6 +64,7 @@ object
   method config_limit_pipeline_length = limit_pipeline_length
   method config_limit_pipeline_size = limit_pipeline_size
   method config_announce_server = `Ocamlnet
+  method config_suppress_broken_pipe = false
 end
 ;;
 

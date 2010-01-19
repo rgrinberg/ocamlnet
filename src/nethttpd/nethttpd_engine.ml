@@ -789,16 +789,23 @@ object(self)
 		    dlogr (fun () -> 
 			     sprintf "FD %Ld: got request -> std response"
 			       (Netsys.int64_of_file_descr fd));
-                    ( match msg_opt with
-			| Some msg ->
-			    let (req_meth, req_uri) = fst req_line in
-                                config # config_log_error
-                                  (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri))
-                                  (Some req_hdr) msg
-			| None -> ()
-                    );
+		    let (req_meth, req_uri) = fst req_line in
+		    let msg, have_msg =
+		      match msg_opt with
+			| Some msg -> msg, true
+			| None -> "", false in
+		    if have_msg then (
+                      config # config_log_error
+                        (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri))
+                        (Some req_hdr) msg
+		    );
                     (* CHECK: Also log to access log? *)
-                    let body = config # config_error_response 400 in
+		    let code = int_of_http_status status in
+                    let body = 
+		      config # config_error_response
+			code
+			(Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri))
+                        (Some req_hdr) msg in
 		    Nethttpd_kernel.send_static_response resp status hdr_opt body;
 		    Unixqueue.add_event ues
 		      (Unixqueue.Extra(Ev_output_filled(group,(fun () -> ()))));
@@ -890,12 +897,14 @@ object(self)
 	    dlogr (fun () -> 
 		     sprintf "FD %Ld: got fatal error"
 		       (Netsys.int64_of_file_descr fd));
-	    let msg = Nethttpd_kernel.string_of_fatal_error e in
-	    config # config_log_error 
-	      (Some fd_addr) (Some peer_addr) None None msg;
-	    (* Note: The kernel ensures that the following token will be [`Eof].
-	     * Any necessary cleanup will be done when [`Eof] is processed.
-	     *)
+	    if e <> `Broken_pipe_ignore then (
+	      let msg = Nethttpd_kernel.string_of_fatal_error e in
+	      config # config_log_error 
+		(Some fd_addr) (Some peer_addr) None None msg;
+	      (* Note: The kernel ensures that the following token will be [`Eof].
+	       * Any necessary cleanup will be done when [`Eof] is processed.
+	       *)
+	    )
 	    
 	| `Bad_request_error (e, resp) ->
 	    (* Log the incident, and reply with a 400 response. There isn't any
@@ -910,7 +919,10 @@ object(self)
 	    let status = status_of_bad_request_error e in
 	    config # config_log_error
 	      (Some fd_addr) (Some peer_addr) None None msg;
-	    let body = config # config_error_response (int_of_http_status status) in
+	    let body = 
+	      config # config_error_response
+		400
+		(Some fd_addr) (Some peer_addr) None None msg in
 	    Nethttpd_kernel.send_static_response resp status None body;
 	    Unixqueue.add_event ues
 	      (Unixqueue.Extra(Ev_output_filled(group,(fun () -> ()))));
@@ -1141,6 +1153,7 @@ let process_connection config pconfig fd ues stage1 :
     method config_limit_pipeline_length = config # config_limit_pipeline_length
     method config_limit_pipeline_size = config # config_limit_pipeline_size
     method config_announce_server = config # config_announce_server
+    method config_suppress_broken_pipe = config#config_suppress_broken_pipe
   end in
 
   let log_error req msg =

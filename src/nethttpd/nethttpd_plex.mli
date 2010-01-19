@@ -18,6 +18,23 @@ type config_log_error =
      - [message] is the error message
    *)
 
+type config_error_response =
+    int -> Unix.sockaddr option -> Unix.sockaddr option -> 
+    Nethttp.http_method option -> Nethttp.http_header option -> string -> 
+    string
+(** The type of the function generating error pages: This function [f] is 
+    called
+    as [f code sockaddr_opt peeraddr_opt meth_opt header_opt message], where
+     - [code] is the response HTTP code
+     - [sockaddr_opt] is the address of the server socket
+     - [peeraddr_opt] is the address of the client socket
+     - [meth_opt] is the invoked HTTP method (GET/POST/...)
+     - [header_opt] is the request header submitted by the client
+     - [message] is the error message
+
+     The function must return the text/html error page as string.
+   *)
+
 type config_log_access =
     Unix.sockaddr -> Unix.sockaddr -> Nethttp.http_method ->
     Nethttp.http_header -> int64 -> (string * string) list -> bool -> 
@@ -51,6 +68,9 @@ val std_log_access : ?debug:bool ->
       If [debug] is set, additional debug log messages are printed that
       dump the whole access (incl. header and all available information)
    *)
+
+val std_error_response : config_error_response
+  (** A sample error response function *)
 
 val restrict_file_service_config : Netplex_types.config_file ->
                                    Netplex_types.address ->  unit
@@ -154,6 +174,7 @@ val nethttpd_factory :
       ?services:(string * ('a,'b) service_factory) list ->
       ?log_error:(Netplex_types.container -> config_log_error) ->
       ?log_access:(?debug:bool -> Netplex_types.container -> config_log_access) ->
+      ?error_response:config_error_response -> 
       unit ->
         Netplex_types.processor_factory
   (** Reads a configuration section like
@@ -163,6 +184,7 @@ val nethttpd_factory :
     *      timeout = 300.0;
     *      timeout_next_request = 15.0;
     *      access_log = "enabled";
+    *      suppress_broken_pipe = true;
     *      host {
     *        pref_name = "myhost";     (* optional *)
     *        pref_port = 80;           (* optional *)
@@ -192,6 +214,10 @@ val nethttpd_factory :
     * The default is [off]. Access messages go to the "access" subchannel
     * of the component logger. If [enabled], one line is printed with the
     * most important data. If [debug] is set, all access data are printed.
+    *
+    * If [suppress_broken_pipe] the error "Broken pipe" is not logged
+    * in the error log. This error occurs frequently, and may be regarded
+    * as a normal condition.
     *
     * The sections [host], [uri] and [method] can be nested to any depth.
     * However, on every nesting level only one of these section types must be

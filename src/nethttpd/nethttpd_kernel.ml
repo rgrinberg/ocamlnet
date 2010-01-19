@@ -40,6 +40,7 @@ open Printf
 
 type fatal_error =
     [ `Broken_pipe
+    | `Broken_pipe_ignore
     | `Message_too_long
     | `Timeout
     | `Unix_error of Unix.error
@@ -49,6 +50,7 @@ type fatal_error =
 let string_of_fatal_error =
   function
     | `Broken_pipe -> "Nethttpd: Broken pipe"
+    | `Broken_pipe_ignore -> "Nethttpd: Ignorable broken pipe"
     | `Message_too_long -> "Nethttpd: Message too long, dropping it"
     | `Timeout -> "Nethttpd: Connection timed out"
     | `Unix_error ue -> ("Nethttpd: System error: " ^ Unix.error_message ue)
@@ -588,6 +590,7 @@ object
   method config_limit_pipeline_length : int
   method config_limit_pipeline_size : int
   method config_announce_server : announcement
+  method config_suppress_broken_pipe : bool
 end
 
 
@@ -1453,7 +1456,12 @@ object(self)
 	     sprintf "FD %Ld: abort %s" fdi (string_of_fatal_error err));
     need_linger <- false;
     self # shutdown();
-    self # push_recv (`Fatal_error err, 0);
+    let err' =
+      if err=`Broken_pipe && config#config_suppress_broken_pipe then
+	`Broken_pipe_ignore
+      else
+	err in
+    self # push_recv (`Fatal_error err', 0);
     self # push_recv (`Eof, 0)
 
   method fd = fd

@@ -1288,9 +1288,7 @@ let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi.cgi_activation) fs
     )
     xfiles;
   out "</pre></body></html>\n";
-prerr_endline "commit_work";
-  cgi # output # commit_work();
-prerr_endline "back commit_work"
+  cgi # output # commit_work()
 
 
 type ac_by_host_rule =

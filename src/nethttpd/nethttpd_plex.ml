@@ -2,11 +2,17 @@
 
 open Nethttpd_services
 open Netplex_types
+open Printf
 
 type config_log_error =
     Unix.sockaddr option -> Unix.sockaddr option -> 
       Nethttp.http_method option -> Nethttp.http_header option -> string -> 
 	unit
+
+type config_error_response =
+    int -> Unix.sockaddr option -> Unix.sockaddr option -> 
+    Nethttp.http_method option -> Nethttp.http_header option -> string -> 
+    string
 
 type config_log_access =
     Unix.sockaddr -> Unix.sockaddr -> Nethttp.http_method ->
@@ -229,6 +235,37 @@ let read_file_service_config cfg addr uri_path =
   spec
 
 
+let std_error_response code sockaddr_opt peeraddr_opt meth_opt hdr_opt msg =
+  let b = Buffer.create 500 in
+  bprintf b "<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \
+        \"http://www.w3.org/TR/REC-html40/strict.dtd\">\n";
+  bprintf b "<html xmlns=\"http://www.w3.org/1999/xhtml\" \
+xml:lang=\"en\" lang=\"en\">
+<head>
+<meta name=\"generator\" content=\"OCamlNet (http://projects.camlcity.org/projects/ocamlnet)\">
+<style>
+  p.msg { color: black; background-color: #cccccc; padding: 1ex; }
+  h2 { font-size: large; }
+</style>
+</head>
+<body>\n";
+  let text =
+    try Nethttp.string_of_http_status(Nethttp.http_status_of_int code)
+    with Not_found -> "Non-standard code" in
+  bprintf b "<h1>Error %i - %s</h1>\n" code text;
+  bprintf b "The server could not process your request.\n";
+  bprintf b "For additional information consult the error log of the\n";
+  bprintf b "server.\n";
+  bprintf b "<hr>\n";
+  bprintf b "%s - Ocamlnet Nethttpd server\n"
+    (Netdate.format "%c"
+       (Netdate.create ~zone:Netdate.localzone
+	  (Unix.time())));
+  bprintf b "</body>\n";
+  bprintf b "</html>\n";
+  Buffer.contents b
+
+
 let (default_file_service : ('a,'b) service_factory) handlers cfg addr uri_path =
   restrict_file_service_config cfg addr;
   let spec = read_file_service_config cfg addr uri_path in
@@ -269,12 +306,14 @@ let default_services =
     "dynamic", default_dynamic_service
   ]
 
+
 let create_processor config_cgi handlers services log_error log_access 
-                     ctrl_cfg cfg addr =
+                     error_response ctrl_cfg cfg addr =
 
   let req_str_param = cfg_req_str_param cfg in
   let opt_str_param = cfg_opt_str_param cfg in
   let float_param = cfg_float_param cfg in
+  let bool_param = cfg_bool_param cfg in
 
   let rec sub_service outermost_flag uri_path addr =
     let host_sects = cfg # resolve_section addr "host" in
@@ -432,7 +471,9 @@ let create_processor config_cgi handlers services log_error log_access
   cfg # restrict_subsections addr
     [ "host"; "uri"; "method"; "service" ];
   cfg # restrict_parameters addr
-    [ "type"; "timeout"; "timeout_next_request"; "access_log" ];
+    [ "type"; "timeout"; "timeout_next_request"; "access_log"; 
+      "suppress_broken_pipe"
+    ];
 
   let srv =
     linear_distributor
@@ -449,6 +490,7 @@ let create_processor config_cgi handlers services log_error log_access
       | Some "enabled"  -> (true,false)
       | Some "debug" -> (true,true)
       | _ -> failwith "Bad parameter 'access_log'" in
+  let suppress_broken_pipe = bool_param addr "suppress_broken_pipe" in
 
   let mk_config container =
     let cle = log_error container in
@@ -462,9 +504,7 @@ let create_processor config_cgi handlers services log_error log_access
        method config_timeout_next_request = timeout_next_request
        method config_timeout = timeout
        method config_cgi = config_cgi
-       method config_error_response n = 
-	 (* TODO *)
-	 "<html><body>Error " ^ string_of_int n ^ "</body></html>"
+       method config_error_response = error_response
        method config_log_error = cle
        method config_log_access = cla
        method config_max_reqline_length = 32768
@@ -474,6 +514,7 @@ let create_processor config_cgi handlers services log_error log_access
        method config_limit_pipeline_size = 65536
        method config_announce_server = `Ocamlnet
 	 (* TODO *)
+       method config_suppress_broken_pipe = suppress_broken_pipe
      end
     ) in
 
@@ -488,12 +529,14 @@ class nethttpd_factory ?(name = "nethttpd")
 		       ?(services=default_services)
 		       ?(log_error = std_log_error)
 		       ?(log_access = std_log_access)
+                       ?(error_response = std_error_response)
 		       () : processor_factory =
 object
   method name = name
   method create_processor ctrl_cfg cfg addr =
     create_processor 
-      config_cgi handlers services log_error log_access ctrl_cfg cfg addr
+      config_cgi handlers services log_error log_access error_response
+      ctrl_cfg cfg addr
 end
 
 let nethttpd_factory =
