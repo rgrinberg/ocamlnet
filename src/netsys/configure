@@ -12,6 +12,8 @@ have_printexc_register_printer_bool=false
 code_printexc_register_printer='()'
 have_ocaml_fancy_page_tables=0
 
+stdlib=`ocamlc -where`
+
 ######################################################################
 
 rm -f configtests/printexc_register_printer.err
@@ -231,6 +233,17 @@ else
     def_have_posix_pthread="#undef HAVE_PTHREAD"
 fi
 
+######################################################################
+
+printf "Checking for GPROF... "
+
+if [ -f $stdlib/std_exit.p.cmx ]; then
+    echo "found"
+    def_have_gprof="#define HAVE_GPROF"
+else
+    echo "not found"
+    def_have_gprof="#undef HAVE_GPROF"
+fi
 
 ######################################################################
 
@@ -260,6 +273,7 @@ $def_have_posix_fallocate
 $def_have_posix_memalign
 $def_have_posix_pthread
 $def_have_ocaml_fancy_page_tables
+$def_have_gprof
 EOF
 
 cat <<EOF >netsys_conf.ml

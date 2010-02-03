@@ -21,8 +21,12 @@ LINK_OPTIONS = $(NETSYS_LINK_OPTIONS)
 
 ALL_EXTRA = netsys_oothr.cma netsys_oothr_mt_init.cmo
 ALLMT_EXTRA = netsys_oothr_mt_init.cmo
-OPT_EXTRA = netsys_oothr.cmxa 
+OPT_EXTRA = netsys_oothr.cmxa netsys_gprof_init.cmx netsys_c_gprof.o
 OPTMT_EXTRA = netsys_oothr_mt_init.cmx
+INSTALL_EXTRA = netsys_oothr_mt_init.cmo \
+                netsys_oothr_mt_init.cmx netsys_oothr_mt_init.o \
+	        netsys_gprof_init.cmx netsys_gprof_init.o \
+		netsys_c_gprof.o
 
 OCAMLC_OPTIONS_FOR_netsys_oothr_mt.mli = $(THREAD)
 OCAMLC_OPTIONS_FOR_netsys_oothr_mt.ml = $(THREAD)

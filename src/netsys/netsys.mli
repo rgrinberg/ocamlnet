@@ -395,6 +395,16 @@ val mcast_drop_membership : Unix.file_descr ->
    *)
 
 
+(** {1 Profiling} *)
+
+val moncontrol : bool -> unit
+  (** Interface to the [moncontrol] routine of the GPROF profiler. 
+      [moncontrol false] stops profiling; [moncontrol true] starts
+      profiling again.
+
+      This is a no-op if the program is not compiler for profiling.
+   *)
+
 
 (** {1 Deprecated} *)
 
@@ -494,3 +504,9 @@ module Debug : sig
     (** Enables {!Netlog}-style debugging *)
 
 end
+
+
+(**/**)
+
+(* internal: *)
+val set_moncontrol : (bool -> unit) -> unit

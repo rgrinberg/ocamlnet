@@ -74,6 +74,7 @@ object(self)
   method start_thread : 
            (par_thread -> unit) -> 'x -> 'y -> string -> logger -> par_thread =
     fun f l_close l_share srv_name logger ->
+      Netsys.moncontrol false;
       let (fd_rd, fd_wr) = Unix.pipe() in
       let r_fork = 
 	try Unix.fork()
@@ -86,6 +87,7 @@ object(self)
 
 	    Unix.close fd_rd;
 	    Netsys_posix.run_post_fork_handlers();
+	    Netsys.moncontrol true;
 
 	    (* We close all file descriptors except those in [l_share]. Note that
              * this is important for proper function of the main process
@@ -127,6 +129,7 @@ object(self)
 
       | pid ->
 	  pid_list := pid :: !pid_list;
+	  Netsys.moncontrol true;
 	  (* Wait until the child completes the critical section: *)
 	  Unix.close fd_wr;
 	  ignore (Netsys.restart

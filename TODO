@@ -3,97 +3,16 @@ Plan for Ocamlnet 3
 ----------------------------------------------------------------------
 
 - Doc:
-  * Doc: Tutorial for Rpc_proxy. Upgrade one example.
+  * Doc: Tutorial for Rpc_proxy. Upgrade one example (finder)
   * container sockets
-
-
-- Focus RPC:
-  * Rpc_server: Allow to set timeout for the server response itself
-    (self-watching)
-  * Annotations
-
-- Netlog:
-
-  Modules to look through:
-  - Rpc_client DONE
-  - Rpc_server DONE
-  - netplex: redirect DONE
-  - Netplex_log.debug_* DONE
-  - netplex debug messages DONE
-  - Equeue DONE
-  - Unixqueue_select DONE
-  - Unixqueue_util DONE
-  - Ftp_client DONE
-  - Telnet_client DONE
-  - Http_client DONE
-  - Nethttpd DONE
-  - Uq_ssl DONE
-  - Shell DONE
-
-  - Uq_gtk
-  - Uq_tcl
-  - netcgi2 Netcgi_ajp
-  - netcgi2 Netcgi_common
-  - netcgi2 Netcgi_scgi
-  - Uq_socks5
-
-  FD tracking:
-  - FD tracking and fork() DONE
-  - Netsys_pollset_posix DONE
-  - Netcgi_ajp, _fcgi, _scgi: DONE
-  - Http_client, Telnet_client, Ftp_client: DONE
-  - Nethttpd DONE
-  - Rpc_client, Rpc_server, Rpc_ssl DONE
-  - Shell_sys DONE
-
-  - Uq_socks5
-
-@ - Example for Rpc_proxy
-  upgrade finder
-
-- Focus Win32:
-
-  * CHECK: Call CancelIo to cancel the overlapped I/O requests when
-    the pipe struct is freed?
-
-- Focus Netplex:
-  * Netplex_control_routine:
-    Use plugin mechanism to run ad-hoc defined routines in controller
-    context.
-
-    define_control_routines
-      ["foo", (foo : string array -> string array); ... ]
-
-    let [| ... |] = call_control_routine "foo" [| ... |]
-
-
-  * Revisit: helper containers for multi-processing. Make it easy to
-    define a template at system startup time, and to instantiate it
-    later at any time
-
-  * Message passing between containers: Containers can define a 
-    message queue, and other containers can send XDR-able messages.
-    Queues are referenced by a global naming scheme.
-
-  * Revisit: Netplex + UDP
 
 - syslog:
 @  * "syslog": Just calls syslog()
-  * "syslog_emulation": The syslog protocol itself
-
-- mmap memory:
-  * also support for mprotect
-  * Netsys_mem support also for other protocol interpreters than RPC
-
 
 - Other
-@  * Check $Id$
   * Go through examples. Fix programming style
       nethttpd DONE
       rpc/finder DONE
-
-@  * Gprof support (as for Wink)
-  * Log of deprecated functions (Netlog). Enabled by default.
 
 --- Already done:
 
@@ -133,13 +52,15 @@ Plan for Ocamlnet 3
     is implemented for RPC only, so far.
   * Documentation: What is supported on Win32?
   * nethttpd_services: GET /file//path?p=1
-    parameters like p were not recognized when there is "//" in path
+    parameters like p were not recognized when there was "//" in path
     (redirect_request bug)
   * nethttpd_services: if PATH_TRANSLATED points to a directory, omit the
     trailing slash. See also Nethtttpd_services.w32_fix_trailing_slash -
     but this is a hack
   * Nethttpd: configurable error response
   * Nethttpd: option for suppressing "broken pipe"
+  * Gprof support
+
 
 
 - NetCGI cleanup
@@ -236,6 +157,8 @@ Implementation improvements after Ocamlnet 3.0
 
 - Netclient: Support for CONNECT
 
+- Netclient: Code-cleanup
+
 - access to good random number generator on all platforms
   (for cryptogrpahy)
 
@@ -246,6 +169,96 @@ Implementation improvements after Ocamlnet 3.0
    - post monitoring results to neighbors (UDP, optionally with multicasting)
 
 - Fix ocamldoc warnings
+
+- delegation classes for Netmime
+
+- delegation classes for nethttpd config objects
+
+----------------------------------------------------------------------
+Further ideas
+----------------------------------------------------------------------
+
+- input/output channels with the possibility of intercepting
+  (e.g. progress bars). Also for MIME bodies
+
+- Focus RPC:
+  * Rpc_server: Allow to set timeout for the server response itself
+    (self-watching)
+  * Annotations
+
+- Focus Win32:
+
+  * CHECK: Call CancelIo to cancel the overlapped I/O requests when
+    the pipe struct is freed?
+
+- Focus Netplex:
+  * Netplex_control_routine:
+    Use plugin mechanism to run ad-hoc defined routines in controller
+    context.
+
+    define_control_routines
+      ["foo", (foo : string array -> string array); ... ]
+
+    let [| ... |] = call_control_routine "foo" [| ... |]
+
+
+  * Revisit: helper containers for multi-processing. Make it easy to
+    define a template at system startup time, and to instantiate it
+    later at any time
+
+  * Message passing between containers: Containers can define a 
+    message queue, and other containers can send XDR-able messages.
+    Queues are referenced by a global naming scheme.
+
+  * Revisit: Netplex + UDP
+
+- mmap memory:
+  * also support for mprotect
+  * Netsys_mem support also for other protocol interpreters than RPC
+
+- Log of deprecated functions (Netlog). Enabled by default.
+
+- "syslog_emulation": The syslog protocol itself
+
+- Nethttpd + SSL: This could be made working by establishing another
+  file descriptor abstraction
+
+  class type layered_socket =
+  object
+    method read : string -> int -> int -> int
+      (* EAGAIN in the blocking case *)
+
+    method write : string -> int -> int -> int
+      (* EAGAIN in the blocking case *)
+
+    method write_eof : unit -> unit
+      (* EAGAIN in the blocking case *)
+
+    method shutdown : unit -> unit
+      (* EAGAIN in the blocking case *)
+
+    method block : [`Read|`Write|`Write_eof|`Shutdown] list -> tmo:float -> [`Read|`Write|`Write_eof|`Shutdown] list
+      (* Blocks until one of these ops becomes possible, and indicates
+         which. There is no guarantee, however - if a following [read]
+         or [write] ends with [EAGAIN], one has to [block] again.
+      *)	
+
+    method translate : [`Read|`Write|`Write_eof|`Shutdown] list -> [`Read|`Write] list
+      (* Translates a high-level I/O condition to a descriptor-level r/w
+         condition. The argument says what the user waits upon: read
+         and/or write. The return value says how to watch the file descriptor.
+         The return value may depend on the internal state of the protocol
+         engine.
+
+         For non-blocking I/O, one should first translate the user
+         request, wait until the fd is in one of the indicated states,
+         then call read/write. If this results in [EAGAIN], the whole
+         sequence is to be repeated.
+       *)
+
+    method fd : Unix.file_descr
+    method inactivate : unit -> unit
+  end
 
 ----------------------------------------------------------------------
 Old stuff, check first

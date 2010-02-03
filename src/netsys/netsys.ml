@@ -593,6 +593,15 @@ external mcast_drop_membership :
   = "netsys_mcast_drop_membership"
 
 
+let f_moncontrol = ref (fun _ -> ())
+
+let moncontrol b =
+  !f_moncontrol b
+
+let set_moncontrol f =
+  f_moncontrol := f
+
+
 
 (* Compatibility with older ocamlnet versions *)
 
