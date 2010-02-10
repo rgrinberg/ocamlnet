@@ -581,7 +581,7 @@ object(self)
 		      ssn proto pseudo_addr in
 		  self # register_container_socket sname pname path;
 		  self # accept_on_container_socket proto fd;
-		  cs_sockets <- fd :: cs_sockets
+		  cs_sockets <- (fd, pname, path) :: cs_sockets
 	      | _ -> ()
 	   )
 	   proto#addresses
@@ -651,7 +651,7 @@ object(self)
 
   method private close_container_sockets() =
     List.iter
-      (fun fd ->
+      (fun (fd, _, _) ->
 	 Netplex_util.close_server_socket fd
       )
       cs_sockets;
@@ -664,6 +664,12 @@ object(self)
       | Some r ->
 	  Netplex_ctrl_clnt.System.V1.register_container_socket
 	    r (sname, pname, path)
+
+  method owned_container_sockets =
+    List.map
+      (fun (_, pname, path) -> (pname,path))
+      cs_sockets
+    
 
   method lookup_container_sockets service protocol =
     match sys_rpc with

@@ -43,12 +43,6 @@ object
 
   method reopen : unit -> unit
     (** Reopen the log files *)
-
-  method max_level : level
-    (** Return the maximum global log level *)
-
-  method set_max_level : level -> unit
-    (** Set the maximum global log level *)
 end
 
 type parallelization_type =
@@ -257,6 +251,12 @@ object
       * write the logger as Netplex service. Messages arriving during the
       * creation are queued up and sent afterwards to the new logger.
      *)
+
+  method max_level : level
+    (** Return the maximum global log level *)
+
+  method set_max_level : level -> unit
+    (** Set the maximum global log level *)
 end
 	  
 and socket_service =
@@ -528,6 +528,11 @@ object
       protocol. These are the sockets declared with address type
       "container" in the config file.
    *)
+
+  method owned_container_sockets : (string * string) list
+    (** List of pairs [(protocol_name, path)] of all container sockets
+        of this container
+     *)
 
   method send_message : string -> string -> string array -> unit
     (** [send_message service_pattern msg_name msg_arguments]: Sends

@@ -14,7 +14,7 @@ DOBJECTS = netplex_types.mli netplex_mp.mli netplex_mt.mli netplex_log.mli \
 	   netplex_config.mli netplex_kit.mli rpc_netplex.mli \
 	   netplex_cenv.mli netplex_semaphore.mli netplex_sharedvar.mli \
 	   netplex_mutex.mli \
-	   netplex_intro.txt
+	   netplex_intro.txt netplex_advanced.txt
 
 INCLUDES += $(INC_EQUEUE) $(INC_RPC) $(INC_NETSTRING) $(INC_NETSYS)
 

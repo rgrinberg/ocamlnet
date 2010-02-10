@@ -6,9 +6,6 @@ Plan for Ocamlnet 3
   * Doc: Tutorial for Rpc_proxy. Upgrade one example (finder)
   * container sockets
 
-- syslog:
-@  * "syslog": Just calls syslog()
-
 - Other
   * Go through examples. Fix programming style
       nethttpd DONE
@@ -60,6 +57,8 @@ Plan for Ocamlnet 3
   * Nethttpd: configurable error response
   * Nethttpd: option for suppressing "broken pipe"
   * Gprof support
+  * "syslog": Just calls syslog()
+
 
 
 

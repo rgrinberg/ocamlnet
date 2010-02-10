@@ -53,6 +53,10 @@ val read_netplex_config :
     *   }
     * ]}
     *
+    * The [controller] section is explained in {!Netplex_controller}.
+    * 
+    * The [logging] section is explained in {!Netplex_log}.
+    *
     * The [service] section may also contain two parameters [user] and
     * [group]. They instruct the service container to drop root privileges
     * and to become the configured user and group. Note that this is only

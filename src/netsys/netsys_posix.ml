@@ -459,6 +459,151 @@ let register_subprocess_handler() =
     ()
 
 
+(* syslog *)
+
+type level = Netlog.level
+
+type m_level =
+  | LOG_EMERG | LOG_ALERT | LOG_CRIT | LOG_ERR | LOG_WARNING 
+  | LOG_NOTICE | LOG_INFO | LOG_DEBUG
+
+let trans_level =
+  [ `Emerg, LOG_EMERG;
+    `Alert, LOG_ALERT;
+    `Crit, LOG_CRIT;
+    `Err, LOG_ERR;
+    `Warning, LOG_WARNING;
+    `Notice, LOG_NOTICE;
+    `Info, LOG_INFO;
+    `Debug, LOG_DEBUG
+  ]
+
+type syslog_facility =
+    [ `Authpriv
+    | `Cron
+    | `Daemon
+    | `Ftp
+    | `Kern
+    | `Local0
+    | `Local1
+    | `Local2
+    | `Local3
+    | `Local4
+    | `Local5
+    | `Local6
+    | `Local7
+    | `Lpr
+    | `Mail
+    | `News
+    | `Syslog
+    | `User
+    | `Uucp
+    | `Default
+    ]
+
+type m_syslog_facility = 
+  | LOG_AUTHPRIV
+  | LOG_CRON
+  | LOG_DAEMON
+  | LOG_FTP
+  | LOG_KERN
+  | LOG_LOCAL0
+  | LOG_LOCAL1
+  | LOG_LOCAL2
+  | LOG_LOCAL3
+  | LOG_LOCAL4
+  | LOG_LOCAL5
+  | LOG_LOCAL6
+  | LOG_LOCAL7
+  | LOG_LPR
+  | LOG_MAIL
+  | LOG_NEWS
+  | LOG_SYSLOG
+  | LOG_USER
+  | LOG_UUCP
+  | LOG_DEFAULT
+
+let trans_facility =
+  [ `Authpriv, LOG_AUTHPRIV;
+    `Cron, LOG_CRON;
+    `Daemon, LOG_DAEMON;
+    `Ftp, LOG_FTP;
+    `Kern, LOG_KERN;
+    `Local0, LOG_LOCAL0;
+    `Local1, LOG_LOCAL1;
+    `Local2, LOG_LOCAL2;
+    `Local3, LOG_LOCAL3;
+    `Local4, LOG_LOCAL4;
+    `Local5, LOG_LOCAL5;
+    `Local6, LOG_LOCAL6;
+    `Local7, LOG_LOCAL7;
+    `Lpr, LOG_LPR;
+    `Mail, LOG_MAIL;
+    `News, LOG_NEWS;
+    `Syslog, LOG_SYSLOG;
+    `User, LOG_USER;
+    `Uucp, LOG_UUCP;
+    `Default, LOG_DEFAULT;
+  ]
+
+type syslog_option =
+    [ `Cons
+    | `Ndelay
+    | `Odelay
+    | `Nowait
+    | `Pid
+    ]
+
+type m_syslog_option =
+  | LOG_CONS
+  | LOG_NDELAY
+  | LOG_ODELAY
+  | LOG_NOWAIT
+  | LOG_PID
+
+let trans_syslog_option =
+  [ `Cons, LOG_CONS;
+    `Ndelay, LOG_NDELAY;
+    `Odelay, LOG_ODELAY;
+    `Nowait, LOG_NOWAIT;
+    `Pid, LOG_PID;
+  ]
+
+external netsys_openlog : 
+  string option -> m_syslog_option list -> m_syslog_facility -> unit
+  = "netsys_openlog"
+
+external netsys_syslog :
+  m_syslog_facility -> m_level -> string -> unit
+  = "netsys_syslog"
+
+external netsys_closelog : unit -> unit = "netsys_closelog"
+
+let openlog id_opt opts fac =
+  try
+    netsys_openlog
+      id_opt
+      ( List.map
+	  (fun p -> List.assoc p trans_syslog_option)
+	opts
+      )
+      ( List.assoc fac trans_facility )
+  with
+    | Not_found -> assert false
+	  
+let syslog fac lev msg =
+  try
+    netsys_syslog
+      ( List.assoc fac trans_facility )
+      ( List.assoc lev trans_level )
+      msg
+  with
+    | Not_found -> assert false
+
+let closelog = netsys_closelog
+
+
+
 (* Optional POSIX functions *)
 
 external have_fadvise : unit -> bool = "netsys_have_posix_fadvise"

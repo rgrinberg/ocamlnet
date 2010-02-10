@@ -920,7 +920,7 @@ object(self)
 		  | [| |] -> failwith "Missing argument"
 		  | _  -> failwith "Too many arguments" in
 	      let level = Netplex_log.level_of_string s_level in
-	      controller # logger # set_max_level level
+	      controller # controller_config # set_max_level level
 	    with
 	      | Failure s ->
 		  controller # logger # log 
@@ -1615,13 +1615,57 @@ let default_socket_directory = "/tmp/.netplex"
 
 let default_create_logger _ = Netplex_log.channel_logger stderr
 
+let extract_logger ctrl loggers cf logaddr =
+  let typ =
+    try 
+      cf # string_param
+	(cf # resolve_parameter logaddr "type") 
+    with
+      | Not_found ->
+	  failwith "Parameter 'type' in 'logging' section is missing" in
+  let logger =
+    try
+      List.find (fun l -> l#name = typ) loggers 
+    with
+      | Not_found ->
+	  failwith ("Logging type not found: " ^ typ) in
+  logger # create_logger cf logaddr ctrl
+
+
+let level_weight = Netplex_log.level_weight
+
+let compound_logger (llist:logger list) cur_max_level : logger =
+  ( object
+      method log_subch ~component ~subchannel ~level ~message =
+	if level_weight level <= level_weight !cur_max_level then 
+	  List.iter
+	    (fun l -> l # log_subch ~component ~subchannel ~level ~message)
+	    llist
+      method log ~component ~level ~message =
+	if level_weight level <= level_weight !cur_max_level then 
+	  List.iter
+	    (fun l -> l # log ~component ~level ~message)
+	    llist
+      method reopen() =
+	List.iter (fun l -> l#reopen()) llist
+    end
+  )
+
+
 let extract_config (loggers : logger_factory list) (cf : config_file) =
   match cf # resolve_section cf#root_addr "controller" with
     | [] ->
 	(* Create a default configuration: *)
+	let cur_max_level = ref `Info in
 	( object
-	    method socket_directory = default_socket_directory
-	    method create_logger = default_create_logger
+	    method socket_directory = 
+	      default_socket_directory
+	    method create_logger ctrl = 
+	      compound_logger 
+		[ default_create_logger ctrl ] 
+		cur_max_level
+	    method max_level = !cur_max_level
+	    method set_max_level lev = cur_max_level := lev
 	  end
 	)
     | [ ctrladdr ] ->
@@ -1633,52 +1677,38 @@ let extract_config (loggers : logger_factory list) (cf : config_file) =
 	      (cf # resolve_parameter ctrladdr "socket_directory")
 	  with
 	    | Not_found -> default_socket_directory in
-	let create_logger ctrl =
+	let create_logger cur_max_level ctrl =
 	  ( match cf # resolve_section ctrladdr "logging" with
 	      | [] ->
 		  default_create_logger ctrl
-	      | [ logaddr ] ->
-		  let typ =
-		    try 
-		      cf # string_param
-			(cf # resolve_parameter logaddr "type") 
-		    with
-		      | Not_found ->
-			  failwith "Parameter 'type' in 'logging' section is missing" in
-		  let logger =
-		    try
-		      List.find (fun l -> l#name = typ) loggers 
-		    with
-		      | Not_found ->
-			  failwith ("Logging type not found: " ^ typ) in
-		  logger # create_logger cf logaddr ctrl
-	      | _ ->
-		  failwith "More than one 'logging' section"
+	      | alist ->
+		  let llist =
+		    List.map (extract_logger ctrl loggers cf) alist in
+		  let logger = 
+		    compound_logger llist cur_max_level in
+		  logger
 	  ) in
-	let max_level_opt =
+	let max_level =
 	  try
 	    let s = 
 	      cf # string_param
 		(cf # resolve_parameter ctrladdr "max_level") in
 	    if String.lowercase s = "all" then
-	      Some `Debug
+	      `Debug
 	    else
-	      Some(Netplex_log.level_of_string s)
+	      Netplex_log.level_of_string s
 	  with
-	    | Not_found -> None
+	    | Not_found -> `Info   (* default log level *)
 	    | _ -> 
-		failwith ("In section " ^ cf # print ctrladdr ^ ": Bad max_level parameter value")
+		failwith ("In section " ^ cf # print ctrladdr ^ 
+			    ": Bad max_level parameter value")
 	in
+	let cur_max_level = ref max_level in
 	( object
 	    method socket_directory = socket_directory
-	    method create_logger ctrl = 
-	      let l = create_logger ctrl in
-	      ( match max_level_opt with
-		  | None -> ()
-		  | Some max_level ->
-		      l # set_max_level max_level
-	      );
-	      l
+	    method create_logger = create_logger cur_max_level
+	    method max_level = !cur_max_level
+	    method set_max_level lev = cur_max_level := lev
 	  end
 	)
     | _ ->

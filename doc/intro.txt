@@ -147,6 +147,7 @@ build web servers, and with [rpc] to build RPC servers.
 {3:nethttpd_intro Guides}
 
 - {!module:Netplex_intro}: Introduction to [Netplex]
+- {!module:Netplex_advanced}: Advanced features of [Netplex]
 
 
 {2:equeue The [rpc] library}

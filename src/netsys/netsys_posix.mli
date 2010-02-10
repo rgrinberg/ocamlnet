@@ -171,6 +171,7 @@ external sysconf_open_max : unit -> int = "netsys_sysconf_open_max"
    * It is also ensured that for every file descriptor [fd]:
    * [fd < sysconf_open_max()]
    *)
+
 (* Process groups, sessions, terminals *)
 
 external getpgid : int -> int = "netsys_getpgid"
@@ -433,6 +434,78 @@ val register_subprocess_handler : unit -> unit
       The (very generic) problem is that the state of mutexes and other
       multi-threading primitives is not well-defined after a [fork()].
    *)
+
+
+(** {1 Syslog} *)
+
+type level = Netlog.level
+  (*  [ `Emerg | `Alert | `Crit | `Err | `Warning | `Notice | `Info | `Debug ]
+   *)
+  (** The log levels *)
+
+type syslog_facility =
+    [ `Authpriv
+    | `Cron
+    | `Daemon
+    | `Ftp
+    | `Kern
+    | `Local0
+    | `Local1
+    | `Local2
+    | `Local3
+    | `Local4
+    | `Local5
+    | `Local6
+    | `Local7
+    | `Lpr
+    | `Mail
+    | `News
+    | `Syslog
+    | `User
+    | `Uucp
+    | `Default
+    ]
+  (** The facilities. Only [`User] and [`Local0] to [`Local7] are
+      standard POSIX. If a facility is unavailable it is silently
+      substituted by [`Local0]. The value [`Default] leaves this unspecified.
+   *)
+
+type syslog_option =
+    [ `Cons
+    | `Ndelay
+    | `Odelay
+    | `Nowait
+    | `Pid
+    ]
+ (** The syslog options:
+     - [`Cons]: Fall back to console logging if syslog is unavailable
+     - [`Ndelay]: Open the connection immediately
+     - [`Odelay]: Open the connection at the first call [syslog] (default)
+     - [`Nowait]: Do not wait until it is ensured that the message is
+       sent
+     - [`Pid]: Log the PID with every message
+  *)
+
+val openlog : string option -> syslog_option list -> syslog_facility -> unit
+  (** [openlog ident options facility]: Opens a log stream. [ident] is
+      prepended to every message if given (usually the program name).
+      The [facility] is the default facility for [syslog] calls.
+   *)
+
+val syslog : syslog_facility -> level -> string -> unit
+  (** [syslog facility level message]: Logs [message] at [level] for
+      [facility]
+   *)
+
+val closelog : unit -> unit
+  (** Closes the log stream *)
+
+(** Usually, the log stream is redirected to syslog by either:
+    - setting [Netlog.current_logger] to [syslog facility], e.g.
+      {[ Netlog.current_logger := Netsys_posix.syslog `User ]}
+    - using the Netplex class for sending message to syslog (XXX)
+ *)
+
  
 (** {1 Optional POSIX functions} *)
 

@@ -11,6 +11,7 @@ have_printexc_register_printer=0
 have_printexc_register_printer_bool=false
 code_printexc_register_printer='()'
 have_ocaml_fancy_page_tables=0
+have_syslog=0
 
 stdlib=`ocamlc -where`
 
@@ -235,6 +236,33 @@ fi
 
 ######################################################################
 
+printf "Checking for syslog... "
+
+posix_syslog_compile=0
+posix_syslog_link_options=""
+rm -f configtests/syslog.err
+if (cd configtests; ocamlc -o syslog syslog.c main.ml -custom ) \
+      >>configtests/syslog.err 2>&1
+then
+    syslog_compile=1
+fi
+
+if [ $syslog_compile -gt 0 ]; then
+    if ( cd configtests && ./syslog >>syslog.err 2>&1) ; then
+	have_syslog=1
+    fi
+fi
+
+if [ $have_syslog -gt 0 ]; then
+    echo "found"
+    def_have_syslog="#define HAVE_SYSLOG"
+else
+    echo "not found"
+    def_have_syslog="#undef HAVE_SYSLOG"
+fi
+
+######################################################################
+
 printf "Checking for GPROF... "
 
 if [ -f $stdlib/std_exit.p.cmx ]; then
@@ -273,6 +301,7 @@ $def_have_posix_fallocate
 $def_have_posix_memalign
 $def_have_posix_pthread
 $def_have_ocaml_fancy_page_tables
+$def_have_syslog
 $def_have_gprof
 EOF
 
