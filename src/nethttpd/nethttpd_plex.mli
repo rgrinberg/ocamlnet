@@ -128,6 +128,7 @@ val read_dynamic_service_config :
 
 
 val nethttpd_processor : 
+  ?hooks:Netplex_types.processor_hooks ->
   (Netplex_types.container -> #Nethttpd_reactor.http_reactor_config) ->
   'a Nethttpd_types.http_service ->
   Netplex_types.processor
@@ -140,6 +141,9 @@ val nethttpd_processor :
     * The resulting processor must be turned into a full Netplex service
     * by [Netplex_sockserv.create_socket_service] which can then be added
     * by calling the controller's method [add_service].
+    *
+    * [hooks]: One can pass a Netplex hook object to set the hooks of the
+    * processor.
      *)
 
 type ('a,'b) service_factory =
@@ -169,6 +173,7 @@ val default_services : (string * ('a,'b) service_factory) list
 
 val nethttpd_factory :
       ?name:string ->
+      ?hooks:Netplex_types.processor_hooks ->
       ?config_cgi:Netcgi.config -> 
       ?handlers:(string * 'a Nethttpd_services.dynamic_service) list ->
       ?services:(string * ('a,'b) service_factory) list ->
@@ -177,7 +182,9 @@ val nethttpd_factory :
       ?error_response:config_error_response -> 
       unit ->
         Netplex_types.processor_factory
-  (** Reads a configuration section like
+  (** Factory for a web server component.
+    *
+    * {b Configuration file.} Reads a configuration section like
     * {[
     *    processor {
     *      type = "nethttpd";          (* or what is passed as "name" arg *)
@@ -274,4 +281,25 @@ val nethttpd_factory :
     * The [services] optional argument can be used to change the service
     * types understood. If not passed, it defaults to [default_services].
     * The default includes "file" and "dynamic".
+    *
+    * {b Arguments.}
+    *
+    * - [name]: The processor name. Defaults to "nethttpd". This name can
+    *   be referenced by the "type" parameters in the [processor] section
+    *   of the config file.
+    * - [hooks]: One can pass a Netplex hook object to set the hooks of the
+    *   processor.
+    * - [config_cgi]: The CGI configuration to use
+    * - [handlers]: a list of handler function. These functions can be
+    *   referenced from a [service] section in the config file where
+    *   [type="dynamic"] (see example above). Defaults to the empty list.
+    * - [services]: A list of service handlers that can be used 
+    *   by [service] sections in the config files. Defaults to
+    *   {!Nethttpd_plex.default_services} which defines "file" and "dynamic".
+    * - [log_error]: The error logger. Defaults to
+    *   {!Nethttpd_plex.std_log_error}.
+    * - [log_access]: The access logger. Defaults to
+    *   {!Nethttpd_plex.std_log_access}.
+    * - [error_response]: a handler which is invoked to generate error
+    *   responses. Defaults to {!Nethttpd_plex.std_error_response}.
    *)

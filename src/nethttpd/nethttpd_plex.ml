@@ -96,8 +96,11 @@ let std_log_access ?(debug=false) container sockaddr peeraddr req reqhdr
 
     
 
-class nethttpd_processor mk_config srv : Netplex_types.processor =
+class nethttpd_processor ?(hooks = new Netplex_kit.empty_processor_hooks())
+                         mk_config srv : Netplex_types.processor =
 object(self)
+  inherit Netplex_kit.processor_hooks_delegation hooks
+
   method process ~when_done (container : Netplex_types.container) fd proto =
     let config = mk_config container in
     ( try
@@ -109,22 +112,12 @@ object(self)
     );
     when_done()
 
-  method receive_message _ _ _ = ()
-  method receive_admin_message _ _ _ = ()
-  method shutdown() = ()
-  method post_add_hook _ _ = ()
-  method post_rm_hook _ _ = ()
-  method pre_start_hook _ _ _ = ()
-  method post_start_hook _ = ()
-  method pre_finish_hook _ = ()
-  method post_finish_hook _ _ _ = ()
-  method system_shutdown () = ()
-  method supported_ptypes = [ `Multi_processing ; `Multi_threading ]
-  method global_exception_handler _ = false
+  method supported_ptypes = 
+    [ `Multi_processing ; `Multi_threading ]
 end
 
-let nethttpd_processor mk_config srv =
-  new nethttpd_processor mk_config srv
+let nethttpd_processor ?hooks mk_config srv =
+  new nethttpd_processor ?hooks mk_config srv
 
 
 let is_options_request env =
@@ -307,7 +300,7 @@ let default_services =
   ]
 
 
-let create_processor config_cgi handlers services log_error log_access 
+let create_processor hooks config_cgi handlers services log_error log_access 
                      error_response ctrl_cfg cfg addr =
 
   let req_str_param = cfg_req_str_param cfg in
@@ -519,11 +512,13 @@ let create_processor config_cgi handlers services log_error log_access
     ) in
 
   nethttpd_processor
+    ~hooks
     mk_config
     srv
 ;;
 
 class nethttpd_factory ?(name = "nethttpd") 
+                       ?(hooks = new Netplex_kit.empty_processor_hooks())
                        ?(config_cgi = Netcgi.default_config) 
                        ?(handlers=[]) 
 		       ?(services=default_services)
@@ -535,7 +530,7 @@ object
   method name = name
   method create_processor ctrl_cfg cfg addr =
     create_processor 
-      config_cgi handlers services log_error log_access error_response
+      hooks config_cgi handlers services log_error log_access error_response
       ctrl_cfg cfg addr
 end
 
