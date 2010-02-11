@@ -22,9 +22,32 @@
     this memory needs to be copied when the [fork] is done. As workaround,
     put such values into temporary files, and only pass the names of the
     files around via variables.
+
+    Variables come in two flavors:
+     - String variables
+     - Exception variables
+
+    A string variable cannot be accessed as exception variable, and
+    vice versa.
+
+    The latter kind is useful to safely store structured ocaml values in
+    Netplex variables.
  *)
 
 open Netplex_types
+
+exception Sharedvar_type_mismatch of string
+  (** The (dynamically typed) variable has the wrong type (string/exn) *)
+
+exception Sharedvar_no_permission of string
+  (** It is not allowed to set the value *)
+
+exception Sharedvar_not_found of string
+  (** The variable does not exist. Only used by [Make_var_type] *)
+
+exception Sharedvar_null
+  (** The initial value of a shared exception variable *)
+
 
 val plugin : plugin
   (** To enable shared variables, call the controller's [add_plugin] method
@@ -41,8 +64,9 @@ val plugin : plugin
     {!Netplex_cenv.Not_in_container_thread} is raised. 
  *)
 
-val create_var : ?own:bool -> ?ro:bool -> string -> bool
-  (** Create the variable with the passed name with an empty string as
+val create_var : ?own:bool -> ?ro:bool -> ?exn:bool -> string -> bool
+  (** Create the variable with the passed name with an empty string
+      (or the exception [Sharedvar_null]) as
       initial value. If the creation is possible (i.e. the variable did
       not exist already), the function returns [true], otherwise 
       the already existing variable is left modified, and [false] is
@@ -56,6 +80,8 @@ val create_var : ?own:bool -> ?ro:bool -> string -> bool
         [post_finish_hook] is executed, so the variable is still accessible
         from this hook.
       - [ro]: if true, only the owner can set the value
+      - [exn]: if true, the variable stores exceptions, otherwise strings
+        (defaults to false)
 
       Variable names are global to the whole netplex system. By convention,
       these names are formed like ["service_name.local_name"], i.e. they
@@ -73,13 +99,38 @@ val set_value : string -> string -> bool
   (** [set_value name value]: Sets the variable [name] to [value]. This
       is only possible when the variable exists, and is writable.
       Returns [true] if the function is successful, and [false] when
-      the variable does not exist, or the container does not have permission 
-      to modify the variable.
+      the variable does not exist.
+
+      Raises [Sharedvar_no_permission] if the variable cannot be modified.
+
+      Raises [Sharedvar_type_mismatch] if the variable is not a string
+      variable.
+   *)
+
+val set_exn_value : string -> exn -> bool
+  (** [set_exn_value name value]: Sets the variable [name] to [value].
+      Return value as for [set_value].
+
+      Raises [Sharedvar_no_permission] if the variable cannot be modified.
+
+      Raises [Sharedvar_type_mismatch] if the variable is not an exception
+      variable.
    *)
 
 val get_value : string -> string option
   (** [get_value name]: Gets the value of the variable [name]. If the
       variable does not exist, [None] is returned.
+
+      Raises [Sharedvar_type_mismatch] if the variable is not a string
+      variable.
+   *)
+
+val get_exn_value : string -> exn option
+  (** [get_exn_value name]: Gets the value of the variable [name]. If the
+      variable does not exist, [None] is returned.
+
+      Raises [Sharedvar_type_mismatch] if the variable is not an exception
+      variable.
    *)
 
 val wait_for_value : string -> string option
@@ -93,6 +144,10 @@ val wait_for_value : string -> string option
       An ongoing wait is interrupted when the variable is deleted. In this
       case [None] is returned.
    *)
+
+val wait_for_exn_value : string -> exn option
+  (** Same for exception variables *)
+
 
 val get_lazily : string -> (unit -> string) -> string option
   (** [get_lazily name f]: Uses the variable [name] to ensure that [f]
@@ -110,6 +165,30 @@ val get_lazily : string -> (unit -> string) -> string option
       No provisions are taken to delete the variable. If [delete_var]
       is called by user code (which is allowed at any time), and
       [get_lazily] is called again, the lazy value will again be computed.
+   *)
+
+val get_exn_lazily : string -> (unit -> exn) -> exn option
+  (** Same for exceptions *)
+
+module Make_var_type(T:Netplex_cenv.TYPE) : 
+          Netplex_cenv.VAR_TYPE with type t = T.t
+  (** Creates a module with [get] and [set] functions to access variables
+      of type [T.t]. Call it like
+
+      {[
+         module Foo_var = 
+           Make_var_type(struct t = foo end)
+      ]}
+
+      and use [Foo_var.get] and [Foo_var.set] to access the shared
+      variables of type [foo]. These functions can also raise the exception
+      [Sharedvar_not_found] (unlike the primitive accessors above).
+
+      The variable must have been created with [exn:true], e.g.
+
+      {[
+          let ok = create_var ~exn:true "name"
+      ]}
    *)
 
 

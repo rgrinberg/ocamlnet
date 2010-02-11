@@ -145,6 +145,11 @@ program System {
            names. The list may be empty if there is no such socket.
 	*/
 
+	longstring activate_lever(int, longstring) = 7;
+	/* Activates the already registered lever. The int is the ID.
+           The string argument is the marshalled argument exception.
+           The return value is the marshalled result exception.
+	*/
 
     } = 1;
 
@@ -330,12 +335,36 @@ program Semaphore {
 } = 4;
 
 
+enum shvar_enum {
+    SHVAR_OK = 0,         /* success */
+    SHVAR_BADTYPE = 1,    /* bad type */
+    SHVAR_NOTFOUND = 2,   /* variable does not exist */
+    SHVAR_EXISTS = 3,     /* variable exists */
+    SHVAR_NOPERM = 4      /* no permission */
+};
+
+union shvar_code switch(shvar_enum d) {
+ case SHVAR_OK: void;
+ default: void;
+};
+
+union shvar_get switch(shvar_enum d) {
+ case SHVAR_OK: 
+     longstring value;
+ default: 
+     void;
+};
+
+
+
+
 program Sharedvar {
     version V1 {
 	void ping(void) = 0;
 
-	bool create_var(longstring, bool, bool) = 1;
-	/* create_var(var_name, own_flag, ro_flag): Creates the variable with
+	shvar_code create_var(longstring, bool, bool, longstring) = 1;
+	/* create_var(var_name, own_flag, ro_flag, ty): Creates the variable 
+           with
            an empty string
            as value. It is an error if the variable has already been created.
            Returns whether the function is successful (i.e. the variable
@@ -348,28 +377,31 @@ program Sharedvar {
            deleted.
 
            ro_flag: if true, only the owner can set the value
+
+           ty: the type identifier ("string", or "exn")
 	*/
 
-	bool set_value(longstring, longstring) = 2;
-	/* set_value(var_name, var_value): Sets the variable var_name to
-           var_value. This is only possible when the variable exists.
+	shvar_code set_value(longstring, longstring, longstring) = 2;
+	/* set_value(var_name, var_value, ty): Sets the variable var_name to
+           var_value. This is only possible when the variable exists,
+           and has the right type.
            Returns whether the function is successful (i.e. the variable
            exists).
 	*/
 
-	longstring_opt get_value(longstring) = 3;
-	/* get_value(var_name): Returns the value of the existing variable,
-           or NULL if the variable does not exist.
+	shvar_get get_value(longstring, longstring) = 3;
+	/* get_value(var_name, ty): Returns the value of the existing variable,
+           or an error if the variable does not exist.
 	*/
 
-	bool delete_var(longstring) = 4;
+	shvar_code delete_var(longstring) = 4;
 	/* delete_var(var_name): Deletes the variable. This is only possible
            when the variable exists. Returns whether the function is 
            successful (i.e. the variable existed).
 	*/
 
-	longstring_opt wait_for_value(longstring) = 5;
-	/* wait_for_value(var_name): If the variable exists and
+	shvar_get wait_for_value(longstring, longstring) = 5;
+	/* wait_for_value(var_name,ty): If the variable exists and
            set_value has already been called, the current value is
            simply returned. If the variable exists, but set_value has
            not yet been called, the function waits until set_value is

@@ -706,6 +706,7 @@ object(self)
       ~proc_call_plugin:(self # call_plugin c)
       ~proc_register_container_socket:(self # reg_cont_socket c)
       ~proc_lookup_container_sockets:(self # lookup_cont_sockets c)
+      ~proc_activate_lever:(self # activate_lever)
       sys_rpc
 
   method private poll c sess n reply =
@@ -1039,6 +1040,25 @@ object(self)
 	 try Rpc_server.reply_error sess Rpc.System_err
 	 with Rpc_server.Connection_lost -> ())
 
+  method private activate_lever sess (id, arg_str) reply =
+    try
+      let arg_exn = (Marshal.from_string arg_str 0 : exn) in
+      let res_exn = controller # activate_lever id arg_exn in
+      let res_str = Marshal.to_string res_exn [] in
+      ( try reply res_str
+	with Rpc_server.Connection_lost -> ()
+      )
+    with
+      | error ->
+	  controller # logger # log
+	   ~component:"netplex.controller"
+	   ~level:`Err
+	   ~message:(sprintf "activate_lever: exception %s"
+		       (Netexn.to_string error));
+	  ( try Rpc_server.reply_error sess Rpc.System_err
+	    with Rpc_server.Connection_lost -> ()
+	  )
+
 end
 
 
@@ -1308,6 +1328,8 @@ object(self)
   val mutable message_receivers = []
   val mutable plugins = []
   val mutable socksrv_list = []
+  val mutable levers = Hashtbl.create 10
+  val mutable next_lever_id = 0
 
   initializer (
     par # init();
@@ -1598,6 +1620,21 @@ object(self)
       )
 
   method startup_directory = startup_dir	    
+
+  method register_lever f =
+    let id = next_lever_id in
+    next_lever_id <- id + 1;
+    Hashtbl.replace levers id f;
+    id
+
+  method activate_lever id arg =
+    let f = 
+      try
+	Hashtbl.find levers id
+      with
+	| Not_found ->
+	    failwith ("Lever not found: " ^ string_of_int id) in
+    f (self :> controller) arg
 
 end
 

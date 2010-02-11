@@ -238,7 +238,9 @@ val admin_connector : unit -> Rpc_client.mode2
 val run_in_controller_context : controller -> (unit -> unit) -> unit
   (** [run_in_controller_context ctrl f]: Arranges that [f()] is executed
       in the context of the controller. {b This is only possible for
-      multi-threading but not for multi-processing style!}
+      multi-threading but not for multi-processing style!} For
+      programs using multi-processing, see {!Netplex_cenv.Make_lever}
+      for a workaround.
 
       This function can be called from any thread. The function [f] is
       executed by pushing it onto the event queue, and calling it when
@@ -268,6 +270,51 @@ val run_in_container_context : container -> (unit -> unit) -> unit
       over.
    *)
 
+
+(** Levers are a way to send messages to the controller, and to effectively
+    run functions there that were previously registered. 
+ *)
+
+(** Abstraction for function types [s->t] *)
+module type FUN_TYPE = 
+  sig 
+    type s  (** argument type *)
+    type t  (** result type *)
+  end
+
+module type LEVER = sig
+  type s  (** argument type *)
+  type t  (** result type *)
+  type lever = s->t
+
+  val register : Netplex_types.controller -> 
+                 (Netplex_types.controller -> lever) -> lever
+    (** [let reg_lever = register ctrl raw_lever]:
+        Registers [raw_lever] in the controller [ctrl], so one can call
+        [reg_lever] to activate it. For example:
+
+        {[ module LT = struct type s = unit type t = int end
+           module L = Make_lever(LT)
+         
+           let get_num_services =
+             L.register ctrl (fun ctrl () -> List.length ctrl#services)
+        ]}
+
+        The registration must be done in controller context, e.g.
+        in the [pre_start_hook] of a container.
+
+        From the running container, one can now call:
+
+        {[ get_num_services() ]}
+
+        to get the current length of the [ctrl#services] list.
+     *)
+end
+
+module Make_lever(T:FUN_TYPE) : LEVER with type s=T.s and type t=T.t
+  (** Creates a [LEVER] module from a function type as specified in
+      [FUN_TYPE]
+   *)
 
 
 (** {1 Debugging} *)

@@ -428,3 +428,47 @@ let run_in_container_context cont f =
     failwith "Netplex_cenv.run_in_container_context: only possible for multi-threaded environments";
   let esys = cont # event_system in
   run_in_esys esys f
+
+
+module type FUN_TYPE = 
+  sig 
+    type s  (** argument type *)
+    type t  (** result type *)
+  end
+
+module type LEVER = sig
+  type s  (** argument type *)
+  type t  (** result type *)
+  type lever = s->t
+
+  val register : Netplex_types.controller -> 
+                 (Netplex_types.controller -> lever) -> lever
+end
+
+module Make_lever(T:FUN_TYPE) = struct
+  type s = T.s
+  type t = T.t
+  type lever = s->t
+
+  exception S of s
+  exception T of t
+
+  let register ctrl raw_lever =
+    let id =
+      ctrl # register_lever
+	(fun ctrl exn_arg ->
+	   let arg =
+	     match exn_arg with
+	       | S s -> s 
+	       | _ -> assert false in
+	   let res = raw_lever ctrl arg in
+	   T res
+	) in
+    (fun arg ->
+       let cont = self_cont() in
+       let res_exn = cont # activate_lever id (S arg) in
+       match res_exn with
+	 | T t -> t
+	 | _ -> assert false
+    )
+end

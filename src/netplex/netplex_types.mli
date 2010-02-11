@@ -223,6 +223,18 @@ object
         See [send_message] for the notification guarantees.
      *)
 
+  method register_lever : (controller -> exn -> exn) -> int
+    (** [let id = register_lever f]: It is possible to register a function [f]
+        in the controller, and run it over the internal RPC interface from
+        any container. These functions are called levers. See
+        [activate_lever] below. See also
+        {!Netplex_cenv.Make_lever} for a convenient way to create
+        and use levers.
+     *)
+
+  method activate_lever : int -> exn -> exn
+    (** Runs the registered lever directly *)
+
   method containers : container_id list
     (** Lists the containers *)
 
@@ -572,6 +584,13 @@ object
         same plugin is invoked in the controller context.
      *)
 
+  method activate_lever : int -> exn -> exn
+    (** Runs a lever function registered in the controller. The [int]
+        argument identifies the lever. The [exn] argument is the parameter,
+        and the returned exception is the result. See also
+        {!Netplex_cenv.Make_lever} for a convenient way to create
+        and use levers.
+     *)
 end
 
 and workload_manager =
