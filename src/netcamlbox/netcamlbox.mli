@@ -54,6 +54,10 @@
    POSIX shared memory and POSIX semaphores. Camlboxes may be used
    in multi-threaded programs as long as the values [camlbox] and
    [camlbox_sender] are not used by several threads at the same time.
+
+   Camlboxes can be used to gain speed-ups on multi-cores. See
+   examples/camlbox/README in the distribution tarball for an example
+   how to accomplish this.
  *)
 
 

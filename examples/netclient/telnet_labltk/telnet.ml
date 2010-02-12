@@ -122,10 +122,12 @@ let rec fill_main_window w =
 
   let connected = ref false in
 
+(*
   let opts = session # get_options in
   session # set_options
     { opts with
 	verbose_connection = false; };
+ *)
 
   (**** CREATE WINDOWS, MENUS ETC. ****)
 

@@ -69,7 +69,8 @@ Approximately for 15x15 matrices manymult becomes faster than
 unimult. If we take the unimult runtime to estimate the time needed
 for an individual operation, we get t=35.5us (3.55 / 100000) as the
 time an operation must endure so that the multi-core enabled program
-is faster.
+is faster. So, as a rule of thumb, the elementary operation should
+take at least 35us for the prospect to get a speed-up on multi-cores.
 
 I have no convincing explanation why manymult is more than 4 times
 faster for 30x30 matrices. One theory is that the ocaml heap is

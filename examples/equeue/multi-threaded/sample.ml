@@ -1,5 +1,12 @@
 (* From Patrick M Doane *)
 
+(* This example demonstrates an important property of Unixqueue:
+   the queues are thread-safe. Even better, one can add event from
+   one thread into a running Unixqueue that is being executed by 
+   a different thread. This "event injection" will interrupt the
+   queue if it is waiting, and makes it consider the additional event.
+ *)
+
 let esys = Unixqueue.create_unix_event_system()
 let after timeout f =
   let group = Unixqueue.new_group esys in
@@ -21,6 +28,7 @@ let queue_it () =
   Mutex.unlock m;
   Thread.delay 1.0;
   print_endline "1 second"; flush stdout;
+  (* The following is an event injection from a different thread: *)
   after 1.0 (fun () -> print_endline "2 seconds"; flush stdout);  
   print_endline "queue_it finishes"; flush stdout;
 ;;
