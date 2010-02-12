@@ -1,0 +1,25 @@
+======================================================================
+Examples for Netcamlbox
+======================================================================
+
+Compile with "make all". Only native-code executables are created
+(the idea of camlboxes is to maximize performance).
+
+speed:
+    This example creates two processes, and one of these sends N
+    short messages to the other, using camlboxes as transport medium.
+
+    This is also a good introductory example. Many explanatory comments
+    have been added.
+
+manymult:
+    This is about speeding up matrixmultiplication on multicores.
+    n_workers worker processes are created, and each worker process
+    has a camlbox where it waits for new matrices to multiply. 
+    The master process also has a camlbox where it receives the
+    computed result matrices.
+
+unimult:
+    Sequential matrix multiplication, for comparison with manymult.
+
+
