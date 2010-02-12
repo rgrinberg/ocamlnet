@@ -18,6 +18,12 @@ A number of ideas and concepts are used throughout the libraries:
 - The event queues provided by {!Equeue} and {!Unixqueue} make
   asynchronous protocol interpreters possible
 
+{2 Foreword}
+
+Some introductional notes how Ocamlnet is organized:
+
+- {!Foreword}
+
 {2 Platform support}
 
 Please read this document for extended information which features
@@ -95,13 +101,20 @@ This is the revised library for Web applications, now called [netcgi2].
 
 - {!module:Netcgi_porting}: Porting [netcgi1] programs to [netcgi2]
 
-{2:netcgi2 The [netcgi2-apache] library}
+{2:netcgi2_apache The [netcgi2-apache] library}
 
 This is an Apache connector for the {!netcgi2} library.
 
 {!modules:
     Netcgi_apache
     Netcgi_modtpl}
+
+{2:netcgi2_plex The [netcgi2-plex] library}
+
+Netplex support for running Netcgi2 connectors:
+
+{!modules:
+    Netcgi_plex}
 
 {2:nethttpd The [nethttpd] library}
 

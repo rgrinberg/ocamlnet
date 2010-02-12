@@ -322,6 +322,11 @@ object
       * In multi-threading mode, this parameter is ignored.
      *)
 
+  method startup_timeout : float
+    (** After this many seconds the container must have finished the
+        [post_start_hook]. It is usually 60 seconds.
+     *)
+
   method controller_config : controller_config
     (** Make this config accessible here too, for convenience *)
 end
@@ -396,6 +401,9 @@ object
      *)
 end
 
+(** Processor hooks can be used to modify the behavior of a processor.
+    See {!Netplex_intro.servproc} for some documentation about the hooks.
+ *)
 and processor_hooks =
 object
   method post_add_hook : socket_service -> controller -> unit
@@ -472,6 +480,11 @@ object
 
 end
 
+(** The processor is the object that is notified when a new TCP connection
+    is accepted. The processor has to include the protocol interpreter that
+    reads and write data on this connection. See {!Netplex_intro.defproc}
+    for an example how to define a processor.
+ *)
 and processor =
 object
   inherit processor_hooks
@@ -497,10 +510,16 @@ object
 
 end
 
+(** Containers encapsulate the control flow of the service components.
+    A container is run in a separate thread or process.
+ *)
 and container =
 object
   method socket_service_name : string
   method socket_service : socket_service
+
+  method container_id : container_id
+    (** Return the container ID *)
 
   method ptype : parallelization_type
     (** The parallelization type actually used for this container *)
@@ -593,6 +612,7 @@ object
      *)
 end
 
+(** See {!Netplex_workload} for definitions of workload managers *)
 and workload_manager =
 object
   method hello : controller -> unit

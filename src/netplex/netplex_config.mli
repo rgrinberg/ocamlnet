@@ -86,4 +86,7 @@ val read_netplex_config :
     *   This type of socket is useful to control the load sent to each
     *   container directly, e.g. to drive a farm of worker processes.
     * 
+    * {b More documentation}: See {!Netplex_intro.webserver} for a 
+    * complete example of a config file. See {!Netplex_intro.crsock}
+    * for explanations how to specify sockets in the config file.
    *)

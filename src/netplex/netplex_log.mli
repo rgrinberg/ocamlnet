@@ -22,6 +22,8 @@
 
     Instead of configuring loggers in the config file, one can also
     create loggers from config objects like [generic_config].
+
+    See also {!Netplex_intro.logging} for more documentation.
  *)
 
 open Netplex_types

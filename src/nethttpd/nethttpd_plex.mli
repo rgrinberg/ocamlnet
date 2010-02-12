@@ -4,6 +4,8 @@
 
 (** The important function is [nethttpd_factory], see below. The
     other functions are only needed for special effects.
+
+    An example is explained here: {!Netplex_intro.webserver}
  *)
 
 type config_log_error =

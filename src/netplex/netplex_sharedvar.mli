@@ -32,6 +32,9 @@
 
     The latter kind is useful to safely store structured ocaml values in
     Netplex variables.
+
+    More documentation can also be found here:
+    {!Netplex_advanced.sharedvars}
  *)
 
 open Netplex_types

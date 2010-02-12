@@ -3,7 +3,8 @@
 (** Workload management
   *
   * Workload managers control when additional containers are started or
-  * idle containers are stopped.
+  * idle containers are stopped. See {!Netplex_intro.workload} for 
+  * additional documentation how they are configured.
  *)
 
 open Netplex_types

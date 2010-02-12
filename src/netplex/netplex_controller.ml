@@ -457,26 +457,29 @@ object(self)
       (* Watch the new container. If it does not call [poll] within 60 seconds,
        * drop the process/thread.
        *)
-      Unixqueue.once esys group 60.0
-	(fun () ->
-	   let is_starting =
-	     match c.cont_state with `Starting _ -> true | _ -> false in
-	   if List.memq c clist && is_starting then (
-	     (* After 60 seconds still starting. This is a bad process! *)
-	     controller # logger # log
-	       ~component:sockserv#name
-	       ~level:`Crit
-	       ~message:"Container process/thread does not start up within 60 seconds";
-	     (* Immediate measure: Remove it from the list of containers *)
-	     clist <- List.filter (fun c' -> c' != c) clist;
-	     (* [watch_shutdown] will kill the process if possible *)
-	     par_thread # watch_shutdown controller#event_system;
-	     
-	     (* No need to call onclose_action. This _will_ be done if the
-              * process is finally dead.
-              *)
-	   )
-	);
+      let startup_timeout = 
+	sockserv # socket_service_config # startup_timeout in
+      if startup_timeout >= 0.0 then
+	Unixqueue.once esys group startup_timeout
+	  (fun () ->
+	     let is_starting =
+	       match c.cont_state with `Starting _ -> true | _ -> false in
+	     if List.memq c clist && is_starting then (
+	       (* After 60 seconds still starting. This is a bad process! *)
+	       controller # logger # log
+		 ~component:sockserv#name
+		 ~level:`Crit
+		 ~message:"Container process/thread does not start up";
+	       (* Immediate measure: Remove it from the list of containers *)
+	       clist <- List.filter (fun c' -> c' != c) clist;
+	       (* [watch_shutdown] will kill the process if possible *)
+	       par_thread # watch_shutdown controller#event_system;
+	       
+	       (* No need to call onclose_action. This _will_ be done if the
+                * process is finally dead.
+                *)
+	     )
+	  );
       Some par_thread
     with
       | error ->
@@ -1296,6 +1299,7 @@ class controller_sockserv setup controller : socket_service =
 	    end
 	  ]
 	method change_user_to = None
+        method startup_timeout = (-1.0)
 	method controller_config = controller#controller_config
       end
     ) in

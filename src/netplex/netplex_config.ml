@@ -539,6 +539,12 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 	      failwith "Cannot set user and group if not running as root";
 	 );
 
+	 let startup_timeout =
+	   try
+	     cf # float_param (cf # resolve_parameter addr "startup_timeout")
+	   with
+	     | Not_found -> 60.0 in
+
 	 let protocols =
 	   List.map
 	     (fun protaddr ->
@@ -597,6 +603,7 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 	       method name = service_name
 	       method protocols = protocols
 	       method change_user_to = user_group_opt
+	       method startup_timeout = startup_timeout
 	       method controller_config = ctrl_cfg
 	     end
 	   ) in

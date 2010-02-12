@@ -180,6 +180,7 @@ let add_helper_service ctrl name hooks =
 	method name = name
 	method protocols = []
 	method change_user_to = None
+	method startup_timeout = (-1.0)
 	method controller_config = ctrl#controller_config
       end
     ) in

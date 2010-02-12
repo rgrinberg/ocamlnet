@@ -1,5 +1,20 @@
 {1 Introduction into Netplex}
 
+{b Contents}
+
+- {!Netplex_intro.terminology}
+- {!Netplex_intro.webserver}
+- {!Netplex_intro.runwebserver}
+- {!Netplex_intro.procmod}
+- {!Netplex_intro.crsock}
+- {!Netplex_intro.servproc}
+- {!Netplex_intro.defproc}
+- {!Netplex_intro.workload}
+- {!Netplex_intro.messaging}
+- {!Netplex_intro.logging}
+- {!Netplex_intro.debug}
+- {!Netplex_intro.rpc_netplex}
+
 Netplex is a generic (stream) server framework. This means, Netplex
 does a lot of things for a network service that are always the same,
 regardless of the kind of service:
@@ -27,7 +42,7 @@ special role in such systems because this is the network protocol
 the components use to talk to each other. It is also internally
 used by Netplex for its administrative tasks.
 
-{2 Terminology}
+{2:terminology Terminology}
 
 In the Netplex world the following words are preferred to refer to
 the parts of a Netplex system:
@@ -57,7 +72,7 @@ the parts of a Netplex system:
   that containers are dynamically started and stopped as the
   workload of the system changes.
 
-{2 A Simple Web Server}
+{2:webserver Example - A Simple Web Server}
 
 In order to create a web server, this main program and the following
 configuration file are sufficient. (You find an extended example in
@@ -196,7 +211,7 @@ Here, we have:
   for the next network connection ("pre-fork"), and the upper limit
   of containers is 20.
 
-{2 Running This Example}
+{2:runwebserver Running This Example}
 
 If you start this program without any arguments, it will immediately
 fail because it wants to open [/etc/netplex.conf] - this is the 
@@ -234,7 +249,7 @@ messages to all components:
 
 It is up to the components to interpret these messages.
 
-{2 The Process Model}
+{2:procmod The Process Model}
 
 Netplex uses a generalized pre-fork process model. Let me explain this
 model a bit, as it is important to know it in order to understand
@@ -326,7 +341,7 @@ dynamically starting and stopping processes. This is discussed below in
 detail.
 
 
-{2 Creating Sockets}
+{2:crsock Creating Sockets}
 
 The server sockets are always created by the controller at program
 startup. This is a strict requirement because only this ensures that
@@ -379,7 +394,7 @@ One can have several [address] sections to create several sockets for the
 same protocol.
 
 
-{2 Services And Processors}
+{2:servproc Services And Processors}
 
 A Netplex system consists of exactly the services that are enumerated
 in the config file. This means it is not sufficient to build in support
@@ -470,7 +485,7 @@ one instance of the processor that is used in the controller and
 all containers.
 
 
-{2 Defining Custom Processors}
+{2:defproc Defining Custom Processors}
 
 Using predefined processor factories like {!Nethttpd_plex.nethttpd_factory}
 is very easy. Fortunately, it is not very complicated to define a
@@ -591,7 +606,7 @@ end
 and pass such a hook object into the factory.
 
 
-{2 Workload Management}
+{2:workload Workload Management}
 
 Workload managers decide when to start new containers and when to stop
 useless ones. The simplest manager is created by the
@@ -692,7 +707,7 @@ Another parameter is:
   shut down. Defaults to 15 seconds.
 
 
-{2 Messaging}
+{2:messaging Messaging}
 
 There are two kinds of messages one can send to Netplex containers:
 normal messages come from another Netplex container, and admin messages
@@ -741,7 +756,7 @@ In general, messages starting with "netplex." are reserved for
 Netplex itself.
 
 
-{2 Logging}
+{2:logging Logging}
 
 Log messages can be written in the containers. The messages are first
 sent to the controller where they are written to stderr, to files, or
@@ -791,7 +806,7 @@ way is to send all messages to stderr:
 
 Further types of logging are documented in the {!Netplex_log} module.
 
-{2 Debug logging}
+{2:debug Debug logging}
 
 There are various built-in debug logging streams:
   - {!Netplex_container.Debug.enable}: Logs the perspective of the

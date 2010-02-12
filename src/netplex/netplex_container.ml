@@ -43,6 +43,8 @@ object(self)
   val mutable engines = []
   val mutable vars = Hashtbl.create 10 
 
+  method container_id = (self :> container_id)
+
   method socket_service_name = ssn
   method socket_service = sockserv
 

@@ -1,0 +1,132 @@
+{1 Foreword}
+
+A few words about this and that...
+
+{2 Organization of Ocamlnet}
+
+Ocamlnet has grown a lot, and it may look a bit confusing to
+beginners. Fortunately, Ocamlnet follows a few organizational
+principles:
+
+{b String routines are often factored out}
+
+String routines like URL parsing, buffer handling, message decoding
+etc. are often not directly included in the protocol interpreter, but
+defined in separate modules. Actually, there is a whole library,
+Netstring, only consisting of string functions.
+
+The advantage is obvious: String functions can be reused, for example
+from within clients and servers, but also from user code wishing to do
+certain string manipulations directly.
+
+{b Common types ease plugging parts together}
+
+It is encouraged that one can plug together various parts of Ocamlnet
+to create new functionality. Ocamlnet tries to use the same types for
+the same kind of values throughout the whole library to make this
+easier.  Examples:
+
+- {!Netmime} defines mail messages, but as this data format is also
+  used in HTTP, {!Http_client} represents requests and responses 
+  with the same classes
+- {!Netchannels} defines object-oriented I/O channels. These are
+  used almost everywhere in Ocamlnet.
+
+
+{b Preference of asynchronous protocol interpreters}
+
+A number of protocol interpreters are written in asynchronous style.
+This is generally preferred because of better timeout and error
+handling, but also because it makes it possible to run several
+instances of these protocol interpreters in the same thread
+concurrently (i.e. it is a kind of micro-threading). Ocamlnet 
+includes the Equeue library as support library for asynchronous
+network programming (see {!Equeue_intro} for more information).
+
+Nevertheless, nobody is forced to use these protocol interpreters
+asynchronously. There is always also a simple way for synchronous
+calls (i.e. where the execution of the caller blocks until the
+network function is completely done).
+
+
+{b Parallelization is done at a single place}
+
+In other network environments, often every protocol interpreter
+defines functions for parallelizing its use, e.g. by using thread
+pools. In Ocamlnet we avoid that. For parallelization there is only
+the Netplex library which supports both multi-threading and
+multi-processing.
+
+It is easy to use Netplex with the available server implementations:
+
+- {!Nethttpd_plex} allows it to run a webserver inside Netplex
+- {!Rpc_netplex} can run SunRPC servers inside Netplex
+- {!Netcgi_plex} can run FCGI, SCGI, and AJP connectors inside Netplex
+
+There are a number of advantages. First, one can easily create 
+compound servers running a number of protocol interpreters at the
+same time. All interpreters are configured from a single place.
+All interpreters use the same logging mechanism. All interpreters
+share the same workload mechanism. All interpreters can be
+administered with the same command, [netplex-admin].
+
+Second, one does not need to develop the parallelization code anew
+for each protocol implementation. It is difficult enough.
+
+Third, this approach makes it first possible to provide a serious
+implementation of multi-processing. For this kind of parallelism, more
+coordination between the interacting components is required than for
+multi-threading. For example, when child processes are forked off, it
+must be clear which protocol interpreter are run within them.
+
+At Mylife, we have developed a server program that integrates dozens
+of different protocols under the same roof. The Netplex approach is
+scalable!
+
+
+{b Pick what you like, and omit things you don't understand}
+
+Ocamlnet is modular enough that one can cherry-pick the parts one
+needs. After all, it is only a library, i.e. a collection of Ocaml
+modules, and by using one module there is no strict requirement to
+use another module.
+
+Of course, there is also a "use hierarchy" in Ocamlnet - the
+HTTP code uses Equeue, for instance. However, the user of HTTP
+needs not to know this or care about it. Equeue is then simply
+an internally used helper library.
+
+
+{2 Future Directions}
+
+Ocamlnet is already focused on Internet protocols. Current activities
+especially try to
+
+- focus even more on datacenters as computing environments (affecting
+  scalability, selection of protocols, etc.)
+- provide more support to get high availability (e.g. utilities to
+  detect failed services quickly, or a common directory service)
+- improve multi-core support (especially speed up interprocess
+  communication)
+
+
+{2 Libraries Using Ocamlnet}
+
+There a number of libraries using Ocamlnet:
+
+- [Hydro] implements the ICE remote procedure call system
+  (http://oss.wink.com/hydro)
+- [Netdns] implements much of a DNS client and client cache
+  (http://oss.wink.com/hydro)
+- [orpc] is another language mapping layer for SunRPC
+  (http://code.google.com/p/orpc2)
+- [SimpleSOAP] provídes a simple SOAP client
+  (http://merjis.com/_file/simplesoap-doc.html)
+- [SOSS] is a SOAP server
+  (http://ne-fat-s.org/soss/index.html)
+- [ocaml-xml-rpc] is an XMLRPC client
+  (raevnos.pennmush.org/code/ocaml-xml-rpc)
+- [xmlrpc-light] another XMLRPC library
+  (http://code.google.com/p/xmlrpc-light/)
+- parts of the [Poesia] content filter use ocamlnet
+  (http://www.poesia-filter.org/)

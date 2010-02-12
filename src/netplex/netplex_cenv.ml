@@ -433,25 +433,25 @@ let run_in_container_context cont f =
 module type FUN_TYPE = 
   sig 
     type s  (** argument type *)
-    type t  (** result type *)
+    type r  (** result type *)
   end
 
 module type LEVER = sig
   type s  (** argument type *)
-  type t  (** result type *)
-  type lever = s->t
+  type r  (** result type *)
+  type t = s->r
 
   val register : Netplex_types.controller -> 
-                 (Netplex_types.controller -> lever) -> lever
+                 (Netplex_types.controller -> t) -> t
 end
 
 module Make_lever(T:FUN_TYPE) = struct
   type s = T.s
-  type t = T.t
-  type lever = s->t
+  type r = T.r
+  type t = s->r
 
   exception S of s
-  exception T of t
+  exception R of r
 
   let register ctrl raw_lever =
     let id =
@@ -462,13 +462,13 @@ module Make_lever(T:FUN_TYPE) = struct
 	       | S s -> s 
 	       | _ -> assert false in
 	   let res = raw_lever ctrl arg in
-	   T res
+	   R res
 	) in
     (fun arg ->
        let cont = self_cont() in
        let res_exn = cont # activate_lever id (S arg) in
        match res_exn with
-	 | T t -> t
+	 | R r -> r
 	 | _ -> assert false
     )
 end

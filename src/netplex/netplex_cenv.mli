@@ -33,7 +33,9 @@ val report_connection_string : Unix.file_descr -> string -> string
 
 (** {2 Timer} *)
 
-(** Timer functions can only be invoked from container contexts. *)
+(** Timer functions can only be invoked from container contexts. 
+    More documentation is available in {!Netplex_advanced.timers}.
+ *)
 
 type timer
   (** A timer *)
@@ -68,6 +70,8 @@ val timer_id : timer -> int
     The following functions are often more convenient, however.
 
     These functions can only be invoked from container contexts. 
+
+    More documentation: {!Netplex_advanced.contvars}
  *)
 
 exception Container_variable_not_found of string
@@ -192,6 +196,9 @@ val lookup_container_sockets : string -> string -> string array
       On Win32, the returned paths refer to files describing the
       IPC mechanism. Use {!Netplex_sockserv.any_file_client_connector}
       to convert the paths into RPC connectors.
+
+      Container sockets are explained here:
+      {!Netplex_advanced.contsocks}
    *)
 
 
@@ -250,6 +257,8 @@ val run_in_controller_context : controller -> (unit -> unit) -> unit
 
       For example, this allows it to start helper threads via
       {!Netplex_kit.add_helper_service} at any time.
+
+      An example can be found here: {!Netplex_advanced.levers}
    *)
 
 
@@ -273,27 +282,30 @@ val run_in_container_context : container -> (unit -> unit) -> unit
 
 (** Levers are a way to send messages to the controller, and to effectively
     run functions there that were previously registered. 
+
+    More documentation: {!Netplex_advanced.levers}
  *)
 
 (** Abstraction for function types [s->t] *)
 module type FUN_TYPE = 
   sig 
     type s  (** argument type *)
-    type t  (** result type *)
+    type r  (** result type *)
   end
 
 module type LEVER = sig
   type s  (** argument type *)
-  type t  (** result type *)
-  type lever = s->t
+  type r  (** result type *)
+  type t = s->r
 
   val register : Netplex_types.controller -> 
-                 (Netplex_types.controller -> lever) -> lever
+                 (Netplex_types.controller -> t) -> t
     (** [let reg_lever = register ctrl raw_lever]:
         Registers [raw_lever] in the controller [ctrl], so one can call
         [reg_lever] to activate it. For example:
 
-        {[ module LT = struct type s = unit type t = int end
+        {[ 
+           module LT = struct type s = unit type r = int end
            module L = Make_lever(LT)
          
            let get_num_services =
@@ -311,7 +323,7 @@ module type LEVER = sig
      *)
 end
 
-module Make_lever(T:FUN_TYPE) : LEVER with type s=T.s and type t=T.t
+module Make_lever(T:FUN_TYPE) : LEVER with type s=T.s and type r=T.r
   (** Creates a [LEVER] module from a function type as specified in
       [FUN_TYPE]
    *)

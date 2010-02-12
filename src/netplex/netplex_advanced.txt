@@ -2,7 +2,17 @@
 
 Some information about advanced techniques.
 
-{2 Running timers in containers}
+{b Contents}
+
+- {!Netplex_advanced.timers}
+- {!Netplex_advanced.contvars}
+- {!Netplex_advanced.contsocks}
+- {!Netplex_advanced.initonce}
+- {!Netplex_advanced.sharedvars}
+- {!Netplex_advanced.passdown}
+- {!Netplex_advanced.levers}
+
+{2:timers Running timers in containers}
 
 With {!Netplex_cenv.create_timer} one can start a timer that runs directly
 in the container event loop. This event loop is normally used for accepting
@@ -48,7 +58,7 @@ an argument [hooks], and one can create it like:
 ]}
 
 
-{2 Container variables}
+{2:contvars Container variables}
 
 If multi-processing is used, one can simply store per-container values
 in global variables. This works because for every new container the
@@ -103,7 +113,7 @@ See also below on "Storing global state" for another kind of variable that
 can be accessed from all containers.
 
 
-{2 Sending messages to individual containers}
+{2:contsocks Sending messages to individual containers}
 
 Sometimes it is useful when a container can directly communicate with 
 another container, and the latter can be addressed by a unique name
@@ -215,7 +225,7 @@ Use the method [owned_container_sockets] to get a list of pairs
 
 
 
-{2 One-time initialization code}
+{2:initonce One-time initialization code}
 
 It is sometimes necessary to run some initialization code only once
 for all containers of a certain service. Of course, there is always
@@ -279,7 +289,7 @@ is created at the first call of [create]. The semaphore is then never
 increased or decreased.
 
 
-{2 Storing global state}
+{2:sharedvars Storing global state}
 
 Sometimes global state is unavoidable. We mean here state variables
 that are accessed by all processes of the Netplex system.
@@ -367,3 +377,196 @@ For bigger amounts of data, it is advised to store them in an external
 file, a shared memory segment ({!Netshm} might help here), or even in
 a database system. Shared variables should then only be used to
 pass around the name of this file/segment/database.
+
+
+{2:passdown Hooks, and how to pass values down}
+
+Usually, the user configures processor factories by creating hook
+objects.  We have shown this already several times in previous
+sections of this chapter. Sometimes the question arises how to pass
+values from one hook to another.
+
+The hooks are called in a certain order. Unfortunately, there is
+no easy way to pass values from one hook to another. As workaround,
+it is suggested to store the values in the hooks object.
+
+For example, consider we need to allocate a database ID for each
+container. We do this in the [pre_start_hook], so we know the ID
+early. Of course, the code started from the [post_start_hook] also
+needs the ID, and in the [post_finish_hook] we would like to delete
+everything in the database referenced by this ID.
+
+This could be done in a hook object like
+
+{[
+  let hooks =
+    ( object
+        inherit Netplex_kit.empty_processor_hooks()
+
+        val db_id_tbl = Hashtbl.create 11
+
+        method pre_start_hook _ _ cid =
+          let db_id = allocate_db_id() in       (* create db ID *)
+          Hashtbl.add db_id_tbl cid db_id       (* remember it for later *)
+
+        method post_start_hook cont =
+          let cid = cont # container_id in           (* the container ID *)
+          let db_id = Hashtbl.find db_id_tbl cid in  (* look up the db ID *)
+          ...
+
+        method post_finish_hook _ _ cid =
+          let db_id = Hashtbl.find db_id_tbl cid in  (* look up the db ID *)
+          delete_db_id db_id;                        (* clean up db *)
+          Hashtbl.remove db_id_tbl cid
+      end
+    )
+]}
+
+We use here the container ID to identify the container. This works in
+all used hooks - either the container ID is passed directly, or we can
+get it from the container object itself.
+
+Normally there is only one controller per program. It is imaginable that
+a multi-threaded program has several controllers, though. In this case
+one has to be careful with this technique, because it should be avoided
+that values from the Netplex system driven by one controller are visible
+in the system driven by the other controller. Often, this can be easily
+achieved by creating separate hook objects, one per controller.
+
+
+{2:levers Levers - calling controller functions from containers}
+
+In a multi-process setup, the controller runs in the master process,
+and the containers run in child processes. Because of this, container
+code cannot directly invoke functions of the controller.
+
+For multi-threaded programs, this is quite easy to solve. With the
+function {!Netplex_cenv.run_in_controller_context} it can be
+temporarily switched to the controller thread to run code there.
+
+For example, to start a helper container one can do
+
+{[
+  Netplex_cenv.run_in_controller_context ctrl
+    (fun () ->
+       Netplex_kit.add_helper_service ctrl "helper1" hooks
+    )
+]}
+
+which starts a new container with an empty processor that only consists
+of the [hooks] object. The [post_start_hook] can be considered as the
+"body" of the new thread. The advantage of this is (compared to
+[Thread.start]) that this thread counts as a regular container, and
+can e.g. use logging functions.
+
+There is no such easy way in the multi-processing case. As a
+workaround, a special mechanism has been added to Netplex, the
+so-called {b levers}. Levers are registered functions that are known
+to the controller and which can be invoked from container context.
+Levers have an argument and can deliver a result. The types of
+argument and result can be arbitrary (but must be monomorphic, and
+must not contain functions). (The name, lever, was chosen because
+it reminds of additional operating handles, as we add such handles
+to the controller.)
+
+Levers are usually registered in the [post_add] hook of the processor.
+For example, let us define a lever that can start a helper container.
+As arguments we pass a tuple of a string and an int [(s,i)]. The
+arguments do not have any meaning here, we only do this to demonstrate
+how to pass arguments. As result, we pass a boolean value back that
+says whether the helper container was started successfully.
+
+First we need to create a type module:
+
+{[
+module T = struct
+  type s = string * int    (* argument type *)
+  type r = bool            (* result type *)
+end
+]}
+
+As second step, we need to create the lever module. This means only to
+apply the functor {!Netplex_cenv.Make_lever}:
+
+{[
+module L = Netplex_cenv.Make_lever(T)
+]}
+
+What happens behind the scene is that a function [L.register] is
+created that can marshal the argument and result values from the
+container process to the master process and back. This is invisible
+to the user, and type-safe.
+
+Now, we have to call [L.register] from the [post_add_hook]. The result
+of [L.register] is another function that represents the lever. By
+calling it, the lever is activated:
+
+{[
+  let hooks =
+    ( object
+        inherit Netplex_kit.empty_processor_hooks()
+
+        method post_add_hook socksrv ctrl =
+          let lever = 
+            L.register ctrl
+              (fun (s,i) ->
+                 try
+                   Netplex_kit.add_helper_service ctrl "helper1" ...;
+                   true   (* successful *)
+                 with error ->
+                   false  (* not successful *)
+              ) in
+           ...
+      end
+    )
+]}
+
+So, when we call [lever ("X",42)] from the container, the lever
+mechanism routes this call to the controller process, and calls there
+the function [(fun (s,i) -> ...)] that is the argument of
+[L.register].
+
+Finally, the question is how can we make the function [lever] known to
+containers. The hackish way to do this is to store [lever] in a global
+variable. The clean way is to store [lever] in a container variable,
+e.g.
+
+
+{[
+  module LV = Netplex_cenv.Make_var_type(L)
+    (* This works because L.t is the type of the lever *)
+
+  let hooks =
+    ( object
+        inherit Netplex_kit.empty_processor_hooks()
+
+        val mutable helper1_lever = (fun _ -> assert false)
+
+        method post_add_hook socksrv ctrl =
+          let lever = 
+            L.register ctrl
+              (fun (s,i) ->
+                 try
+                   Netplex_kit.add_helper_service ctrl "helper1" ...;
+                   true   (* successful *)
+                 with error ->
+                   false  (* not successful *)
+              ) in
+           helper1_lever <- lever
+
+        method post_start_hook cont =
+          LV.set "helper1_lever" helper1_lever
+      end
+    )
+]}
+
+and later in container code:
+
+{[
+  let helper1_lever = LV.get "helper1_lever" in
+  let success = helper1_lever ("X",42) in
+  if success then
+    print_endline "OK, started the new helper"
+  else
+    print_endline "There was an error"
+]}
