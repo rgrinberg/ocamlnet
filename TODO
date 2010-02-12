@@ -143,6 +143,7 @@ Implementation improvements after Ocamlnet 3.0
   * revise shared reliability caches.
   * idempotent calls: better the endpoint is immediately switched after
     the first failure
+  * improve docs
 
 - Name_resolution_error
 
@@ -173,12 +174,39 @@ Implementation improvements after Ocamlnet 3.0
 
 - delegation classes for nethttpd config objects
 
+- use bigarray I/O in more cases
+
 ----------------------------------------------------------------------
 Further ideas
 ----------------------------------------------------------------------
 
+- camlboxes:
+  * safer. E.g. detect when there are pointers to camlbox messages,
+    and prevent then that the message can be freed
+  * generic copy function that copies messages to the normal heap
+  * support for bigarrays, int32 etc. The custom_ops need to be
+    put into the camlbox by the receiver process
+  * more flexible memory management, e.g. support messages with
+    dynamic size
+
 - input/output channels with the possibility of intercepting
   (e.g. progress bars). Also for MIME bodies
+
+- netconversion: support UTF-8 byte order marks
+
+- netconversion: support for character case
+
+- netbuffer: more search functions. Substring search. Maybe even globbing
+
+- netdate: sanity checking (is the date valid)
+  Optionally restrict Netdate.parse to certain patterns
+
+  more calendar functions? Compat with calendar library?
+
+- Nethttp.Header:
+   missing: set_cookie_ct, get_set_cookie_ct
+
+- implement cookie jar, optionally use it in http_client
 
 - Focus RPC:
   * Rpc_server: Allow to set timeout for the server response itself
@@ -258,6 +286,29 @@ Further ideas
     method fd : Unix.file_descr
     method inactivate : unit -> unit
   end
+
+- SSL support for Http_client
+
+- Finish Ftp_client
+
+- Netplex + RPC + SSL: should be easy to configure
+
+- Better integration of SOCKS
+
+- Finishing pluggable DNS resolver
+
+- Netplex documentation:
+   * netplex-admin
+   * configuration manual
+
+- more engine-style interfaces:
+   * Http_client.pipeline: add requests via an engine
+
+- support for CPS transformations
+
+- pluggable filesystem classes
+
+- async local file I/O
 
 ----------------------------------------------------------------------
 Old stuff, check first

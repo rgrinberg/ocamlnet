@@ -32,6 +32,16 @@ easier.  Examples:
 - {!Netchannels} defines object-oriented I/O channels. These are
   used almost everywhere in Ocamlnet.
 
+{b Common infrastructure for logging, exception printing, and signal handling}
+
+All Ocamlnet modules use this infrastructure:
+- {!Netlog} is a simple logging module and redirector
+- {!Netexn} provides extended support for exception printing
+- {!Netsys_signal} is a little framework for coordinating signal handlers
+
+These modules are as simple as possible to do their task. It is up
+to the user to extend them, e.g. by plugging in fancier logging
+modules.
 
 {b Preference of asynchronous protocol interpreters}
 
@@ -114,19 +124,18 @@ especially try to
 
 There a number of libraries using Ocamlnet:
 
-- [Hydro] implements the ICE remote procedure call system
-  (http://oss.wink.com/hydro)
-- [Netdns] implements much of a DNS client and client cache
-  (http://oss.wink.com/hydro)
-- [orpc] is another language mapping layer for SunRPC
-  (http://code.google.com/p/orpc2)
-- [SimpleSOAP] provídes a simple SOAP client
-  (http://merjis.com/_file/simplesoap-doc.html)
-- [SOSS] is a SOAP server
-  (http://ne-fat-s.org/soss/index.html)
-- [ocaml-xml-rpc] is an XMLRPC client
-  (raevnos.pennmush.org/code/ocaml-xml-rpc)
-- [xmlrpc-light] another XMLRPC library
-  (http://code.google.com/p/xmlrpc-light/)
-- parts of the [Poesia] content filter use ocamlnet
-  (http://www.poesia-filter.org/)
+- {{:http://oss.wink.com/hydro} Hydro} implements the ICE remote procedure
+  call system
+- {{:http://oss.wink.com/hydro} Netdns} implements much of a DNS client
+  and client cache
+- {{:http://code.google.com/p/orpc2} orpc} is another language mapping layer
+  for SunRPC
+- {{:http://merjis.com/_file/simplesoap-doc.html} SimpleSOAP} provídes a
+  simple SOAP client
+- {{:http://ne-fat-s.org/soss/index.html} SOSS} is a SOAP server
+- {{:http://raevnos.pennmush.org/code/ocaml-xml-rpc} ocaml-xml-rpc} is an
+  XMLRPC client
+- {{:http://code.google.com/p/xmlrpc-light} xmlrpc-light} another XMLRPC 
+  library
+- {{:http://ocamldap.sourceforge.net/} Ocamlldap} is an LDAP client and
+  an LDAP server framework
