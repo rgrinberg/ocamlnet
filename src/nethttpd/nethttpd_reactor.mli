@@ -106,7 +106,7 @@ class modify_http_processor_config :
       arguments.
 
       [modify_http_protocol_config]: This function can be used to modify the
-      parts of the config object that ar inherited from [http_protocol_config].
+      parts of the config object that are inherited from [http_protocol_config].
       For example:
 
       {[
@@ -158,7 +158,7 @@ class modify_http_reactor_config :
 
       [modify_http_protocol_config] and [modify_http_processor_config]:
       These functions can be used to modify the
-      parts of the config object that ar inherited from [http_protocol_config]
+      parts of the config object that are inherited from [http_protocol_config]
       and [http_processor_config], respectively:
       For example:
 
