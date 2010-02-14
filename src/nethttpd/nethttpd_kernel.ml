@@ -461,7 +461,7 @@ let send_static_response resp status hdr_opt body =
   resp # send (`Resp_status_line(code, text));
   resp # send (`Resp_header h);
   resp # send (`Resp_body(body, 0, String.length body));
-  resp # send `Resp_end;
+  resp # send `Resp_end
 ;;
 
 
@@ -1523,4 +1523,55 @@ object(self)
   method lingering = lingering
 
   method fd = fd
+end
+
+
+let default_http_protocol_config =
+  ( object
+      method config_max_reqline_length = 32768
+      method config_max_header_length = 65536
+      method config_max_trailer_length = 32768
+      method config_limit_pipeline_length = 5
+      method config_limit_pipeline_size = 65536
+      method config_announce_server = `Ocamlnet
+      method config_suppress_broken_pipe = false
+    end
+  )
+
+let override v opt =
+  match opt with
+    | None -> v
+    | Some x -> x
+
+class modify_http_protocol_config 
+        ?config_max_reqline_length
+        ?config_max_header_length
+        ?config_max_trailer_length
+        ?config_limit_pipeline_length
+        ?config_limit_pipeline_size
+        ?config_announce_server
+        ?config_suppress_broken_pipe 
+        (config : http_protocol_config) : http_protocol_config =
+  let config_max_reqline_length = 
+    override config#config_max_reqline_length config_max_reqline_length in
+  let config_max_header_length =
+    override config#config_max_header_length config_max_header_length in
+  let config_max_trailer_length =
+    override config#config_max_trailer_length config_max_trailer_length in
+  let config_limit_pipeline_length =
+    override config#config_limit_pipeline_length config_limit_pipeline_length in
+  let config_limit_pipeline_size =
+    override config#config_limit_pipeline_size config_limit_pipeline_size in
+  let config_announce_server =
+    override config#config_announce_server config_announce_server in
+  let config_suppress_broken_pipe =
+    override config#config_suppress_broken_pipe config_suppress_broken_pipe in
+object
+  method config_max_reqline_length = config_max_reqline_length
+  method config_max_header_length = config_max_header_length
+  method config_max_trailer_length = config_max_trailer_length
+  method config_limit_pipeline_length = config_limit_pipeline_length
+  method config_limit_pipeline_size = config_limit_pipeline_size
+  method config_announce_server = config_announce_server
+  method config_suppress_broken_pipe = config_suppress_broken_pipe
 end

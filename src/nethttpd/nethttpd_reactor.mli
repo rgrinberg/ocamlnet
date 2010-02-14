@@ -49,48 +49,28 @@ object
      *)
 
   method config_timeout : float
-    (** General timeout until new data arrives.  (-1) means no timeout. *)
+    (** General timeout for network I/O (per I/O primitive).  
+        (-1) means no timeout. *)
 
   method config_cgi : Netcgi.config
     (** The CGI configuration to use in the Netcgi environment *)
 
-  method config_error_response : 
-    int -> Unix.sockaddr option -> Unix.sockaddr option -> 
-    Nethttp.http_method option -> Nethttp.http_header option -> string -> string
+  method config_error_response : error_response_params -> string
     (** Get HTML error text for the HTTP status code. Must return a generic
       * text for unknown codes.
      *)
 
-  method config_log_error : 
-    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> 
-    http_header option -> string -> unit
-    (** The function logs an error message. Arguments are:
-      * - Our socket address
-      * - Peer's socket address
-      * - Request method
-      * - Request header
-      * - Message
+  method config_log_error : request_info -> string -> unit
+    (** [config_log_error info msg]: Log the message [msg]. Information
+        about the request can be taken from [info]. The request may
+        only be partially available - be prepared that [info] methods
+        raise [Not_found].
      *)
 
-  method config_log_access :
-    Unix.sockaddr -> Unix.sockaddr -> http_method ->
-    http_header -> int64 -> (string * string) list -> bool -> 
-    int -> http_header -> int64 -> unit
-    (** [config_log_access sockaddr peeraddr reqmeth reqhdr props reqrej
-        status resphdr size]: This method is called after a request has been
-        processed:
-        - [sockaddr]: our socket address
-        - [peeraddr]: peer's socket address
-        - [reqmeth]: the request method (incl. URI)
-        - [reqhdr]: the request header
-        - [reqsize]: the size of the request body in bytes
-        - [props]: the properties (see below)
-        - [reqrej]: whether the request body has been rejected
-        - [status]: the 3-digit numeric reply status
-        - [resphdr]: the response header
-        - [respsize]: the size of the response body in bytes
+  method config_log_access : full_info -> unit
+    (** Logs the access after the request/response cycle is complete.
 
-        The [props] are the [cgi_properties] from the environment. As there
+        The [cgi_properties] are from the environment. As there
         is no automatic way of recording the last, finally used version of
         this list, it is required that users call [log_props] of the extended
         environment whenever the properties are updated. This is done by
@@ -99,23 +79,102 @@ object
 end
 
 
+val default_http_processor_config : http_processor_config
+  (** Default configuration: Extends
+      {!Nethttpd_kernel.default_http_protocol_config} with
+       - [config_timeout_next_request = 15.0]
+       - [config_timeout = 300.0]
+       - [config_cgi = ]{!Netcgi.default_config}
+       - [config_error_response =] {!Nethttpd_util.std_error_response}
+       - [config_log_error]: Uses {!Nethttpd_util.std_error_log_string}
+         to write a log message via {!Netlog}.
+       - [config_log_access]: is a no-op
+   *)
+
+class modify_http_processor_config :
+        ?modify_http_protocol_config:
+           (Nethttpd_kernel.http_protocol_config -> 
+              Nethttpd_kernel.http_protocol_config) ->
+        ?config_timeout_next_request:float ->
+        ?config_timeout:float ->
+        ?config_cgi:Netcgi.config ->
+        ?config_error_response:(error_response_params -> string) ->
+        ?config_log_error:(request_info -> string -> unit) ->
+        ?config_log_access:(full_info -> unit) ->
+        http_processor_config -> http_processor_config
+  (** Modifies the passed config object as specified by the optional
+      arguments.
+
+      [modify_http_protocol_config]: This function can be used to modify the
+      parts of the config object that ar inherited from [http_protocol_config].
+      For example:
+
+      {[
+        let new_cfg =
+          new modify_http_processor_config
+            ~modify_http_protocol_config:
+               (new Nethttpd_kernel.modify_http_protocol_config
+                  ~config_suppress_broken_pipe:true)
+            ~config_timeout:15.0
+            old_cfg
+      ]}
+   *)
+
 class type http_reactor_config =
 object
   inherit http_processor_config
   method config_reactor_synch : [ `Connection | `Close | `Flush | `Write ]
-    (** Specifies when to synchronize output, i.e. force that all channel data are
-      * actually transmitted to the client:
-      * - [`Connection] means only at the end of the connection. This means that the
-      *   channels of all pending requests may be buffered - needs a huge amount of
-      *   memory
-      * - [`Close] means only when closing the output channel (after every response). 
-      *   This means that the whole response may be buffered - needs a lot of memory.
-      * - [`Flush] means only when the [flush] method is called. This is a good idea
-      *   when one can control that.
-      * - [`Write] means every time the internal output buffer overflows. This is the
-      *   recommended setting in general.
-     *)
+  (** Specifies when to synchronize output, i.e. force that all channel data are
+    * actually transmitted to the client:
+    * - [`Connection] means only at the end of the connection. This means that the
+    *   channels of all pending requests may be buffered - needs a huge amount of
+    *   memory
+    * - [`Close] means only when closing the output channel (after every response). 
+    *   This means that the whole response may be buffered - needs a lot of memory.
+    * - [`Flush] means only when the [flush] method is called. This is a good idea
+    *   when one can control that.
+    * - [`Write] means every time the internal output buffer overflows. This is the
+    *   recommended setting in general.
+    *)
 end
+
+val default_http_reactor_config : http_reactor_config
+  (** Default configuration: Extends
+      {!Nethttpd_reactor.default_http_processor_config} with
+       - [config_reactor_synch = `Write]
+   *)
+
+
+class modify_http_reactor_config :
+        ?modify_http_protocol_config:
+           (Nethttpd_kernel.http_protocol_config -> 
+              Nethttpd_kernel.http_protocol_config) ->
+        ?modify_http_processor_config:
+           (http_processor_config -> http_processor_config) ->
+        ?config_reactor_synch:[ `Connection | `Close | `Flush | `Write ] ->
+        http_reactor_config -> http_reactor_config
+  (** Modifies the passed config object as specified by the optional
+      arguments.
+
+      [modify_http_protocol_config] and [modify_http_processor_config]:
+      These functions can be used to modify the
+      parts of the config object that ar inherited from [http_protocol_config]
+      and [http_processor_config], respectively:
+      For example:
+
+      {[
+        let new_cfg =
+          new modify_http_reactor_config
+            ~modify_http_protocol_config:
+               (new Nethttpd_kernel.modify_http_protocol_config
+                  ~config_suppress_broken_pipe:true)
+            ~modify_http_processor_config:
+               (new Nethttpd_reactor.modify_http_processor_config
+                  ~config_timeout:15.0)
+            old_cfg
+      ]}
+   *)
+
 
 
 class type internal_environment =
@@ -256,3 +315,22 @@ module Debug : sig
     (** Enables {!Netlog}-style debugging of this module
      *)
 end
+
+
+(**/**)
+
+(* Internal: *)
+val logged_error_response :
+      Unix.sockaddr ->
+      Unix.sockaddr ->
+      (string*string) option ->
+      int64 ->
+      bool ->
+      http_status -> 
+      http_header option ->
+      string option ->
+      extended_environment option ->
+      Nethttpd_kernel.http_response option ->
+      http_processor_config ->
+        unit
+

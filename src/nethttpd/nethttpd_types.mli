@@ -84,6 +84,12 @@ object
   method input_channel : Netchannels.in_obj_channel
     (** The input channel for reading the body of the request *)
 
+  method input_body_size : int64
+    (** so far known, or 0L *)
+
+  method request_body_rejected : bool
+    (** so far known, or false *)
+
   method send_file : Unix.file_descr -> int64 -> unit
     (** Sends the output header with a file as body. The file must already be open,
      * and positioned where the transmission begins. The number is the length
@@ -192,15 +198,69 @@ val output_file_response : #extended_environment ->
     * The function raises [Sys_error] when the file cannot be read.
    *)
 
+(** {1 Generating error responses, logging} *)
+
+class type request_info =
+object
+  method server_socket_addr : Unix.sockaddr
+    (** The socket address of this server. May raise [Not_found] if
+        there is no such address *)
+  method remote_socket_addr : Unix.sockaddr
+    (** The socket address of the client. May raise [Not_found] if
+        there is no such address *)
+  method request_method : string
+    (** The method like [GET]. May raise [Not_found] *)
+  method request_uri : string
+    (** The URI of the client request. This is often without the
+        server designation, i.e. just [/path?query].
+        May raise [Not_found] *)
+  method input_header : Nethttp.http_header
+    (** The request header. May raise [Not_found] *)
+  method cgi_properties : (string * string) list
+    (** The distilled CGI properties *)
+  method input_body_size : int64
+    (** The size of the input body. May raise [Not_found] *)
+end
+
+
+class type full_info =
+object
+  inherit request_info
+  method response_status_code : int
+    (** The HTTP status code to response *)
+  method request_body_rejected : bool
+    (** Whether the request body was rejected *)
+  method output_header : Nethttp.http_header
+    (** The response header *)
+  method output_body_size : int64
+    (** The size of the output body. *)
+end
+
+
+class create_full_info : response_status_code:int ->
+                         request_body_rejected:bool ->
+                         output_header:Nethttp.http_header ->
+                         output_body_size:int64 ->
+                         request_info -> full_info
+  (** Creates a [full_info] object by adding to a [request_info] object *)
+
+
+class type error_response_params =
+object
+  inherit request_info
+
+  method response_status_code : int
+    (** The HTTP status code to response *)
+
+  method error_message : string
+    (** The error message explaining the detail that went wrong *)
+end
+
+
 class type min_config =
 object
-  method config_error_response :
-    int -> 
-    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> 
-    http_header option -> string -> string
-  method config_log_error : 
-    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> 
-    http_header option -> string -> unit
+  method config_error_response : error_response_params -> string
+  method config_log_error : request_info -> string -> unit
 end
   (** Minimal configuration needed for [output_std_response] *)
 

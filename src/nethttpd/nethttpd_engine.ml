@@ -766,7 +766,7 @@ object(self)
 			   config ues group
 			   req_line req_hdr expect_100_continue 
 			   fd_addr peer_addr resp fdi in
-	    
+		
 		f_access := rm # log_access;
 		cur_request_manager <- Some rm;
 	    
@@ -790,23 +790,22 @@ object(self)
 			     sprintf "FD %Ld: got request -> std response"
 			       (Netsys.int64_of_file_descr fd));
 		    let (req_meth, req_uri) = fst req_line in
-		    let msg, have_msg =
-		      match msg_opt with
-			| Some msg -> msg, true
-			| None -> "", false in
-		    if have_msg then (
-                      config # config_log_error
-                        (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri))
-                        (Some req_hdr) msg
-		    );
-                    (* CHECK: Also log to access log? *)
-		    let code = int_of_http_status status in
-                    let body = 
-		      config # config_error_response
-			code
-			(Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri))
-                        (Some req_hdr) msg in
-		    Nethttpd_kernel.send_static_response resp status hdr_opt body;
+		    let (in_cnt,reqrej,env_opt) =
+		      match cur_request_manager with
+			| Some rm -> 
+			    let env = 
+			      (rm # environment :> extended_environment) in
+			    (env#input_body_size,
+			     env#request_body_rejected,
+			     Some env)
+			| None ->
+			    (0L, false, None) in
+		    Nethttpd_reactor.logged_error_response
+		      fd_addr peer_addr (Some(req_meth,req_uri))
+		      in_cnt reqrej status (Some req_hdr)
+		      msg_opt env_opt 
+		      (Some resp) 
+		      (config :> Nethttpd_reactor.http_processor_config);
 		    Unixqueue.add_event ues
 		      (Unixqueue.Extra(Ev_output_filled(group,(fun () -> ()))));
 		    (* Now [cur_request_manager = None]. This has the effect that 
@@ -899,8 +898,10 @@ object(self)
 		       (Netsys.int64_of_file_descr fd));
 	    if e <> `Broken_pipe_ignore then (
 	      let msg = Nethttpd_kernel.string_of_fatal_error e in
-	      config # config_log_error 
-		(Some fd_addr) (Some peer_addr) None None msg;
+	      Nethttpd_reactor.logged_error_response
+		fd_addr peer_addr None 0L false `Internal_server_error
+		None (Some msg) None None 
+		(config :> Nethttpd_reactor.http_processor_config)
 	      (* Note: The kernel ensures that the following token will be [`Eof].
 	       * Any necessary cleanup will be done when [`Eof] is processed.
 	       *)
@@ -917,13 +918,9 @@ object(self)
 	    assert(cur_request_manager = None);
 	    let msg = string_of_bad_request_error e in
 	    let status = status_of_bad_request_error e in
-	    config # config_log_error
-	      (Some fd_addr) (Some peer_addr) None None msg;
-	    let body = 
-	      config # config_error_response
-		400
-		(Some fd_addr) (Some peer_addr) None None msg in
-	    Nethttpd_kernel.send_static_response resp status None body;
+	    Nethttpd_reactor.logged_error_response
+	      fd_addr peer_addr None 0L false status None (Some msg) None
+	      (Some resp) (config :> Nethttpd_reactor.http_processor_config);
 	    Unixqueue.add_event ues
 	      (Unixqueue.Extra(Ev_output_filled(group,(fun () -> ()))));
 	    (* Note: The kernel ensures that the following token will be [`Eof].
@@ -1122,8 +1119,8 @@ object
 end
 
 
-let process_connection config pconfig fd ues stage1 : 
-                                              http_engine_processing_context =
+let process_connection config pconfig fd ues (stage1 : _ http_service)
+                       : http_engine_processing_context =
   let fd_addr = Unix.getsockname fd in
   let peer_addr = Netsys.getpeername fd in
 
@@ -1138,31 +1135,20 @@ let process_connection config pconfig fd ues stage1 :
   let on_req_hdr = ref (fun _ -> ()) in
 
   let eng_config = object
+    inherit Nethttpd_reactor.modify_http_processor_config 
+              (config :> Nethttpd_reactor.http_processor_config)
     method config_input_flow_control = true
     method config_output_flow_control = true
-
-    method config_timeout_next_request = config # config_timeout_next_request
-    method config_timeout = config # config_timeout
-    method config_cgi = config # config_cgi
-    method config_error_response = config # config_error_response
-    method config_log_error = config # config_log_error
-    method config_log_access = config # config_log_access
-    method config_max_reqline_length = config # config_max_reqline_length
-    method config_max_header_length = config # config_max_header_length
-    method config_max_trailer_length = config # config_max_trailer_length
-    method config_limit_pipeline_length = config # config_limit_pipeline_length
-    method config_limit_pipeline_size = config # config_limit_pipeline_size
-    method config_announce_server = config # config_announce_server
-    method config_suppress_broken_pipe = config#config_suppress_broken_pipe
   end in
 
   let log_error req msg =
-    let env = req # environment in
+    let env = (req # environment :> extended_environment) in
     let meth = env # cgi_request_method in
     let uri = env # cgi_request_uri in
-    config # config_log_error
-      (Some fd_addr) (Some peer_addr) (Some(meth,uri)) (Some env#input_header)
-      msg
+    Nethttpd_reactor.logged_error_response
+      fd_addr peer_addr (Some(meth,uri)) 0L false `Internal_server_error
+      (Some env#input_header) (Some msg) (Some env) None 
+      (config :> Nethttpd_reactor.http_processor_config)
   in
 
   let group = Unixqueue.new_group ues in
@@ -1478,3 +1464,39 @@ object(self)
   method engine = Lazy.force engine
 
 end
+
+
+let override v opt =
+  match opt with
+    | None -> v
+    | Some x -> x
+
+
+let default_http_engine_config =
+  ( object
+      inherit Nethttpd_reactor.modify_http_processor_config
+	         Nethttpd_reactor.default_http_processor_config
+      method config_input_flow_control = false
+      method config_output_flow_control = true
+    end
+  )
+
+
+class modify_http_engine_config
+        ?modify_http_protocol_config
+        ?modify_http_processor_config:(m2 = fun cfg -> cfg)
+        ?config_input_flow_control
+        ?config_output_flow_control
+        (config : http_engine_config) : http_engine_config =
+  let config_input_flow_control =
+    override config#config_input_flow_control config_input_flow_control in
+  let config_output_flow_control =
+    override config#config_output_flow_control config_output_flow_control in
+object
+  inherit Nethttpd_reactor.modify_http_processor_config
+            ?modify_http_protocol_config
+            (m2 (config:>Nethttpd_reactor.http_processor_config))
+  method config_input_flow_control = config_input_flow_control
+  method config_output_flow_control = config_output_flow_control
+end
+

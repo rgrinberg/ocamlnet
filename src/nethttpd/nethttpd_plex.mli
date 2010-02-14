@@ -8,54 +8,10 @@
     An example is explained here: {!Netplex_intro.webserver}
  *)
 
-type config_log_error =
-    Unix.sockaddr option -> Unix.sockaddr option -> Nethttp.http_method option
-     -> Nethttp.http_header option -> string -> unit
-(** The type of an error logging function: This function [f] is called
-    as [f sockaddr_opt peeraddr_opt meth_opt header_opt message], where
-     - [sockaddr_opt] is the address of the server socket
-     - [peeraddr_opt] is the address of the client socket
-     - [meth_opt] is the invoked HTTP method (GET/POST/...)
-     - [header_opt] is the request header submitted by the client
-     - [message] is the error message
-   *)
-
-type config_error_response =
-    int -> Unix.sockaddr option -> Unix.sockaddr option -> 
-    Nethttp.http_method option -> Nethttp.http_header option -> string -> 
-    string
-(** The type of the function generating error pages: This function [f] is 
-    called
-    as [f code sockaddr_opt peeraddr_opt meth_opt header_opt message], where
-     - [code] is the response HTTP code
-     - [sockaddr_opt] is the address of the server socket
-     - [peeraddr_opt] is the address of the client socket
-     - [meth_opt] is the invoked HTTP method (GET/POST/...)
-     - [header_opt] is the request header submitted by the client
-     - [message] is the error message
-
-     The function must return the text/html error page as string.
-   *)
-
-type config_log_access =
-    Unix.sockaddr -> Unix.sockaddr -> Nethttp.http_method ->
-    Nethttp.http_header -> int64 -> (string * string) list -> bool -> 
-    int -> Nethttp.http_header -> int64 -> unit
-(** The type of an access logging function: This function [f] is called
-    as [f sockaddr peeraddr meth req_header req_size props reject_flag 
-    resp_code resp_header resp_size], where
-     - [sockaddr] is the address of the server socket
-     - [peeraddr] is the address of the client socket
-     - [meth] is the invoked HTTP method (GET/POST/...)
-     - [req_header] is the request header submitted by the client
-     - [req_size] is the size of the request body submitted by the client
-     - [props] are the "CGI properties" as extracted from the request header.
-       For example, one finds here the remote user name ([REMOTE_USER]).
-     - [reject_flag] is true if the request body was rejected
-     - [resp_code] is the response HTTP code (e.g. 200 for success)
-     - [resp_header] is the response header
-     - [resp_size] is the size of the response body
- *)
+type config_log_error = Nethttpd_types.request_info -> string -> unit
+type config_log_access = Nethttpd_types.full_info -> unit
+type config_error_response = Nethttpd_types.error_response_params -> string
+  (** Three type abbreviations for logging functions *)
 
 val std_log_error : Netplex_types.container -> config_log_error 
   (** Returns a function that logs errors using the [log_subch] method of

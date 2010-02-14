@@ -50,26 +50,8 @@ let generate_error resp =
   resp # send `Resp_end;
 ;;
 
-class config 
-        ?(max_reqline_length = 256)
-        ?(max_header_length = 32768)
-        ?(max_trailer_length = 32768)
-        ?(limit_pipeline_length = 5)
-        ?(limit_pipeline_size = max_int)
-        () : Nethttpd_kernel.http_protocol_config =
-object
-  method config_max_reqline_length = max_reqline_length
-  method config_max_header_length = max_header_length
-  method config_max_trailer_length = max_trailer_length
-  method config_limit_pipeline_length = limit_pipeline_length
-  method config_limit_pipeline_size = limit_pipeline_size
-  method config_announce_server = `Ocamlnet
-  method config_suppress_broken_pipe = false
-end
-;;
-
 let serve fd =
-  let config = new config() in
+  let config = Nethttpd_kernel.default_http_protocol_config in
   let proto = new Nethttpd_kernel.http_protocol config fd in
 
   let rec next_token () =

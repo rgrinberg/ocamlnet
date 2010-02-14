@@ -4,20 +4,9 @@ open Nethttpd_services
 open Netplex_types
 open Printf
 
-type config_log_error =
-    Unix.sockaddr option -> Unix.sockaddr option -> 
-      Nethttp.http_method option -> Nethttp.http_header option -> string -> 
-	unit
-
-type config_error_response =
-    int -> Unix.sockaddr option -> Unix.sockaddr option -> 
-    Nethttp.http_method option -> Nethttp.http_header option -> string -> 
-    string
-
-type config_log_access =
-    Unix.sockaddr -> Unix.sockaddr -> Nethttp.http_method ->
-    Nethttp.http_header -> int64 -> (string * string) list -> bool -> 
-    int -> Nethttp.http_header -> int64 -> unit
+type config_log_error = Nethttpd_types.request_info -> string -> unit
+type config_log_access = Nethttpd_types.full_info -> unit
+type config_error_response = Nethttpd_types.error_response_params -> string
 
 type ('a,'b) service_factory =
     (string * 'a Nethttpd_services.dynamic_service) list ->
@@ -30,68 +19,18 @@ type ('a,'b) service_factory =
 		    ]
 
 
-let std_log_error container _ peeraddr_opt meth_opt _ msg =
-  let s =
-    Printf.sprintf "[%s] [%s] %s"
-      ( match peeraddr_opt with
-	  | Some(Unix.ADDR_INET(addr,port)) ->
-	      Unix.string_of_inet_addr addr
-	  | Some(Unix.ADDR_UNIX path) ->
-	      path
-	  | None ->
-	      "-"
-      )
-      ( match meth_opt with
-	  | (Some(name,uri)) ->
-	      name ^ " " ^ uri
-	  | None ->
-	      "-"
-      )
-      msg
-  in
+let std_log_error container info msg =
+  let s = Nethttpd_util.std_error_log_string info msg in
   container # log_subch "" `Err s
 
 
-let std_log_access ?(debug=false) container sockaddr peeraddr req reqhdr
-                    reqsize props rej code resphdr respsize =
-  let peerstr =
-    match peeraddr with
-      | Unix.ADDR_INET(addr,port) ->
-	  Unix.string_of_inet_addr addr
-      | Unix.ADDR_UNIX path ->
-	  path in
-
-  let (meth,uri) = req in
-
-  let s =
-    Printf.sprintf "%s %s %s \"%s\" %d %Ld \"%s\" \"%s\""
-      peerstr
-      ( try List.assoc "REMOTE_USER" props with Not_found -> "-" )
-      meth
-      (String.escaped uri)
-      code
-      respsize
-      ( String.escaped
-	  (try reqhdr # field "Referer" with Not_found -> "-" ) )
-      ( String.escaped
-	  (try reqhdr # field "User-agent" with Not_found -> "-") ) in
-
-  container # log_subch "access" `Info s;
+let std_log_access ?(debug=false) container info =
+  let s_info = Nethttpd_util.std_access_log_string info in
+  container # log_subch "access" `Info s_info;
 
   if debug then (
-    let b = Buffer.create 500 in
-    let b_ch = new Netchannels.output_buffer b in
-    Printf.bprintf b "%s\n" s;
-    Printf.bprintf b "Request header:\n";
-    Mimestring.write_header ~soft_eol:"\n" ~eol:"\n" b_ch reqhdr#fields;
-    Printf.bprintf b "Request body size: %Ld\n" reqsize;
-    Printf.bprintf b "Request body rejected: %b\n\n" rej;
-    Printf.bprintf b "CGI properties:\n";
-    Mimestring.write_header ~soft_eol:"\n" ~eol:"\n" b_ch props;
-    Printf.bprintf b "Response header (code %d):\n" code;
-    Mimestring.write_header ~soft_eol:"\n" ~eol:"\n" b_ch resphdr#fields;
-    Printf.bprintf b "Response body size: %Ld\n" respsize;
-    container # log_subch "access" `Debug (Buffer.contents b)
+    let s_debug =  Nethttpd_util.std_debug_access_log_string info in
+    container # log_subch "access" `Debug s_debug
   )
 
     
@@ -228,35 +167,8 @@ let read_file_service_config cfg addr uri_path =
   spec
 
 
-let std_error_response code sockaddr_opt peeraddr_opt meth_opt hdr_opt msg =
-  let b = Buffer.create 500 in
-  bprintf b "<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \
-        \"http://www.w3.org/TR/REC-html40/strict.dtd\">\n";
-  bprintf b "<html xmlns=\"http://www.w3.org/1999/xhtml\" \
-xml:lang=\"en\" lang=\"en\">
-<head>
-<meta name=\"generator\" content=\"OCamlNet (http://projects.camlcity.org/projects/ocamlnet)\">
-<style>
-  p.msg { color: black; background-color: #cccccc; padding: 1ex; }
-  h2 { font-size: large; }
-</style>
-</head>
-<body>\n";
-  let text =
-    try Nethttp.string_of_http_status(Nethttp.http_status_of_int code)
-    with Not_found -> "Non-standard code" in
-  bprintf b "<h1>Error %i - %s</h1>\n" code text;
-  bprintf b "The server could not process your request.\n";
-  bprintf b "For additional information consult the error log of the\n";
-  bprintf b "server.\n";
-  bprintf b "<hr>\n";
-  bprintf b "%s - Ocamlnet Nethttpd server\n"
-    (Netdate.format "%c"
-       (Netdate.create ~zone:Netdate.localzone
-	  (Unix.time())));
-  bprintf b "</body>\n";
-  bprintf b "</html>\n";
-  Buffer.contents b
+let std_error_response =
+  Nethttpd_util.std_error_response
 
 
 let (default_file_service : ('a,'b) service_factory) handlers cfg addr uri_path =
@@ -491,7 +403,7 @@ let create_processor hooks config_cgi handlers services log_error log_access
       if access_enabled then
 	log_access ?debug:(Some access_debug) container
       else
-	(fun _ _ _ _ _ _ _ _ _ _ -> ()) in
+	(fun _ -> ()) in
     (object
        method config_reactor_synch = `Write
        method config_timeout_next_request = timeout_next_request
@@ -505,8 +417,7 @@ let create_processor hooks config_cgi handlers services log_error log_access
        method config_max_trailer_length = 65536
        method config_limit_pipeline_length = 1
        method config_limit_pipeline_size = 65536
-       method config_announce_server = `Ocamlnet
-	 (* TODO *)
+       method config_announce_server = `Ocamlnet (* TODO *)
        method config_suppress_broken_pipe = suppress_broken_pipe
      end
     ) in

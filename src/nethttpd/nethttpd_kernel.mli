@@ -269,12 +269,15 @@ end
 class http_response_impl : ?close:bool -> ?suppress_body:bool -> int64 -> protocol -> announcement -> http_response
   (** Exported for debugging and testing only *)
 
-val send_static_response : http_response -> 
-                           http_status -> http_header option -> string -> unit
+val send_static_response : 
+      http_response -> 
+      http_status -> http_header option -> string -> unit
   (** Sends the string argument as response body, together with the given status and
     * the header (optional). Response header fields are set as follows:
     * - The [Content-Length] is set to the length of the string.
     * - The [Content-Type] is set to "text/html" unless given by the header.
+    * If the header object is passed in, these modifications are done 
+    * directly in this object as side effect.
    *)
 
 val send_file_response : http_response -> 
@@ -289,6 +292,9 @@ val send_file_response : http_response ->
     *
     * Note that [Content-Range] is not set automatically, even if the file is only
     * partially transferred.
+    *
+    * If the header object is passed in, these modifications are done 
+    * directly in this object as side effect.
     *
     * The function does not send the file immediately, but rather sets the [http_response]
     * object up that the next chunk of the file is added when the send queue becomes
@@ -390,6 +396,30 @@ object
 
 end
 
+
+val default_http_protocol_config : http_protocol_config 
+  (** Default config:
+      - [config_max_reqline_length = 32768]
+      - [config_max_header_length = 65536]
+      - [config_max_trailer_length = 32768]
+      - [config_limit_pipeline_length = 5]
+      - [config_limit_pipeline_size = 65536]
+      - [config_announce_server = `Ocamlnet]
+      - [config_suppress_broken_pipe = false]
+   *)
+
+class modify_http_protocol_config : 
+        ?config_max_reqline_length:int ->
+        ?config_max_header_length:int ->
+        ?config_max_trailer_length:int ->
+        ?config_limit_pipeline_length:int ->
+        ?config_limit_pipeline_size:int ->
+        ?config_announce_server:announcement ->
+        ?config_suppress_broken_pipe:bool ->
+        http_protocol_config -> http_protocol_config 
+  (** Modifies the passed config object as specified by the optional
+      arguments
+   *)
 
 (** The core event loop of the HTTP daemon *)
 class http_protocol : #http_protocol_config -> Unix.file_descr ->

@@ -79,6 +79,45 @@ object
 end
 
 
+val default_http_engine_config : http_engine_config
+  (** The default config:
+       - [config_input_flow_control=false]
+       - [config_output_flow_control=true]
+   *)
+
+class modify_http_engine_config :
+        ?modify_http_protocol_config:
+           (Nethttpd_kernel.http_protocol_config -> 
+              Nethttpd_kernel.http_protocol_config) ->
+        ?modify_http_processor_config:
+           (Nethttpd_reactor.http_processor_config -> 
+              Nethttpd_reactor.http_processor_config) ->
+        ?config_input_flow_control:bool ->
+        ?config_output_flow_control:bool ->
+         http_engine_config ->  http_engine_config
+  (** Modifies the passed config object as specified by the optional
+      arguments.
+
+      [modify_http_protocol_config] and [modify_http_processor_config]:
+      These functions can be used to modify the
+      parts of the config object that ar inherited from [http_protocol_config]
+      and [http_processor_config], respectively:
+      For example:
+
+      {[
+        let new_cfg =
+          new modify_http_engine_config
+            ~modify_http_protocol_config:
+               (new Nethttpd_kernel.modify_http_protocol_config
+                  ~config_suppress_broken_pipe:true)
+            ~modify_http_processor_config:
+               (new Nethttpd_reactor.modify_http_processor_config
+                  ~config_timeout:15.0)
+            old_cfg
+      ]}
+   *)
+
+
 class type extended_async_environment =
 object
   inherit extended_environment

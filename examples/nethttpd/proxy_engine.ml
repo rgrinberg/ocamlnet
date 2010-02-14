@@ -171,27 +171,7 @@ let serve_connection ues fd =
    *)
   printf "Connected\n";
   flush stdout;
-  let config : Nethttpd_engine.http_engine_config =
-    object
-      method config_timeout_next_request = 15.0
-      method config_timeout = 300.0
-      method config_cgi = Netcgi.default_config
-      method config_error_response n  _ _ _ _ _ =
-	"<html>Error " ^ string_of_int n ^ "</html>"
-      method config_log_error _ _ _ _ msg =
-        (printf "Error log: %s\n" msg; flush stdout)
-      method config_log_access _ _ _ _ _ _ _ _ _ _ = ()
-      method config_max_reqline_length = 256
-      method config_max_header_length = 32768
-      method config_max_trailer_length = 32768
-      method config_limit_pipeline_length = 5
-      method config_limit_pipeline_size = 250000  (* no effect here! *)
-      method config_input_flow_control = false
-      method config_output_flow_control = true
-      method config_announce_server = `Ocamlnet
-      method config_suppress_broken_pipe = false
-    end
-  in
+  let config = Nethttpd_engine.default_http_engine_config in
   Unix.set_nonblock fd;
   let http_engine = 
     new Nethttpd_engine.http_engine ~on_request_header:(on_request_header ues) () 

@@ -82,6 +82,36 @@ let string_of_output_state =
     | `Sending -> "Sending"
     | `End -> "End"
 
+class type request_info =
+object
+  method server_socket_addr : Unix.sockaddr
+  method remote_socket_addr : Unix.sockaddr
+  method request_method : string
+  method request_uri : string
+  method input_header : Nethttp.http_header
+  method cgi_properties : (string * string) list
+  method input_body_size : int64
+end
+
+
+class type full_info =
+object
+  inherit request_info
+  method response_status_code : int
+  method request_body_rejected : bool
+  method output_header : Nethttp.http_header
+  method output_body_size : int64
+end
+
+
+class type error_response_params =
+object
+  inherit request_info
+  method response_status_code : int
+  method error_message : string
+end
+
+
 class type virtual v_extended_environment =
 object
   inherit Netcgi.cgi_environment
@@ -91,6 +121,8 @@ object
   method cgi_request_uri : string
   method log_props : (string * string) list -> unit
   method input_channel : Netchannels.in_obj_channel
+  method input_body_size : int64
+  method request_body_rejected : bool
   method send_file : Unix.file_descr -> int64 -> unit
   method output_state : output_state ref
 end
@@ -177,6 +209,10 @@ object(self)
 
   method set_status ( st : http_status ) = 
     out_header # update_field "Status" (string_of_int (int_of_http_status st))
+
+  method input_body_size = 0L
+
+  method request_body_rejected = false
 
   (* ---- The following is copied from Netcgi_env: ---- *)
 
@@ -290,8 +326,32 @@ object(self)
 
   method log_props = env # log_props
 
+  method input_body_size = 0L
+  method request_body_rejected = false
+
   method output_state = env # output_state
     (* The variable is shared! *)
+end
+
+
+class create_full_info
+        ~response_status_code
+        ~request_body_rejected
+        ~output_header
+        ~output_body_size
+        (info : request_info) : full_info =
+object
+  method server_socket_addr = info#server_socket_addr
+  method remote_socket_addr = info#remote_socket_addr
+  method request_method = info#request_method
+  method request_uri = info#request_uri
+  method input_header = info#input_header
+  method cgi_properties = info#cgi_properties
+  method input_body_size = info#input_body_size
+  method response_status_code = response_status_code
+  method request_body_rejected = request_body_rejected
+  method output_header = output_header
+  method output_body_size = output_body_size
 end
 
 
@@ -307,10 +367,12 @@ let output_static_response (env : #extended_environment) status hdr_opt body =
       | `Not_modified -> ()
       | _ ->
 	  ( try ignore(env # output_header_field "Content-Type")
-	    with Not_found -> env # set_output_header_field "Content-type" "text/html";
+	    with Not_found ->
+	      env # set_output_header_field "Content-type" "text/html";
 	  );
   );
-  env # set_output_header_field "Content-Length" (string_of_int (String.length body));
+  env # set_output_header_field 
+    "Content-Length" (string_of_int (String.length body));
   env # set_status status;
   env # send_output_header();
   env # output_ch # output_string body;
@@ -374,12 +436,8 @@ let output_file_response env status
 
 class type min_config =
 object
-  method config_error_response : 
-    int -> Unix.sockaddr option -> Unix.sockaddr option -> 
-    Nethttp.http_method option -> Nethttp.http_header option -> string -> 
-    string
-  method config_log_error : 
-    Unix.sockaddr option -> Unix.sockaddr option -> http_method option -> http_header option -> string -> unit
+  method config_error_response : error_response_params -> string
+  method config_log_error : request_info -> string -> unit
 end
 
 
@@ -388,25 +446,33 @@ let output_std_response config (env : #extended_environment)
   let req_meth = env # cgi_request_method in
   let req_uri = env # cgi_request_uri in
   let req_hdr = new Netmime.basic_mime_header env#input_header_fields in
-  ( match msg_opt with
-      | Some msg ->
-	  config # config_log_error
-	    (Some env#server_socket_addr) (Some env#remote_socket_addr) 
-	    (Some(req_meth,req_uri)) (Some req_hdr) msg
-      | None -> ()
-  );
+  let (msg, have_msg) =
+    match msg_opt with
+      | Some msg -> (msg,true)
+      | None -> ("", false) in
   let code = int_of_http_status status in
+  let info =
+    ( object
+	method server_socket_addr = env#server_socket_addr
+	method remote_socket_addr = env#remote_socket_addr
+	method request_method = req_meth
+	method request_uri = req_uri
+	method input_header = req_hdr
+	method cgi_properties = env # cgi_properties
+	method input_body_size = 0L  (* don't know *)
+	method response_status_code = code
+	method error_message = msg
+      end
+    ) in
+  if have_msg then
+    config # config_log_error (info :> request_info) msg;
   let body = 
     match status with
       | `No_content
       | `Reset_content
       | `Not_modified -> ""
       | _ ->
-	  config # config_error_response 
-	    code (Some env#server_socket_addr) (Some env#remote_socket_addr) 
-	    (Some(req_meth,req_uri)) (Some req_hdr) 
-	    (match msg_opt with Some m -> m | None -> "")
-  in
+	  config # config_error_response info in
   let hdr_opt' =
     match hdr_opt with
       | Some h -> Some h

@@ -76,29 +76,13 @@ let srv =
 
 
 let serve_connection ues fd =
-  let config : http_engine_config =
-    object
-      method config_timeout_next_request = 15.0
-      method config_timeout = 300.0
-      method config_cgi = Netcgi.default_config
-      method config_error_response n _ _ _ _ _ =
-	"<html>Error " ^ string_of_int n ^ "</html>"
-      method config_log_error _ _ _ _ msg =
-        printf "Error log: %s\n" msg; flush stdout
-      method config_log_access _ _ _ _ _ _ _ _ _ _ = ()
-      method config_max_reqline_length = 256
-      method config_max_header_length = 32768
-      method config_max_trailer_length = 32768
-      method config_limit_pipeline_length = 5
-      method config_limit_pipeline_size = 250000
-
-      method config_input_flow_control = true
-      method config_output_flow_control = true
-      method config_announce_server = `Ocamlnet
-      method config_suppress_broken_pipe = false
-    end in
-  
-  let pconfig = new Nethttpd_engine.buffering_engine_processing_config in
+  let config =
+    new Nethttpd_engine.modify_http_engine_config
+      ~config_input_flow_control:true
+      ~config_output_flow_control:true
+      Nethttpd_engine.default_http_engine_config in
+  let pconfig = 
+    new Nethttpd_engine.buffering_engine_processing_config in
 
   Unix.set_nonblock fd;
 

@@ -46,17 +46,9 @@ object
   method config_timeout_next_request : float
   method config_timeout : float
   method config_cgi : Netcgi.config
-  method config_error_response :
-    int -> 
-    Unix.sockaddr option -> Unix.sockaddr option -> http_method option ->
-    http_header option -> string -> string
-  method config_log_error : 
-    Unix.sockaddr option -> Unix.sockaddr option -> http_method option ->
-    http_header option -> string -> unit
-  method config_log_access :
-    Unix.sockaddr -> Unix.sockaddr -> http_method ->
-    http_header -> int64 -> (string * string) list -> bool -> 
-    int -> http_header -> int64 -> unit
+  method config_error_response : error_response_params -> string
+  method config_log_error : request_info -> string -> unit
+  method config_log_access : full_info -> unit
 end
 
 class type http_reactor_config =
@@ -94,6 +86,65 @@ let get_this_host addr =
     | Unix.ADDR_INET(ia,port) ->
 	(Unix.string_of_inet_addr ia, Some port)
 
+
+let logged_error_response fd_addr peer_addr req_meth_uri_opt 
+                          in_cnt req_rej status hdr_opt msg_opt env_opt 
+                          resp_opt config =
+  let unopt = 
+    function Some x -> x | None -> raise Not_found in
+  let msg, have_msg =
+    match msg_opt with
+      | Some msg -> msg, true
+      | None -> "", false in
+  let code = int_of_http_status status in
+  let info =
+    ( object
+	method server_socket_addr = fd_addr
+	method remote_socket_addr = peer_addr
+	method request_method = fst(unopt req_meth_uri_opt)
+	method request_uri = snd(unopt req_meth_uri_opt)
+	method input_header = (unopt env_opt) # input_header
+	method cgi_properties = (unopt env_opt) # cgi_properties
+	method input_body_size = in_cnt
+	method response_status_code = code
+	method error_message = msg
+      end
+    ) in
+  if have_msg then
+    config # config_log_error (info:>request_info) msg;
+  match resp_opt with
+    | None -> ()
+    | Some resp ->
+	let body = config # config_error_response info in
+	let eff_header = 
+	  match hdr_opt with
+	    | None ->
+		new Netmime.basic_mime_header []
+	    | Some hdr ->
+		hdr in
+	Nethttpd_kernel.send_static_response 
+	  resp status (Some eff_header) body;
+	let full =
+	  new create_full_info
+	    ~response_status_code:code
+	    ~request_body_rejected:req_rej
+	    ~output_header:eff_header
+	    ~output_body_size:(Int64.of_int (String.length body))
+	    (info:>request_info) in
+	config # config_log_access full
+
+
+let no_info =
+  ( object
+      method server_socket_addr = raise Not_found
+      method remote_socket_addr = raise Not_found
+      method request_method = raise Not_found
+      method request_uri = raise Not_found
+      method input_header = raise Not_found
+      method cgi_properties = raise Not_found
+      method input_body_size = raise Not_found
+    end
+  )
 
 
 class http_environment (proc_config : #http_processor_config)
@@ -225,9 +276,18 @@ object(self)
     close_after_send_file()
 
   method log_error s =
-    proc_config # config_log_error 
-      (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri)) (Some req_hdr) s
-
+    let info =
+      ( object 
+	  method server_socket_addr = fd_addr
+	  method remote_socket_addr = peer_addr
+	  method request_method = req_meth
+	  method request_uri = req_uri
+	  method input_header = req_hdr
+	  method cgi_properties = logged_props
+	  method input_body_size = !in_cnt
+	end
+      ) in
+    proc_config # config_log_error info s
 
   method log_props l =
     logged_props <- l
@@ -238,20 +298,28 @@ object(self)
   method log_access () =
     (* Called when the whole response is written. Do now access logging *)
     if not access_logged then (
-      proc_config # config_log_access
-	fd_addr
-	peer_addr
-	(req_meth, req_uri)
-	req_hdr
-	!in_cnt
-	logged_props
-	!reqrej
-	sent_status
-	sent_resp_hdr
-	resp#body_size;
+      let full_info =
+	( object
+	    method server_socket_addr = fd_addr
+	    method remote_socket_addr = peer_addr
+	    method request_method = req_meth
+	    method request_uri = req_uri
+	    method input_header = req_hdr
+	    method cgi_properties = logged_props
+	    method input_body_size = !in_cnt
+	    method response_status_code = sent_status
+	    method request_body_rejected = !reqrej
+	    method output_header = sent_resp_hdr
+	    method output_body_size = resp#body_size
+	  end
+	) in
+      proc_config # config_log_access full_info;
       access_logged <- true
     )
 
+
+  method input_body_size = !in_cnt
+  method request_body_rejected = !reqrej
 
   method output_state = out_state
 end
@@ -609,7 +677,7 @@ object(self)
 
 	  let ((req_meth, req_uri), req_version) = req in
 
-	  let f_access = ref (fun () -> ()) in  (* set below *)
+	  let env_opt = ref None in  (* set below *)
 	  let in_cnt = ref 0L in
 	  let input_ch = 
 	    new http_reactor_input self#next_token in_cnt
@@ -617,7 +685,12 @@ object(self)
 	  let output_state = ref `Start in
 	  let output_ch = 
 	    new http_reactor_output config resp self#synch 
-	      output_state (fun () -> !f_access()) 
+	      output_state 
+	      (fun () -> 
+		 match !env_opt with
+		   | None -> ()
+		   | Some env -> env#log_access()
+	      )
 	      (Netsys.int64_of_file_descr fd) in
 	  let lifted_input_ch = 
 	    lift_in ~buffered:false (`Rec (input_ch :> rec_in_channel)) in
@@ -631,9 +704,9 @@ object(self)
 	   * `Write synchronization is only performed after every of these chunks,
 	   * and not after every output method invocation.
 	   *)
-	  
+
+	  let reqrej = ref false in
 	  ( try
-	      let reqrej = ref false in
 	      let env = new http_environment 
 			      config 
                               req_meth req_uri req_version req_hdr 
@@ -643,7 +716,7 @@ object(self)
 			      resp output_ch#close_after_send_file reqrej
 			      (Netsys.int64_of_file_descr fd)
 	      in
-	      f_access := env#log_access;
+	      env_opt := Some env;
 	      let req_obj = new http_reactive_request_impl 
 			      config env input_ch output_ch resp expect_100_continue 
 			      self#finish_request reqrej
@@ -661,25 +734,11 @@ object(self)
 			   sprintf 
 			     "FD %Ld: reactor_next_request: standard response" 
 			     (Netsys.int64_of_file_descr fd));
-		  let msg, have_msg =
-		    match msg_opt with
-		      | Some msg -> msg, true
-		      | None -> "", false in
-		  if have_msg then
-		    config # config_log_error
-		      (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri)) 
-		      (Some req_hdr) msg;
-		  (* CHECK: Also log to access log? *)
-		  let code = int_of_http_status status in
-		  let body =
-		    config # config_error_response
-		      code
-		      (Some fd_addr) (Some peer_addr) (Some(req_meth,req_uri)) 
-		      (Some req_hdr) msg in
-		  Nethttpd_kernel.send_static_response resp status hdr_opt body;
-		  
+		  logged_error_response
+		    fd_addr peer_addr (Some(req_meth,req_uri))
+		    !in_cnt !reqrej status hdr_opt msg_opt !env_opt
+		    (Some resp) config;
 		  self # synch();
-		  !f_access();  (* do access logging if env could be created *)
 		  self # finish_request();
 		  self # next_request()
 	  )
@@ -700,8 +759,10 @@ object(self)
 		     (Netsys.int64_of_file_descr fd));
 	  if e <> `Broken_pipe_ignore then (
 	    let msg = Nethttpd_kernel.string_of_fatal_error e in
-	    config # config_log_error 
-	      (Some fd_addr) (Some peer_addr) None None msg;
+	    let status = `Internal_server_error in
+	    logged_error_response 
+	      fd_addr peer_addr None 0L false status None (Some msg)
+	      None None config;
 	  );
 	  None
 
@@ -713,12 +774,9 @@ object(self)
 		     (Netsys.int64_of_file_descr fd));
 	  let msg = string_of_bad_request_error e in
 	  let status = status_of_bad_request_error e in
-	  config # config_log_error
-	    (Some fd_addr) (Some peer_addr) None None msg;
-	  let body = 
-	    config # config_error_response 
-	      400 (Some fd_addr) (Some peer_addr) None None msg in
-	  Nethttpd_kernel.send_static_response resp status None body;
+	  logged_error_response
+	    fd_addr peer_addr None 0L false status None (Some msg)
+	    None (Some resp) config;
 	  self # next_request()
 
       | `Timeout ->
@@ -737,9 +795,10 @@ object(self)
 		   sprintf 
 		     "FD %Ld: reactor_next_request: out of sync" 
 		     (Netsys.int64_of_file_descr fd));
-	  config # config_log_error 
-	    (Some fd_addr) (Some peer_addr) None None 
-	    "Nethttpd: Reactor out of synchronization";
+	  logged_error_response
+	    fd_addr peer_addr None 0L false `Internal_server_error
+	    None (Some "Nethttpd: Reactor out of synchronization")
+	    None None config;
 	  proto # abort `Server_error;
 	  self # next_request()
 
@@ -989,7 +1048,7 @@ let process_connection config fd (stage1 : 'a http_service) =
 	  let msg = Netexn.to_string err in
 	  dlogr (fun () ->
 		   sprintf "Exception forwarding to error log: %s" msg);
-	  config # config_log_error None None None None
+	  config # config_log_error no_info
 	    ("Nethttpd: Exception: " ^ msg);
   );
   ( try
@@ -999,7 +1058,84 @@ let process_connection config fd (stage1 : 'a http_service) =
 	  let msg = Netexn.to_string err in
 	  dlogr (fun () ->
 		   sprintf "Exception forwarding to error log: %s" msg);
-	  config # config_log_error None None None None
+	  config # config_log_error no_info
 	    ("Nethttpd: Exception: " ^ msg)
   )
 ;;
+
+
+let default_http_processor_config =
+  ( object
+      inherit Nethttpd_kernel.modify_http_protocol_config
+	        Nethttpd_kernel.default_http_protocol_config
+      method config_timeout_next_request = 15.0
+      method config_timeout = 300.0
+      method config_cgi = Netcgi.default_config
+      method config_error_response = Nethttpd_util.std_error_response
+      method config_log_error p msg =
+	let s = Nethttpd_util.std_error_log_string p msg in
+	Netlog.log `Err s
+      method config_log_access p = ()
+    end
+  )
+
+
+let override v opt =
+  match opt with
+    | None -> v
+    | Some x -> x
+
+
+class modify_http_processor_config
+      ?modify_http_protocol_config:(m1 = fun cfg -> cfg)
+      ?config_timeout_next_request
+      ?config_timeout
+      ?config_cgi
+      ?config_error_response
+      ?config_log_error
+      ?config_log_access
+      (config : http_processor_config) : http_processor_config =
+  let config_timeout_next_request =
+    override config#config_timeout_next_request config_timeout_next_request in
+  let config_timeout =
+    override config#config_timeout config_timeout in
+  let config_cgi =
+    override config#config_cgi config_cgi in
+  let config_error_response =
+    override config#config_error_response config_error_response in
+  let config_log_error =
+    override config#config_log_error config_log_error in
+  let config_log_access =
+    override config#config_log_access config_log_access in
+object
+  inherit modify_http_protocol_config (m1 (config:>http_protocol_config))
+  method config_timeout_next_request = config_timeout_next_request
+  method config_timeout = config_timeout
+  method config_cgi = config_cgi
+  method config_error_response = config_error_response
+  method config_log_error = config_log_error
+  method config_log_access = config_log_access
+end
+
+
+let default_http_reactor_config =
+  ( object
+      inherit modify_http_processor_config default_http_processor_config
+      method config_reactor_synch = `Write
+    end
+  )
+
+
+class modify_http_reactor_config
+      ?modify_http_protocol_config
+      ?modify_http_processor_config:(m2 = fun cfg -> cfg)
+      ?config_reactor_synch
+      (config : http_reactor_config) : http_reactor_config =
+  let config_reactor_synch =
+    override config#config_reactor_synch config_reactor_synch in
+object
+  inherit modify_http_processor_config
+            ?modify_http_protocol_config
+            (m2 (config:>http_processor_config))
+  method config_reactor_synch = config_reactor_synch
+end
