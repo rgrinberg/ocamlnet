@@ -229,9 +229,9 @@ let () =
      end
     )
 
-let create_var ?(own=false) ?(ro=false) ?(exn=false) var_name =
+let create_var ?(own=false) ?(ro=false) ?(enc=false) var_name =
   let cont = Netplex_cenv.self_cont() in
-  let ty = if exn then "exn" else "string" in
+  let ty = if enc then "encap" else "string" in
   let code =
     Netplex_ctrl_aux._to_Sharedvar'V1'create_var'res
       (cont # call_plugin plugin "create_var"
@@ -261,7 +261,7 @@ let set_value var_name var_value =
     | `shvar_noperm -> raise (Sharedvar_no_permission var_name)
     | _ -> false
 
-let set_exn_value var_name (var_value:exn) =
+let set_enc_value var_name (var_value:encap) =
   let cont = Netplex_cenv.self_cont() in
   let str_value =
     Marshal.to_string var_value [] in
@@ -269,7 +269,7 @@ let set_exn_value var_name (var_value:exn) =
     Netplex_ctrl_aux._to_Sharedvar'V1'set_value'res
       (cont # call_plugin plugin "set_value"
 	 (Netplex_ctrl_aux._of_Sharedvar'V1'set_value'arg 
-	    (var_name,str_value,"exn"))) in
+	    (var_name,str_value,"encap"))) in
   match code with
     | `shvar_ok -> true
     | `shvar_badtype -> raise (Sharedvar_type_mismatch var_name)
@@ -295,16 +295,16 @@ let get_value var_name =
       | _ -> None
   )
 
-let get_exn_value var_name =
+let get_enc_value var_name =
   let r =
     match Netplex_cenv.self_obj() with
       | `Container cont ->
 	  Netplex_ctrl_aux._to_Sharedvar'V1'get_value'res
 	    (cont # call_plugin plugin "get_value"
 	       (Netplex_ctrl_aux._of_Sharedvar'V1'get_value'arg 
-		  (var_name,"exn"))) 
+		  (var_name,"encap"))) 
       | `Controller ctrl ->
-	  x_plugin # get_value ctrl var_name "exn" in
+	  x_plugin # get_value ctrl var_name "encap" in
   ( match r with
       | `shvar_ok s -> 
 	  let v = Marshal.from_string s 0 in
@@ -329,13 +329,13 @@ let wait_for_value var_name =
     | `shvar_notfound -> None
     | _ -> None
   
-let wait_for_exn_value var_name =
+let wait_for_enc_value var_name =
   let cont = Netplex_cenv.self_cont() in
   let code =
     Netplex_ctrl_aux._to_Sharedvar'V1'wait_for_value'res
       (cont # call_plugin plugin "wait_for_value"
 	 (Netplex_ctrl_aux._of_Sharedvar'V1'wait_for_value'arg 
-	    (var_name, "exn"))) in
+	    (var_name, "encap"))) in
   match code with
     | `shvar_ok s -> 
 	let v = Marshal.from_string s 0 in
@@ -365,22 +365,25 @@ let get_lazily_any set wait var_name f =
 let get_lazily =
   get_lazily_any set_value wait_for_value
 
-let get_exn_lazily =
-  get_lazily_any set_exn_value wait_for_exn_value
+let get_enc_lazily =
+  get_lazily_any set_enc_value wait_for_enc_value
 
 module Make_var_type(T:Netplex_cenv.TYPE) = struct
   type t = T.t
-  exception X of t
+  module E = Netplex_encap.Make_encap(T)
 
   let get name =
-    match get_exn_value name with
-      | Some(X x) -> x
-      | Some _ -> raise(Sharedvar_type_mismatch name)
+    match get_enc_value name with
+      | Some e -> 
+	  ( try E.unwrap e
+	    with Netplex_encap.Type_mismatch -> 
+	      raise(Sharedvar_type_mismatch name)
+	  )
       | None -> raise(Sharedvar_not_found name)
 
   let set name x =
     let ok = 
-      set_exn_value name (X x) in
+      set_enc_value name (E.wrap x) in
     if not ok then
       raise(Sharedvar_not_found name)
 end

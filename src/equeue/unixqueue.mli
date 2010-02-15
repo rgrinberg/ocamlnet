@@ -418,6 +418,7 @@ module Debug : sig
      *)
 end
 
+(*
 (** The status of the following functions is currently a bit unclear.
     When a Ocamlnet-wide logging concept is introduced, these functions
     probably disappear. They are used by other Ocamlnet modules to
@@ -481,3 +482,4 @@ end
 
 (* val set_debug_target : Equeue.debug_target -> unit *)
   (** More fine-grained debug control *)
+ *)

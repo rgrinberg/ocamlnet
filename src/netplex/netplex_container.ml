@@ -547,11 +547,11 @@ object(self)
       msg.msg_arguments
 
 
-  method activate_lever id arg_exn =
+  method activate_lever id arg_enc =
     match sys_rpc with
       | None -> failwith "#activate_lever: No RPC client available"
       | Some r ->
-	  let arg_str = Marshal.to_string arg_exn [] in
+	  let arg_str = Marshal.to_string arg_enc [] in
 	  let res_str =
 	    Netplex_ctrl_clnt.System.V1.activate_lever r (id, arg_str) in
 	  let res = Marshal.from_string res_str 0 in

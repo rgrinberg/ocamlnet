@@ -184,9 +184,23 @@ let add_helper_service ctrl name hooks =
 	method controller_config = ctrl#controller_config
       end
     ) in
+  let helper_hooks =
+    ( object
+	inherit processor_hooks_delegation hooks as super
+	method post_start_hook cont =
+	  (* FIXME: This usually does not prevent that the process is kept
+             in the "starting" state. This state is left at the first time
+             [poll] is called, i.e. slightly later than 0.0 seconds in the
+             future.
+	   *)
+	  let g = Unixqueue.new_group cont#event_system in
+	  Unixqueue.once cont#event_system g 0.0
+	    (fun () -> super#post_start_hook cont)
+      end
+    ) in
   let helper_processor =
     ( object
-	inherit processor_base hooks
+	inherit processor_base helper_hooks
 	method process ~when_done _ _ _ = assert false  (* never called *)
 	method supported_ptypes = [ `Multi_processing; `Multi_threading ]
       end
@@ -195,6 +209,6 @@ let add_helper_service ctrl name hooks =
     Netplex_sockserv.create_socket_service 
       helper_processor helper_sockserv_cfg in
   let helper_wload_mng =
-    Netplex_workload.create_constant_workload_manager 1 in
+    Netplex_workload.create_constant_workload_manager ~restart:false 1 in
   ctrl # add_service helper_service helper_wload_mng
 

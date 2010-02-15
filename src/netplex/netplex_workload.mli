@@ -9,10 +9,12 @@
 
 open Netplex_types
 
-val create_constant_workload_manager : int -> workload_manager
-  (** A constant number of threads is created (the int argument). If threads
+val create_constant_workload_manager : ?restart:bool -> int -> workload_manager
+  (** A constant number of threads is created (the int argument). 
+    *
+    * [restart]: If threads
     * crash, new threads are created until the specified number is again
-    * reached.
+    * reached. This is on by default.
    *)
 
 val constant_workload_manager_factory : workload_manager_factory

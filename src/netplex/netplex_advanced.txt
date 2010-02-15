@@ -326,10 +326,10 @@ Before one can get/set values, one has to create the variable with
 
 {[
 let ok =
-  Netplex_sharedvar.create ~exn:true name
+  Netplex_sharedvar.create ~enc:true name
 ]}
 
-The parameter [exn:true] is required for variables accessed via
+The parameter [enc:true] is required for variables accessed via
 {!Netplex_sharedvar.Make_var_type}.
 
 In order to use {!Netplex_sharedvar} we have to add this plugin:

@@ -96,21 +96,15 @@ val set_bool_var : string -> bool -> unit
   (** Set a variable with simple type *)
 
 val make_var_type :
-      ('a -> exn) -> (exn -> 'a) -> ((string -> 'a) * (string -> 'a -> unit))
+      ('a -> encap) -> (encap -> 'a) -> ((string -> 'a) * (string -> 'a -> unit))
   (** Create get and set functions for any (monomorphic) type. For example,
       to create such function for a type [foo], do
 
       {[ 
-          exception Foo of foo
+          module E = Netplex_encap.Make_encap(struct type t = foo end)
           let (get, set) = 
-            make_var_type
-               (fun x -> Foo x) 
-               (fun (Foo x) -> x)
+            make_var_type E.wrap E.unwrap
       ]}
-
-      (The latter function may also be written as
-       {[ (function (Foo x) -> x | _ -> raise Not_found) ]} to
-      prevent compiler warnings.)
 
       Read on for using functors to create [get] and [set].
    *)

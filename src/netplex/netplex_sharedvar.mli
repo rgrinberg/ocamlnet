@@ -25,9 +25,9 @@
 
     Variables come in two flavors:
      - String variables
-     - Exception variables
+     - Encapsulated variables (see {!Netplex_encap})
 
-    A string variable cannot be accessed as exception variable, and
+    A string variable cannot be accessed as encapsulated variable, and
     vice versa.
 
     The latter kind is useful to safely store structured ocaml values in
@@ -67,7 +67,7 @@ val plugin : plugin
     {!Netplex_cenv.Not_in_container_thread} is raised. 
  *)
 
-val create_var : ?own:bool -> ?ro:bool -> ?exn:bool -> string -> bool
+val create_var : ?own:bool -> ?ro:bool -> ?enc:bool -> string -> bool
   (** Create the variable with the passed name with an empty string
       (or the exception [Sharedvar_null]) as
       initial value. If the creation is possible (i.e. the variable did
@@ -83,7 +83,8 @@ val create_var : ?own:bool -> ?ro:bool -> ?exn:bool -> string -> bool
         [post_finish_hook] is executed, so the variable is still accessible
         from this hook.
       - [ro]: if true, only the owner can set the value
-      - [exn]: if true, the variable stores exceptions, otherwise strings
+      - [enc]: if true, the variable stores encapsulated values, otherwise
+        strings
         (defaults to false)
 
       Variable names are global to the whole netplex system. By convention,
@@ -110,14 +111,13 @@ val set_value : string -> string -> bool
       variable.
    *)
 
-val set_exn_value : string -> exn -> bool
-  (** [set_exn_value name value]: Sets the variable [name] to [value].
+val set_enc_value : string -> encap -> bool
+  (** [set_enc_value name value]: Sets the variable [name] to [value].
       Return value as for [set_value].
 
       Raises [Sharedvar_no_permission] if the variable cannot be modified.
 
-      Raises [Sharedvar_type_mismatch] if the variable is not an exception
-      variable.
+      Raises [Sharedvar_type_mismatch] if the variable is not encapsulated
    *)
 
 val get_value : string -> string option
@@ -128,12 +128,11 @@ val get_value : string -> string option
       variable.
    *)
 
-val get_exn_value : string -> exn option
-  (** [get_exn_value name]: Gets the value of the variable [name]. If the
+val get_enc_value : string -> encap option
+  (** [get_enc_value name]: Gets the value of the variable [name]. If the
       variable does not exist, [None] is returned.
 
-      Raises [Sharedvar_type_mismatch] if the variable is not an exception
-      variable.
+      Raises [Sharedvar_type_mismatch] if the variable is not encapsulated
    *)
 
 val wait_for_value : string -> string option
@@ -148,8 +147,8 @@ val wait_for_value : string -> string option
       case [None] is returned.
    *)
 
-val wait_for_exn_value : string -> exn option
-  (** Same for exception variables *)
+val wait_for_enc_value : string -> encap option
+  (** Same for encapsulated variables *)
 
 
 val get_lazily : string -> (unit -> string) -> string option
@@ -170,8 +169,8 @@ val get_lazily : string -> (unit -> string) -> string option
       [get_lazily] is called again, the lazy value will again be computed.
    *)
 
-val get_exn_lazily : string -> (unit -> exn) -> exn option
-  (** Same for exceptions *)
+val get_enc_lazily : string -> (unit -> encap) -> encap option
+  (** Same for encapsulated values *)
 
 module Make_var_type(T:Netplex_cenv.TYPE) : 
           Netplex_cenv.VAR_TYPE with type t = T.t
@@ -187,10 +186,10 @@ module Make_var_type(T:Netplex_cenv.TYPE) :
       variables of type [foo]. These functions can also raise the exception
       [Sharedvar_not_found] (unlike the primitive accessors above).
 
-      The variable must have been created with [exn:true], e.g.
+      The variable must have been created with [enc:true], e.g.
 
       {[
-          let ok = create_var ~exn:true "name"
+          let ok = create_var ~enc:true "name"
       ]}
    *)
 

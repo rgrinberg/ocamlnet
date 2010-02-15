@@ -13,8 +13,10 @@ let dlogr = Netlog.Debug.mk_dlogr "Netplex_workload" Debug.enable
 let () =
   Netlog.Debug.register_module "Netplex_workload" Debug.enable
 
-class constant_workload_manager num_threads : workload_manager =
+class constant_workload_manager ?(restart=true) num_threads : workload_manager =
 object(self)
+  val mutable allow_adjust = true
+
   method hello controller =
     ()
       (* TODO: Announce the availability of admin messages *)
@@ -26,17 +28,22 @@ object(self)
   method adjust sockserv sockctrl =
     match sockctrl # state with
       | `Enabled ->
-	  let l = sockctrl # container_state in
-	  let n = List.length l in
-	  if n < num_threads then (
-	    let _n_started =
-	      sockctrl # start_containers (num_threads - n) in
-	    (* If less containers could be started, we ignore the problem.
-               [adjust] will be called again, and the problem will be fixed.
-               Hopefully... We cannot do much more here.
-             *)
-	    ()
+	  if allow_adjust then (
+	    let l = sockctrl # container_state in
+	    let n = List.length l in
+	    if n < num_threads then (
+	      let _n_started =
+		sockctrl # start_containers (num_threads - n) in
+	      (* If less containers could be started, we ignore the problem.
+                 [adjust] will be called again, and the problem will be fixed.
+                 Hopefully... We cannot do much more here.
+               *)
+	      ()
+	    );
+	    if not restart then allow_adjust <- false
 	  )
+      | `Disabled ->
+	  allow_adjust <- true
       | _ ->
 	  ()
 
@@ -50,8 +57,8 @@ object(self)
 end
 
 
-let create_constant_workload_manager n =
-  new constant_workload_manager n
+let create_constant_workload_manager =
+  new constant_workload_manager
 
 
 let constant_workload_manager_factory =

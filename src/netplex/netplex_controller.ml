@@ -1045,9 +1045,9 @@ object(self)
 
   method private activate_lever sess (id, arg_str) reply =
     try
-      let arg_exn = (Marshal.from_string arg_str 0 : exn) in
-      let res_exn = controller # activate_lever id arg_exn in
-      let res_str = Marshal.to_string res_exn [] in
+      let arg_enc = (Marshal.from_string arg_str 0 : encap) in
+      let res_enc = controller # activate_lever id arg_enc in
+      let res_str = Marshal.to_string res_enc [] in
       ( try reply res_str
 	with Rpc_server.Connection_lost -> ()
       )

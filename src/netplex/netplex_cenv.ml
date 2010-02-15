@@ -304,21 +304,20 @@ let set_bool_var name i =
   let cont = self_cont() in
   cont # set_var name (`Bool i)
 
-let make_var_type to_exn from_exn =
+let make_var_type wrap unwrap =
   let get name =
     match get_var name with
-      | `Any x ->
-	  ( try from_exn x
+      | `Encap x ->
+	  ( try unwrap x
 	    with
-	      | Not_found
-	      | Match_failure(_,_,_) -> 
+	      | Netplex_encap.Type_mismatch -> 
 		  raise(Container_variable_type_mismatch name)
 	  )
       | _ ->
 	  raise(Container_variable_type_mismatch name) in
   let set name x =
     let cont = self_cont() in
-    cont # set_var name (`Any (to_exn x)) in
+    cont # set_var name (`Encap (wrap x)) in
   (get, set)
 
 module type TYPE = sig type t end
@@ -331,11 +330,8 @@ end
 
 module Make_var_type(T:TYPE) = struct
   type t = T.t
-  exception X of t
-  let (get, set) =
-    make_var_type
-      (fun x -> X x)
-      (function (X x) -> x | _ -> raise Not_found)
+  module E = Netplex_encap.Make_encap(T)
+  let (get, set) = make_var_type E.wrap E.unwrap
 end
 
 
@@ -450,25 +446,20 @@ module Make_lever(T:FUN_TYPE) = struct
   type r = T.r
   type t = s->r
 
-  exception S of s
-  exception R of r
+  module ES = Netplex_encap.Make_encap(struct type t = s end)
+  module ER = Netplex_encap.Make_encap(struct type t = r end)
 
   let register ctrl raw_lever =
     let id =
       ctrl # register_lever
-	(fun ctrl exn_arg ->
-	   let arg =
-	     match exn_arg with
-	       | S s -> s 
-	       | _ -> assert false in
+	(fun ctrl enc_arg ->
+	   let arg = ES.unwrap enc_arg in
 	   let res = raw_lever ctrl arg in
-	   R res
+	   ER.wrap res
 	) in
     (fun arg ->
        let cont = self_cont() in
-       let res_exn = cont # activate_lever id (S arg) in
-       match res_exn with
-	 | R r -> r
-	 | _ -> assert false
+       let res_enc = cont # activate_lever id (ES.wrap arg) in
+       ER.unwrap res_enc
     )
 end

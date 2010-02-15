@@ -3,6 +3,8 @@
 (** Types for [Netplex] *)
 
 
+type encap = Netplex_encap.encap
+
 type param_value =
     [ `String of string
     | `Int of int
@@ -13,6 +15,7 @@ type param_value =
 type param_value_or_any =
     [ param_value
     | `Any of exn
+    | `Encap of encap
     ]
 
 type level =
@@ -223,7 +226,7 @@ object
         See [send_message] for the notification guarantees.
      *)
 
-  method register_lever : (controller -> exn -> exn) -> int
+  method register_lever : (controller -> encap -> encap) -> int
     (** [let id = register_lever f]: It is possible to register a function [f]
         in the controller, and run it over the internal RPC interface from
         any container. These functions are called levers. See
@@ -232,7 +235,7 @@ object
         and use levers.
      *)
 
-  method activate_lever : int -> exn -> exn
+  method activate_lever : int -> encap -> encap
     (** Runs the registered lever directly *)
 
   method containers : container_id list
@@ -603,9 +606,9 @@ object
         same plugin is invoked in the controller context.
      *)
 
-  method activate_lever : int -> exn -> exn
+  method activate_lever : int -> encap -> encap
     (** Runs a lever function registered in the controller. The [int]
-        argument identifies the lever. The [exn] argument is the parameter,
+        argument identifies the lever. The [encap] argument is the parameter,
         and the returned exception is the result. See also
         {!Netplex_cenv.Make_lever} for a convenient way to create
         and use levers.

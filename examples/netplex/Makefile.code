@@ -3,10 +3,11 @@ include $(TOP_DIR)/Makefile.rules
 
 REQUIRES = rpc,unix,netplex
 OBJ = operation_aux.cmo operation_clnt.cmo operation_srv.cmo
+XOBJ = $(OBJ:.cmo=.cmx)
 
-all: testlib.cma test_client helper_container helloworld
+all: testlib.cma test_client helper_container helloworld lever
 
-opt: testlib.cmxa test_client.opt helper_container.opt helloworld.opt
+opt: testlib.cmxa test_client.opt helper_container.opt helloworld.opt lever.opt
 
 helper_container: testlib.cma helper_container.ml
 	$(OCAMLC) -o helper_container testlib.cma helper_container.ml -linkpkg -thread
@@ -19,6 +20,12 @@ helloworld: testlib.cma helloworld.ml
 
 helloworld.opt: testlib.cmxa helloworld.ml
 	$(OCAMLOPT) -o helloworld.opt testlib.cmxa helloworld.ml -linkpkg -thread
+
+lever: testlib.cma lever.ml
+	$(OCAMLC) -o lever testlib.cma lever.ml -linkpkg -thread
+
+lever.opt: testlib.cmxa lever.ml
+	$(OCAMLOPT) -o lever.opt testlib.cmxa lever.ml -linkpkg -thread
 
 test_client: testlib.cma test_client.ml
 	$(OCAMLC) -o test_client testlib.cma test_client.ml -linkpkg
