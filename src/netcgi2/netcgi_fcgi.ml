@@ -304,7 +304,13 @@ object(self)
     fcgi_ch # flush()
 
   method close_out() =
-    fcgi_ch # flush()
+    try
+      fcgi_ch # flush()
+    with
+      | error ->
+	  Netlog.logf `Err
+	    "Netcgi_fcgi: Suppressed error in close_out: %s"
+	    (Netexn.to_string error);
     
   method pos_out = pos_out
 
@@ -573,7 +579,7 @@ end
 class closed_in_obj : Netchannels.in_obj_channel =
 object
   method input (_:string) (_:int) (_:int) = raise Netchannels.Closed_channel
-  method close_in () = raise Netchannels.Closed_channel
+  method close_in () = ()
   method pos_in = raise Netchannels.Closed_channel
   method really_input (_:string) (_:int) (_:int) =
     raise Netchannels.Closed_channel

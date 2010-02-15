@@ -226,8 +226,9 @@ object (self)
     Pervasives.input_byte ch 
 
   method close_in () =
-    if closed then self # complain_closed();
-    Pervasives.close_in ch; closed <- true
+    if not closed then (
+      Pervasives.close_in ch; closed <- true
+    )
 
   method pos_in =
     if closed then self # complain_closed();
@@ -242,11 +243,12 @@ object (self)
   inherit input_channel ch as super
 
   method close_in() =
-    ignore(self # pos_in);   (* raise Closed_channel if necessary *)
-    let p = Unix.close_process_in ch in
-    closed <- true;
-    if p <> Unix.WEXITED 0 then
-      raise (Command_failure p);
+    if not closed then (
+      let p = Unix.close_process_in ch in
+      closed <- true;
+      if p <> Unix.WEXITED 0 then
+	raise (Command_failure p);
+    )
 end
 ;;
 
@@ -325,7 +327,6 @@ object (self)
 
 
   method close_in() =
-    if closed then self # complain_closed();
     str <- "";
     closed <- true;
 
@@ -417,7 +418,6 @@ object (self)
 
 
   method close_in() =
-    if closed then self # complain_closed();
     closed <- true;
 
 
@@ -577,9 +577,10 @@ object(self)
     n
 
   method close_in () =
-    if closed then raise Closed_channel;
-    closed <- true;
-    r # close_in()
+    if not closed then (
+      closed <- true;
+      r # close_in()
+    )
 
   method pos_in =
     if closed then raise Closed_channel;
@@ -645,8 +646,10 @@ object (self)
 
 
   method close_in () =
-    ch # close_in();
-    closed <- true
+    if not closed then (
+      ch # close_in();
+      closed <- true
+    )
 
   method pos_in =
     (ch # pos_in) - (buflen - bufpos)
@@ -906,8 +909,20 @@ object (self)
     Pervasives.flush ch
 
   method close_out() =
-    if closed then self # complain_closed();
-    Pervasives.close_out ch; closed <- true; onclose()
+    if not closed then (
+      try
+	Pervasives.close_out ch; 
+	closed <- true; 
+	onclose()
+      with
+	| error ->
+	    Netlog.logf `Err
+	      "Netchannels: Suppressed error in close_out: %s"
+	      (Netexn.to_string error);
+	    Pervasives.close_out_noerr ch;
+	    closed <- true; 
+	    onclose()
+    )
 
   method pos_out = 
     if closed then self # complain_closed();
@@ -923,13 +938,13 @@ object (self)
   inherit output_channel ?onclose ch as super
 
   method close_out() =
-    ignore(self # pos_out);   (* raise Closed_channel if necessary *)
-    let p = Unix.close_process_out ch in
-    closed <- true;
-    onclose();
-    (* super # close_out(); *)
-    if p <> Unix.WEXITED 0 then
-      raise (Command_failure p);
+    if not closed then (
+      let p = Unix.close_process_out ch in
+      closed <- true;
+      onclose();
+      if p <> Unix.WEXITED 0 then
+	raise (Command_failure p);  (* Keep this *)
+    )
 end
 ;;
 
@@ -977,9 +992,10 @@ object(self)
     ()
 
   method close_out() =
-    if closed then self # complain_closed();
-    closed <- true;
-    onclose()
+    if not closed then (
+      closed <- true;
+      onclose()
+    )
 
   method pos_out = 
     if closed then self # complain_closed();
@@ -1039,9 +1055,10 @@ object(self)
     ()
 
   method close_out() =
-    if closed then self # complain_closed();
-    closed <- true;
-    onclose()
+    if not closed then (
+      closed <- true;
+      onclose()
+    )
 
   method pos_out = 
     if closed then self # complain_closed();
@@ -1086,7 +1103,6 @@ object(self)
   method flush() = 
     if closed then self # complain_closed();
   method close_out() =
-    if closed then self # complain_closed();
     closed <- true
   method pos_out =
     if closed then self # complain_closed();
@@ -1180,9 +1196,10 @@ object(self)
     r # flush();
 
   method close_out () =
-    if closed then raise Closed_channel;
-    closed <- true;
-    r # close_out()
+    if not closed then (
+      closed <- true;
+      r # close_out()
+    )
 
   method pos_out =
     if closed then raise Closed_channel;
@@ -1219,7 +1236,14 @@ object (self)
     ch # flush()
 
   method close_out() = 
-    self # flush();
+    ( try
+	self # flush()
+      with
+	| error ->
+	    Netlog.logf `Err
+	      "Netchannels: Suppressed error in close_out: %s"
+	      (Netexn.to_string error);
+    );
     ch # close_out();
     closed <- true
 
@@ -1280,9 +1304,10 @@ object (self)
 	  
   
   method close_in () =
-    if closed_in then self # complain_closed();
-    Netsys.gclose fd_style fd_in; 
-    closed_in <- true
+    if not closed_in then (
+      Netsys.gclose fd_style fd_in; 
+      closed_in <- true
+    )
 
   method pos_in =
     if closed_in then self # complain_closed();
@@ -1326,25 +1351,26 @@ object (self)
 	    0
   
   method close_out () =
-    if closed_out then self # complain_closed();
-    ( try
-	Netsys.gshutdown fd_style fd Unix.SHUTDOWN_SEND
-      with
-	| Netsys.Shutdown_not_supported -> ()
-	| Unix.Unix_error(Unix.EAGAIN, _, _) ->
-	    (* FIXME. We block here even when non-blocking semantics
+    if not closed_out then (
+      ( try
+	  Netsys.gshutdown fd_style fd Unix.SHUTDOWN_SEND
+	with
+	  | Netsys.Shutdown_not_supported -> ()
+	  | Unix.Unix_error(Unix.EAGAIN, _, _) ->
+	      (* FIXME. We block here even when non-blocking semantics
                is requested. We do this because most programmers would
                be surprised to get EAGAIN when closing a channel.
                Actually, this only affects Win32 output threads.
-	     *)
-	    let _  = Netsys.restart 
-	      (Netsys.wait_until_writable fd_style fd) (-1.0) in
-	    Netsys.gshutdown fd_style fd Unix.SHUTDOWN_SEND
-	| Unix.Unix_error(Unix.EPERM, _, _) ->
-	    ()
-    );
-    Netsys.gclose fd_style fd_out; 
-    closed_out <- true
+	       *)
+	      let _  = Netsys.restart 
+		(Netsys.wait_until_writable fd_style fd) (-1.0) in
+	      Netsys.gshutdown fd_style fd Unix.SHUTDOWN_SEND
+	  | Unix.Unix_error(Unix.EPERM, _, _) ->
+	      ()
+      );
+      Netsys.gclose fd_style fd_out; 
+      closed_out <- true
+    )
 
   method pos_out =
     if closed_out then self # complain_closed();
@@ -1390,20 +1416,22 @@ object (self)
 
 
   method close_in () =
-    if closed_in then self # complain_closed();
-    closed_in <- true;
-    if closed_out then
-      self # gen_close Unix.SHUTDOWN_ALL
-    else
-      self # gen_close Unix.SHUTDOWN_RECEIVE
-  
+    if not closed_in then (
+      closed_in <- true;
+      if closed_out then
+	self # gen_close Unix.SHUTDOWN_ALL
+      else
+	self # gen_close Unix.SHUTDOWN_RECEIVE
+    )
+
   method close_out () =
-    if closed_in then self # complain_closed();
-    closed_out <- true;
-    if closed_in then
-      self # gen_close Unix.SHUTDOWN_ALL
-    else
-      self # gen_close Unix.SHUTDOWN_SEND
+    if not closed_out then (
+      closed_out <- true;
+      if closed_in then
+	self # gen_close Unix.SHUTDOWN_ALL
+      else
+	self # gen_close Unix.SHUTDOWN_SEND
+    )
 end
 ;;
 
@@ -1430,9 +1458,16 @@ object (self)
   method flush          = trans # flush
 
   method close_out() =
-    ( match close_mode with
-	  `Commit   -> self # commit_work()
-	| `Rollback -> self # rollback_work()
+    ( try
+	( match close_mode with
+	      `Commit   -> self # commit_work()
+	    | `Rollback -> self # rollback_work()
+	)
+      with
+	| error ->
+	    Netlog.logf `Err
+	      "Netchannels: Suppressed error in close_out: %s"
+	      (Netexn.to_string error);
     );
     trans # close_out();
     out # close_out()
@@ -1547,9 +1582,16 @@ object (self)
   method flush          = trans # flush
 
   method close_out() =
-    ( match close_mode with
-	  `Commit   -> self # commit_work()
-	| `Rollback -> self # rollback_work()
+    ( try
+	( match close_mode with
+	      `Commit   -> self # commit_work()
+	    | `Rollback -> self # rollback_work()
+	)
+      with
+	| error ->
+	    Netlog.logf `Err
+	      "Netchannels: Suppressed error in close_out: %s"
+	      (Netexn.to_string error);
     );
     Pervasives.close_in transch_in;
     trans # close_out();      (* closes transch_out *)
@@ -1764,7 +1806,14 @@ object(self)
 
   method close_out() =
     p # close_out();
-    self # transfer();
+    ( try
+	self # transfer()
+      with
+	| error ->
+	    Netlog.logf `Err
+	      "Netchannels: Suppressed error in close_out: %s"
+	      (Netexn.to_string error);
+    )
 
   method pos_out = p # pos_out
 

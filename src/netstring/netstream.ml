@@ -235,9 +235,10 @@ object (self)
 
 
   method close_in () =
-    if s_closed then raise Netchannels.Closed_channel;
-    s_channel # close_in();
-    s_closed <- true;
+    if not s_closed then (
+      s_channel # close_in();
+      s_closed <- true;
+    )
 
 
 end
@@ -419,9 +420,10 @@ object(self)
 
 
   method close_in () =
-    if s_closed then raise Netchannels.Closed_channel;
-    s # close_in();
-    s_closed <- true;
+    if not s_closed then (
+      s # close_in();
+      s_closed <- true;
+    )
 
 end
 

@@ -113,7 +113,7 @@ let rpc_factory
 	    method post_rm_hook sockserv =
 	      if use_portmapper then 
 		pmap_unregister sockserv progs_and_versions port;
-	      super # post_add_hook sockserv
+	      super # post_rm_hook sockserv
 
 	    method receive_admin_message cnt name args =
 	      match name with

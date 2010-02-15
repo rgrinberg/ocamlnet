@@ -245,9 +245,16 @@ object(self)
     with _ -> raise(Sys_error "Netcgi_apache#out_channel#flush: EOF")
 
   method close_out () = (* Apache closes the channel itself *)
-    if closed then raise Netchannels.Closed_channel;
-    self#flush();
-    closed <- true
+    if not closed then (
+      closed <- true;
+      try
+	self#flush();
+      with
+	| error ->
+	    Netlog.logf `Err
+	      "Netcgi_apache: Suppressed error in close_out: %s"
+	      (Netexn.to_string error);
+    )
 
   (* raw_out_channel *)
   method pos_out = sent

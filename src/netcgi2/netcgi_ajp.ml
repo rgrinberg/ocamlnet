@@ -292,7 +292,13 @@ object(self)
     ajp_ch # flush()
 
   method close_out() =
-    ajp_ch # flush()
+    try
+      ajp_ch # flush()
+    with
+      | error ->
+	  Netlog.logf `Err
+	    "Netcgi_ajp: Suppressed error in close_out: %s"
+	    (Netexn.to_string error)
 
   method pos_out = pos_out
 

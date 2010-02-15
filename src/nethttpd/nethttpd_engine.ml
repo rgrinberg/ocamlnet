@@ -195,11 +195,12 @@ object(self)
 
   method close_in() =
     dlogr (fun () -> sprintf "FD %Ld: input.close_in" fdi);
-    if closed then raise Netchannels.Closed_channel;
-    if locked then failwith "Nethttpd_engine: channel is locked";
-    front <- None;
-    Queue.clear data_queue;
-    closed <- true
+    if not closed then (
+      if locked then failwith "Nethttpd_engine: channel is locked";
+      front <- None;
+      Queue.clear data_queue;
+      closed <- true
+    )
 
   method can_input =
     not closed && (front <> None || not(Queue.is_empty data_queue) || eof)
@@ -310,15 +311,16 @@ object(self)
 
   method close_out() =
     dlogr (fun () -> sprintf "FD %Ld: output.close_out" fdi);
-    if closed then raise Netchannels.Closed_channel;
-    if locked then failwith "Nethttpd_engine: channel is locked";
-    let old_can_output = self # can_output in
-    resp # send `Resp_end;
-    closed <- true;
-    output_state := `End;
-    f_access();
-    cond_output_filled # signal();
-    if old_can_output <> self # can_output then self # notify();
+    if not closed then (
+      if locked then failwith "Nethttpd_engine: channel is locked";
+      let old_can_output = self # can_output in
+      resp # send `Resp_end;
+      closed <- true;
+      output_state := `End;
+      f_access();
+      cond_output_filled # signal();
+      if old_can_output <> self # can_output then self # notify();
+    )
 
   method close_after_send_file() =
     dlogr (fun () -> sprintf "FD %Ld: output.close_after_send_file" fdi);

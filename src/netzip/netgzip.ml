@@ -4,12 +4,17 @@ open Printf
 
 class input_gzip_rec gzip_ch : Netchannels.rec_in_channel =
 object(self)
+  val mutable closed = false
+
   method input s p l = 
     let n = Gzip.input gzip_ch s p l in
     if n = 0 then raise End_of_file;
     n
   method close_in() =
-    Gzip.close_in gzip_ch
+    if not closed then (
+      Gzip.close_in gzip_ch;
+      closed <- true
+    )
 end
 
 
@@ -24,9 +29,10 @@ object(self)
     Gzip.output gzip_ch s p l;
     l
   method close_out() =
+    (* FIXME: No way to suppress errors... *)
     Gzip.close_out gzip_ch
   method flush() =
-    ()
+    Gzip.flush gzip_ch
 end
 
 

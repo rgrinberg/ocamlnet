@@ -59,6 +59,12 @@
  * process data, but is in non-blocking mode, both methods now return the
  * value 0. In previous releases of ocamlnet, the behaviour was not
  * defined.
+ *
+ * {b Ocamlnet-3.0} changed the behavior of [close_out]. Errors are no longer
+ * reported - instead, the exception is logged to {!Netlog}. For a stricter
+ * error handling, it is suggested to call [flush] first. Also, [close_in]
+ * and [close_out] no longer raise [Closed_channel] when the channel is
+ * already closed.
  *)
 
 exception Closed_channel
@@ -110,9 +116,10 @@ class type rec_in_channel = object
   method close_in : unit -> unit
     (** Closes the channel for input.
      *
-     * When the channel is already closed, the exception [Closed_channel] will
-     * be raised if an ocamlnet implementation is used. For implementations
-     * of other libraries there is no standard for this case.
+     * When the channel is already closed, this is a no-op.
+     *
+     * Error policy: Exceptions are only raised in cases of serious
+     * corruption, e.g. if the underlying descriptor is invalid.
      *)
 end
 
@@ -165,9 +172,15 @@ class type rec_out_channel = object
   method close_out : unit -> unit
     (** Flushes the buffer, if any, and closes the channel for output.
      *
-     * When the channel is already closed, the exception [Closed_channel] will
-     * be raised if an ocamlnet implementation is used. For implementations
-     * of other libraries there is no standard for this case.
+     * When the channel is already closed, this is a no-op.
+     *
+     * Error policy: Usually errors are logged to {!Netlog} but not passed
+     * back to the caller. It is more important to ensure that the underlying
+     * resources are released than to report all issues to the caller.
+     * If a stricter error policy is required, users should call [flush]
+     * first. Implementations may nevertheless raise exceptions in [close_out],
+     * especially in cases when the channel is seriously corrupted (e.g. the
+     * descriptor is invalid), or to report special user conditions.
      *)
 end
 
@@ -423,7 +436,8 @@ class output_command :
    *
    * When [close_out] is invoked, the subprocess is [wait]ed for. If the
    * process exits with code 0, the method returns normally. Otherwise,
-   * the exception [Command_failure] is raised.
+   * the exception [Command_failure] is raised. (The channel is closed
+   * even if this exception is raised.)
    *
    * @param onclose this function is called when the [close_out] method is
    * invoked, just after the underlying descriptor has been closed.

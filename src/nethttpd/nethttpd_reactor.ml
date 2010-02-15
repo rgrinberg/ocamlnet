@@ -376,13 +376,14 @@ object(self)
 
   method close_in() =
     dlogr (fun () -> sprintf "FD=%Ld: input.close_in" fdi);
-    if closed then raise Closed_channel;
-    if locked then failwith "Nethttpd_reactor: channel is locked";
-    (* It is no problem to ignore further arriving tokens. These will be "eaten" by
-     * [finish_request] later. (Of course, we could call [finish_request] here,
-     * but that would probably defer the generation of responses.)
-     *)
-    closed <- true;
+    if not closed then (
+      if locked then failwith "Nethttpd_reactor: channel is locked";
+      (* It is no problem to ignore further arriving tokens. These will be "eaten" by
+       * [finish_request] later. (Of course, we could call [finish_request] here,
+       * but that would probably defer the generation of responses.)
+       *)
+      closed <- true;
+    )
 
   method unlock() =
     dlogr (fun () -> sprintf "FD=%Ld: input.unlock" fdi);
@@ -434,21 +435,22 @@ object
 
   method close_out() =
     dlogr (fun () -> sprintf "FD=%Ld: output.close_out" fdi);
-    if closed then raise Closed_channel;
-    if locked then failwith "Nethttpd_reactor: channel is locked";
-    closed <- true;
-    out_state := `End;
-    resp # send `Resp_end;
-    ( match config#config_reactor_synch with
-	| `Write
-	| `Flush
-	| `Close ->
-	    synch()
-	| _ ->
-	    ()
-    );
-    (* This is the right time for writing the access log entry: *)
-    f_access()
+    if not closed then (
+      if locked then failwith "Nethttpd_reactor: channel is locked";
+      closed <- true;
+      out_state := `End;
+      resp # send `Resp_end;
+      ( match config#config_reactor_synch with
+	  | `Write
+	  | `Flush
+	  | `Close ->
+	      synch()
+	  | _ ->
+	      ()
+      );
+      (* This is the right time for writing the access log entry: *)
+      f_access()
+    )
       
 
 

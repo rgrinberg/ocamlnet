@@ -188,10 +188,11 @@ object(self)
 
 
   method close_in () =
-    if closed then raise Netchannels.Closed_channel;
-    buf <- Netbuffer.create 1;   (* release memory *)
-    closed <- true;
-    ch # close_in()
+    if not closed then (
+      buf <- Netbuffer.create 1;   (* release memory *)
+      closed <- true;
+      ch # close_in()
+    )
 
   method pos_in =
     if closed then raise Netchannels.Closed_channel;
@@ -347,14 +348,19 @@ class stream_file_reader
    * [ondata] is called when [self#output] accepts at least one byte
    *)
 object(self)
+  val mutable closed = false
+
   method output s p l = 
     let n = out # output s p l in
     if n > 0 then ondata();
     n
 
   method close_out () = 
-    out # close_out();
-    onclose()
+    if not closed then (
+      out # close_out();
+      closed <- true;
+      onclose()
+    )
 
   method flush = out # flush
   method pos_out = out # pos_out
@@ -382,6 +388,8 @@ class stream_file_writer
    * or raises End_of_file.
    *)
 object(self)
+  val mutable closed = false
+
   method input s p l = 
     try
       let n = ch # input s p l in
@@ -391,8 +399,12 @@ object(self)
 	End_of_file as x -> ondata(); raise x
 
   method close_in () = 
-    ch # close_in();
-    onclose()
+    if not closed then (
+      ch # close_in();
+      closed <- true;
+      onclose();
+    )
+
 
   method pos_in = ch # pos_in
 
@@ -496,9 +508,11 @@ object(self)
     ondata();
 
   method private do_close() =
-    eof_seen <- true; 
-    out # close_out(); 
-    onclose()    
+    if not eof_seen then (
+      eof_seen <- true; 
+      out # close_out(); 
+      onclose()    
+    )
 
   method private check_eof() =
     (* EOF on the input descriptor seen. We just accept that, too *)
@@ -528,6 +542,7 @@ object(self)
   val mutable data = ""         (* Data to insert immediately *)
   val mutable eof = false       (* Set only if buf is already empty *)
   val mutable pos_in = ch # pos_in
+  val mutable closed = false
 
   method input s p l = 
     if eof && data = "" then (
@@ -606,8 +621,12 @@ object(self)
 
 
   method close_in () = 
-    ch # close_in();
-    onclose()
+    if not closed then (
+      ch # close_in();
+      closed <- true;
+      onclose()
+    )
+
 
   method pos_in = pos_in
 
@@ -813,6 +832,7 @@ object(self)
   val mutable data = ""         (* Data to insert immediately *)
   val mutable eof = false       (* Set only if buf is already empty *)
   val mutable pos_in = ch # pos_in
+  val mutable closed = false
 
   method input s p l = 
     if eof && data = "" then (
@@ -870,8 +890,11 @@ object(self)
 
 
   method close_in () = 
-    ch # close_in();
-    onclose()
+    if not closed then (
+      ch # close_in();
+      closed <- true;
+      onclose()
+    )
 
   method pos_in = pos_in
 

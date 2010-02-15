@@ -1131,10 +1131,11 @@ object (self)
 
 
   method close_out () =
-    if in_eof then raise Closed_channel;
-    in_eof <- true;
-    if not mplex#writing then
-      self # check_for_output();
+    if not in_eof then (
+      in_eof <- true;
+      if not mplex#writing then
+	self # check_for_output();
+    )
 
 
   method pos_out =
@@ -1351,9 +1352,10 @@ object (self)
 
 
   method close_in () =
-    if in_eof then raise Closed_channel;
-    mplex # cancel_reading();
-    self # shutdown (`Done())
+    if not in_eof then (
+      mplex # cancel_reading();
+      self # shutdown (`Done())
+    )
 
 
   method pos_in =
