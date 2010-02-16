@@ -16,7 +16,7 @@ value check(value dummy) {
     j = open("posix_fadvise.tmp", O_RDWR | O_CREAT, 0666);
     if (j == -1) return Val_int(1);   /* strange */
 
-    k = posix_fadvise64(j, 0, 0, POSIX_FADV_NORMAL);
+    k = posix_fadvise(j, 0, 0, POSIX_FADV_NORMAL);
     if (j == -1) return Val_int(1);
 
     return Val_int(0);

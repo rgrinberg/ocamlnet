@@ -1659,7 +1659,9 @@ CAMLprim value netsys_have_posix_fadvise(value dummy) {
 CAMLprim value netsys_fadvise(value fd, value start, value len, value adv) {
 #ifdef HAVE_POSIX_FADVISE
     int adv_int, r;
-    long long start_int, len_int;
+    int64 start_int, len_int;
+    off_t start_off, len_off;
+    /* Att: off_t might be 64 bit even on 32 bit systems! */
 
     adv_int = 0;
     switch (Int_val(adv)) {
@@ -1674,7 +1676,16 @@ CAMLprim value netsys_fadvise(value fd, value start, value len, value adv) {
 
     start_int = Int64_val(start);
     len_int = Int64_val(len);
-    r = posix_fadvise64(Int_val(fd), start_int, len_int, adv_int);
+
+    if ( ((int64) ((off_t) start_int)) != start_int )
+	failwith("Netsys.fadvise: large files not supported on this OS");
+    if ( ((int64) ((off_t) len_int)) != len_int )
+	failwith("Netsys.fadvise: large files not supported on this OS");
+
+    start_off = start_int;
+    len_off = len_int;
+
+    r = posix_fadvise(Int_val(fd), start_off, len_off, adv_int);
     if (r == -1) 
 	uerror("posix_fadvise64", Nothing);
     return Val_unit;
@@ -1701,10 +1712,22 @@ CAMLprim value netsys_have_posix_fallocate(value dummy) {
 CAMLprim value netsys_fallocate(value fd, value start, value len) {
 #ifdef HAVE_POSIX_FALLOCATE
     int r;
-    long long start_int, len_int;
+    int64 start_int, len_int;
+    off_t start_off, len_off;
+    /* Att: off_t might be 64 bit even on 32 bit systems! */
+
     start_int = Int64_val(start);
     len_int = Int64_val(len);
-    r = posix_fallocate64(Int_val(fd), start_int, len_int);
+
+    if ( ((int64) ((off_t) start_int)) != start_int )
+	failwith("Netsys.fadvise: large files not supported on this OS");
+    if ( ((int64) ((off_t) len_int)) != len_int )
+	failwith("Netsys.fadvise: large files not supported on this OS");
+
+    start_off = start_int;
+    len_off = len_int;
+
+    r = posix_fallocate(Int_val(fd), start_off, len_off);
     /* does not set errno! */
     if (r != 0) 
 	unix_error(r, "posix_fallocate64", Nothing);

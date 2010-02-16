@@ -13,14 +13,14 @@
 
 value check(value dummy) {
     int j, k;
-    long long offset, len;
+    off_t offset, len;
 
     j = open("posix_fallocate.tmp", O_RDWR | O_CREAT, 0666);
     if (j == -1) return Val_int(1);   /* strange */
 
     offset = 0;
     len = 1;
-    k = posix_fallocate64(j, offset, len);
+    k = posix_fallocate(j, offset, len);
     if (k != 0 && errno==ENOSYS) return Val_int(1);
     /* Careful: Some OS supports fallocate but not all filesystems! */
 

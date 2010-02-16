@@ -130,15 +130,20 @@ CAMLprim value netsys_map_file(value fdv,
 {
 #if defined(HAVE_MMAP) && defined(HAVE_SYSCONF) && !defined(_WIN32)
     int fd, shared;
-    off64_t pos, savepos, eofpos;
+    off_t pos, savepos, eofpos, basize0;
+          /* Att: pos might be 64 bit even on 32 bit systems! */
     void *addr, *eff_addr;
-    long size;
+    intnat size;
     uintnat basize;
+    int64 pos0;
     char c;
     uintnat pagesize, delta;
 
     fd = Int_val(fdv);
-    pos = Int64_val(posv);
+    pos0 = Int64_val(posv);
+    if (((int64) ((off_t) pos0)) != pos0)
+	failwith("Netsys_mem: large files not supported on this OS");
+    pos = pos0;
     addr = (void *) Nativeint_val(addrv);
     if (addr == 0) addr = NULL;
     shared = Bool_val(sharedv) ? MAP_SHARED : MAP_PRIVATE;
@@ -146,33 +151,36 @@ CAMLprim value netsys_map_file(value fdv,
 
     pagesize = sysconf(_SC_PAGESIZE);
 
-    savepos = lseek64(fd, 0, SEEK_CUR);
-    if (savepos == -1) uerror("lseek64", Nothing);
-    eofpos = lseek64(fd, 0, SEEK_END);
-    if (eofpos == -1) uerror("lseek64", Nothing);
+    savepos = lseek(fd, 0, SEEK_CUR);
+    if (savepos == -1) uerror("lseek", Nothing);
+    eofpos = lseek(fd, 0, SEEK_END);
+    if (eofpos == -1) uerror("lseek", Nothing);
     
     if (size == -1) {
 	if (eofpos < pos) 
 	    failwith("Netsys_mem: cannot mmap - file position exceeds file size");
-	basize = (uintnat) (eofpos - pos);
+	basize0 = eofpos - pos;
+	if (((off_t) ((uintnat) basize0)) != basize0)
+	    failwith("Netsys_mem: cannot mmap - file too large");
+	basize = (uintnat) basize0;
     }
     else {
 	if (size < 0)
 	    invalid_argument("netsys_map_file");
-	if (eofpos < pos + size) {
-	    if (lseek64(fd, pos + size - 1, SEEK_SET) == -1)
-		uerror("lseek64", Nothing);
+	if (eofpos - pos < size) {
+	    if (lseek(fd, pos + size - 1, SEEK_SET) == -1)
+		uerror("lseek", Nothing);
 	    c = 0;
 	    if (write(fd, &c, 1) != 1) uerror("write", Nothing);
 	}
 	basize = size;
     }
-    lseek64(fd, savepos, SEEK_SET);
+    lseek(fd, savepos, SEEK_SET);
 
     delta = (uintnat) (pos % pagesize);
-    eff_addr = mmap64(addr, basize, PROT_READ | PROT_WRITE,
-		      shared, fd, pos - delta);
-    if (eff_addr == (void*) MAP_FAILED) uerror("mmap64", Nothing);
+    eff_addr = mmap(addr, basize + delta, PROT_READ | PROT_WRITE,
+		    shared, fd, pos - delta);
+    if (eff_addr == (void*) MAP_FAILED) uerror("mmap", Nothing);
     eff_addr = (void *) ((uintnat) eff_addr + delta);
 
     return alloc_bigarray_dims(BIGARRAY_UINT8 | BIGARRAY_C_LAYOUT | 
