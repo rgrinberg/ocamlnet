@@ -396,6 +396,8 @@ object
      * [`Redirection], [`Client_error], or [`Server_error] depending on
      * the response.
      *)
+  method cleanup : unit -> unit
+    (* Release resources *)
 
   method response_code : int
   method response_proto : string
@@ -559,6 +561,9 @@ object(self)
 		if do_increment then
 		  error_counter <- error_counter + 1;
 		status <- (`Http_protocol_error x);
+
+	method cleanup () =
+	  pself # close_resp_ch()
 
 	method dump_status () =
 	  dlog (sprintf
@@ -2256,6 +2261,11 @@ class transmitter
 	rh # delete_field "Expect";
       );
 
+    method cleanup() =
+      (* release resources *)
+      self # close_body();
+      msg # private_api # cleanup()
+
     method add_auth_header n v =
       auth_headers <- (n,v) :: auth_headers
 
@@ -2337,12 +2347,15 @@ class transmitter
 		  if options.verbose_request_contents then
 		    io # dump_send_buffer()
 		with
-		    End_of_file ->
+		  | End_of_file ->
 		      self # close_body();
 		      if body_length = None then (
 			io # close_out();
 		      );
 		      state <- Sent_request
+		  | error ->
+		      self # close_body();
+		      raise error
 	      )
 
 	  | _ ->
@@ -2497,6 +2510,7 @@ class transmitter
 	
 
     method postprocess =
+      self#cleanup();
       indicate_done msg;
 
     method message = msg
@@ -3281,6 +3295,7 @@ class connection the_esys
 		  done_first_message <- true;
 
 		  (* postprocess 'this' (may raise exceptions! (callbacks)) *)
+		  this # cleanup();
 		  self # postprocess_complete_message this;
 
 		  read_loop()
@@ -3321,6 +3336,7 @@ class connection the_esys
 			     Q.peek write_queue == this then
 			       ignore (Q.take write_queue);
 			  (* postprocess 'this' (Exceptions! (callbacks)) *)
+			  this # cleanup();
 			  self # postprocess_complete_message this;
 		  );
 
@@ -3476,6 +3492,7 @@ class connection the_esys
 	for i = 1 to n_read - n_write do
 	  let m_trans = Q.take read_queue in
 	  let m = m_trans # message in
+	  m_trans # cleanup();  (* release resources *)
 	  (* Increase error counter *)
 	  let e = m # private_api # get_error_counter in
 	  m # private_api # set_error_counter (e+1);
@@ -3566,6 +3583,7 @@ class connection the_esys
       Q.transfer read_queue q';
       Q.iter 
 	(fun m ->
+	   m # cleanup();
 	   ( match m # message # status with
 	       | `Unserved ->
 		   m # message # private_api # set_error_exception err;
@@ -3591,7 +3609,7 @@ class connection the_esys
 
 
     method clear_write_queue() =
-      Q.iter (fun m -> m # close_body()) write_queue;
+      Q.iter (fun m -> m # cleanup()) write_queue;
       Q.clear write_queue
 
 
