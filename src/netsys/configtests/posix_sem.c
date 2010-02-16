@@ -14,7 +14,7 @@ value check(value dummy) {
     int code;
 
     code = sem_init(&s, 0, 0);
-    sem_unlink("/foo_khfkshdfksdhksdhksdhf");
+    sem_unlink("/foo_khfkshdfhf");
 
     return Val_int(code);
 }
