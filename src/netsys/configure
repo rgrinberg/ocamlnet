@@ -244,10 +244,10 @@ rm -f configtests/syslog.err
 if (cd configtests; ocamlc -o syslog syslog.c main.ml -custom ) \
       >>configtests/syslog.err 2>&1
 then
-    syslog_compile=1
+    posix_syslog_compile=1
 fi
 
-if [ $syslog_compile -gt 0 ]; then
+if [ $posix_syslog_compile -gt 0 ]; then
     if ( cd configtests && ./syslog >>syslog.err 2>&1) ; then
 	have_syslog=1
     fi

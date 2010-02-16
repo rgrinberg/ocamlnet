@@ -484,7 +484,9 @@ f examples/netplex/helper_container.ml
 f examples/netplex/operation.x
 f examples/netplex/test_client.ml
 f examples/netplex/helloworld.ml
+f examples/netplex/helloworld.cfg
 f examples/netplex/lever.ml
+f examples/netplex/lever.cfg
 
 d examples/netsys
 f examples/netsys/Makefile
