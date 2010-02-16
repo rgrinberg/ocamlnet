@@ -92,10 +92,14 @@ f src/netsys/configure
 f src/netsys/config_posix.h
 f src/netsys/config_win32.h
 d src/netsys/configtests
+f src/netsys/configtests/ocaml_fancy_page_tables.c
 f src/netsys/configtests/posix_shm.c
+f src/netsys/configtests/posix_sem.c
 f src/netsys/configtests/posix_fadvise.c
 f src/netsys/configtests/posix_fallocate.c
 f src/netsys/configtests/posix_pthread.c
+f src/netsys/configtests/posix_memalign.c
+f src/netsys/configtests/syslog.c
 f src/netsys/configtests/printexc_register_printer.ml
 f src/netsys/configtests/main.ml
 p src/netsys/.*\.ml
@@ -239,9 +243,9 @@ x src/netplex/netplex_ctrl_clnt.mli
 x src/netplex/netplex_ctrl_srv.ml
 x src/netplex/netplex_ctrl_srv.mli
 x src/netplex/netplex_vexec.mli
-f src/netplex/netplex_intro.txt
 p src/netplex/.*\.ml
 p src/netplex/.*\.mli
+p src/netplex/.*\.txt
 
 d src/rpc
 f src/rpc/META.in
@@ -316,9 +320,23 @@ p src/netzip/.*\.ml
 p src/netzip/.*\.mli
 p src/netzip/.*\.c
 
-d examples
-d examples/cgi
+d src/netcamlbox
+f src/netcamlbox/META.in
+f src/netcamlbox/Makefile
+f src/netcamlbox/Makefile.pre
+p src/netcamlbox/.*\.ml
+p src/netcamlbox/.*\.mli
 
+d examples
+
+d examples/camlbox
+f examples/camlbox/README
+f examples/camlbox/Makefile
+f examples/camlbox/speed.ml
+f examples/camlbox/manymult.ml
+f examples/camlbox/unimult.ml
+
+d examples/cgi
 d examples/cgi/netcgi2
 p examples/cgi/netcgi2/.*\.ml
 f examples/cgi/netcgi2/Makefile
@@ -401,14 +419,22 @@ f examples/rpc/matrixmult/mm_worker.ml
 f examples/rpc/matrixmult/simple.ml
 
 d examples/rpc/sort
+f examples/rpc/sort/README
 f examples/rpc/sort/Makefile
-f examples/rpc/sort/Makefile.code
-f examples/rpc/sort/sort_client.ml
-f examples/rpc/sort/sort_controller.ml
-f examples/rpc/sort/sort_server.ml
-f examples/rpc/sort/sort_worker.ml
-f examples/rpc/sort/sort_server.cfg
-f examples/rpc/sort/sort_proto.x
+f examples/rpc/sort/Makefile1.code
+f examples/rpc/sort/Makefile2.code
+f examples/rpc/sort/sort1_client.ml
+f examples/rpc/sort/sort1_controller.ml
+f examples/rpc/sort/sort1_server.ml
+f examples/rpc/sort/sort1_worker.ml
+f examples/rpc/sort/sort1_server.cfg
+f examples/rpc/sort/sort1_proto.x
+f examples/rpc/sort/sort2_client.ml
+f examples/rpc/sort/sort2_controller.ml
+f examples/rpc/sort/sort2_server.ml
+f examples/rpc/sort/sort2_worker.ml
+f examples/rpc/sort/sort2_server.cfg
+f examples/rpc/sort/sort2_proto.x
 
 d examples/equeue
 d examples/equeue/engines
@@ -457,16 +483,12 @@ f examples/netplex/helper_container.cfg
 f examples/netplex/helper_container.ml
 f examples/netplex/operation.x
 f examples/netplex/test_client.ml
+f examples/netplex/helloworld.ml
+f examples/netplex/lever.ml
 
 d examples/netsys
 f examples/netsys/Makefile
 f examples/netsys/sem_pingpong.ml
-
-d examples/camlbox
-f examples/camlbox/Makefile
-f examples/camlbox/speed.ml
-f examples/camlbox/manymult.ml
-f examples/camlbox/unimult.ml
 
 d doc
 d doc/html-main
