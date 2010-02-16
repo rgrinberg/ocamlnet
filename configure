@@ -757,10 +757,6 @@ if [ $disable_core -gt 0 ]; then
     with_rpc_xti=0
 fi
 
-if [ $with_nethttpd -gt 0 ]; then
-    pkglist="$pkglist nethttpd nethttpd-for-netcgi2"
-fi
-
 for opt in rpc_xti $woptions rpc_auth_local equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl netzip; do
 	e="o=\$with_$opt"
 	eval "$e"
@@ -769,6 +765,13 @@ for opt in rpc_xti $woptions rpc_auth_local equeue_tcl equeue_gtk1 equeue_gtk2 e
 		pkglist="$pkglist $uopt"
 	fi
 done
+
+if [ $with_nethttpd -gt 0 ]; then
+    # Fixup: nethttpd is already added by the for loop, but we need also
+    # nethttpd-for-netcgi2
+    pkglist="$pkglist nethttpd-for-netcgi2"
+fi
+
 
 ######################################################################
 # Write Makefile.conf
