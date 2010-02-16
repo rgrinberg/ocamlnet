@@ -6,7 +6,7 @@
 #include <errno.h>
 
 
-int netsys_queue_init(struct queue *q, unsigned long n)
+int netsys_queue_init(struct nqueue *q, unsigned long n)
 {
     void *t;
 
@@ -25,7 +25,7 @@ int netsys_queue_init(struct queue *q, unsigned long n)
 }
 
 
-int netsys_queue_add(struct queue *q, void *elem)
+int netsys_queue_add(struct nqueue *q, void *elem)
 {
     int code;
     unsigned long new_end;
@@ -35,7 +35,7 @@ int netsys_queue_add(struct queue *q, void *elem)
 
     if (new_end == q->table_start) {
 	/* We have to resize */
-	struct queue q1;
+	struct nqueue q1;
 	int n;
 	
 	code = netsys_queue_init(&q1, q->table_size * 2);
@@ -74,7 +74,7 @@ int netsys_queue_add(struct queue *q, void *elem)
 }
 
 
-int netsys_queue_take(struct queue *q, void **elem)
+int netsys_queue_take(struct nqueue *q, void **elem)
 {
     unsigned long new_start;
 
@@ -93,7 +93,7 @@ int netsys_queue_take(struct queue *q, void **elem)
 }
 
 
-void netsys_queue_free(struct queue *q)
+void netsys_queue_free(struct nqueue *q)
 {
     free(q->table);
 }

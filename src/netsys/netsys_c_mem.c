@@ -483,7 +483,7 @@ CAMLprim value netsys_init_string(value memv, value offv, value lenv)
 
 
 int netsys_init_value_1(struct htab *t,
-			struct queue *q,
+			struct nqueue *q,
 			value memv, 
 			value offv, 
 			value orig,  
@@ -794,7 +794,7 @@ value netsys_init_value(value memv,
     int code;
     struct htab t;
     int         t_init;
-    struct queue q;
+    struct nqueue q;
     int          q_init;
     value r;
     long start_offset, bytelen;
