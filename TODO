@@ -176,6 +176,9 @@ Implementation improvements after Ocamlnet 3.0
 
 - use bigarray I/O in more cases
 
+- Fix Netplex_kit.start_helper_thread so that the component leaves
+  `Starting state quickly
+
 ----------------------------------------------------------------------
 Further ideas
 ----------------------------------------------------------------------

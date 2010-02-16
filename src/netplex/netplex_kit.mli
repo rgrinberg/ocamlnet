@@ -125,21 +125,11 @@ val add_helper_service : controller -> string -> processor_hooks -> unit
       For an example, look at [examples/netplex/helper_container.ml] in
       the distributed source tarball.
 
-      Note that the helper component will be in "starting" state as long as
-      the [post_start_hook] runs. There is no technical problem with this.
-      If the user could be confused by this, it is suggested to start
-      the real body of the thread via a timer that immediately time outs:
-
-      {[
-         method post_start_hook cont =
-           let _ =
-             Netplex_cenv.create_timer
-               (fun _ -> <real body>; false)
-               0.0
-      ]}
-
       For multi-threaded programs, {!Netplex_cenv.run_in_controller_context}
       is the required companion function to start helper threads at any
       time. Multi-processing programs do not have such an easy way to 
       add helpers. They should it at program startup time.
+
+      {b Known bug.} The the helper component will be in "starting" state as 
+      long as the [post_start_hook] runs.
    *)

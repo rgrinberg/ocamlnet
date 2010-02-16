@@ -3,10 +3,10 @@
 (** Type-safe marshalling between processes of the same executable *)
 
 (** This is a pragmatic approach to type-safe marshalling. We define
-    [type encap] as an arbitrary value that carries a type identifier.
+    [type encap] as an arbitrary value that carries a type identifier with it.
     The type identifier is generated when the functor
     {!Netplex_encap.Make_encap} is applied. Every instantiation of this
-    function generates a new type identifier.
+    functor generates a new type identifier.
 
     The idea is then that an [encap] value can be marshalled to another
     process using [Marshal], and when it is unwrapped the type identifier
@@ -19,9 +19,10 @@
      - Marshalling to processes that are dynamically loading 
        modules
      - The functor must be instantiated at program initialization time.
-       Especially it must not happen in [let module] expressions.
+       Especially this must not happen in [let module] expressions.
 
-    Only some of these assumptions can be checked by this implementation.
+    Only some of these assumptions can be checked at runtime by this
+    implementation.
  *)
 
 exception Type_mismatch

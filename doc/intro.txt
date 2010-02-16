@@ -127,7 +127,9 @@ For a full web server, you'll also need [netplex].
    Nethttpd_reactor
    Nethttpd_engine
    Nethttpd_services
-   Nethttpd_plex}
+   Nethttpd_plex
+   Nethttpd_util
+}
 
 {3:nethttpd_intro Guides}
 
