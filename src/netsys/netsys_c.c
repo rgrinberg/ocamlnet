@@ -1835,10 +1835,22 @@ CAMLprim value netsys_sem_size(value dummy)
 CAMLprim value netsys_sem_value_max(value dummy) 
 {
 #ifdef HAVE_POSIX_SEM
-#ifdef ARCH_SIXTYFOUR
-    return Val_long(SEM_VALUE_MAX);
+    unsigned int m;
+
+#ifdef SEM_VALUE_MAX
+    m = SEM_VALUE_MAX;
 #else
-    return Val_long(SEM_VALUE_MAX > 1073741823 ? 1073741823 : SEM_VALUE_MAX);
+#ifdef _SC_SEM_VALUE_MAX
+    m = sysconf(_SC_SEM_VALUE_MAX);
+#else
+    m = 32767;   /* POSIX minimum */
+#endif
+#endif
+
+#ifdef ARCH_SIXTYFOUR
+    return Val_long(m);
+#else
+    return Val_long(m > 1073741823 ? 1073741823 : m);
 #endif
 #else
     return Val_long(1);
