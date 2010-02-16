@@ -5,12 +5,10 @@
 #include "netsys_c.h"
 
 #ifdef HAVE_POSIX_SHM
-#include <sys/types.h>
 #include <sys/mman.h>
 #endif
 
 #ifdef HAVE_POSIX_FADVISE
-#include <sys/types.h>
 #include <sys/fcntl.h>
 #endif
 
@@ -224,7 +222,11 @@ CAMLprim value netsys_fsync(value fd) {
 CAMLprim value netsys_fdatasync(value fd) {
 #ifdef HAVE_FDATASYNC
     int r;
+#ifdef _XOPEN_REALTIME
+    r = fsync(Int_val(fd));
+#else
     r = fdatasync(Int_val(fd));
+#endif
     if (r == -1) 
 	uerror("fdatasync", Nothing);
     return Val_unit;

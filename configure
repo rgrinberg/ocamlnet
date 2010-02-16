@@ -334,6 +334,10 @@ case "$u" in
         *FreeBSD)             # also GNU/kFreeBSD
 	        echo "FreeBSD"
 		[ -n "$adh_style" ] || adh_style=unixdomain
+		echo
+		echo "*** Note that you might need to load the 'sem' kernel"
+		echo "*** module to make semaphores work: kldload sem"
+		echo
 		;;
         NetBSD)
 	        echo "NetBSD"
