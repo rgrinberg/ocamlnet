@@ -21,7 +21,8 @@ value check(value dummy) {
     offset = 0;
     len = 1;
     k = posix_fallocate64(j, offset, len);
-    if (k != 0) return Val_int(1);
+    if (k != 0 && errno=ENOSYS) return Val_int(1);
+    /* Careful: Some OS supports fallocate but not all filesystems! */
 
     return Val_int(0);
 }
