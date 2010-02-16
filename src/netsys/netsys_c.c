@@ -23,6 +23,7 @@
 #endif
 
 #ifdef HAVE_POSIX_SEM
+#include <limits.h>
 #include <semaphore.h>
 #endif
 
