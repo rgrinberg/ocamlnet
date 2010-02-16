@@ -1,7 +1,4 @@
-#ifdef __linux__
 #define _GNU_SOURCE
-#define _XOPEN_SOURCE 600
-#endif
 
 #include <errno.h>
 #include <unistd.h>

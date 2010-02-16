@@ -3,10 +3,7 @@
 #include "config.h"
 
 /* Linux: make all system prototypes available */
-#ifdef __linux__
 #define _GNU_SOURCE
-#define _XOPEN_SOURCE 600
-#endif
 
 #ifdef _WIN32
 #include "config_win32.h"
