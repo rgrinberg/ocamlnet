@@ -110,6 +110,10 @@ On Cygwin Ocamlnet should behave like on a POSIX machine.
 
 {3 Win32}
 
+{b General remark:} The Win32 port is still very experimental, and
+far from being bug-free! Development progresses very slowly. Please
+don't expect wonders.
+
 There is now a lot of support for Win32, even for asynchronous network
 programming. The minimum Windows version is Windows XP SP2. One should
 also mention that some functions are only supported when the Ocaml

@@ -700,7 +700,7 @@ end
 
 class admin_container esys ptype sockserv =
 object(self)
-  inherit std_container ~esys ptype sockserv
+  inherit std_container ~esys ptype sockserv as super
 
   val mutable c_fd_clnt = None
   val mutable c_sys_fd_clnt = None
@@ -731,16 +731,17 @@ object(self)
        Do this now. (In the non-admin case the caller does this after
        [start] returns.)
      *)
-    ( match sys_rpc with
-	| None -> ()
-	| Some r -> 
-	    Rpc_client.shut_down r;
-	    sys_rpc <- None
-    );
+    super # shutdown_extra();
+    dlogr
+      (fun () ->
+	 sprintf "Container %d: Closing admin clients" (Oo.id self));
     ( match c_fd_clnt with
 	| None -> ()
 	| Some fd -> 
 	    let fd_style = Netsys.get_fd_style fd in
+	    ( try Netsys.gshutdown fd_style fd Unix.SHUTDOWN_ALL
+	      with _ -> ()
+	    );
 	    Netlog.Debug.release_fd fd;
 	    Netsys.gclose fd_style fd;
 	    c_fd_clnt <- None
@@ -749,6 +750,9 @@ object(self)
 	| None -> ()
 	| Some fd -> 
 	    let fd_style = Netsys.get_fd_style fd in
+	    ( try Netsys.gshutdown fd_style fd Unix.SHUTDOWN_ALL
+	      with _ -> ()
+	    );
 	    Netlog.Debug.release_fd fd;
 	    Netsys.gclose fd_style fd;
 	    c_sys_fd_clnt <- None

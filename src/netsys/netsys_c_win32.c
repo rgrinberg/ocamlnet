@@ -287,6 +287,7 @@ CAMLprim value netsys_event_wait(value ev, value tmo) {
     struct event *e;
     DWORD n;
     DWORD wtmo;  /* unsigned! */
+    DWORD err;
     int signaled;
 
     wtmo = INFINITE;
@@ -297,9 +298,10 @@ CAMLprim value netsys_event_wait(value ev, value tmo) {
     e = event_val(ev);
     enter_blocking_section();
     n = WaitForSingleObject(e->ev, wtmo);
+    err = GetLastError();
     leave_blocking_section();
     if (n == WAIT_FAILED) {
-	win32_maperr(GetLastError());
+	win32_maperr(err);
 	uerror("netsys_event_wait/WaitForSingleObject", Nothing);
     };
 
@@ -367,6 +369,7 @@ CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
     int k,n;
     DWORD r;
     value rv;
+    DWORD err;
 
     tmo0 = Long_val(tmov);
     n = Wosize_val(fdarray);
@@ -409,12 +412,11 @@ CAMLprim value netsys_wsa_wait_for_multiple_events(value fdarray, value tmov) {
 	dprintf("WSAWaitForMultipleEvents start tmo=%u\n", tmo);
 	enter_blocking_section();
 	r = WSAWaitForMultipleEvents(n, earray, 0, tmo, 1);
+	err = WSAGetLastError();
 	leave_blocking_section();
 	dprintf("WSAWaitForMultipleEvents end code=%u\n", r);
     
 	if (r == WSA_WAIT_FAILED) {
-	    DWORD err;
-	    err = WSAGetLastError();
 	    dprintf("WSAWaitForMultipleEvents error=%u\n", err);
 	    /* Sometimes we get err==0. Handle it like timeout: */
 	    if (err == 0) 

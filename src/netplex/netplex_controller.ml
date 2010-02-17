@@ -371,10 +371,15 @@ object(self)
 	       Netplex_cenv.cancel_all_timers();
 	       Netplex_cenv.unregister_cont container par_thread;
 	       (* indicates successful termination: *)
-	       Netlog.Debug.release_fd fd_clnt;
-	       Netsys.gclose fd_style fd_clnt;
-	       Netlog.Debug.release_fd sys_fd_clnt;
-	       Netsys.gclose sys_fd_style sys_fd_clnt
+	       List.iter
+		 (fun fd ->
+		    ( try Netsys.gshutdown fd_style fd Unix.SHUTDOWN_ALL
+		      with _ -> ()
+		    );
+		    Netlog.Debug.release_fd fd;
+		    Netsys.gclose fd_style fd;
+		 )
+		 [ fd_clnt; sys_fd_clnt ]
 	     )
 	  )
 	  fd_close
@@ -397,6 +402,8 @@ object(self)
        *)
       fd_clnt_closed := true;
       sys_fd_clnt_closed := true;
+      dlogr
+	(fun () -> sprintf "Service %s: creating control server" name);
       let rpc =
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, fd_srv))
@@ -410,6 +417,8 @@ object(self)
 	     ~level:`Crit
 	     ~message:("Control server caught exception: " ^ 
 			 Netexn.to_string err));
+      dlogr
+	(fun () -> sprintf "Service %s: creating system server" name);
       let sys_rpc =
 	Rpc_server.create2 
 	  (`Socket_endpoint(Rpc.Tcp, sys_fd_srv))
@@ -1141,6 +1150,8 @@ object(self)
   method supported_ptypes = [ `Controller_attached ]
 
   method process ~when_done cont fd proto =
+    dlogr
+      (fun () -> sprintf "Service netplex.controller: creating server");
     let rpc =
       Rpc_server.create2 (`Socket_endpoint(Rpc.Tcp, fd)) cont#event_system in
     Rpc_server.set_exception_handler rpc
