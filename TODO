@@ -179,6 +179,11 @@ Implementation improvements after Ocamlnet 3.0
 - Fix Netplex_kit.start_helper_thread so that the component leaves
   `Starting state quickly
 
+- Bug Win32 and netplex-admin -shutdown: Apparently, the sys client
+  is not shut down, and the sys server keeps going because of this.
+  There is a pipe_shutdown call for the sys client, but it does not seem
+  to do what it is supposed to. Result is that the shutdown hangs.
+
 ----------------------------------------------------------------------
 Further ideas
 ----------------------------------------------------------------------
