@@ -1246,6 +1246,18 @@ let create_consumer_pipe() =
     (fd1,fd2)
   )
 
+let track_producer fd ph =
+  Netlog.Debug.track_fd 
+    ~owner:"Shell_sys" 
+    ~descr:("producer->" ^ ph.ph_command.c_cmdname)
+    fd
+
+
+let track_consumer fd ph =
+  Netlog.Debug.track_fd 
+    ~owner:"Shell_sys" 
+    ~descr:("consumer<-" ^ ph.ph_command.c_cmdname)
+    fd
 
 exception Pass_exn of exn;;
 
@@ -1603,20 +1615,10 @@ let run_job
 
     (* fd tracking: *)
     List.iter
-      (fun (fd, ph) ->
-	 Netlog.Debug.track_fd 
-	   ~owner:"Shell_sys" 
-	   ~descr:("producer->" ^ ph.ph_command.c_cmdname)
-	   fd
-      )
+      (fun (fd, ph) -> track_producer fd ph)
       !fd_producer_alist;
     List.iter
-      (fun (fd, ph) ->
-	 Netlog.Debug.track_fd 
-	   ~owner:"Shell_sys" 
-	   ~descr:("consumer<-" ^ ph.ph_command.c_cmdname)
-	   fd
-      )
+      (fun (fd, ph) -> track_consumer fd ph)
       !fd_consumer_alist;
 
     (* Store the new process group: *)
@@ -1933,8 +1935,15 @@ object(self)
 	      try List.assoc fd pg.pg_fd_consumer_alist
 	      with Not_found -> assert false
 	    in
+	    (* fd tracking: we have to release fd first because the
+               handler may close fd. If this is not done we re-enable
+               tracking
+	     *)
+	    Netlog.Debug.release_fd fd;
 	    let result = Netsys.restart consumer.ph_handler fd in
-	    if not result then begin
+	    if result then
+	      track_consumer fd consumer
+	    else begin
 	      (* remove the consumer from the list of consumers *)
 	      pg.pg_fd_consumer_alist <- ( List.remove_assoc
 					     fd
@@ -1948,8 +1957,15 @@ object(self)
 	      try List.assoc fd pg.pg_fd_producer_alist
 	      with Not_found -> assert false
 	    in
+	    (* fd tracking: we have to release fd first because the
+               handler may close fd. If this is not done we re-enable
+               tracking
+	     *)
+	    Netlog.Debug.release_fd fd;
 	    let result = Netsys.restart producer.ph_handler fd in
-	    if not result then begin
+	    if result then
+	      track_producer fd producer
+	    else begin
 	      (* remove the producer from the list of producers *)
 	      pg.pg_fd_producer_alist <- ( List.remove_assoc
 					     fd
