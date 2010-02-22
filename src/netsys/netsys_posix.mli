@@ -506,6 +506,15 @@ val closelog : unit -> unit
     - using the Netplex class for sending message to syslog (XXX)
  *)
 
+(** {1 Sync} *)
+
+external fsync : Unix.file_descr -> unit = "netsys_fsync"
+  (** Sync data and metadata to disk *)
+  
+external fdatasync : Unix.file_descr -> unit = "netsys_fdatasync"
+  (** Syncs only data to disk. If this is not implemented, same effect
+      as [fsync]
+   *)
  
 (** {1 Optional POSIX functions} *)
 

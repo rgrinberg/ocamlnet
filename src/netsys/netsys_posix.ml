@@ -603,6 +603,11 @@ let syslog fac lev msg =
 let closelog = netsys_closelog
 
 
+(* Sync *)
+
+external fsync : Unix.file_descr -> unit = "netsys_fsync"
+external fdatasync : Unix.file_descr -> unit = "netsys_fdatasync"
+
 
 (* Optional POSIX functions *)
 
