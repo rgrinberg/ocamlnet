@@ -279,10 +279,14 @@ object(self)
   method private update_a() =
     let s = eng_a # state in
     match s with
-	`Working n ->
+      |	`Working n ->
 	  if s <> eng_a_state then self # transition();
 	  eng_a_state <- s;
 	  true
+      | `Done _ ->
+	  eng_a_state <- s;
+	  self # transition();
+	  false
       | _ ->
 	  eng_a_state <- s;
 	  self # transition();
@@ -292,10 +296,14 @@ object(self)
   method private update_b() =
     let s = eng_b # state in
     match s with
-	`Working n ->
+      | `Working n ->
 	  if s <> eng_b_state then self # transition();
 	  eng_b_state <- s;
 	  true
+      | `Done _ ->
+	  eng_b_state <- s;
+	  self # transition();
+	  false
       | _ ->
 	  eng_b_state <- s;
 	  self # transition();
