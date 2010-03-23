@@ -301,28 +301,43 @@ let camlbox_sender addr =
 let camlbox_sender_of_fd =
   camlbox_open
 
+let camlbox_bcapacity box =
+  box.hdr.capacity
+
+let camlbox_scapacity = camlbox_bcapacity
+
 let camlbox_capacity addr =
   with_fd
     (camlbox_fd addr)
     (fun fd ->
        let box = camlbox_open fd in
-       box.hdr.capacity
+       camlbox_bcapacity box
     )
+
+let camlbox_bmsg_size box =
+  box.hdr.msg_size
+
+let camlbox_smsg_size = camlbox_bmsg_size
 
 let camlbox_msg_size addr =
   with_fd
     (camlbox_fd addr)
     (fun fd ->
        let box = camlbox_open fd in
-       box.hdr.msg_size
+       camlbox_bmsg_size box
     )
+
+let camlbox_bmessages box =
+  box.hdr.capacity - Netsys_posix.sem_getvalue box.sem.s_free_slots
+
+let camlbox_smessages = camlbox_bmessages
 
 let camlbox_messages addr =
   with_fd
     (camlbox_fd addr)
     (fun fd ->
        let box = camlbox_open fd in
-       box.hdr.capacity - Netsys_posix.sem_getvalue box.sem.s_free_slots
+       camlbox_bmessages box
     )
 
 let camlbox_get box k =

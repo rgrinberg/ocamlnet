@@ -98,11 +98,29 @@ val camlbox_fd : camlbox_address -> Unix.file_descr
 val camlbox_capacity : camlbox_address -> int
   (** Returns the maximum number of messages [n] *)
 
+val camlbox_bcapacity : camlbox -> int
+  (** same for an already opened box *)
+
+val camlbox_scapacity : camlbox_sender -> int
+  (** same for a box already opened for sending *)
+
 val camlbox_msg_size : camlbox_address -> int
   (** Returns the max size of a message in bytes *)
 
+val camlbox_bmsg_size : camlbox -> int
+  (** same for an already opened box *)
+
+val camlbox_smsg_size : camlbox_sender -> int
+  (** same for a box already opened for sending *)
+
 val camlbox_messages : camlbox_address -> int
   (** Returns the number of messages at the moment *)
+
+val camlbox_bmessages : camlbox -> int
+  (** same for an already opened box *)
+
+val camlbox_smessages : camlbox_sender -> int
+  (** same for a box already opened for sending *)
 
 val camlbox_get : camlbox -> int -> 'a
   (** [camlbox_get box k]: Returns message number [k] from [box].
