@@ -83,7 +83,6 @@ let is_active state =
 ;;
 
 
-
 class [ 't ] engine_mixin (init_state : 't engine_state) =
 object(self)
   val mutable notify_list = []
@@ -93,10 +92,13 @@ object(self)
   method state = state
 
   method request_notification f =
+    if (not (is_active state)) then
+      dlog "engine_mixin warning: the method request_notification was called \
+            when the engine already reached the final state";
     notify_list_new <- f :: notify_list_new
     
   method private set_state s =
-    if s <> state then (
+    if is_active state then (
       state <- s;
       self # notify();
     )
@@ -136,7 +138,8 @@ object(self)
 
   initializer
     state <- self # map_state eng#state;
-    eng # request_notification self#forward_notification;
+    if is_active eng#state then
+      eng # request_notification self#forward_notification;
 
   method private forward_notification() =
     (* This method is called when [eng] changes its state. We compute our
@@ -168,7 +171,7 @@ object(self)
       | `Aborted ->
 	  ( match map_aborted with
 		Some f -> f ()
-		| None   -> `Aborted
+	      | None   -> `Aborted
 	  )
 
   method event_system = eng#event_system
@@ -189,7 +192,12 @@ object(self)
 
 
   initializer
-    eng_a # request_notification self#update_a
+    if is_active eng_a#state then
+      eng_a # request_notification self#update_a
+    else (
+      (* eng_a is already in a final state *)
+      ignore(self#update_a())
+    )
 
   method private update_a() =
     (* eng_a is running, eng_b not yet existing *)
@@ -206,7 +214,10 @@ object(self)
 	  let s' = e # state in
 	  eng_b_state <- s';
 	  self # count();
-	  e # request_notification self#update_b;
+	  if is_active s' then
+	    e # request_notification self#update_b
+	  else
+	    ignore(self#update_b());
 	  false
       | `Error arg ->
 	  self # set_state (`Error arg);
@@ -273,8 +284,14 @@ object(self)
 
 
   initializer
-    eng_a # request_notification self#update_a;
-    eng_b # request_notification self#update_b
+    if is_active eng_a#state then
+      eng_a # request_notification self#update_a
+    else
+      ignore(self#update_a());
+    if is_active eng_b#state then
+      eng_b # request_notification self#update_b
+    else
+      ignore(self#update_b())
 
   method private update_a() =
     let s = eng_a # state in
