@@ -180,10 +180,22 @@ object(self)
 end;;
 
 
-class ['a,'b] seq_engine (eng_a : 'a #engine) (make_b : 'a -> 'b #engine) =
+let aborted_engine esys =
+  ( object (self)
+      inherit [_] engine_mixin `Aborted
+      method abort() = ()
+      method event_system=esys
+    end
+  )
+
+
+class ['a,'b] seq_engine (eng_a : 'a #engine)
+                         (make_b : 'a -> 'b #engine) =
+  let eng_a = ref (eng_a :> 'a engine) in
+  (* to get rid of the eng_a reference when it is done *)
 object(self)
 
-  val mutable eng_a_state = eng_a # state
+  val mutable eng_a_state = !eng_a # state
 
   val mutable eng_b = None
   val mutable eng_b_state = `Working 0
@@ -192,8 +204,8 @@ object(self)
 
 
   initializer
-    if is_active eng_a#state then
-      eng_a # request_notification self#update_a
+    if is_active !eng_a#state then
+      !eng_a # request_notification self#update_a
     else (
       (* eng_a is already in a final state *)
       ignore(self#update_a())
@@ -201,7 +213,7 @@ object(self)
 
   method private update_a() =
     (* eng_a is running, eng_b not yet existing *)
-    let s = eng_a # state in
+    let s = !eng_a # state in
     match s with
 	`Working n ->
 	  if s <> eng_a_state then self # count();
@@ -209,6 +221,7 @@ object(self)
 	  true
       | `Done arg ->
 	  (* Create eng_b *)
+	  eng_a := aborted_engine !eng_a#event_system;
 	  let e = make_b arg in
 	  eng_b <- Some e;
 	  let s' = e # state in
@@ -253,10 +266,10 @@ object(self)
 	  assert false
 
   method event_system = 
-    eng_a # event_system
+    !eng_a # event_system
 
   method abort() =
-    eng_a # abort();
+    !eng_a # abort();
     ( match eng_b with
 	  Some e -> e # abort()
 	| None -> ()

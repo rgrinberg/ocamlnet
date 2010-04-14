@@ -32,6 +32,20 @@ Plan for Ocamlnet 3
       nethttpd DONE
       rpc/finder DONE
 
+- object strings:
+  class type string =
+    object
+      method length : int
+      method string : string
+      method memory : memory
+      method blit_to_string : ...
+      method blit_to_memory : ...
+    end
+
+  Use this in RPC context to avoid copying of strings as much as possible.
+  Option for the user to see these objects:
+  typedef _object string mystring<>;
+
 --- Already done:
 
   * Rpc_proxy: layer on top of Rpc_client w/ automatic connection handling
