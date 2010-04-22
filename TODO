@@ -23,6 +23,13 @@ Plan for Ocamlnet 3
   * Rpc_util: function for printing arbitrary values
     (use: Nn_state, Transaction_error)
 
+- Rpc_server:
+   * support suspended state
+   * in suspended state, the server is no longer reading new serialized
+     calls. It is still emitting responses, though.
+   * Rpc_server.suspend_on [ `Always | `Num_unresponded_calls of int
+                           | `Num_connections of int ]
+
 - Doc:
   * Doc: Tutorial for Rpc_proxy. Upgrade one example (finder)
   * container sockets
