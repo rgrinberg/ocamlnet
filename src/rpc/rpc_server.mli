@@ -318,6 +318,11 @@ val set_session_filter_2 : t -> (Rpc_transport.sockaddr -> connection_id -> rule
     * connection ID.
    *)
 
+val set_mstring_factories : t -> Xdr_mstring.named_mstring_factories -> unit
+  (** Sets the mstring factories to use for decoding requests containing
+      managed strings
+   *)
+
 val reply : session -> xdr_value -> unit
   (** Asynchronous procedures can reply their results with this function.
    *

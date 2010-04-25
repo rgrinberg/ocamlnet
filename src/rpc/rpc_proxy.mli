@@ -248,6 +248,8 @@ module ManagedClient : sig
 	  (** The maximum response length. See 
               {!Rpc_client.set_max_response_length}.
 	   *)
+	mclient_mstring_factories : Xdr_mstring.named_mstring_factories option
+	  (** The factories to use for decoding managed strings *)
       }
 
   exception Service_unavailable
@@ -265,7 +267,10 @@ module ManagedClient : sig
                               ?auth_methods:Rpc_client.auth_method list ->
                               ?initial_ping:bool ->
                               ?max_response_length:int ->
+                              ?mstring_factories:Xdr_mstring.
+                                                    named_mstring_factories ->
                               unit -> mclient_config
+                                        
     (** Create a config record. The optional arguments set the config
         components with the same name. The defaults are:
          - [rcache]: Use the global reliability cache
@@ -277,6 +282,7 @@ module ManagedClient : sig
          - [auth_methods]: empty list
          - [initial_ping]: false
          - [max_response_length]: None
+         - [mstring_factories]: None
      *)
 
   val create_mclient : mclient_config -> 

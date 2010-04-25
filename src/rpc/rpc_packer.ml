@@ -150,8 +150,8 @@ let valid_void = validate_xdr_type X_void
 (****)
 
 type packed_value =
-    PV_rm of string  (* The packed value with record mark at beginning *)
-  | PV of string     (* The pure packed value *)
+  | PV of string                       (* as simple string *)
+  | PV_ms of Xdr_mstring.mstring list  (* as concatenation of mstrings *)
 
 (****)
 
@@ -188,9 +188,8 @@ let pack_call prog xid proc flav_cred data_cred flav_verf data_verf
             )
        |]) in
 
-  PV_rm
-    (pack_xdr_value_as_string
-       ~rm:true
+  PV_ms
+    (pack_xdr_value_as_mstrings
        message_v            (* the value to pack *)
        message_t            (* the message type... *)
        [ "in", in_t;        (* ...instantiated with input type...*)
@@ -199,15 +198,19 @@ let pack_call prog xid proc flav_cred data_cred flav_verf data_verf
 
 (****)
 
-let unpack_call_frame_l pv =
+let unpack_call_frame_l  pv =
   let message_t = rpc_msg_call_frame in
 
   let message_v, len =
     match pv with
 	PV octets ->
-	  unpack_xdr_value_l ~fast:true ~prefix:true octets message_t []
-      | PV_rm octets ->
-	  unpack_xdr_value_l ~pos:4 ~fast:true ~prefix:true octets message_t []
+	  unpack_xdr_value_l
+	    ~fast:true ~prefix:true octets message_t []
+      | PV_ms mstrings ->
+	  (* There is no faster method than this right now: *)
+	  let octets = Xdr_mstring.concat_mstrings mstrings in
+	  unpack_xdr_value_l
+	    ~fast:true ~prefix:true octets message_t []
   in
 
   match message_v with
@@ -254,21 +257,22 @@ let unpack_call_frame octets =
 
 (****)
 
-let unpack_call_body prog proc pv pos =
+let unpack_call_body ?mstring_factories prog proc pv pos =
   let proc_nr, in_t, out_t = Rpc_program.signature prog proc in
 
   let message_t = rpc_msg_call_body in
 
-  let octets, rm_pos =
+  let octets =
     match pv with
-	PV octets -> (octets, pos)
-      | PV_rm octets -> (octets, pos+4)
+	PV octets -> octets
+      | PV_ms mstrings -> Xdr_mstring.concat_mstrings mstrings
   in
 
   let message_v =                            (* unpack the value *)
     unpack_xdr_value
-      ~pos:rm_pos
+      ~pos
       ~fast:true
+      ?mstring_factories
       octets                                 (* XDR encoded value *)
       message_t                              (* generic type *)
       [ "in", in_t ]                         (* instance for "in" *)
@@ -280,13 +284,13 @@ let unpack_call_body prog proc pv pos =
 
 (****)
 
-let unpack_call prog proc pv =
+let unpack_call ?mstring_factories prog proc pv =
   (* compatibility *)
   let (xid, prog_nr, vers_nr, proc_nr,
        flav_cred, data_cred,
        flav_verf, data_verf,
        len) = unpack_call_frame_l pv in
-  let proc_parm = unpack_call_body prog proc pv len in
+  let proc_parm = unpack_call_body ?mstring_factories prog proc pv len in
   (xid, prog_nr, vers_nr, proc_nr,
    flav_cred, data_cred,
    flav_verf, data_verf,
@@ -319,9 +323,8 @@ let pack_successful_reply prog proc xid flav_verf data_verf return_value =
 		  |] ))
        |] ) in
 
-  PV_rm
-    (pack_xdr_value_as_string
-       ~rm:true
+  PV_ms
+    (pack_xdr_value_as_mstrings
        message_v            (* the value to pack *)
        message_t            (* the message type... *)
        [ "in", in_t;        (* ...instantiated with input type...*)
@@ -363,9 +366,8 @@ let pack_accepting_reply xid flav_verf data_verf condition =
 		   |] ))
        |] ) in
 
-  PV_rm
-    (pack_xdr_value_as_string
-       ~rm:true
+  PV_ms
+    (pack_xdr_value_as_mstrings
        message_v            (* the value to pack *)
        message_t            (* the message type... *)
        [ "in", valid_void;      (* ...instantiated with input type...*)
@@ -414,9 +416,8 @@ let pack_rejecting_reply xid condition =
 		1,
 		XV_union_over_enum_fast (case, explanation)))|]) in
 
-  PV_rm
-    (pack_xdr_value_as_string
-       ~rm:true
+  PV_ms
+    (pack_xdr_value_as_mstrings
        message_v            (* the value to pack *)
        message_t            (* the message type... *)
        [ "in", valid_void;        (* ...instantiated with input type...*)
@@ -425,22 +426,22 @@ let pack_rejecting_reply xid condition =
 
 (****)
 
-let unpack_reply prog proc pv =
+let unpack_reply ?mstring_factories prog proc pv =
 
   let proc_nr, in_t, out_t = Rpc_program.signature prog proc in
 
   let message_t = rpc_msg in      (* type of generic message *)
 
-  let (octets, pos) =
+  let octets =
     match pv with
-	PV octets -> (octets, 0)
-      | PV_rm octets -> (octets, 4)
+	PV octets -> octets
+      | PV_ms mstrings -> Xdr_mstring.concat_mstrings mstrings
   in
 
   let message_v =                            (* unpack the value *)
     unpack_xdr_value
       ~fast:true
-      ~pos
+      ?mstring_factories
       octets                                 (* XDR encoded value *)
       message_t                              (* generic type *)
       [ "in", in_t;                          (* instance for "in" *)
@@ -531,17 +532,16 @@ let unpack_reply_verifier prog proc pv =
 
   let message_t = rpc_msg in      (* type of generic message *)
 
-  let (octets, pos) =
+  let octets =
     match pv with
-	PV octets -> (octets, 0)
-      | PV_rm octets -> (octets, 4)
+	PV octets -> octets
+      | PV_ms mstrings -> Xdr_mstring.concat_mstrings mstrings
   in
 
   let message_v =                            (* unpack the value *)
     unpack_xdr_value
       ~fast:true
       ~prefix:true
-      ~pos
       octets                                 (* XDR encoded value *)
       message_t                              (* generic type *)
       [ "in", valid_void;                    (* instance for "in" *)
@@ -584,39 +584,50 @@ let peek_xid pv =
   match pv with
       PV octets ->
 	if String.length octets < 4 then
-	  failwith "peek_xid: message too short";
+	  failwith "peek_xid: message too short [1]";
 
 	Rtypes.mk_uint4 (octets.[0], octets.[1], octets.[2], octets.[3])
 
-    | PV_rm octets ->
-	if String.length octets < 8 then
-	  failwith "peek_xid: message too short";
+    | PV_ms mstrings ->
+	if Xdr_mstring.length_mstrings mstrings < 4 then
+	  failwith "peek_xid: message too short [2]";
 
-	Rtypes.mk_uint4 (octets.[4], octets.[5], octets.[6], octets.[7])
+	let s = 
+	  Xdr_mstring.prefix_mstrings mstrings 4 in
+
+	Rtypes.mk_uint4 (s.[0], s.[1], s.[2], s.[3])
 
 (*****)
 
 let peek_auth_error pv =
-  let octets, offset =
+  let len =
     match pv with
-	PV octets -> (octets, 0)
-      | PV_rm octets -> (octets, 4)
-  in
+	PV octets -> String.length octets
+      | PV_ms mstrings -> Xdr_mstring.length_mstrings mstrings in
 
-  if String.length octets <> 20+offset ||
-     String.sub octets (4+offset) 12 <> "\000\000\000\001\000\000\000\001\000\000\000\001"
-  then
+  if len <> 20 then
     None
-  else
-    match String.sub octets (16+offset) 4 with
-	"\000\000\000\001" -> Some Auth_bad_cred
-      | "\000\000\000\002" -> Some Auth_rejected_cred
-      | "\000\000\000\003" -> Some Auth_bad_verf
-      | "\000\000\000\004" -> Some Auth_rejected_verf
-      | "\000\000\000\005" -> Some Auth_too_weak
-      | "\000\000\000\006" -> Some Auth_invalid_resp
-      | "\000\000\000\007" -> Some Auth_failed
-      | _                  -> None
+  else (
+    let octets =
+      match pv with
+	  PV octets -> octets
+	| PV_ms mstrings -> Xdr_mstring.concat_mstrings mstrings in  
+
+    if String.sub octets 4 12 <> 
+          "\000\000\000\001\000\000\000\001\000\000\000\001"
+    then
+      None
+    else
+      match String.sub octets 16 4 with
+	  "\000\000\000\001" -> Some Auth_bad_cred
+	| "\000\000\000\002" -> Some Auth_rejected_cred
+	| "\000\000\000\003" -> Some Auth_bad_verf
+	| "\000\000\000\004" -> Some Auth_rejected_verf
+	| "\000\000\000\005" -> Some Auth_too_weak
+	| "\000\000\000\006" -> Some Auth_invalid_resp
+	| "\000\000\000\007" -> Some Auth_failed
+	| _                  -> None
+  )
 ;;
 
 (*****)
@@ -624,19 +635,24 @@ let peek_auth_error pv =
 let length_of_packed_value pv =
   match pv with
       PV octets -> String.length octets
-    | PV_rm octets -> String.length octets - 4
+    | PV_ms mstrings -> Xdr_mstring.length_mstrings mstrings
 ;;
 
 let string_of_packed_value pv =
   match pv with
       PV octets -> octets
-    | PV_rm octets -> String.sub octets 4 (String.length octets - 4)
+    | PV_ms mstrings -> Xdr_mstring.concat_mstrings mstrings
 ;;
 
 let packed_value_of_string s = PV s;;
 
-let rm_string_of_packed_value pv =
+let packed_value_of_mstrings mstrings = PV_ms mstrings
+
+let mstrings_of_packed_value pv =
   match pv with
-      PV octets -> (String.make 4 '\000') ^ octets
-    | PV_rm octets -> octets
+    | PV octets -> 
+	[ Xdr_mstring.string_based_mstrings # create_from_string
+	    octets 0 (String.length octets) false ]
+    | PV_ms mstrings -> 
+	mstrings
 ;;

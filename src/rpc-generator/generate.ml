@@ -272,6 +272,9 @@ let output_type_declarations (f:formatter) (dl:xdr_def list) =
       | T_string _
       | T_string_unlimited ->
 	  fprintf f "string"
+      | T_mstring(_,_)
+      | T_mstring_unlimited _ ->
+	  fprintf f "Xdr_mstring.mstring"
       | T_option t' ->
           fprintf f "@[<hv 2>";
 	  output_type t';
@@ -550,6 +553,14 @@ let output_xdr_type (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	  fprintf f "@]";
       | T_string_unlimited ->
 	  fprintf f "Xdr.x_string_max"
+      | T_mstring(name,n) ->
+	  fprintf f "@[<hv 2>Xdr.X_mstring(@,";
+	  fprintf f "%S" name;
+	  fprintf f ",@ ";
+	  output_uint4 f (constant !n);
+	  fprintf f ")@]";
+      | T_mstring_unlimited name ->
+	  fprintf f "(Xdr.x_mstring_max %S)" name
       | T_option t' ->
 	  fprintf f "@[<hv 2>Xdr.x_optional@ (";
 	  output_type rectypes t';
@@ -819,6 +830,9 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	| T_string _
 	| T_string_unlimited ->
 	    fprintf f "(Xdr.dest_xv_string %s)" var
+	| T_mstring(_,_)
+	| T_mstring_unlimited _ ->
+	    fprintf f "(Xdr.dest_xv_mstring %s)" var
 	| T_option t' ->
 	    fprintf f "@[<hv>";
 	    fprintf f "(match Xdr.dest_xv_union_over_enum_fast %s with@ " var;
@@ -1203,6 +1217,9 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	| T_string _
 	| T_string_unlimited ->
 	    fprintf f "(Xdr.XV_string %s)" var
+	| T_mstring(_,_)
+	| T_mstring_unlimited _ ->
+	    fprintf f "(Xdr.XV_mstring %s)" var
 	| T_option t' ->
 	    fprintf f "@[<hv>";
 	    fprintf f "(match %s with@ " var;

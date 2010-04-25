@@ -7,6 +7,7 @@
  *)
 
 open Rtypes;;
+open Printf
 
 exception Propagate of string;;
 
@@ -163,6 +164,7 @@ type xdr_type_term =
   | X_opaque_fixed of uint4
   | X_opaque of uint4
   | X_string of uint4
+  | X_mstring of string * uint4
   | X_array_fixed of xdr_type_term * uint4
   | X_array of       xdr_type_term * uint4
   | X_struct of (string * xdr_type_term) list
@@ -201,6 +203,7 @@ and xdr_term =
   | T_opaque_fixed of uint4
   | T_opaque of uint4
   | T_string of uint4
+  | T_mstring of string * uint4
   | T_array_fixed of xdr_type0 * uint4
   | T_array of       xdr_type0 * uint4
   | T_struct of (string * xdr_type0) array
@@ -235,6 +238,30 @@ type xdr_type_system =
   (* export xdr_type_system in an opaque manner *)
 
 
+let t_name = 
+  function
+    | T_int -> "T_int"
+    | T_uint -> "T_uint"
+    | T_hyper -> "T_hyper"
+    | T_uhyper -> "T_uhyper"
+    | T_enum _ -> "T_enum"
+    | T_float -> "T_float"
+    | T_double -> "T_double"
+    | T_opaque_fixed _ -> "T_opaque_fixed"
+    | T_opaque _ -> "T_opaque"
+    | T_string _ -> "T_string"
+    | T_mstring(_,_) -> "T_mstring"
+    | T_array_fixed (_,_) -> "T_array_fixed"
+    | T_array (_,_) -> "T_array"
+    | T_struct _ -> "T_struct"
+    | T_union_over_int(_,_) -> "T_union_over_int"
+    | T_union_over_uint(_,_) -> "T_union_over_uint"
+    | T_union_over_enum(_,_,_) -> "T_union_over_enum"
+    | T_void -> "T_void"
+    | T_param _ -> "T_param"
+    | T_rec _ -> "T_rec"
+    | T_refer _ -> "T_refer"
+	
 
 let x_bool =
   X_enum ["FALSE", int4_of_int 0; "TRUE", int4_of_int 1]
@@ -254,6 +281,9 @@ let x_opaque_max =
 
 let x_string_max =
   X_string (mk_uint4 ('\255', '\255', '\255', '\255'));;
+
+let x_mstring_max name =
+  X_mstring (name, mk_uint4 ('\255', '\255', '\255', '\255'));;
 
 let x_array_max t =
   X_array (t,  (mk_uint4 ('\255', '\255', '\255', '\255')));;
@@ -282,6 +312,7 @@ type xdr_value =
   | XV_struct_fast of xdr_value array
   | XV_union_over_enum_fast of (int * xdr_value)
   | XV_array_of_string_fast of string array
+  | XV_mstring of Xdr_mstring.mstring
 ;;
 
 let xv_true = XV_enum_fast 1 (* "TRUE" *);;
@@ -312,6 +343,8 @@ let dest_xv_opaque v =
   match v with XV_opaque x -> x | _ -> raise Dest_failure;;
 let dest_xv_string v =
   match v with XV_string x -> x | _ -> raise Dest_failure;;
+let dest_xv_mstring v =
+  match v with XV_mstring x -> x | _ -> raise Dest_failure;;
 let dest_xv_array v =
   match v with XV_array x -> x | _ -> raise Dest_failure;;
 let dest_xv_array_of_string_fast v =
@@ -441,6 +474,17 @@ exception Xdr_format_message_too_long of xdr_value;;
  * The prefix is returned as xdr_value.
  *)
 
+let () =
+  Netexn.register_printer
+    (Xdr_format "")
+    (function
+       | Xdr_format s ->
+	   sprintf "Xdr.Xdr_format(%S)" s
+       | _ ->
+	   assert false
+    )
+
+
 (**********************************************************************)
 (* check if XDR types are well-formed                                 *)
 (**********************************************************************)
@@ -485,6 +529,7 @@ let rec validate_xdr_type_i1
   | X_opaque_fixed n    -> mktype (T_opaque_fixed n)
   | X_opaque n          -> mktype (T_opaque n)
   | X_string n          -> mktype (T_string n)
+  | X_mstring (name,n)  -> mktype (T_mstring (name,n))
   | X_array_fixed (s,n) -> mktype (T_array_fixed(validate_xdr_type_i1 r b s, n))
   | X_array (s,n)       -> mktype (T_array      (validate_xdr_type_i1 r b s, n))
   | X_struct s ->
@@ -641,7 +686,7 @@ let rec elim_rec t = (* get rid of T_rec and T_refer *)
   match t.term with
     | T_int | T_uint | T_hyper | T_uhyper | T_enum _ | T_float
     | T_double | T_opaque_fixed _ | T_opaque _ | T_string _ 
-    | T_void | T_param _ ->
+    | T_mstring _ | T_void | T_param _ ->
 	t
     | T_array_fixed(t',n) ->
 	{ t with term = T_array_fixed(elim_rec t', n) }
@@ -775,6 +820,7 @@ let rec xdr_type_term0 (t:xdr_type0) : xdr_type_term =
   | T_opaque_fixed n -> X_opaque_fixed n
   | T_opaque n       -> X_opaque n
   | T_string n       -> X_string n
+  | T_mstring(name,n)-> X_mstring(name,n)
   | T_array_fixed (t', n) -> X_array_fixed (xdr_type_term0 t',n)
   | T_array (t', n)       -> X_array       (xdr_type_term0 t',n)
   | T_struct s       -> X_struct (conv_list (Array.to_list s))
@@ -940,6 +986,8 @@ let pack_size
       (get_param:string->xdr_type)
     : int =
 
+  (* returned size does not include mstrings! *)
+
   let rec get_size v t =
     match t.term with
       | T_int ->
@@ -964,6 +1012,11 @@ let pack_size
       | T_string n ->
 	  let x = dest_xv_string v in
 	  get_string_size x n
+      | T_mstring(_,n) ->
+	  (* for an mstring we only count the length field plus padding *)
+	  let x = dest_xv_mstring v in
+	  let l = x#length in
+	  get_string_decoration_size l n
       | T_array_fixed (t',n) ->
 	  get_array_size v t' n (fun m n -> m=n)
       | T_array (t',n) ->
@@ -1056,20 +1109,222 @@ let pack_size
 
   and get_string_size x n =
     let x_len = String.length x in
+    x_len + get_string_decoration_size x_len n
+
+  and get_string_decoration_size x_len n =
+    (* header field plus padding *)
     let x_len_u = uint4_of_int x_len in
     let x_len_mod_4 = x_len land 3 in
     if Rtypes.le_uint4 x_len_u n then begin
       (if x_len_mod_4 = 0
-       then x_len + 4 
-       else x_len + 8 - x_len_mod_4
+       then 4 
+       else 8 - x_len_mod_4
       )
     end
     else
       raise Not_found
+
   in
   get_size v t
 
 
+let pack_mstring 
+      (v:xdr_value)
+      (t:xdr_type0)
+      (get_param:string->xdr_type)
+    : Xdr_mstring.mstring list =
+
+  let size = pack_size v t get_param in
+  (* all sanity checks are done here! Also, [size] does not include the
+     size for mstrings (only the length field, and padding)
+   *)
+
+  let buf = String.create size in
+  let buf_start = ref 0 in
+  let buf_pos = ref 0 in
+
+  let result = ref [] in
+  (* The resulting mstrings in reverse order *)
+
+  let save_buf() =
+    if !buf_pos > !buf_start then (
+      let x =
+	Xdr_mstring.string_based_mstrings # create_from_string
+	  buf !buf_start (!buf_pos - !buf_start) false in
+      result := x :: !result;
+      buf_start := !buf_pos
+    )
+  in
+
+  let print_string_padding l =
+    let n = 4-(l land 3) in
+    if n < 4 then begin
+      let l0 = !buf_pos in
+      if n >= 1 then String.unsafe_set buf l0 '\000';
+      if n >= 2 then String.unsafe_set buf (l0 + 1) '\000';
+      if n >= 3 then String.unsafe_set buf (l0 + 2) '\000';
+      buf_pos := l0 + n
+    end
+  in
+
+  let print_string s l =
+    String.unsafe_blit s 0 buf !buf_pos l;
+    buf_pos := !buf_pos + l;
+    print_string_padding l
+  in
+
+  let rec pack v t =
+    match t.term with
+	T_int ->
+	  let x = dest_xv_int v in
+	  Rtypes.write_int4_unsafe buf !buf_pos x;
+	  buf_pos := !buf_pos + 4
+      | T_uint ->
+	  let x = dest_xv_uint v in
+	  Rtypes.write_uint4_unsafe buf !buf_pos x;
+	  buf_pos := !buf_pos + 4
+      | T_hyper ->
+	  let x = dest_xv_hyper v in
+	  Rtypes.write_int8_unsafe buf !buf_pos x;
+	  buf_pos := !buf_pos + 8
+      | T_uhyper ->
+	  let x = dest_xv_uhyper v in
+	  Rtypes.write_uint8_unsafe buf !buf_pos x;
+	  buf_pos := !buf_pos + 8
+      | T_enum e ->
+	  let i = map_xv_enum_fast0 t v in
+	  Rtypes.write_int4_unsafe buf !buf_pos (int4_of_int32 i);
+	  buf_pos := !buf_pos + 4
+      | T_float ->
+	  let x = dest_xv_float v in
+	  let s = fp4_as_string x in
+	  String.unsafe_blit s 0 buf !buf_pos 4;
+	  buf_pos := !buf_pos + 4
+      | T_double ->
+	  let x = dest_xv_double v in
+	  let s = fp8_as_string x in
+	  String.unsafe_blit s 0 buf !buf_pos 8;
+	  buf_pos := !buf_pos + 8
+      | T_opaque_fixed n ->
+	  let x = dest_xv_opaque v in
+	  print_string x (String.length x)
+      | T_opaque n ->
+	  let x = dest_xv_opaque v in
+	  let x_len = String.length x in
+	  Rtypes.write_uint4_unsafe buf !buf_pos (uint4_of_int x_len);
+	  buf_pos := !buf_pos + 4;
+	  print_string x x_len
+      | T_string n ->
+	  let x = dest_xv_string v in
+	  let x_len = String.length x in
+	  Rtypes.write_uint4_unsafe buf !buf_pos (uint4_of_int x_len);
+	  buf_pos := !buf_pos + 4;
+	  print_string x x_len
+      | T_mstring(_,n) ->
+	  let x = dest_xv_mstring v in
+	  let x_len = x#length in
+	  Rtypes.write_uint4_unsafe buf !buf_pos (uint4_of_int x_len);
+	  buf_pos := !buf_pos + 4;
+	  save_buf();
+	  result := x :: !result;
+	  print_string_padding x_len
+      | T_array_fixed (t',n) ->
+	  pack_array v t' n false
+      | T_array (t',n) ->
+	  pack_array v t' n true
+      | T_struct s ->
+	  let v_array = map_xv_struct_fast0 t v in
+	  Array.iteri
+	    (fun k v_component ->
+	       pack v_component (snd s.(k)))
+	    v_array
+      | T_union_over_int (u,default) ->
+	  let i,x = dest_xv_union_over_int v in
+	  let t' =
+      	    try
+	      Hashtbl.find u i
+	    with
+		Not_found ->
+		  match default with
+		      Some d -> d
+		    | None   -> raise Not_found
+	  in
+	  Rtypes.write_int4_unsafe buf !buf_pos i;
+	  buf_pos := !buf_pos + 4;
+	  pack x t'
+      | T_union_over_uint (u,default) ->
+	  let i,x = dest_xv_union_over_uint v in
+	  let t' =
+      	    try
+	      Hashtbl.find u i
+	    with
+		Not_found ->
+		  match default with
+		      Some d -> d
+		    | None   -> raise Not_found
+	  in
+	  Rtypes.write_uint4_unsafe buf !buf_pos i;
+	  buf_pos := !buf_pos + 4;
+	  pack x t'
+      | T_union_over_enum (et,u,default) ->
+	  let k,i,x = map_xv_union_over_enum_fast0 t v in
+	  let t' =
+	    match u.(k) with
+		Some u_t -> u_t
+	      | None     ->
+		  ( match default with
+			Some d -> d
+		      | None -> raise Not_found
+		  )
+	  in
+	  Rtypes.write_int4_unsafe buf !buf_pos (int4_of_int32 i);
+	  buf_pos := !buf_pos + 4;
+	  pack x t'
+      | T_void ->
+	  ()
+      | T_param n ->
+	  let t' = get_param n in
+	  pack v (snd t')
+      | T_rec (n, t') ->
+	  pack v t'
+      | T_refer (n, t') ->
+	  pack v t'
+
+  and pack_array v t' n have_array_header =
+    match v with
+      | XV_array x ->  (* generic *)
+	  if have_array_header then pack_array_header (Array.length x);
+	  Array.iter
+	    (fun v' -> pack v' t')
+	    x
+      | XV_array_of_string_fast x ->
+	  ( match t'.term with
+	      | T_string n ->
+		  if have_array_header then pack_array_header (Array.length x);
+		  Array.iter
+		    (fun s ->
+		       let s_len = String.length s in
+		       Rtypes.write_uint4_unsafe
+			 buf !buf_pos (uint4_of_int s_len);
+		       buf_pos := !buf_pos + 4;
+		       print_string s s_len
+		    )
+		    x
+	      | _ -> raise Dest_failure
+	  )
+      | _ -> raise Dest_failure
+
+  and pack_array_header x_len =
+    Rtypes.write_uint4_unsafe buf !buf_pos (uint4_of_int x_len);
+    buf_pos := !buf_pos + 4;
+  in
+  pack v t;
+  save_buf();
+  List.rev !result
+;;
+
+
+(*
 let pack_buf
       ?(rm = false)
       (v:xdr_value)
@@ -1247,6 +1502,7 @@ let pack_buf
   in
   pack v t;
   buf
+ *)
 
 
 let value_matches_type
@@ -1284,7 +1540,14 @@ let pack_xdr_value
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
     try
-      print (pack_buf v t (fun n -> List.assoc n p))
+      let mstrings = 
+	pack_mstring v t (fun n -> List.assoc n p) in
+      List.iter
+	(fun ms ->
+	   let (s,p) = ms#as_string in
+	   print (String.sub s p ms#length)
+	)
+	mstrings
     with
       any ->
 	(* DEBUG *)
@@ -1305,7 +1568,16 @@ let pack_xdr_value_as_string
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
     try
-      pack_buf ~rm v t (fun n -> List.assoc n p)
+      let mstrings0 = 
+	pack_mstring v t (fun n -> List.assoc n p) in
+      let rm_prefix =
+	if rm then
+	  let s = "\000\000\000\000" in
+	  [ Xdr_mstring.string_based_mstrings # create_from_string s 0 4 false ]
+	else
+	  [] in
+      let mstrings = rm_prefix @ mstrings0 in
+      Xdr_mstring.concat_mstrings mstrings
     with
       any ->
 	(* DEBUG *)
@@ -1316,6 +1588,24 @@ let pack_xdr_value_as_string
     failwith "Xdr.pack_xdr_value_as_string [2]"
 ;;
 
+let pack_xdr_value_as_mstrings
+    (v:xdr_value)
+    ((_,t):xdr_type)
+    (p:(string * xdr_type) list)
+    =
+
+  if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
+     List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
+    try
+      pack_mstring v t (fun n -> List.assoc n p)
+    with
+      any ->
+	(* DEBUG *)
+	(* prerr_endline (Netexn.to_string any); *)
+      	failwith "Xdr.pack_xdr_value_as_mstrings [1]"
+  else
+    failwith "Xdr.pack_xdr_value_as_mstrings [2]"
+;;
 
 (* "let rec" prevents that these functions are inlined. This is wanted here,
    because these are error cases, and for a function call less code
@@ -1354,6 +1644,16 @@ let rec find_enum (e : (string * int32) array) (i : int32) =
   loop 0 (Array.length e - 1)
 ;;
 
+(* DEBUG*)
+(*
+let hex_dump_s s pos len =
+  let b = Buffer.create 100 in
+  for k = 0 to len - 1 do
+    let c = s.[pos+k] in
+    bprintf b "%02x " (Char.code c)
+  done;
+  Buffer.contents b
+ *)
 
 let read_string str k k_end n =
   let k0 = !k in
@@ -1364,11 +1664,14 @@ let read_string str k k_end n =
   k := k0 + m;
   s
 
+let empty_mf = Hashtbl.create 1
+
 let unpack_term
     ?(pos = 0)
     ?len
     ?(fast = false)
     ?(prefix = false)
+    ?(mstring_factories = empty_mf)
     (str:string)
     (t:xdr_type0)
     (get_param:string->xdr_type)
@@ -1419,6 +1722,24 @@ let unpack_term
     read_string str k k_end (int_of_uint4 m)
   in
 
+  let rec read_mstring name n k0 =
+    let factory =
+      try Hashtbl.find mstring_factories name
+      with Not_found -> failwith "read_mstring: no such factory" in
+    k := k0 + 4;
+    if !k > k_end then raise_xdr_format_too_short();
+    let m = Rtypes.read_uint4_unsafe str k0 in
+    (* Test: n < m as unsigned int32: *)
+    if Rtypes.lt_uint4 n m then
+      raise_xdr_format_maximum_length ();
+    let m = int_of_uint4 m in
+    let p = if m land 3 = 0 then m else m+4-(m land 3) in
+    if !k > k_end - p then raise_xdr_format_too_short ();
+    let ms = factory # create_from_string str !k m false in
+    k := !k + p;
+    ms
+  in
+
   let rec unpack_array t' p =
     match t'.term with
       | T_string n ->
@@ -1442,6 +1763,7 @@ let unpack_term
 
   and unpack t =
     let k0 = !k in
+(*    fprintf stderr "unpack k=%d t=%s\n%!" k0 (t_name t.term); *)
     match t.term with
       T_int ->
 	k := k0 + 4;
@@ -1471,6 +1793,8 @@ let unpack_term
 	XV_opaque (read_string_or_opaque n k0)
     | T_string n ->
 	XV_string (read_string_or_opaque n k0)
+    | T_mstring(name,n) ->
+	XV_mstring (read_mstring name n k0)
     | T_array_fixed (t',n) ->
 	let p = int_of_uint4 n in
 	unpack_array t' p
@@ -1563,8 +1887,13 @@ let unpack_term
     let v = unpack t in
     if prefix || !k = k_end then
       (v, !k - pos)
-    else
+    else (
+(*
+      fprintf stderr "Too LONG: k=%d k_end=%d\n%!" !k k_end;
+      fprintf stderr "Dump: %s\n%!" (hex_dump_s str pos (k_end-pos));
+ *)
       raise (Xdr_format_message_too_long v)
+    )
   with
       Cannot_represent _ ->
 	raise (Xdr_format "implementation restriction")
@@ -1574,7 +1903,7 @@ let unpack_term
 
 
 let unpack_xdr_value
-    ?pos ?len ?fast ?prefix
+    ?pos ?len ?fast ?prefix ?mstring_factories
     (str:string)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -1583,7 +1912,9 @@ let unpack_xdr_value
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
 
-    fst(unpack_term ?pos ?len ?fast ?prefix str t (fun n -> List.assoc n p))
+    fst(unpack_term 
+	  ?pos ?len ?fast ?prefix ?mstring_factories
+	  str t (fun n -> List.assoc n p))
 
   else
     failwith "Xdr.unpack_xdr_value"
@@ -1591,7 +1922,7 @@ let unpack_xdr_value
 
 
 let unpack_xdr_value_l
-    ?pos ?len ?fast ?prefix
+    ?pos ?len ?fast ?prefix ?mstring_factories
     (str:string)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -1600,7 +1931,9 @@ let unpack_xdr_value_l
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
 
-    unpack_term ?pos ?len ?fast ?prefix str t (fun n -> List.assoc n p)
+    unpack_term
+      ?pos ?len ?fast ?prefix ?mstring_factories 
+      str t (fun n -> List.assoc n p)
 
   else
     failwith "Xdr.unpack_xdr_value"

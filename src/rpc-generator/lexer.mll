@@ -52,6 +52,7 @@ rule token = parse
   | "_unboxed"  { K_unboxed }
   | "_int32"    { K_int32 }
   | "_int64"    { K_int64 }
+  | "_managed"  { K_managed }
   | '-'? ['1'-'9'] ['0'-'9']*                      (* C-style decimal number *)
     { INTLITERAL (Lexing.lexeme lexbuf) }
   | '-'? '0' ['0'-'7']*                            (* C-style octal number *)

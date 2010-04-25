@@ -282,6 +282,7 @@ module ManagedClient = struct
 	mclient_auth_methods : Rpc_client.auth_method list;
 	mclient_initial_ping : bool;
 	mclient_max_response_length : int option;
+	mclient_mstring_factories : Xdr_mstring.named_mstring_factories option;
       }
 
   type state = [ `Down | `Connecting | `Up of Unix.sockaddr option]
@@ -345,6 +346,7 @@ module ManagedClient = struct
 	?(auth_methods = [])
 	?(initial_ping = false)
 	?max_response_length
+	?mstring_factories
 	() =
     if initial_ping && programs = [] then
       failwith
@@ -361,6 +363,7 @@ module ManagedClient = struct
 	mclient_auth_methods = auth_methods;
 	mclient_initial_ping = initial_ping;
 	mclient_max_response_length = max_response_length;
+	mclient_mstring_factories = mstring_factories;
       } in
     ignore(get_null_proc_name config);
     config
@@ -630,6 +633,10 @@ module ManagedClient = struct
 	    ( match mc.config.mclient_exception_handler with
 		| None -> ()
 		| Some eh -> Rpc_client.set_exception_handler client eh
+	    );
+	    ( match mc.config.mclient_mstring_factories with
+		| None -> ()
+		| Some fac -> Rpc_client.set_mstring_factories client fac
 	    );
 	    if mc.config.mclient_auth_methods <> [] then
 	      Rpc_client.set_auth_methods client mc.config.mclient_auth_methods;

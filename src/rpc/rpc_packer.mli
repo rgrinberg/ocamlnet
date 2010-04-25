@@ -40,6 +40,7 @@ val pack_call :
 
 
 val unpack_call :
+      ?mstring_factories:Xdr_mstring.named_mstring_factories ->
       Rpc_program.t ->    (* which program to match *)
       string ->           (* which procedure *)
       packed_value ->     (* the call in XDR representation *)
@@ -86,6 +87,7 @@ val unpack_call_frame_l :
    *)
 
 val unpack_call_body :
+      ?mstring_factories:Xdr_mstring.named_mstring_factories ->
       Rpc_program.t ->    (* which program to match *)
       string ->           (* which procedure *)
       packed_value ->     (* the (complete) call in XDR representation *)
@@ -131,6 +133,7 @@ val pack_rejecting_reply :
       packed_value        (* the reply in XDR representation *)
 
 val unpack_reply :
+      ?mstring_factories:Xdr_mstring.named_mstring_factories ->
       Rpc_program.t ->    (* which program *)
       string ->           (* which procedure *)
       packed_value ->     (* the reply in XDR representation *)
@@ -173,7 +176,12 @@ val length_of_packed_value : packed_value -> int
 val string_of_packed_value : packed_value -> string
 val packed_value_of_string : string -> packed_value
 
-val rm_string_of_packed_value : packed_value -> string
-  (* Returns the packed value as string, but four null bytes are prepended
-   * to the string (for the TCP record mark)
-   *)
+val mstrings_of_packed_value : packed_value -> Xdr_mstring.mstring list
+val packed_value_of_mstrings : Xdr_mstring.mstring list -> packed_value 
+
+(* Currently, the packer works internally with the "mstring list"
+   representation, and hence mstrings_of_packed_value is fast.
+
+   The unpacker still works on strings, so one should use packed_value_of_string
+   to create the packed_value passed to it.
+ *)

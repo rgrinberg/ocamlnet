@@ -144,6 +144,7 @@ and t =
 	mutable next_destination : Unix.sockaddr option;
 	mutable next_batch_flag : bool;
 	mutable max_resp_length : int option;
+	mutable mstring_factories : Xdr_mstring.named_mstring_factories;
 
 	(* authentication: *)
 	mutable auth_methods : t pre_auth_method list;     (* methods to try *)
@@ -642,7 +643,9 @@ let process_incoming_message cl message peer =
 	    Novalue                (* don't pass a value back to the caller *)
 	| _ ->
 	    let (xid,verf_flavour,verf_data,response) =
-	      Rpc_packer.unpack_reply call.prog call.proc message
+	      Rpc_packer.unpack_reply 
+		~mstring_factories:cl.mstring_factories
+		call.prog call.proc message
 		(* may raise an exception *)
             in
 	    call.call_auth_session # server_accepts verf_flavour verf_data;
@@ -1100,6 +1103,7 @@ let rec internal_create initial_xid
       next_max_retransmissions = 0;
       next_batch_flag = false;
       max_resp_length = None;
+      mstring_factories = Hashtbl.create 1;
       last_replier = None;
       timeout = (-1.0);
       max_retransmissions = 0;
@@ -1380,6 +1384,8 @@ let set_batch_call cl =
 let set_max_response_length cl n =
   cl.max_resp_length <- Some n
 
+let set_mstring_factories cl fac =
+  cl.mstring_factories <- fac
 
 let gen_shutdown cl is_running run ondown =
   if cl.ready then (

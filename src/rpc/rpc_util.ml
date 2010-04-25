@@ -226,6 +226,10 @@ let rec string_of_rec_arg recdefs t v =
     | Xdr.X_string _ ->
 	let s = Xdr.dest_xv_string v in
 	"\"" ^ String.escaped s ^ "\""
+    | Xdr.X_mstring(_, _) ->
+	let ms = Xdr.dest_xv_mstring v in
+	let (s,p) = ms#as_string in
+	"\"" ^ String.escaped (String.sub s p (ms#length-p)) ^ "\""
     | Xdr.X_array_fixed _
     | Xdr.X_array _ ->
 	string_of_array
@@ -289,6 +293,13 @@ let rec string_of_abbrev_arg t v =
 	let l = min 16 (String.length s) in
 	let suffix = if l < String.length s then "..." else "" in
 	"\"" ^ (String.escaped (String.sub s 0 l)) ^ "\"" ^ suffix
+
+    | Xdr.X_mstring (_,_) ->
+	let ms = Xdr.dest_xv_mstring v in
+	let (s,p) = ms#as_string in
+	let l = min 16 ms#length in
+	let suffix = if l < ms#length then "..." else "" in
+	"\"" ^ (String.escaped (String.sub s p l)) ^ "\"" ^ suffix
 
     | Xdr.X_array_fixed _
     | Xdr.X_array _ ->
@@ -397,3 +408,21 @@ let string_of_response v prog procname rv =
     | e ->
 	sprintf "[Exception in string_of_response: %s]"
 	  (Netexn.to_string e)
+
+
+let hex_dump_m m pos len =
+  let b = Buffer.create 100 in
+  for k = 0 to len - 1 do
+    let c = Bigarray.Array1.get m (pos+k) in
+    bprintf b "%02x " (Char.code c)
+  done;
+  Buffer.contents b
+
+
+let hex_dump_s s pos len =
+  let b = Buffer.create 100 in
+  for k = 0 to len - 1 do
+    let c = s.[pos+k] in
+    bprintf b "%02x " (Char.code c)
+  done;
+  Buffer.contents b

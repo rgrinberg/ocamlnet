@@ -18,3 +18,9 @@ val string_of_request :
 val string_of_response :
       verbosity -> Rpc_program.t -> string -> Xdr.xdr_value -> string
    (** Return the string representation of this call response *)
+
+val hex_dump_m :
+      Netsys_mem.memory -> int -> int -> string
+val hex_dump_s :
+      string -> int -> int -> string
+   (** Format the contents as hex sequence *)

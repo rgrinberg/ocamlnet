@@ -347,6 +347,11 @@ val set_exception_handler : t -> (exn -> unit) -> unit
    * fall through.
    *)
 
+val set_mstring_factories : t -> Xdr_mstring.named_mstring_factories -> unit
+  (** Sets the mstring factory configuration that is used for decoding
+      responses containing managed strings.
+   *)
+
 val event_system : t -> Unixqueue.event_system
   (** Returns the unixqueue to which the client is attached *)
 

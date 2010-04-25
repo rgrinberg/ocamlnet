@@ -156,6 +156,7 @@ type t =
 	mutable transport_timeout : float;
 	mutable nolog : bool;
 	mutable get_last_proc : unit->string;
+	mutable mstring_factories : Xdr_mstring.named_mstring_factories;
       }
 
 and connection =
@@ -449,10 +450,17 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 		   (fun () -> "Error " ^ errname condition) in
 	       schedule_answer answer
 	    )
-      | Xdr.Xdr_format _
-      | Xdr.Xdr_format_message_too_long _ ->          (* Convert to Garbage *)
-	  protect_protect
-	    (fun () ->
+      | (Xdr.Xdr_format _
+	| Xdr.Xdr_format_message_too_long _ as e
+	) ->
+          (* Convert to Garbage *)
+	   protect_protect
+	     (fun () ->
+		dlogr srv
+		 (fun () ->
+		    sprintf "Emitting Garbage after exception: %s"
+		      (Netexn.to_string e)
+		 );
 	       let xid = Rpc_packer.peek_xid message in
 	       let reply = Rpc_packer.pack_accepting_reply xid
 			     ret_flav ret_data Garbage in
@@ -576,6 +584,7 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 
 		       let param =
 			 Rpc_packer.unpack_call_body
+			   ~mstring_factories:srv.mstring_factories
 			   prog procname message frame_len in
 
 		       srv.get_last_proc <-
@@ -959,6 +968,7 @@ let create2_srv prot esys =
     transport_timeout = (-1.0);
     nolog = false;
     get_last_proc = (fun () -> "");
+    mstring_factories = Hashtbl.create 1
   }
 ;;
 
@@ -1722,6 +1732,9 @@ let set_auth_methods srv l =
 
 let set_timeout srv tmo =
   srv.transport_timeout <- tmo
+
+let set_mstring_factories srv fac =
+  srv.mstring_factories <- fac
 
 let stop_server ?(graceful = false) srv =
   dlogr srv

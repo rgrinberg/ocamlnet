@@ -51,6 +51,8 @@ type xdr_type =
   | T_opaque_unlimited
   | T_string  of xdr_constant ref
   | T_string_unlimited
+  | T_mstring of string * xdr_constant ref
+  | T_mstring_unlimited of string
   | T_option of xdr_type
   | T_void
   | T_array_fixed of (xdr_constant ref * xdr_type)
@@ -248,6 +250,7 @@ let resolve_constants dl =
 	T_opaque_fixed c    -> resolve_const c
       | T_opaque c          -> resolve_const c
       | T_string c          -> resolve_const c
+      | T_mstring(_,c)      -> resolve_const c
       | T_option t'         -> check_type t'
       | T_array_fixed(c,t') -> resolve_const c; check_type t'
       | T_array(c,t')       -> resolve_const c; check_type t'
@@ -404,6 +407,7 @@ let check_type_constraints dl =
 	T_opaque_fixed c     -> unsigned_int (constant !c)
       | T_opaque c           -> unsigned_int (constant !c)
       | T_string c           -> unsigned_int (constant !c)
+      | T_mstring(_,c)       -> unsigned_int (constant !c)
       | T_option t'          -> check_type t'
       | T_array_fixed(c,t')  -> unsigned_int (constant !c); check_type t'
       | T_array(c,t')        -> unsigned_int (constant !c); check_type t'

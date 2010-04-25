@@ -18,7 +18,7 @@
 %token K_float K_double K_quadruple K_bool
 %token K_enum K_struct K_union K_switch K_case K_default
 %token K_const K_typedef K_program K_version
-%token K_int32 K_int64 K_unboxed K_abstract
+%token K_int32 K_int64 K_unboxed K_abstract K_managed
 %token IGNORE PERCENT
 %token <int*int> LINEFEED
 %token <int*string> SETFILE
@@ -54,6 +54,13 @@ declaration:
       match v_opt with
 	  None   -> mk_decl $2 (T_string_unlimited)
 	| Some v -> mk_decl $2 (T_string v)
+    }
+| K_managed K_string declared_identifier LANGLE value_opt RANGLE
+    { let v_opt = $5 in
+      let name = ( $3 ).xdr_name in
+      match v_opt with
+	  None   -> mk_decl $3 (T_mstring_unlimited name)
+	| Some v -> mk_decl $3 (T_mstring(name,v))
     }
 | type_specifier STAR declared_identifier
     { mk_decl $3 (T_option $1) }

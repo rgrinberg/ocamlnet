@@ -226,17 +226,18 @@ object(self)
 	| Some error ->
 	    when_done (`Error error) in
 
-    let s = string_of_packed_value pv in
-    let slen = String.length s in
-    if slen > fallback_size && mplex#mem_supported then (
-      let mlen = min slen mem_size in
-      Netsys_mem.blit_string_to_memory s 0 wr_buffer 0 mlen;
+    let mstrings = mstrings_of_packed_value pv in
+    let len = Xdr_mstring.length_mstrings mstrings in
+
+    if len > fallback_size && len <= mem_size && mplex#mem_supported then (
+      Xdr_mstring.blit_mstrings_to_memory mstrings wr_buffer;
       mplex # start_mem_writing
-	~when_done:(mplex_when_done slen) wr_buffer 0 mlen
+	~when_done:(mplex_when_done len) wr_buffer 0 len
     )
     else
+      let s = Xdr_mstring.concat_mstrings mstrings in
       mplex # start_writing
-	~when_done:(mplex_when_done slen) s 0 slen;
+	~when_done:(mplex_when_done len) s 0 len;
     self # timer_event `Start `W
     (* start_mem_writing is only reasonable for dealing with messages larger
        than 16K that are not supported by [Unix.send].
@@ -402,6 +403,11 @@ object(self)
 	mplex # start_mem_reading 
 	  ?peek 
 	  ~when_done:(fun exn_opt n ->
+			dlogr (fun () ->
+				 sprintf "Reading [mem]: %s%s"
+				   (Rpc_util.hex_dump_m b start (min n 200))
+				   (if n > 200 then "..." else "")
+			      );
 			Netpagebuffer.advance rd_buffer n;
 			mplex_when_done exn_opt n
 		     )
@@ -413,6 +419,12 @@ object(self)
 	mplex # start_reading
 	  ?peek
 	  ~when_done:(fun exn_opt n ->
+			dlogr (fun () ->
+				 sprintf "Reading [str]: %s%s"
+				   (Rpc_util.hex_dump_s 
+				      rd_buffer_nomem 0 (min n 200))
+				   (if n > 200 then "..." else "")
+			      );
 			Netpagebuffer.add_sub_string 
 			  rd_buffer rd_buffer_nomem 0 n;
 			mplex_when_done exn_opt n
@@ -565,23 +577,68 @@ object(self)
 
     assert(not mplex#writing);
 
-    let rec est_writing s pos mpos mlen =
-      let slen = String.length s in
-      let len = slen - pos in
+    (* - `String(s,p,l): We have still to write s[p] to s[p+l-1]
+       - `Memory(m,p,l,ms,q): We have still to write
+          m[p] to m[p+l-1], followed by ms[q] to end of ms
+          (where ms is the managed string)
+     *)
 
-      let mplex_when_done exn_opt n =
+    let item_of_mstring ms r =
+      (* Create the item for ms, starting at offset r *)
+      let l = ms#length in
+      assert(r <= l);
+      match ms # preferred with
+	| `String ->
+	    if mplex#mem_supported then (
+	      let n = min (l-r) mem_size in
+	      ms#blit_to_memory r wr_buffer 0 n;
+	      `Memory(wr_buffer, 0, n, ms, r+n)
+	    )
+	    else
+	      let (s,pos) = ms#as_string in (* usually only r=0 *)
+	      `String(s,pos+r,l-r)
+	| `Memory ->
+	    if mplex#mem_supported then (
+	      let (m,pos) = ms#as_memory in
+	      `Memory(m, pos+r, l-r, ms, l)
+	    )
+	    else
+	      let (s,pos) = ms#as_string in
+	      `String(s,pos+r,l-r)
+    in
+
+    let item_is_empty =
+      function
+	| `String(_,_,l) -> l=0
+	| `Memory(_,_,l,ms,q) -> l=0 && ms#length=q in
+
+    let rec est_writing item mstrings =
+      (* [item] is the current buffer to write; and [mstrings] need to be
+	 written after that
+       *)
+      let mplex_when_done exn_opt n = (* n bytes written *)
 	self # timer_event `Stop `W;
 	match exn_opt with
 	  | None ->
-	      let pos' = pos + n in
-	      assert(pos' <= slen);
-	      if pos' = slen then (
-		if not aborted then
-		  when_done (`Ok ())
-	      )
-	      else (
-		if not aborted then
-		  est_writing s pos' (mpos+n) mlen
+	      ( match item with
+		  | `Memory(m,p,l,ms,q) ->
+		      let l' = l-n in
+		      if l' > 0 then
+			est_writing (`Memory(m,p+n,l',ms,q)) mstrings
+		      else (
+			let mlen = ms#length in
+			if q < mlen then
+			  let item' = item_of_mstring ms q in
+			  est_writing item' mstrings
+			else
+			  est_writing_next mstrings
+		      )
+		  | `String(s,p,l) ->
+		      let l' = l-n in
+		      if l' > 0 then
+			est_writing (`String(s,p+n,l')) mstrings
+		      else 
+			est_writing_next mstrings
 	      )
 	  | Some Uq_engines.Cancelled ->
 	      ()  (* ignore *)
@@ -589,21 +646,38 @@ object(self)
 	      if not aborted then
 		when_done (`Error error)
       in
-      if mplex#mem_supported then (
-	if mpos < mlen then  (* feels a bit hacky... *)
-	  mplex # start_mem_writing
-	    ~when_done:mplex_when_done wr_buffer mpos (mlen-mpos)
-	else (
-	  let mlen = min len mem_size in
-	  Netsys_mem.blit_string_to_memory s pos wr_buffer 0 mlen;
-	  mplex # start_mem_writing
-	    ~when_done:mplex_when_done wr_buffer 0 mlen
-	)
-      )
-      else
-	mplex # start_writing
-	  ~when_done:mplex_when_done s pos len;
+
+      ( match item with
+	  | `Memory(m,p,l,_,_) ->
+	      dlogr (fun () ->
+		       sprintf "Writing [mem]: %s%s" 
+			 (Rpc_util.hex_dump_m m p (min l 200))
+			 (if l > 200 then "..." else "")
+		    );
+	      mplex # start_mem_writing
+		~when_done:mplex_when_done m p l
+	  | `String(s,p,l) ->
+	      dlogr (fun () ->
+		       sprintf "Writing [str]: %s%s" 
+			 (Rpc_util.hex_dump_s s p (min l 200))
+			 (if l > 200 then "..." else "")
+		    );
+	      mplex # start_writing
+		~when_done:mplex_when_done s p l
+      );
       self # timer_event `Start `W
+
+    and  est_writing_next mstrings =
+      match mstrings with
+	| ms :: mstrings' ->
+	    let item' = item_of_mstring ms 0 in
+	    if item_is_empty item' then
+	      est_writing_next mstrings'
+	    else
+	      est_writing item' mstrings'
+	| [] ->
+	    if not aborted then
+	      when_done (`Ok ())
     in
 
     ( match addr with
@@ -613,12 +687,34 @@ object(self)
 	      failwith "Rpc_transport.stream_rpc_multiplex_controller: \
                         cannot send to this address"
     );
-    let s = rm_string_of_packed_value pv in
-    (* Patch record marker at the beginning of [s] *)
-    let rm = Rtypes.uint4_of_int (String.length s - 4) in
+    let mstrings0 = mstrings_of_packed_value pv in
+    let payload_len = Xdr_mstring.length_mstrings mstrings0 in
+    (* Prepend record marker *)
+    let s = String.create 4 in
+    let rm = Rtypes.uint4_of_int payload_len in
     Rtypes.write_uint4 s 0 rm;
     s.[0] <- Char.chr (Char.code s.[0] lor 0x80);
-    est_writing s 0 0 0
+    (* If the first mstring is small, just concatenate *)
+    let mstrings =
+      match mstrings0 with
+	| ms0 :: mstrings0 when ms0#length < 1000 ->
+	    let s' =
+	      String.create (ms0#length + 4) in
+	    String.blit s 0 s' 0 4;
+	    ms0 # blit_to_string 0 s' 4 ms0#length;
+	    let ms0' =
+	      Xdr_mstring.string_based_mstrings # create_from_string
+		s' 0 (String.length s') false in
+	    ms0' :: mstrings0
+	| _ ->
+	    (* For longer stuff we assume that two syscalls are cheaper 
+	       than copying
+	     *)
+	    let ms = 
+	      Xdr_mstring.string_based_mstrings # create_from_string 
+		s 0 4 false in
+	    ms :: mstrings0 in
+    est_writing_next mstrings
 
 
   method cancel_rd_polling () =

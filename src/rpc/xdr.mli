@@ -67,6 +67,7 @@ open Rtypes;;
  * - [X_opaque_fixed n]:           [opaque[n]]
  * - [X_opaque n]:                 [opaque<n>]
  * - [X_string n]:                 [string<n>]
+ * - [X_mstring(name,n)]:          [_managed string<n>] (see below)
  * - [X_array_fixed (t,n)]:        [t[n]]
  * - [X_array (t,n)]:              [t<n>]
  * - [X_struct [x1,t1;...]]:       [struct { t1 x1; ...}]
@@ -98,6 +99,11 @@ open Rtypes;;
  * Example how to define a recursive type:
  *
  * [X_rec ("a", X_array ( X_struct ["value", X_int; "next", X_refer "a"], 1))]
+ *
+ * {b Managed strings} are represented as [X_mstring(name,n)]. The [name] refers
+ * to the preferred factory for managed strings (needs to be passed to the
+ * XDR unpacker). Values for managed strings are objects of type
+ * {!Xdr_mstring.mstring}.
  *)
 
 type xdr_type_term =
@@ -111,6 +117,7 @@ type xdr_type_term =
   | X_opaque_fixed of uint4
   | X_opaque of uint4
   | X_string of uint4
+  | X_mstring of string * uint4
   | X_array_fixed of xdr_type_term * uint4
   | X_array of xdr_type_term * uint4
   | X_struct of (string * xdr_type_term) list
@@ -161,6 +168,9 @@ val x_opaque_max : xdr_type_term
 val x_string_max : xdr_type_term
 (** Common abbreviation for strings of arbitrary length *)
 
+val x_mstring_max : string -> xdr_type_term
+(** Common abbreviation for mstrings of arbitrary length *)
+
 val x_array_max : xdr_type_term -> xdr_type_term
 (** Common abbreviation for arrays of arbitrary length *)
 
@@ -203,6 +213,8 @@ type xdr_value =
       (** To be used with an [X_array] or [X_array_fixed] with an inner
           type of [X_string]
        *)
+  | XV_mstring of Xdr_mstring.mstring
+ 
   (* TODO: arrays of int, uint, hyper, uhyper, opaque, float, double *)
 
 val xv_true : xdr_value
@@ -229,6 +241,7 @@ val dest_xv_float : xdr_value -> fp4
 val dest_xv_double : xdr_value -> fp8
 val dest_xv_opaque : xdr_value -> string
 val dest_xv_string : xdr_value -> string
+val dest_xv_mstring : xdr_value -> Xdr_mstring.mstring
 val dest_xv_array : xdr_value -> xdr_value array
 val dest_xv_array_of_string_fast : xdr_value -> string array
 val dest_xv_struct : xdr_value -> (string * xdr_value) list
@@ -332,17 +345,29 @@ val pack_xdr_value_as_string :
    *     record mark
    *)
 
+val pack_xdr_value_as_mstrings :
+       xdr_value -> xdr_type -> (string*xdr_type) list -> 
+         Xdr_mstring.mstring list
+  (** The concatanated mstrings are the packed representation *)
+
+
 
 val unpack_xdr_value : ?pos:int -> ?len:int -> ?fast:bool -> ?prefix:bool ->
+                       ?mstring_factories:Xdr_mstring.named_mstring_factories->
                        string -> xdr_type -> (string * xdr_type) list ->
                        xdr_value
 val unpack_xdr_value_l : ?pos:int -> ?len:int -> ?fast:bool -> ?prefix:bool ->
+                        ?mstring_factories:Xdr_mstring.named_mstring_factories->
                          string -> xdr_type -> (string * xdr_type) list ->
                          (xdr_value * int)
   (** [fast]: whether to prefer the new "fast" values (default: false)
    *
    * [prefix]: whether it is ok that the string is longer than the message
    *   (default: false)
+   *
+   * [mstring_factories]: when a [T_mstring(name,_)] type is found, the
+   * factory is looked up in this hash table under [name]. If there is no such
+   * factory, unpacking fails! (Default: empty table.)
    *
    * The variant [unpack_xdr_value_l] returns not only the decoded value,
    * but also the actual length in bytes.
