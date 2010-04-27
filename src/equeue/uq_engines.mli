@@ -15,13 +15,13 @@
  * It is possible to ask an engine to notify another object when it
  * changes its state. For simplicity, notification is done by invoking
  * a callback function, and not by issuing notification events.
- *)
-
-(** {b THREAD SAFETY}
  *
- * Unclear.
+ * Effectively, engines provide a calculus for cooperative microthreading.
+ * This calculus includes combinators for sequential execution and
+ * synchronization. Moreover, it is easy to connect it with callback-style
+ * microthreading - one can arrange callbacks when an engine is done, and
+ * one can catch callbacks and turn them into engines.
  *)
-
 
 (** {1 Exceptions} *)
 
@@ -30,11 +30,11 @@ exception Closed_channel
    * methods count).
    *
    * This exception should be regarded as equivalent to
-   * [Netchannels.Closed_channel], but it is not the same exception.
+   * [Netchannels.Closed_channel], but need not be the same exception.
    *)
 
 exception Broken_communication
-  (** Engines indicate this error when they cannot continue because the
+  (** Some engines indicate this error when they cannot continue because the
    * other endpoint of communication signals an error.
    *
    * This exception is not raised, but used as argument of the [`Error]
@@ -48,6 +48,8 @@ exception Watchdog_timeout
    * state.
    *)
 
+exception Timeout
+  (** Used by [input_engine] and [output_engine] to indicate timeouts *)
 
 exception Addressing_method_not_supported
   (** Raised by [client_socket_connector] and [server_socket_acceptor] to
@@ -90,6 +92,20 @@ type 't engine_state =
 ;;
 
 
+type 't final_state =
+  [ `Done of 't
+  | `Error of exn
+  | `Aborted
+  ]
+    (** Same as [engine_state] without [`Working]. These are only the final
+	states.
+     *)
+
+
+val string_of_state : 'a engine_state -> string
+  (** For debug purposes: Returns a string describing the state *)
+
+
 (** This class type defines the interface an engine must support. The
  * class parameter ['t] is the type of the result values (when the
  * engine goes to state [`Done]).
@@ -118,6 +134,9 @@ class type [ 't ] engine = object
      * There can be any number of parallel active notifications. It is
      * allowed that a notification callback function requests further
      * notifications.
+     *
+     * If the callback raises an exception, this exception is
+     * propagated to the caller of {!Unixqueue.run}.
      *)
   method event_system : Unixqueue.event_system
     (** Returns the event system the engine is attached to *)
@@ -125,28 +144,63 @@ end
 ;;
 
 
-(** {1 Generic functions and classes} *)
+class ['t] delegate_engine : 't #engine -> ['t] engine
+   (** Turns an engine value into a class *)
+
+(** {1 Engines and callbacks} *)
+
 
 val when_state : ?is_done:('a -> unit) ->
                  ?is_error:(exn -> unit) ->
                  ?is_aborted:(unit -> unit) ->
+                 ?is_progressing:(int -> unit) ->
                  'a #engine ->
 		   unit
   (** Watches the state of the argument engine, and arranges that one of
-   * the functions is called when a final state is reached. After the
-   * function has been called, the engine is no longer watched.
+   * the functions is called when the corresponding state change is done. 
+   * Once a final state is reached, the engine is no longer watched.
+   *
+   * If one of the functions raises an exception, this exception is
+   * propagated to the caller of {!Unixqueue.run}.
    * 
    * @param is_done The state transitions to [`Done]. The argument of
    *   [is_done] is the argument of the [`Done] state.
    * @param is_error The state transitions to [`Error]. The argument of
    *   [is_error] is the argument of the [`Error] state.
    * @param is_aborted The state transitions to [`Aborted].
+   * @param is_progressing This function is called when the [`Working]
+   *   state changes. The int argument is the new [`Working] arg.
    *)
 
+class ['a] signal_engine : Unixqueue.event_system ->
+object
+  inherit ['a] engine
+  method signal : 'a final_state -> unit
+end
+  (** [let se = new signal_engine esys]: The engine [se] remains in
+      [`Working 0] until the method [se # signal x] is called. At this point
+      [e] transitions to [x]. Any further call of [signal] does not
+      have any effect.
+
+      Also, if [se] is aborted, [signal] does not have any effect.
+   *)
+
+val signal_engine : Unixqueue.event_system -> 
+                      'a engine * ('a final_state -> unit)
+  (** [let (se, signal) = signal_engine esys]: Same as function *)
+
+
+
+(** {1 Combinators} *)
+
+(** The following combinators serve as the control structures to connect
+    primitive engines with each other.
+ *)
 
 class ['a,'b] map_engine : map_done:('a -> 'b engine_state) ->
                            ?map_error:(exn -> 'b engine_state) ->
                            ?map_aborted:(unit -> 'b engine_state) ->
+                           ?propagate_working : bool ->
                            'a #engine ->
 			     ['b] engine
   (** The [map_engine] observes the argument engine, and when the
@@ -164,6 +218,9 @@ class ['a,'b] map_engine : map_done:('a -> 'b engine_state) ->
    * If the mapped engine is aborted, this request will be forwarded
    * to the argument engine.
    *
+   * If one of the mapping functions raises an exception, this causes
+   * a transiton to [`Error].
+   *
    * @param map_done Maps the [`Done] state of the argument engine to
    *   another state. The argument of [map_done] is the argument of the
    *   [`Done] state. Note that [map_done] is non-optional only because
@@ -173,13 +230,45 @@ class ['a,'b] map_engine : map_done:('a -> 'b engine_state) ->
    *   [`Error] state. 
    * @param map_aborted Maps the [`Aborted] state of the argument engine to
    *   another state.
+   * @param propagate_working Specifies whether changes of the [`Working]
+   *   state in the argument engine are propagated. Defaults to [true].
+   *   If set to [false], the mapped engine remains in [`Working 0] until
+   *   it transitions to a final state.
    *
    *)
 
 
-class ['t] epsilon_engine : 't engine_state -> Unixqueue.event_system -> ['t] engine
+val map_engine : map_done:('a -> 'b engine_state) ->
+                 ?map_error:(exn -> 'b engine_state) ->
+                 ?map_aborted:(unit -> 'b engine_state) ->
+                 ?propagate_working : bool ->
+                 'a #engine ->
+                    'b engine
+  (** Same as function *)
+
+class ['a] fmap_engine : 'a #engine -> 
+                         ('a final_state -> 'a final_state) -> 
+                             ['a] engine
+  (** Similar to [map_engine] but different calling conventions: The
+      mapping function is called when the argument engine reaches a
+      final state, and this state can be mapped to another final state.
+   *)
+  
+val fmap_engine : 'a #engine -> 
+                   ('a final_state -> 'a final_state) -> 
+                     'a engine
+  (** Same as function *)
+
+class ['a] meta_engine : 'a #engine -> ['a engine_state] engine
+  (** maps the final state [s] to [`Done s] *)
+
+val meta_engine : 'a #engine -> 'a engine_state engine
+  (** Same as function *)
+
+class ['t] epsilon_engine : 
+             't engine_state -> Unixqueue.event_system -> ['t] engine
   (** This engine transitions from its initial state [`Working 0] in one
-   * step to the passed constant state.
+   * step ("epsilon time") to the passed constant state.
    *
    * In previous versions of this library the class was called [const_engine].
    * However, this is not a constant thing. In particular, it is possible
@@ -187,6 +276,11 @@ class ['t] epsilon_engine : 't engine_state -> Unixqueue.event_system -> ['t] en
    * To avoid programming errors because of the misnomer, this class has been
    * renamed.
    *)
+
+
+val epsilon_engine : 
+     't engine_state -> Unixqueue.event_system -> 't engine
+  (** Same as function *)
 
 
 class ['a, 'b] seq_engine : 'a #engine -> ('a -> 'b #engine) -> ['b] engine
@@ -205,7 +299,32 @@ class ['a, 'b] seq_engine : 'a #engine -> ('a -> 'b #engine) -> ['b] engine
    * sequential engine [eng_s] does so, too. If [eng_s] is aborted,
    * this request will be forwarded to the currently active engine,
    * [eng_a] or [eng_b].
+   *
+   * If calling [f] results in an exception, this is handled as if [eng_a]
+   * signaled an exception.
    *)
+
+
+val seq_engine : 'a #engine -> ('a -> 'b #engine) -> 'b engine
+  (** Same as function *)
+
+class ['a] stream_seq_engine : 'a -> ('a -> 'a #engine) Stream.t -> 
+                               Unixqueue.event_system -> ['a] engine
+  (** [let se = new stream_seq_engine x0 s esys]: The constructed engine [se]
+    * fetches functions [f : 'a -> 'a #engine] from the stream [s], and
+    * runs the engines obtained by calling these functions [e = f x] one
+    * after the other. Each function call gets the result of the previous
+    * engine as argument. The first call gets [x0] as argument.
+    *
+    * If one of the engines [e] transitions into an error or aborted state,
+    * [se] will also do that. If [se] is aborted, this is passed down to
+    * the currently running engine [e].
+   *)
+
+
+val stream_seq_engine : 'a -> ('a -> 'a #engine) Stream.t -> 
+                         Unixqueue.event_system -> 'a engine
+  (** Same as function *)
 
 
 class ['a, 'b] sync_engine : 'a #engine -> 'b #engine -> ['a * 'b] engine
@@ -222,7 +341,196 @@ class ['a, 'b] sync_engine : 'a #engine -> 'b #engine -> ['a * 'b] engine
    * to both member engines.
    *)
 
-(** {1 Fundamental engines} *)
+val sync_engine : 'a #engine -> 'b #engine -> ('a * 'b) engine
+  (** Same as function *)
+
+
+class ['a,'b] msync_engine : 'a #engine list -> 
+                             ('a -> 'b -> 'b) ->
+                             'b ->
+                             Unixqueue.event_system -> 
+                             ['b] engine
+  (** Multiple synchronization: 
+      [let me = new msync_engine el f x0 esys] - Runs the engines in [el] in
+      parallel, and waits until all are [`Done]. The result of [me] is
+      then computed by folding the results of the part engines using
+      [f], with an initial accumulator [x0].
+
+      If one of the engines goes to the states [`Aborted] or [`Error],
+      the combined engine will follow this transition. The other,
+      non-aborted and non-errorneous engines are aborted in this case.
+      [`Error] has higher precedence than [`Aborted].
+
+      If calling [f] results in an exception, this is handled as if
+      the part engine signals an error.
+
+      If the combined engine is aborted, this request is forwarded
+      to all member engines.
+   *)
+
+val msync_engine : 'a #engine list -> 
+                   ('a -> 'b -> 'b) ->
+                   'b ->
+                   Unixqueue.event_system ->
+                      'b engine
+  (** Same as function *)			
+
+
+class ['a ] delay_engine : float -> (unit -> 'a #engine) -> 
+                           Unixqueue.event_system ->
+                             ['a] engine
+  (** [let de = delay_engine d f esys]: The engine [e = f()] is created
+      after [d] seconds, and the result of [e] becomes the result of [de].
+   *)
+
+
+val delay_engine : float -> (unit -> 'a #engine) -> 
+                   Unixqueue.event_system ->
+                     'a engine
+  (** Same as function *)
+
+class watchdog : float -> 
+                 'a #engine ->
+                   [unit] engine
+  (** A watchdog engine checks whether the argument engine makes
+   * progress, and if there is no progress for the passed number of
+   * seconds, the engine is aborted, and the watchdog state changes
+   * to [`Error Watchdog_timeout].
+   *
+   * The current implementation is not very exact, and it may take
+   * a little longer than the passed period of inactivity until the
+   * watchdog recognizes inactivity.
+   * 
+   * If the argument engine terminates, the watchdog changes its state to
+   * [`Done ()]
+   *
+   * Important note: The watchdog assumes that the [`Working] state 
+   * of the target engine really counts events that indicate progress.
+   * This does not work for:
+   * - [poll_process_engine]: there is no way to check whether a subprocess
+   *   makes progress
+   * - [connector]: It is usually not possible to reflect the progress
+   *   on packet level
+   * - [listener]: It is usually not possible to reflect the progress
+   *   on packet level
+   *)
+
+val watchdog : float -> 'a #engine -> unit engine
+  (** Same as function *)
+
+
+  (** A serializer queues up engines, and starts the next engine when the
+      previous one finishes.
+   *)
+class type ['a] serializer_t =
+object
+
+  method serialized : (Unixqueue.event_system -> 'a engine) -> 'a engine
+    (** [let se = serialized f]: Waits until all the previous engines reach
+	a final state, and then runs [e = f esys].
+
+        [se] enters a final state when [e] does.
+     *)
+end
+
+class ['a] serializer : Unixqueue.event_system -> ['a] serializer_t
+  (** Creates a serializer *)
+
+val serializer : Unixqueue.event_system -> 'a serializer_t
+  (** Same as function *)
+
+
+(** A cache contains a mutable value that is obtained by running an
+    engine.
+ *)
+class type ['a] cache_t =
+object
+  method get_engine : unit -> 'a engine
+    (** Requests the value. If it is not already in the cache, 
+        the engine for getting the value is started, and it is waited
+	until the value is available.
+     *)
+  method get_opt : unit -> 'a option
+    (** Returns the cached value if available *)
+  method put : 'a -> unit
+    (** Puts a value immediately into the cache. It replaces an existing
+	value. If it is currently tried to obtain a new value by running
+	an engine, this engine is kept running, and [get_engine] will
+	return its result. Only future calls of [get_engine] will return
+	the value just put into the cache.
+     *)
+  method invalidate : unit -> unit
+    (** Invalidates the cache - if a value exists in the cache, it is removed.
+	If in the future the cache value is requested via [get_engine] 
+        the engine will be started anew to get the value.
+
+        Note that (as for [put]) any already running [get_engine] is not
+	interrupted.
+     *)
+  method abort : unit -> unit
+    (** Any engine running to get the cache value is aborted, and the contents
+	of the cache are invalidated. Note that also the engines returned
+	by [get_engine] are aborted.
+     *)
+end
+
+class ['a] cache : (Unixqueue.event_system -> 'a engine) ->
+                   Unixqueue.event_system ->
+                     ['a] cache_t
+  (** [new cache f esys]: A cache that runs [f esys] to obtain values *)
+
+val cache : (Unixqueue.event_system -> 'a engine) ->
+            Unixqueue.event_system ->
+              'a cache_t
+  (** Same as function *)
+
+
+class ['t] engine_mixin : 't engine_state -> Unixqueue.event_system ->
+object
+  method state : 't engine_state
+  method private set_state : 't engine_state -> unit
+  method request_notification : (unit -> bool) -> unit
+  method private notify : unit -> unit
+  method event_system : Unixqueue.event_system
+end
+  (** A useful class fragment that implements [state] and 
+    * [request_notification].
+   *)							     
+
+
+module Operators : sig
+  (** The most important operators. This module should be opened. *)
+
+  val ( ++ ) : 'a #engine -> ('a -> 'b #engine) -> 'b engine
+    (** Another name for [seq_engine]. Use this operator to run engines in
+	sequence:
+
+	{[
+	    e1 ++ (fun r1 -> e2) ++ (fun r2 -> e3) ++ ...
+	]}
+
+	Here [rK] is the result of engine [eK].
+     *)
+
+  val ( >> ) : 'a #engine -> 
+                   ('a final_state -> 'a final_state) -> 
+                     'a engine
+    (** Another name for [fmap_engine]. Use this operator to map the
+	final value of an engine:
+
+	{[
+	    e >> (function `Done x -> ... | `Error e -> ... | `Aborted -> ...)
+	]}
+
+     *)
+
+  val eps_e : 't engine_state -> Unixqueue.event_system -> 't engine
+    (** Same as [epsilon_engine] *)
+
+end
+
+
+(** {1 Basic I/O engines} *)
 
 class poll_engine : ?extra_match:(exn -> bool) ->
                     (Unixqueue.operation * float) list -> 
@@ -265,11 +573,65 @@ end ;;
    *)
 
 
+class ['a] input_engine : (Unix.file_descr -> 'a) ->
+                          Unix.file_descr -> float -> Unixqueue.event_system ->
+                          ['a] engine
+  (** Generic input engine for reading from a file descriptor:
+      [let e = new input_engine f fd tmo] - Waits until the file descriptor
+      becomes readable, and calls then [let x = f fd] to read from the
+      descriptor. The result [x] is the result of the engine.
+
+      If the file descriptor does not become readable within [tmo] seconds,
+      the resulting engine transitions to [`Error Timeout].
+
+      Use this class to construct engines reading via [Unix.read] or
+      comparable I/O functions:
+
+      {[
+      let read_engine fd tmo esys =
+        new input_engine (fun fd ->
+                            let buf = String.create 4096 in
+                            let n = Unix.read fd buf 0 (String.length buf) in
+                            String.sub buf 0 n
+                         )
+                         fd tmo esys
+      ]}
+
+      This engine returns the read data as string.
+   *)
+
+class ['a] output_engine : (Unix.file_descr -> 'a) ->
+                           Unix.file_descr -> float -> Unixqueue.event_system ->
+                           ['a] engine
+  (** Generic output engine for writing to a file descriptor:
+      [let e = new output_engine f fd tmo] - Waits until the file descriptor
+      becomes writable, and calls then [let x = f fd] to write to the
+      descriptor. The result [x] is the result of the engine.
+
+      If the file descriptor does not become writable within [tmo] seconds,
+      the resulting engine transitions to [`Error Timeout].
+
+      Use this class to construct engines writing via [Unix.single_write] or
+      comparable I/O functions:
+
+      {[
+      let write_engine fd s tmo esys =
+        new output_engine (fun fd ->
+                             Unix.single_write fd s 0 (String.length s)
+                          )
+                          fd tmo esys
+      ]}
+
+      This engine returns the number of written bytes.
+   *)
+
 class poll_process_engine : ?period:float ->
                             pid:int -> 
                             Unixqueue.event_system ->
 			      [Unix.process_status] engine ;;
-  (** This engine waits until the process with the ID [pid] terminates.
+  (** {b This class is deprecated!} Use the classes in {!Shell_uq} instead.
+   * 
+   * This engine waits until the process with the ID [pid] terminates.
    * When this happens, the state of the engine changes to 
    * [`Done], and the argument of [`Done] is the process status.
    *
@@ -295,44 +657,6 @@ class poll_process_engine : ?period:float ->
    *   Defaults to 0.1 seconds.
    *)
 
-
-class watchdog : float -> 
-                 'a #engine ->
-                   [unit] engine
-  (** A watchdog engine checks whether the argument engine makes
-   * progress, and if there is no progress for the passed number of
-   * seconds, the engine is aborted, and the watchdog state changes
-   * to [`Error Watchdog_timeout].
-   *
-   * The current implementation is not very exact, and it may take
-   * a little longer than the passed period of inactivity until the
-   * watchdog recognizes inactivity.
-   * 
-   * If the argument engine terminates, the watchdog changes its state to
-   * [`Done ()]
-   *
-   * Important note: The watchdog assumes that the [`Working] state 
-   * of the target engine really counts events that indicate progress.
-   * This does not work for:
-   * - [poll_process_engine]: there is no way to check whether a subprocess
-   *   makes progress
-   * - [connector]: It is usually not possible to reflect the progress
-   *   on packet level
-   * - [listener]: It is usually not possible to reflect the progress
-   *   on packet level
-   *)
-
-
-class ['t] engine_mixin : 't engine_state -> 
-object
-  method state : 't engine_state
-  method private set_state : 't engine_state -> unit
-  method request_notification : (unit -> bool) -> unit
-  method private notify : unit -> unit
-end
-  (** A useful class fragment that implements [state] and 
-    * [request_notification].
-   *)							     
 
 (** {1 Transfer engines} *)
 
@@ -460,7 +784,7 @@ class receiver : src:Unix.file_descr ->
    * The engine goes to [`Error] state when either reading from [src]
    * or writing to [dst] raises an unexpected exception.
    *
-   * TODO: This class cannot yet cope with Win32 named piped.
+   * TODO: This class cannot yet cope with Win32 named pipes.
    *
    * @param close_src Whether to close [src] when the engine stops
    *   (default: [true])
@@ -489,7 +813,7 @@ class sender : src:#async_in_channel ->
    * The engine goes to [`Error] state when either reading from [src]
    * or writing to [dst] raises an unexpected exception.
    *
-   * TODO: This class cannot yet cope with Win32 named piped.
+   * TODO: This class cannot yet cope with Win32 named pipes.
    *
    * @param close_src Whether to close [src] when the engine stops
    *   (default: [true])
@@ -1145,6 +1469,14 @@ object
       *
       * The function [peek] is called immediately before data is read in
       * from the underlying communication channel.
+      *
+      * For getting an engine-based version of [start_reading], use
+      * a [signal_engine]:
+      * {[ 
+      *    let (e, signal) = signal_engine esys in
+      *    mplex # start_reading ~when_done:(fun xo n -> signal (xo,n)) ...
+      * ]}
+      * Now [e] will transition to [`Done(x0,n)] when the read is done.
      *)
 
   method start_mem_reading : 
@@ -1180,6 +1512,9 @@ object
       * after [when_done] has been invoked.
       *
       * It is an error to start writing several times.
+      *
+      * See the comment for [start_reading] for how to get an engine-based
+      * version of this method.
      *)
 
   method start_mem_writing : 
@@ -1207,6 +1542,9 @@ object
       *
       * It is an error to start writing several times. It is an error to
       * write EOF when the socket does not support half-open connections.
+      *
+      * See the comment for [start_reading] for how to get an engine-based
+      * version of this method.
      *)
 
   method cancel_writing : unit -> unit
@@ -1242,6 +1580,9 @@ object
       * It is only lingered when the EOF was written before the EOF 
       * is seen on input.
       * Defaults to [linger 60.0]. Set to 0 to turn off.
+      *
+      * See the comment for [start_reading] for how to get an engine-based
+      * version of this method.
      *)
 
   method cancel_shutting_down : unit -> unit

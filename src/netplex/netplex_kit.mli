@@ -133,3 +133,26 @@ val add_helper_service : controller -> string -> processor_hooks -> unit
       {b Known bug.} The the helper component will be in "starting" state as 
       long as the [post_start_hook] runs.
    *)
+
+val create_protocol : ?lstn_backlog:int -> 
+                      ?lstn_reuseaddr:bool ->
+                      ?so_keepalive:bool -> 
+                      ?configure_slave_socket:(Unix.file_descr ->unit) ->
+                      string ->
+                      extended_address array ->
+                        protocol
+  (** [create_protocol name addresses]: Creates a [protocol] object
+      from the passed arguments
+   *)
+			
+val create_socket_service_config : 
+                      ?startup_timeout:float ->
+                      ?change_user_to:(int*int) ->
+                      string ->
+                      protocol list ->
+                      controller_config ->
+                        socket_service_config
+  (** [create_socket_service_config name protos ctrl_conf]: Creates a
+      [socket_service_config] object from the passed arguments
+   *)
+

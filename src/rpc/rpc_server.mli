@@ -97,6 +97,9 @@ type binding =
   | Async of binding_async   (** bind an asynchonous procedure *)
 
 
+val connector_of_sockaddr : Unix.sockaddr -> connector
+  (** Converts the socket address into a connector *)
+
 val create :
     ?program_number:uint4 ->  (* Override program number *)
     ?version_number:uint4 ->  (* Override version number *)

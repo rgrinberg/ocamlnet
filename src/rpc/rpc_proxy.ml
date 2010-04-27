@@ -721,6 +721,56 @@ module ManagedClient = struct
       mc.esys
       (unbound_async_call mc prog procname)
       param
+
+
+  let rpc_engine mclient f arg =
+    (** The client RPC call of [f] with [arg] is wrapped into an engine *)
+    let esys = event_system mclient in
+    ( object(self)
+	inherit [_] Uq_engines.engine_mixin (`Working 0) esys
+	  
+	val mutable finished = false
+	val mutable aborted = false
+	  
+	initializer (
+	  (** We delay the invocation of [f] minimally. Otherwise, the engine
+              could reach a final state before any listeners would have the
+              chance to register their callbacks.
+	   *)
+	  let g = Unixqueue.new_group esys in
+	  Unixqueue.once esys g 0.0
+	    (fun () ->
+	       f
+		 mclient
+		 arg
+		 (fun get_reply ->
+		    finished <- true;
+		    if aborted then
+		      self # set_state `Aborted
+		    else
+		      try
+			let r = get_reply() in
+			self # set_state (`Done r)
+		      with
+			| error ->
+			    self # set_state (`Error error)
+		 )
+	    )
+	)
+	  
+	method event_system =
+	  esys
+	    
+	method abort() =
+	  (** There is no way to abort an RPC call. We only can suppress that
+              it reaches the caller.
+	   *)
+	  if not finished then
+	    aborted <- true
+	      
+      end
+  )
+
 end
 
 

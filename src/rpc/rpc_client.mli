@@ -114,6 +114,9 @@ type connector =
   | Portmapped of string
       (** The portmapper on this host is queried to get address information *)
 
+val connector_of_sockaddr : Unix.sockaddr -> connector
+  (** Converts the socket address into a connector *)
+
 val shutdown_connector : 
   t -> Rpc_transport.rpc_multiplex_controller -> (unit -> unit) -> unit
   (** The default implementation to shut down the connector. Actions are

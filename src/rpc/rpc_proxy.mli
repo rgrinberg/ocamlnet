@@ -209,6 +209,22 @@ module ManagedClient : sig
       have a procedure number 0 of type [void -> void].
 
       In multi-threaded programs, threads must not share managed clients.
+
+      Managed clients can be used together with ocamlrpcgen-generated
+      modules. Provided the generated module [M_clnt] contains the
+      client code for program [P] and version [V], one can do
+
+      {[
+         module MC = M_clnt.Make'P(Rpc_proxy.ManagedClient)
+      ]}
+
+      and call RPCs [f] as in
+
+      {[
+         let res = MC.V.f mc arg
+      ]}
+
+      (if [mc] is the managed client, and [arg] the argument).
    *)
  
   type mclient
@@ -363,6 +379,21 @@ module ManagedClient : sig
 
   val set_batch_call : mclient -> unit
     (** The next call is a batch call. See {!Rpc_client.set_batch_call} *)
+
+  val rpc_engine : mclient -> 
+                   (mclient -> 'a -> ((unit -> 'b) -> unit) -> unit) ->
+                   'a ->
+                     'b Uq_engines.engine
+    (** Call an RPC function in engine style:
+
+        {[ let e = rpc_engine mc f_rpc ]}
+
+        where [f_rpc] is one of the generated client functions (async
+	signature). The engine reaches [`Done r] when the result [r]
+	has arrived.
+
+	The engine is not abortable (shut the client down instead).
+     *)
 
   val compare : mclient -> mclient -> int
     (** [ManagedClient] can be used with [Set.Make] and [Map.Make] *)

@@ -309,6 +309,13 @@ let () =
 
   (*****)
 
+let connector_of_sockaddr =
+  function
+    | Unix.ADDR_INET(ip,p) ->
+	Internet(ip,p)
+    | Unix.ADDR_UNIX s ->
+	Unix s
+
 let sockaddrname sa =
   match sa with
     | Unix.ADDR_INET(addr, port) ->

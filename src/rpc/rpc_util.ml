@@ -410,6 +410,9 @@ let string_of_response v prog procname rv =
 	  (Netexn.to_string e)
 
 
+let string_of_value t xv =
+  string_of_full_arg t xv
+
 let hex_dump_m m pos len =
   let b = Buffer.create 100 in
   for k = 0 to len - 1 do

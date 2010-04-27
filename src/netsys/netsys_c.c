@@ -932,20 +932,20 @@ static void sigchld_process(pid_t pid) {
     */
     sigchld_lock(0, 0);
 
-    /* Now search for the PID */
-    atom = NULL;
+    /* We check here all processes. Actually, the pid parameter is
+       ignored. This is because consecutive signals can be merged
+       in Unix.
+    */
+
     for (k=0; k<sigchld_list_len && atom==NULL; k++) {
-	if (sigchld_list[k].pid == pid) {
-	    atom = &(sigchld_list[k]);
+	atom = &(sigchld_list[k]);
+	if (atom->pid != 0 && ! atom->terminated) {
+	    waitpid(pid, &(atom->status), WNOHANG);
+	    if (! atom->ignore) {
+		close(atom->pipe_fd);
+	    }
+	    atom->terminated = 1;
 	}
-    }
-    
-    if (atom != NULL) {
-	waitpid(pid, &(atom->status), WNOHANG);
-	if (! atom->ignore && ! atom->terminated) {
-	    close(atom->pipe_fd);
-	}
-	atom->terminated = 1;
     }
 
     sigchld_unlock(0);
@@ -2221,9 +2221,12 @@ CAMLprim value netsys_mcast_add_membership(value fd,
         memcpy(&mreq.ipv6mr_multiaddr,
                &GET_INET6_ADDR(group_addr),
                16);
+	/*
         memcpy(&mreq.ipv6mr_interface,
                &GET_INET6_ADDR(if_addr),
                16);
+	*/
+	mreq.ipv6mr_interface = 0;   /* FIXME */
         r = setsockopt(fd_sock, 
                        IPPROTO_IPV6, 
                        IPV6_ADD_MEMBERSHIP, 
@@ -2287,9 +2290,12 @@ CAMLprim value netsys_mcast_drop_membership(value fd,
         memcpy(&mreq.ipv6mr_multiaddr,
                &GET_INET6_ADDR(group_addr),
                16);
+	mreq.ipv6mr_interface = 0;   /* FIXME */
+	/*
         memcpy(&mreq.ipv6mr_interface,
                &GET_INET6_ADDR(if_addr),
                16);
+	*/
         r = setsockopt(fd_sock,
                        IPPROTO_IPV6, 
                        IPV6_DROP_MEMBERSHIP, 

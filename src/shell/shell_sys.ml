@@ -1804,7 +1804,7 @@ class job_engine esys pg =
       ) in
 
 object(self)
-  inherit [unit] Uq_engines.engine_mixin (`Working 0)
+  inherit [unit] Uq_engines.engine_mixin (`Working 0) esys
 
   val mutable group = Unixqueue.new_group esys
 

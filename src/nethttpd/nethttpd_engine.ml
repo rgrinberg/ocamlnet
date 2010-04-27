@@ -545,7 +545,7 @@ class http_engine ~on_request_header () config fd ues =
   let handle_event_lock = ref false in
   let fdi = Netsys.int64_of_file_descr fd in
 object(self)
-  inherit [unit] Uq_engines.engine_mixin (`Working 0)
+  inherit [unit] Uq_engines.engine_mixin (`Working 0) ues
 
   val fd_addr = Unix.getsockname fd
   val peer_addr = Netsys.getpeername fd

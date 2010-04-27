@@ -212,3 +212,28 @@ let add_helper_service ctrl name hooks =
     Netplex_workload.create_constant_workload_manager ~restart:false 1 in
   ctrl # add_service helper_service helper_wload_mng
 
+let create_protocol ?(lstn_backlog=20)
+                    ?(lstn_reuseaddr=true) 
+                    ?(so_keepalive=true)
+                    ?(configure_slave_socket=fun _ -> ())
+		    name addrs : protocol =
+  ( object
+      method name = name
+      method addresses = addrs
+      method lstn_backlog = lstn_backlog
+      method lstn_reuseaddr = lstn_reuseaddr
+      method so_keepalive = so_keepalive
+      method configure_slave_socket = configure_slave_socket
+    end
+  ) 
+
+let create_socket_service_config ?(startup_timeout = 60.0)
+                                 ?change_user_to name protos ctrl_cfg =
+( object
+    method name = name
+    method protocols = protos
+    method change_user_to = change_user_to
+    method startup_timeout = startup_timeout
+    method controller_config = ctrl_cfg
+  end : socket_service_config
+) 

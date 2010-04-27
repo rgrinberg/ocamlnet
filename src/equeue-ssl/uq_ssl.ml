@@ -605,7 +605,7 @@ let create_ssl_multiplex_controller
 
 class ssl_connect_engine (mplex : ssl_multiplex_controller) =
 object(self)
-  inherit [ unit ] Uq_engines.engine_mixin (`Working 0)
+  inherit [ unit ] Uq_engines.engine_mixin (`Working 0) mplex#event_system
 
   initializer
     mplex # start_ssl_connecting
@@ -636,7 +636,7 @@ let ssl_connect_engine = new ssl_connect_engine
 
 class ssl_accept_engine (mplex : ssl_multiplex_controller) =
 object(self)
-  inherit [ unit ] Uq_engines.engine_mixin (`Working 0)
+  inherit [ unit ] Uq_engines.engine_mixin (`Working 0) mplex#event_system
 
   initializer
     mplex # start_ssl_accepting

@@ -19,6 +19,12 @@ val string_of_response :
       verbosity -> Rpc_program.t -> string -> Xdr.xdr_value -> string
    (** Return the string representation of this call response *)
 
+val string_of_value :
+      Xdr.xdr_type_term -> Xdr.xdr_value -> string
+   (** Return a string representation of the value which must have the
+       passed type
+    *)
+
 val hex_dump_m :
       Netsys_mem.memory -> int -> int -> string
 val hex_dump_s :

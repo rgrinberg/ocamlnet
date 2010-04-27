@@ -10,6 +10,7 @@ exception Broken_communication
 exception Addressing_method_not_supported
 exception Watchdog_timeout
 exception Cancelled
+exception Timeout
 
 class type async_out_channel = object
   method output : string -> int -> int -> int
@@ -40,6 +41,11 @@ type 't engine_state =
   ]
 ;;
 
+type 't final_state =
+  [ `Done of 't
+  | `Error of exn
+  | `Aborted
+  ]
 
 class type [ 't ] engine = object
   method state : 't engine_state
@@ -64,6 +70,22 @@ end
 ;;
 
 
+class type ['a] serializer_t =
+object
+  method serialized : (Unixqueue.event_system -> 'a engine) -> 'a engine
+end
+
+
+class type ['a] cache_t =
+object
+  method get_engine : unit -> 'a engine
+  method get_opt : unit -> 'a option
+  method put : 'a -> unit
+  method invalidate : unit -> unit
+  method abort : unit -> unit
+end
+
+
 module Debug = struct
   let enable = ref false
 end
@@ -75,6 +97,12 @@ let () =
   Netlog.Debug.register_module "Uq_engines" Debug.enable
 
 
+let string_of_state =
+  function
+    | `Working n -> "Working(" ^ string_of_int n ^ ")"
+    | `Done v -> "Done(_)"
+    | `Error e -> "Error(" ^ Netexn.to_string e ^ ")"
+    | `Aborted -> "Aborted"
 
 let is_active state =
   match state with
@@ -83,13 +111,15 @@ let is_active state =
 ;;
 
 
-class [ 't ] engine_mixin (init_state : 't engine_state) =
+class [ 't ] engine_mixin (init_state : 't engine_state) esys =
 object(self)
   val mutable notify_list = []
   val mutable notify_list_new = []
   val mutable state = init_state
 
   method state = state
+
+  method event_system = esys
 
   method request_notification f =
     if (not (is_active state)) then
@@ -106,13 +136,26 @@ object(self)
   method private notify() =
     notify_list <- notify_list @ notify_list_new;
     notify_list_new <- [];
-    notify_list <- List.filter (fun f -> f()) notify_list
+    notify_list <- (
+      List.filter
+	(fun f ->
+	   try
+	     f()
+	   with
+	     | error ->
+		 let g = Unixqueue.new_group esys in
+		 Unixqueue.once esys g 0.0 (fun () -> raise error);
+		 false
+	)
+	notify_list
+    )
 end ;;
 
 
 let when_state ?(is_done = fun _ -> ())
                ?(is_error = fun _ -> ())
 	       ?(is_aborted = fun _ -> ())
+	       ?(is_progressing = fun _ -> ())
 	       (eng : 'a #engine) =
   (* Execute is_done when the state of eng goes to `Done,
    * execute is_error when the state goes to `Error, and
@@ -120,21 +163,29 @@ let when_state ?(is_done = fun _ -> ())
    * The argument of the callback function is the argument
    * of the state value.
    *)
+  let last_n = 
+    match eng#state with
+      | `Done _ | `Error _ | `Aborted -> ref 0 
+      | `Working n -> ref n in
   eng # request_notification
     (fun () ->
        match eng#state with
 	   `Done v    -> is_done v; false
 	 | `Error x   -> is_error x; false
 	 | `Aborted   -> is_aborted(); false
-	 | `Working _ -> true
+	 | `Working n -> 
+	     if n <> !last_n then is_progressing n;
+	     last_n := n;
+	     true
     )
 ;;
 
 
 class ['a,'b] map_engine ~map_done ?map_error ?map_aborted 
+              ?(propagate_working = true)
               (eng : 'a #engine) =
 object(self)
-  inherit ['b] engine_mixin (`Working 0)
+  inherit ['b] engine_mixin (`Working 0) eng#event_system
 
   initializer
     state <- self # map_state eng#state;
@@ -147,13 +198,14 @@ object(self)
      *)
     let eng_state = eng#state in
     let state' = self # map_state eng_state in
-    self # set_state state';
     let cont =
       match state' with
 	  (`Working _) -> true
 	| (`Done _)
 	| (`Error _)
 	| `Aborted ->     false in
+    if not cont || propagate_working then
+      self # set_state state';
     cont
 
 
@@ -180,19 +232,43 @@ object(self)
 end;;
 
 
-let aborted_engine esys =
+let map_engine = new map_engine
+
+
+class ['a] fmap_engine e (f : 'a final_state -> 'a final_state) =
+  [_,_] map_engine
+    ~map_done:(fun x -> (f (`Done x) :> 'a engine_state))
+    ~map_error:(fun e -> (f (`Error e) :> 'a engine_state))
+    ~map_aborted:(fun () -> (f `Aborted :> 'a engine_state))
+    e
+
+let fmap_engine = new fmap_engine
+
+class ['a] meta_engine e =
+  ['a,'a engine_state] map_engine
+    ~map_done:(fun x -> `Done (`Done x))
+    ~map_error:(fun e -> `Done (`Error e))
+    ~map_aborted:(fun () -> `Done `Aborted)
+    e
+
+let meta_engine = new meta_engine
+
+
+let const_engine st esys =
   ( object (self)
-      inherit [_] engine_mixin `Aborted
+      inherit [_] engine_mixin st esys
       method abort() = ()
-      method event_system=esys
     end
   )
+
+let aborted_engine esys =
+  const_engine `Aborted esys
 
 
 class ['a,'b] seq_engine (eng_a : 'a #engine)
                          (make_b : 'a -> 'b #engine) =
   let eng_a = ref (eng_a :> 'a engine) in
-  (* to get rid of the eng_a reference when it is done *)
+  (* to get rid of the eng_a value when it is done *)
 object(self)
 
   val mutable eng_a_state = !eng_a # state
@@ -200,7 +276,7 @@ object(self)
   val mutable eng_b = None
   val mutable eng_b_state = `Working 0
 
-  inherit ['b] engine_mixin (`Working 0)
+  inherit ['b] engine_mixin (`Working 0) !eng_a#event_system
 
 
   initializer
@@ -221,8 +297,12 @@ object(self)
 	  true
       | `Done arg ->
 	  (* Create eng_b *)
-	  eng_a := aborted_engine !eng_a#event_system;
-	  let e = make_b arg in
+	  let esys = !eng_a#event_system in
+	  eng_a := aborted_engine esys;
+	  let e = 
+	    try (make_b arg :> _ engine)
+	    with error ->
+	      const_engine (`Error error) esys in
 	  eng_b <- Some e;
 	  let s' = e # state in
 	  eng_b_state <- s';
@@ -265,9 +345,6 @@ object(self)
       | _ ->
 	  assert false
 
-  method event_system = 
-    !eng_a # event_system
-
   method abort() =
     !eng_a # abort();
     ( match eng_b with
@@ -275,6 +352,82 @@ object(self)
 	| None -> ()
     )
 end;;
+
+
+let seq_engine = new seq_engine
+
+
+class ['a] delegate_engine e =
+object(self)
+  inherit ['a] engine_mixin e#state e#event_system
+
+  initializer (
+    if is_active e#state then 
+      when_state
+	~is_done:(fun x -> self # set_state (`Done x))
+	~is_error:(fun e -> self # set_state (`Error e))
+	~is_aborted:(fun () -> self # set_state `Aborted)
+	~is_progressing:(fun n -> self # set_state (`Working n))
+	e
+  )
+
+  method abort() =
+    e#abort();
+    self # set_state `Aborted
+end
+
+
+
+class ['a] stream_seq_engine x0 (s : ('a -> 'a #engine) Stream.t)  esys =
+  let g = Unixqueue.new_group esys in
+object(self)
+  inherit ['a] engine_mixin (`Working 0) esys
+
+  val mutable x = x0
+  val mutable cur_e = aborted_engine esys
+
+  initializer
+    self#next()
+
+  method private next() =
+    match Stream.peek s with
+      | None ->
+	  self # set_state (`Done x)
+      | Some f ->
+	  let _ = Stream.next s in  (* yep, it's "partial" *)
+	  let e =
+	    try (f x :> _ engine)
+	    with error -> const_engine (`Error error) esys in
+	  cur_e <- e;
+	  if is_active e#state then
+	    when_state
+	      ~is_done:(fun x1 -> 
+			  x <- x1;
+			  Unixqueue.once esys g 0.0 self#next
+			    (* avoids stack overflow *)
+		       )
+	      ~is_error:(fun e -> self # set_state (`Error e))
+	      ~is_aborted:(fun () -> self # set_state `Aborted)
+	      ~is_progressing:(fun _ -> self # count())
+	      e
+	  else
+	    self # set_state e#state
+
+  method abort() =
+    cur_e # abort();
+    self # set_state `Aborted
+
+  method private count() =
+    match state with
+	`Working n ->
+	  self # set_state (`Working (n+1))
+      | _ ->
+	  ()
+end
+
+
+let stream_seq_engine = new stream_seq_engine
+
 
 
 let abort_if_working eng =
@@ -293,7 +446,7 @@ object(self)
 
   val mutable eng_b_state = eng_b # state
 
-  inherit ['a * 'b] engine_mixin (`Working 0)
+  inherit ['a * 'b] engine_mixin (`Working 0) eng_a#event_system
 
 
   initializer
@@ -369,19 +522,18 @@ object(self)
     in
     self # set_state state'
 
-  method event_system = 
-    eng_a # event_system
-
   method abort() =
     eng_a # abort();
     eng_b # abort();
 end;;
 
 
+let sync_engine = new sync_engine
+
 class poll_engine ?(extra_match = fun _ -> false) oplist ues =
 object(self)
 
-  inherit [Unixqueue.event] engine_mixin (`Working 0)
+  inherit [Unixqueue.event] engine_mixin (`Working 0) ues
 
   val mutable group = Unixqueue.new_group ues
 
@@ -443,10 +595,40 @@ object(self)
 end ;;
 
 
+class ['a] delay_engine t f esys =
+  let wid = Unixqueue.new_wait_id esys in
+  [_,'a] seq_engine
+    (new poll_engine [ Unixqueue.Wait wid, t ] esys)
+    (fun _ -> f())
+
+
+let delay_engine = new delay_engine
+
+let signal_engine esys =
+  let wid = Unixqueue.new_wait_id esys in
+  let p = new poll_engine [Unixqueue.Wait wid, (-1.0)] esys in
+  let r = ref (lazy (assert false)) in
+  let e = new map_engine
+            ~map_done:(fun _ -> assert false) 
+	    ~map_aborted:(fun _ -> (Lazy.force !r :> _ engine_state)) p in
+  let signal st =
+    r := lazy st;
+    p#abort() in
+  (e, signal)
+
+
+class ['a] signal_engine esys =
+  let (e, signal) = signal_engine esys in
+object(self)
+  inherit ['a] delegate_engine e
+  method signal x = signal (x : _ final_state)
+end
+
+
 class poll_process_engine ?(period = 0.1) ~pid ues =
 object(self)
 
-  inherit [Unix.process_status] engine_mixin (`Working 0)
+  inherit [Unix.process_status] engine_mixin (`Working 0) ues
 
   val group = Unixqueue.new_group ues
   val wait_id = Unixqueue.new_wait_id ues
@@ -505,7 +687,7 @@ class watchdog period eng =
   let ues = eng#event_system in
   let wid = Unixqueue.new_wait_id ues in
 object (self)
-  inherit [unit] engine_mixin (`Working 0)
+  inherit [unit] engine_mixin (`Working 0) ues
 
   val mutable last_eng_state = eng # state
   val timer_eng = new poll_engine [ Unixqueue.Wait wid, 0.1 *. period ] ues
@@ -563,6 +745,9 @@ object (self)
 end ;;
 
 
+let watchdog = new watchdog
+
+
 class ['t] epsilon_engine target_state ues =
   (* Simply create a poll engine, and add a timeout event for its group.
    * The poll engine accepts all events of that group and switches to
@@ -581,6 +766,191 @@ class ['t] epsilon_engine target_state ues =
     (eng :> Unixqueue.event engine)
 ;;
 
+
+let epsilon_engine = new epsilon_engine
+
+
+let rec msync_engine l f x0 esys =
+  match l with
+    | [] ->
+	new epsilon_engine (`Done x0) esys
+    | [e] ->
+	new map_engine
+	  ~map_done:(fun r -> `Done (f r x0))
+	  e
+    | e1 :: l' ->
+	new map_engine
+	  ~map_done:(fun (r,x) -> `Done (f r x))
+	  (new sync_engine e1 (msync_engine l' f x0 esys))
+
+
+class ['a,'b] msync_engine (l : 'a #engine list) f (x0:'b) esys = 
+  ['b] delegate_engine (msync_engine l f x0 esys)
+
+
+class ['a] serializer (esys : Unixqueue.event_system) =
+object(self)
+  val mutable running = None
+  val mutable queue = Queue.create()
+
+  method serialized ( f : (Unixqueue.event_system -> 'a engine) ) =
+    (** Will call [f esys] when it is time to start the engine *)
+    let rec next f signal =
+      let e = (f esys : 'a  engine) in
+      running <- Some e;
+      signal e;
+      if is_active e#state then 
+	when_state
+	  ~is_done:(fun _ -> check())
+	  ~is_error:(fun _ -> check())
+	  ~is_aborted:(fun _ -> check())
+	  e
+      else (
+	let g = Unixqueue.new_group esys in
+	Unixqueue.once esys g 0.0 check;
+      );
+      e
+    and check() =
+      running <- None; 
+      if not (Queue.is_empty queue) then (
+	let (f,signal) = Queue.take queue in
+	ignore(next f signal)
+      )
+    in
+
+    match running with
+      | Some _ ->
+	  (** Create a wrapper engine. When [f] is finally called, the
+              wrapper is terminated and "replaced" by the engine returned
+              by [f]
+	   *)
+	  let sig_e, do_signal = signal_engine esys in
+	  let eff_e = ref None in
+	  let wrap_e =
+	    new seq_engine
+	      sig_e
+	      (fun _ ->
+		 match !eff_e with
+		   | None -> assert false
+		   | Some e -> e
+	      ) in
+	  let signal e =
+	    eff_e := Some e;
+	    do_signal(`Done()) in
+	  Queue.push (f,signal) queue;
+	  wrap_e
+      | None ->
+	  next f (fun _ -> ())
+end
+
+let serializer = new serializer
+
+
+class ['a] cache call_get_e esys =
+object(self)
+  val mutable value_opt = (None : 'a option)
+  val mutable value_gen = 0
+  val mutable getting = None
+
+  method get_opt() = value_opt
+
+  method get_engine() =
+    match value_opt with
+      | None ->
+	  ( match getting with
+	      | None ->
+		  (* No get engine is running. Start a new one *)
+		  let get_e = call_get_e esys in
+		  getting <- Some get_e;
+		  let gen = value_gen in
+		  let get_e' =
+		    new map_engine
+		      ~map_done:(fun v -> 
+				   (* There could be a [put] writing: *)
+				   if value_gen = gen then (
+				     value_opt <- Some v;
+				     value_gen <- gen+1
+				   );
+				   `Done v
+				)
+		      get_e in
+		  get_e'
+	      | Some get_e ->
+		  (* Some previous user already called [get] but it was
+                     not yet finished. For simplicity we return here the
+                     same engine. This is ok except that when one user
+		     aborts this engine, all other users are also affected.
+		   *)
+		  get_e
+	)
+
+    | Some v ->
+	new epsilon_engine (`Done v) esys
+
+  method put v' =
+    value_opt <- Some v';
+    value_gen <- value_gen + 1
+
+  method invalidate () =
+    value_opt <- None;
+    value_gen <- value_gen + 1
+
+  method abort() =
+    ( match value_opt with
+	| None ->
+	    ( match getting with
+		| None ->
+		    ()
+		| Some get_e ->
+		    get_e # abort()
+	    )
+	| Some _ -> ()
+    );
+    self#invalidate()
+
+end
+
+let cache = new cache
+
+
+class ['a] input_engine f fd tmo esys =
+  [Unixqueue.event, 'a]
+  seq_engine
+    (new poll_engine [ Unixqueue.Wait_in fd, tmo ] esys)
+    (fun ev ->
+       match ev with
+	 | Unixqueue.Input_arrived(_,_) ->
+	     ( try
+		 let r = f fd in
+		 epsilon_engine (`Done r) esys
+	       with
+		 | error -> epsilon_engine (`Error error) esys
+	     )
+	 | Unixqueue.Timeout(_,_) ->
+	     epsilon_engine (`Error Timeout) esys
+	 | _ ->
+	     assert false
+    )
+
+
+class ['a] output_engine f fd tmo esys =
+  [Unixqueue.event, 'a]
+  seq_engine
+    (new poll_engine [ Unixqueue.Wait_out fd, tmo ] esys)
+    (fun ev ->
+       match ev with
+	 | Unixqueue.Output_readiness(_,_) ->
+	     ( try
+		 let r = f fd in
+		 epsilon_engine (`Done r) esys
+	       with
+		 | error -> epsilon_engine (`Error error) esys
+	     )
+	 | Unixqueue.Timeout(_,_) ->
+	     epsilon_engine (`Error Timeout) esys
+	 | _ ->
+	     assert false
+    )
 
 
 (* TODO: Avoid the usage of Extra events here. Extra events are more
@@ -620,7 +990,7 @@ object(self)
    *   will happen.
    *)
 
-  inherit [unit] engine_mixin (`Working 0 : unit engine_state)
+  inherit [unit] engine_mixin (`Working 0 : unit engine_state) ues
 
   val group = Unixqueue.new_group ues
 
@@ -835,7 +1205,7 @@ object(self)
    *   event is generated.
    *)
 
-  inherit [unit] engine_mixin (`Working 0 : unit engine_state)
+  inherit [unit] engine_mixin (`Working 0 : unit engine_state) ues
 
   val group = Unixqueue.new_group ues
 
@@ -1101,7 +1471,7 @@ class output_async_mplex ?(onclose = (`Ignore : onclose_spec) )
                          : async_out_channel_engine =
 object (self)
 
-  inherit [unit] engine_mixin (`Working 0 : unit engine_state)
+  inherit [unit] engine_mixin (`Working 0 : unit engine_state) mplex#event_system
 
   val data_queue = Queue.create()
 		     (* The queue of strings to output *)
@@ -1323,7 +1693,7 @@ class input_async_mplex ?(onshutdown = (`Ignore : onshutdown_in_spec) )
                         : async_in_channel_engine =
 object (self)
 
-  inherit [unit] engine_mixin (`Working 0 : unit engine_state)
+  inherit [unit] engine_mixin (`Working 0 : unit engine_state) mplex#event_system
 
   val data_queue = Queue.create()
 		     (* The queue of the read strings *)
@@ -3248,3 +3618,10 @@ let datagram_provider ?proxy dgtype ues =
 
 	eng
 ;;
+
+
+module Operators = struct
+  let ( ++ ) = seq_engine
+  let ( >> ) = fmap_engine
+  let eps_e = epsilon_engine
+end

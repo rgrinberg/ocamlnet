@@ -218,6 +218,14 @@ let () =
   Netlog.Debug.register_module "Rpc_client.Ptrace" Debug.enable_ptrace
 
 
+let connector_of_sockaddr =
+  function
+    | Unix.ADDR_INET(ip,p) ->
+	Internet(ip,p)
+    | Unix.ADDR_UNIX s ->
+	Unix s
+
+
   (*****)
 
 let set_auth_methods cl list =
@@ -1014,7 +1022,7 @@ class unbound_async_call cl prog name v =
   let emit = ref (fun _ -> assert false) in
   let call = unbound_async_call_r cl prog name v (fun gr -> !emit gr) in
 object(self)
-  inherit [ Xdr.xdr_value ] Uq_engines.engine_mixin (`Working 0)
+  inherit [ Xdr.xdr_value ] Uq_engines.engine_mixin (`Working 0) cl.esys
 
   initializer
     emit := (fun get_result -> 
@@ -1325,7 +1333,7 @@ let rec internal_create initial_xid
 	     )
     ~is_error:(fun err ->
 		 cl.est_engine <- None;
-		 close cl;
+		 close ~error:(Communication_error err) cl;
 		 cl.exception_handler err
 	      )
     ~is_aborted:(fun () ->
