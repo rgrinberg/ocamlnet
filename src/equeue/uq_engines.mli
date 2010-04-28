@@ -214,6 +214,8 @@ class ['a,'b] map_engine : map_done:('a -> 'b engine_state) ->
    *
    * The state [`Working] cannot be mapped to another state. It is an
    * error to map final states to [`Working].
+   * The result type of the [map_*] functions is [engine_state] 
+   * and not [final_state] because of historic reasons.
    *
    * If the mapped engine is aborted, this request will be forwarded
    * to the argument engine.
@@ -246,23 +248,23 @@ val map_engine : map_done:('a -> 'b engine_state) ->
                     'b engine
   (** Same as function *)
 
-class ['a] fmap_engine : 'a #engine -> 
-                         ('a final_state -> 'a final_state) -> 
-                             ['a] engine
+class ['a,'b] fmap_engine : 'a #engine -> 
+                           ('a final_state -> 'b final_state) -> 
+                               ['b] engine
   (** Similar to [map_engine] but different calling conventions: The
       mapping function is called when the argument engine reaches a
       final state, and this state can be mapped to another final state.
    *)
   
 val fmap_engine : 'a #engine -> 
-                   ('a final_state -> 'a final_state) -> 
-                     'a engine
+                   ('a final_state -> 'b final_state) -> 
+                     'b engine
   (** Same as function *)
 
-class ['a] meta_engine : 'a #engine -> ['a engine_state] engine
+class ['a] meta_engine : 'a #engine -> ['a final_state] engine
   (** maps the final state [s] to [`Done s] *)
 
-val meta_engine : 'a #engine -> 'a engine_state engine
+val meta_engine : 'a #engine -> 'a final_state engine
   (** Same as function *)
 
 class ['t] epsilon_engine : 

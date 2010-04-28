@@ -235,17 +235,17 @@ end;;
 let map_engine = new map_engine
 
 
-class ['a] fmap_engine e (f : 'a final_state -> 'a final_state) =
+class ['a,'b] fmap_engine e (f : 'a final_state -> 'b final_state) =
   [_,_] map_engine
-    ~map_done:(fun x -> (f (`Done x) :> 'a engine_state))
-    ~map_error:(fun e -> (f (`Error e) :> 'a engine_state))
-    ~map_aborted:(fun () -> (f `Aborted :> 'a engine_state))
+    ~map_done:(fun x -> (f (`Done x) :> 'b engine_state))
+    ~map_error:(fun e -> (f (`Error e) :> 'b engine_state))
+    ~map_aborted:(fun () -> (f `Aborted :> 'b engine_state))
     e
 
 let fmap_engine = new fmap_engine
 
 class ['a] meta_engine e =
-  ['a,'a engine_state] map_engine
+  ['a,'a final_state] map_engine
     ~map_done:(fun x -> `Done (`Done x))
     ~map_error:(fun e -> `Done (`Error e))
     ~map_aborted:(fun () -> `Done `Aborted)
