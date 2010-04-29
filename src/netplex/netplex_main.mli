@@ -22,8 +22,21 @@ val create : ?config_filename:string ->
              unit -> cmdline_config
   (** Creates the command-line configuration object *)
 
+val modify : ?config_filename:string ->
+             ?pidfile:string option ->
+             ?foreground:bool ->
+             cmdline_config -> cmdline_config
+  (** Modifies the command-line configuration object *)
+
 val config_filename : cmdline_config -> string
-  (** Returns the filename of the configuration file *)
+  (** Returns the filename of the configuration file, or the default
+      if it has not been set on the command-line
+   *)
+
+val config_filename_opt : cmdline_config -> string option
+  (** Returns the filename of the configuration file, or [None] if it
+      has not been set on the command-line
+   *)
 
 val pidfile : cmdline_config -> string option
   (** Returns the location of the PID file (if any) *)

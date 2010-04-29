@@ -4,7 +4,7 @@ open Netplex_types
 open Printf
 
 type cmdline_config =
-    { mutable config_filename : string;
+    { mutable config_filename_opt : string option;
       mutable pidfile : string option;
       mutable foreground : bool;
     }
@@ -14,23 +14,40 @@ let is_win32 =
     | "Win32" -> true
     | _ -> false;;
 
-let create ?(config_filename = "/etc/netplex.conf")
+let create ?config_filename
            ?(pidfile = None)
            ?(foreground = false) () =
-  { config_filename = config_filename;
+  { config_filename_opt = config_filename;
     pidfile = pidfile;
     foreground = foreground
+  }
+
+let modify ?config_filename
+           ?pidfile
+           ?foreground cfg =
+  { config_filename_opt = ( match config_filename with
+			      | Some f -> Some f
+			      | None -> cfg.config_filename_opt
+			  );
+    pidfile = ( match pidfile with
+		  | Some popt -> popt
+		  | None -> cfg.pidfile
+	      );
+    foreground = ( match foreground with
+		     | Some fg -> fg
+		     | None -> cfg.foreground
+		 )
   }
 
 
 let args ?(defaults = create()) () =
   let config =
     (* copy of defaults: *)
-    { defaults with foreground = defaults.foreground  } in
+    modify defaults in
 
   let spec =
     [ "-conf",
-      (Arg.String (fun s -> config.config_filename <- s)),
+      (Arg.String (fun s -> config.config_filename_opt <- Some s)),
       "<file>  Read this configuration file";
       
       "-pid",
@@ -45,7 +62,12 @@ let args ?(defaults = create()) () =
 ;;
 
 
-let config_filename cf = cf.config_filename
+let config_filename cf = 
+  match cf.config_filename_opt with
+    | Some f -> f
+    | None -> "/etc/netplex.conf"
+
+let config_filename_opt cf = cf.config_filename_opt
 
 let pidfile cf = cf.pidfile
 
@@ -99,7 +121,7 @@ let rec run ctrl =
 let startup ?(late_initializer = fun _ _ -> ())
             ?(config_parser = Netplex_config.read_config_file)
             par c_logger_cf c_wrkmg_cf c_proc_cf cf =
-  let config_file = config_parser cf.config_filename in
+  let config_file = config_parser (config_filename cf) in
   
   let netplex_config =
     Netplex_config.read_netplex_config
