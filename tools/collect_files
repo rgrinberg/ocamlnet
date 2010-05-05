@@ -10,7 +10,11 @@
 
 for x in "$@"; do
     if [ -f "$x" ]; then
-	echo "$x"
+	case "$x" in
+	    *.p.cmi) : ;;
+	    *.p.so) : ;;
+	    *) echo "$x" ;;
+	esac
     fi
 done
 

@@ -28,15 +28,18 @@ PMAP = netmappings_iso.pmap netmappings_other.pmap netmappings_jp.pmap netmappin
 # netconversion.cmx, netbuffer.cmx: 
 # Allow cross-library inlining for these modules
 
-INSTALL_EXTRA = netmappings_iso.cmo   netmappings_iso.cmx   netmappings_iso.o  \
-	        netmappings_jp.cmo   netmappings_jp.cmx   netmappings_jp.o  \
-	        netmappings_kr.cmo   netmappings_kr.cmx   netmappings_kr.o  \
-	        netmappings_other.cmo netmappings_other.cmx netmappings_other.o\
-		netmappings_min.cmo  netmappings_min.cmx netmappings_min.o \
-		netconversion.cmx netbuffer.cmx \
-		netstring_top.cmo \
+INSTALL_EXTRA_CMO = netmappings_iso netmappings_jp netmappings_kr \
+		    netmappings_other netmappings_min \
+		    netstring_top \
+		    netaccel_link
+INSTALL_EXTRA_CMX = netmappings_iso netmappings_jp netmappings_kr \
+                    netmappings_other netmappings_min \
+		    netconversion \
+		    netbuffer
+INSTALL_EXTRA = $(INSTALL_EXTRA_CMO:=.cmo) \
+		$(INSTALL_EXTRA_CMX:=.cmx) $(INSTALL_EXTRA_CMX:=.p.cmx) \
 		netdb-packlist \
-		dllnetaccel_c.* netaccel_link.cmo
+		dllnetaccel_c.*
 
 DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netmime.mli netsendmail.mli neturl.mli netaddress.mli netbuffer.mli \
@@ -51,17 +54,16 @@ PP_OPTIONS = -package camlp4 -syntax camlp4o
 INSTOTHER = install-netdb
 PACKLIST = netdb-packlist
 
-BUILD_EXTRA = netaccel.cma  netaccel_link.cmo \
-	      $(PMAP:.pmap=.cmo) netmappings_min.cmo
+BUILD_EXTRA = $(PMAP:.pmap=.cmo) netmappings_min.cmo
 
-ALL_EXTRA = $(BUILD_EXTRA) netstring_top.cmo
-OPT_EXTRA = $(BUILD_EXTRA:.cmo=.cmx)
+ALL_EXTRA = $(BUILD_EXTRA) netstring_top.cmo netaccel.cma netaccel_link.cmo
+OPT_EXTRA = $(BUILD_EXTRA:.cmo=.cmx) $(BUILD_EXTRA:.cmo=.p.cmx)
 
 netaccel.cma: netaccel_c.o netaccel.cmo
 	$(OCAMLMKLIB) -o netaccel -oc netaccel_c netaccel_c.o netaccel.cmo
 
-netaccel.cmxa: netaccel_c.o netaccel.cmx
-	$(OCAMLMKLIB) -o netaccel -oc netaccel_c netaccel_c.o netaccel.cmx
+#netaccel.cmxa: netaccel_c.o netaccel.cmx
+#	$(OCAMLMKLIB) -o netaccel -oc netaccel_c netaccel_c.o netaccel.cmx
 
 netdb.ml: netdb.mlp netdb.cmi
 	sed -e 's|@NET_DB_DIR@|$(NET_DB_DIR)|' netdb.mlp >netdb.ml

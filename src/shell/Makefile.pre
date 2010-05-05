@@ -4,6 +4,4 @@ PRE = 1
 PKGNAME = shell
 GENERATE = META
 
-INSTALL_EXTRA = shell_mt.cmo shell_mt.cmx shell_mt.o
-
 include $(TOP_DIR)/Makefile.rules

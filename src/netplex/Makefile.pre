@@ -6,7 +6,8 @@ GENERATE = netplex_ctrl_aux.ml netplex_ctrl_clnt.ml netplex_ctrl_srv.ml META
 PACKLIST = netplex-packlist
 RPCGEN = ../rpc-generator/ocamlrpcgen
 
-INSTALL_EXTRA = netplex-packlist netplex_mt.cmo netplex_mt.cmx netplex_mt.o
+INSTALL_EXTRA = netplex-packlist netplex_mt.cmo netplex_mt.cmx netplex_mt.o \
+		netplex_mt.p.cmx netplex_mt.p.o
 INSTOTHER = install-netplex-admin
 
 PP_OPTIONS = -syntax camlp4o -package camlp4

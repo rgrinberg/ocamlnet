@@ -3,4 +3,5 @@ version = "@VERSION@"
 requires = "pcre,equeue,unix,netstring"
 archive(byte) = "rpc.cma"
 archive(native) = "rpc.cmxa"
+archive(native,gprof) = "rpc.p.cmxa"
 

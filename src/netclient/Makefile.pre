@@ -4,6 +4,4 @@ PRE = 1
 PKGNAME = netclient
 GENERATE = META
 
-INSTALL_EXTRA = http_client_mt.cmo http_client_mt.cmx http_client_mt.o
-
 include $(TOP_DIR)/Makefile.rules

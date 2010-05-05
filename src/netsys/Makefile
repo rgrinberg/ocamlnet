@@ -21,12 +21,9 @@ LINK_OPTIONS = $(NETSYS_LINK_OPTIONS)
 
 ALL_EXTRA = netsys_oothr.cma netsys_oothr_mt_init.cmo
 ALLMT_EXTRA = netsys_oothr_mt_init.cmo
-OPT_EXTRA = netsys_oothr.cmxa netsys_gprof_init.cmx netsys_c_gprof.o
+OPT_EXTRA = netsys_oothr.cmxa netsys_c_gprof.o
+OPTP_EXTRA = netsys_oothr.p.cmxa
 OPTMT_EXTRA = netsys_oothr_mt_init.cmx
-INSTALL_EXTRA = netsys_oothr_mt_init.cmo \
-                netsys_oothr_mt_init.cmx netsys_oothr_mt_init.o \
-	        netsys_gprof_init.cmx netsys_gprof_init.o \
-		netsys_c_gprof.o
 
 OCAMLC_OPTIONS_FOR_netsys_oothr_mt.mli = $(THREAD)
 OCAMLC_OPTIONS_FOR_netsys_oothr_mt.ml = $(THREAD)
@@ -57,6 +54,11 @@ netsys_oothr.cmxa: netsys_oothr.cmx netsys_oothr-$(MT_TYPE)
 	extra=""; \
 	if [ -f  netsys_oothr_mt.cmx ]; then extra="netsys_oothr_mt.cmx"; fi; \
 	$(OCAMLOPT) -o netsys_oothr.cmxa -a netsys_oothr.cmx $$extra
+
+netsys_oothr.p.cmxa: netsys_oothr.cmx netsys_oothr-$(MT_TYPE)
+	extra=""; \
+	if [ -f  netsys_oothr_mt.p.cmx ]; then extra="netsys_oothr_mt.p.cmx"; fi; \
+	$(OCAMLOPT) -o netsys_oothr.p.cmxa -a netsys_oothr.p.cmx $$extra
 
 .PHONY: netsys_oothr-vm netsys_oothr-posix
 netsys_oothr-vm:

@@ -422,6 +422,19 @@ word_size="$(ocaml tmp/t.ml)"
 echo "$word_size bit"
 
 ######################################################################
+
+printf "Checking for GPROF... "
+
+stdlib=`ocamlc -where`
+if [ -f $stdlib/std_exit.p.cmx ]; then
+    echo "found"
+    have_gprof=1
+else
+    echo "not found"
+    have_gprof=0
+fi
+
+######################################################################
 # Check that pcre is available:
 
 printf "%s" "Checking for PCRE... "
@@ -819,6 +832,9 @@ MT_TYPE = $mt_type
 
 # word size:
 WORD_SIZE = $word_size
+
+# gprof:
+HAVE_GPROF = $have_gprof
 
 # Compiler switch to enable multi-threading:
 THREAD = $mt_switch

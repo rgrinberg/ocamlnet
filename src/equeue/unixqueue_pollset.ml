@@ -78,10 +78,10 @@ let pset_find (pset:Netsys_pollset.pollset) fd =
 
 let op_of_event ev =
   match ev with
-    | Unixqueue.Input_arrived(_,fd)    -> Unixqueue.Wait_in fd
-    | Unixqueue.Output_readiness(_,fd) -> Unixqueue.Wait_out fd
-    | Unixqueue.Out_of_band(_,fd)      -> Unixqueue.Wait_oob fd
-    | Unixqueue.Timeout(_,op)          -> op
+    | Unixqueue_util.Input_arrived(_,fd)    -> Unixqueue_util.Wait_in fd
+    | Unixqueue_util.Output_readiness(_,fd) -> Unixqueue_util.Wait_out fd
+    | Unixqueue_util.Out_of_band(_,fd)      -> Unixqueue_util.Wait_oob fd
+    | Unixqueue_util.Timeout(_,op)          -> op
     | _ -> assert false
 
 
@@ -248,9 +248,9 @@ object(self)
 		let have_pri =
 		  in_pri && (out_pri || out_hup || out_err) in
 		if have_input || have_output || have_pri then (
-		  let e1 = if have_pri then [Unixqueue.Wait_oob fd] else [] in
-		  let e2 = if have_input then [Unixqueue.Wait_in fd] else [] in
-		  let e3 = if have_output then [Unixqueue.Wait_out fd] else [] in
+		  let e1 = if have_pri then [Unixqueue_util.Wait_oob fd] else [] in
+		  let e2 = if have_input then [Unixqueue_util.Wait_in fd] else [] in
+		  let e3 = if have_output then [Unixqueue_util.Wait_out fd] else [] in
 		  e1 @ e2 @ e3
 		)
 		else
@@ -297,13 +297,13 @@ object(self)
       List.iter (Equeue.add_event _sys) timeout_events;
       if have_eintr then (
 	dlogr (fun () -> "delivering Signal");
-	Equeue.add_event _sys Unixqueue.Signal
+	Equeue.add_event _sys Unixqueue_util.Signal
       )
       else
 	if events = [] && timeout_events = [] && not nothing_to_do then (
           (* Ensure we always add an event to keep the event loop running: *)
 	  dlogr (fun () -> "delivering Keep_alive");
-	  Equeue.add_event _sys (Unixqueue.Extra Keep_alive)
+	  Equeue.add_event _sys (Unixqueue_util.Extra Keep_alive)
 	);
     
       (* Update ops_of_tmo: *)
@@ -354,14 +354,14 @@ object(self)
     try 
       let (_,_,g) = Hashtbl.find tmo_of_op op in (* or Not_found *)
       match op with
-	| Unixqueue.Wait_in fd ->
-	    [Unixqueue.Input_arrived(g,fd)]
-	| Unixqueue.Wait_out fd ->
-	    [Unixqueue.Output_readiness(g,fd)]
-	| Unixqueue.Wait_oob fd ->
-	    [Unixqueue.Out_of_band(g,fd)]
-	| Unixqueue.Wait _ ->
-	    [Unixqueue.Timeout(g,op)]
+	| Unixqueue_util.Wait_in fd ->
+	    [Unixqueue_util.Input_arrived(g,fd)]
+	| Unixqueue_util.Wait_out fd ->
+	    [Unixqueue_util.Output_readiness(g,fd)]
+	| Unixqueue_util.Wait_oob fd ->
+	    [Unixqueue_util.Out_of_band(g,fd)]
+	| Unixqueue_util.Wait _ ->
+	    [Unixqueue_util.Timeout(g,op)]
     with
       | Not_found ->
 	  (* A "ghost event", i.e. there is no handler anymore
@@ -441,9 +441,9 @@ object(self)
 
 
   method private exists_descriptor_wl fd =
-    self#exists_resource_wl (Unixqueue.Wait_in fd) ||
-    self#exists_resource_wl (Unixqueue.Wait_out fd) ||
-    self#exists_resource_wl (Unixqueue.Wait_oob fd)
+    self#exists_resource_wl (Unixqueue_util.Wait_in fd) ||
+    self#exists_resource_wl (Unixqueue_util.Wait_out fd) ||
+    self#exists_resource_wl (Unixqueue_util.Wait_oob fd)
 
 
   method add_resource g (op, tmo) =
