@@ -84,6 +84,12 @@ let op_of_event ev =
     | Unixqueue_util.Timeout(_,op)          -> op
     | _ -> assert false
 
+let rec list_mem_op op l =
+  match l with
+    | h :: t ->
+	is_op_eq h op || list_mem_op op t
+    | [] ->
+	false
 
 let while_locked mutex f =
   Netsys_oothr.serialize mutex f ()
@@ -106,31 +112,29 @@ object
 end
 
 
-
 class pollset_event_system (pset : Netsys_pollset.pollset) =
   let mtp = !Netsys_oothr.provider in
 object(self)
   val mutable sys = 
     lazy (assert false)   (* initialized below *)
-(*
   val mutable ops_of_group = 
-    (Hashtbl.create 10 : (group, operation list) Hashtbl.t)
-  -- would be for [clear] only
- *)
+    (Hashtbl.create 10 : (group, OpSet.t) Hashtbl.t)
+        (* is for [clear] only *)
   val mutable tmo_of_op =
-    (Hashtbl.create 10 : (operation, float * float * group) Hashtbl.t)
+    (OpTbl.create 10 : (float * float * group) OpTbl.t)
       (* first number: duration of timeout (or -1)
          second number: point in time (or -1)
        *)
   val mutable ops_of_tmo =
-    (FloatMap.empty : operation list FloatMap.t)
+    (FloatMap.empty : OpSet.t FloatMap.t)
   val mutable strong_op =
-    (Hashtbl.create 10 : (operation, unit) Hashtbl.t)
+    (OpTbl.create 10 : unit OpTbl.t)
       (* contains all non-weak ops *)
 
   val mutable aborting = false
   val mutable close_tab = (Hashtbl.create 10 : (Unix.file_descr, (group * (Unix.file_descr -> unit))) Hashtbl.t)
-  val mutable abort_tab = ([] : (group * (group -> exn -> unit)) list)
+  val mutable abort_tab = 
+     (Hashtbl.create 10 : (group, (group -> exn -> unit)) Hashtbl.t)
   val mutable handlers = (Hashtbl.create 10 : (group, ohandler list) Hashtbl.t)
   val mutable handled_groups = 0
             (* the number of keys in [handlers] *)
@@ -165,7 +169,7 @@ object(self)
 
     let nothing_to_do =
       (* For this test only non-weak resources count, so... *)
-      Hashtbl.length strong_op = 0 in
+      OpTbl.length strong_op = 0 in
 
     let pset_events, have_eintr = 
       try
@@ -176,7 +180,7 @@ object(self)
 	else (
 	  dlogr (fun () -> (
 			 let ops = 
-			   Hashtbl.fold (fun op _ l -> op::l) tmo_of_op [] in
+			   OpTbl.fold (fun op _ l -> op::l) tmo_of_op [] in
 			 let op_str = 
 			   String.concat ";" (List.map string_of_op ops) in
 			 sprintf "wait tmo=%f ops=<%s>" delta op_str));
@@ -218,7 +222,7 @@ object(self)
       (* t1 is the reference for determining the timeouts *)
 
       (* while waiting somebody might have removed resouces, so ... *)
-      if Hashtbl.length tmo_of_op = 0 then
+      if OpTbl.length tmo_of_op = 0 then
 	pset # dispose();
 
       let operations = 
@@ -273,16 +277,17 @@ object(self)
       let timeout_events = 
 	(* Generate timeout events for all ops in [tmo_of_op] that have timed
            out and that are not in [events]
+	   FIXME: [List.mem op operations] is not scalable.
 	 *)
 	List.flatten
 	  (List.map
 	     (fun (_, ops) ->
 		let ops' =
-		  List.filter (fun op -> not(List.mem op operations)) ops in
-		List.flatten
-		  (List.map 
-		     (fun op -> self#events_of_op_wl op)
-		     ops')
+		  OpSet.filter (fun op -> not(list_mem_op op operations)) ops in
+		OpSet.fold
+		  (fun op acc -> 
+		     self#events_of_op_wl op @ acc)
+		  ops' []
 	     )
 	     ops_timed_out) in
       
@@ -323,9 +328,9 @@ object(self)
 	     (fun ev ->
 		try
 		  let op = op_of_event ev in
-		  let (tmo,_,g) = Hashtbl.find tmo_of_op op in (* or Not_found *)
+		  let (tmo,_,g) = OpTbl.find tmo_of_op op in (* or Not_found *)
 		  let is_strong = 
-		    try Hashtbl.find strong_op op; true
+		    try OpTbl.find strong_op op; true
 		    with Not_found -> false in
 		  self#sched_remove_wl op;
 		  let t2 = if tmo < 0.0 then tmo else t1 +. tmo in
@@ -352,7 +357,7 @@ object(self)
 
   method private events_of_op_wl op =
     try 
-      let (_,_,g) = Hashtbl.find tmo_of_op op in (* or Not_found *)
+      let (_,_,g) = OpTbl.find tmo_of_op op in (* or Not_found *)
       match op with
 	| Unixqueue_util.Wait_in fd ->
 	    [Unixqueue_util.Input_arrived(g,fd)]
@@ -373,20 +378,28 @@ object(self)
 
   method private sched_remove_wl op =
     try
-      let tmo, t1, g = Hashtbl.find tmo_of_op op in  (* or Not_found *)
+      let tmo, t1, g = OpTbl.find tmo_of_op op in  (* or Not_found *)
       dlogr(fun () -> (sprintf "sched_remove %s" (string_of_op op)));
-      Hashtbl.remove tmo_of_op op;
-      Hashtbl.remove strong_op op;
+      OpTbl.remove tmo_of_op op;
+      OpTbl.remove strong_op op;
       let l_ops =
 	if tmo >= 0.0 then
-	  try FloatMap.find t1 ops_of_tmo with Not_found -> [] 
-	else [] in
+	  try FloatMap.find t1 ops_of_tmo with Not_found -> OpSet.empty
+	else OpSet.empty in
       let l_ops' =
-	List.filter (fun op' -> op <> op') l_ops in
-      if l_ops' = [] then
+	OpSet.remove op l_ops in
+      if l_ops' = OpSet.empty then
 	ops_of_tmo <- FloatMap.remove t1 ops_of_tmo
       else
-	ops_of_tmo <- FloatMap.add t1 l_ops' ops_of_tmo
+	ops_of_tmo <- FloatMap.add t1 l_ops' ops_of_tmo;
+
+      let old_set = Hashtbl.find ops_of_group g in
+      let new_set = OpSet.remove op old_set in
+      if new_set = OpSet.empty then
+	Hashtbl.remove ops_of_group g
+      else
+	Hashtbl.replace ops_of_group g new_set
+
     with
       | Not_found -> ()
 
@@ -409,13 +422,18 @@ object(self)
   method private sched_add_wl g op tmo t1 is_strong =
     dlogr(fun () -> (sprintf "sched_add %s tmo=%f t1=%f is_strong=%b"
 		       (string_of_op op) tmo t1 is_strong));
-    Hashtbl.add tmo_of_op op (tmo, t1, g);
+    OpTbl.add tmo_of_op op (tmo, t1, g);
     if is_strong then
-      Hashtbl.add strong_op op ();
+      OpTbl.add strong_op op ();
     let l_ops =
-      try FloatMap.find t1 ops_of_tmo with Not_found -> [] in
+      try FloatMap.find t1 ops_of_tmo with Not_found -> OpSet.empty in
     if tmo >= 0.0 then
-      ops_of_tmo <- FloatMap.add t1 (op :: l_ops) ops_of_tmo
+      ops_of_tmo <- FloatMap.add t1 (OpSet.add op l_ops) ops_of_tmo;
+    let old_set =
+      try Hashtbl.find ops_of_group g with Not_found -> OpSet.empty in
+    let new_set =
+      OpSet.add op old_set in
+    Hashtbl.replace ops_of_group g new_set
 
 
   method private pset_add_wl op =
@@ -437,7 +455,7 @@ object(self)
       (fun () -> self # exists_resource_wl op)
 
   method private exists_resource_wl op =
-    Hashtbl.mem tmo_of_op op
+    OpTbl.mem tmo_of_op op
 
 
   method private exists_descriptor_wl fd =
@@ -462,7 +480,7 @@ object(self)
   method private add_resource_wl g (op, tmo) is_strong =
     if g # is_terminating then
       invalid_arg "Unixqueue.add_resource: the group is terminated";
-    if not (Hashtbl.mem tmo_of_op op) then (
+    if not (OpTbl.mem tmo_of_op op) then (
       self#pset_add_wl op;
       let t1 = if tmo < 0.0 then tmo else Unix.gettimeofday() +. tmo in
       self#sched_add_wl g op tmo t1 is_strong;
@@ -486,13 +504,13 @@ object(self)
       (fun () ->
 	 if g # is_terminating then
 	   invalid_arg "remove_resource: the group is terminated";
-	 let _, t1, g_found = Hashtbl.find tmo_of_op op in
+	 let _, t1, g_found = OpTbl.find tmo_of_op op in
 	 if g <> g_found then
 	   failwith "remove_resource: descriptor belongs to different group";
 	 self#sched_remove_wl op;
 	 self#pset_remove_wl op;
 
-	 if not waiting && Hashtbl.length tmo_of_op = 0 then
+	 if not waiting && OpTbl.length tmo_of_op = 0 then
 	   pset # dispose();
 
 	 pset # cancel_wait true;    (* interrupt [wait] *)
@@ -558,7 +576,7 @@ object(self)
       (fun () ->
 	 if g # is_terminating then
 	   invalid_arg "add_abort_action: the group is terminated";
-	 abort_tab <- (g,a) :: abort_tab
+	 Hashtbl.replace abort_tab g a
       )
 
   method add_event e =
@@ -755,15 +773,12 @@ object(self)
     g # terminate();
     
     (* (i) delete all resources of g: *)
-    let ops =
-      Hashtbl.fold
-	(fun op (_,_,g') l -> if g=g' then op::l else l)
-	tmo_of_op
-	[] in
-    List.iter
+    let ops = 
+      try Hashtbl.find ops_of_group g with Not_found -> OpSet.empty in
+    OpSet.iter
       self#sched_remove_wl
       ops;
-    List.iter
+    OpSet.iter
       self#pset_remove_wl
       ops;
 
@@ -778,14 +793,14 @@ object(self)
     List.iter
       (Hashtbl.remove close_tab) to_remove;
     
-    abort_tab <- List.filter (fun (g',_) -> g<>g') abort_tab;
+    Hashtbl.remove abort_tab g;
 
     (* Note: the Term event isn't caught after all handlers have been
      * deleted. The Equeue module simply discards events that are not
      * handled.
      *)
 
-    if not waiting && Hashtbl.length tmo_of_op = 0 then
+    if not waiting && OpTbl.length tmo_of_op = 0 then
       pset # dispose();
 
 
@@ -799,7 +814,7 @@ object(self)
     let action =
       while_locked mutex
 	(fun () ->
-	   try Some (List.assoc g abort_tab) with Not_found -> None) in
+	   try Some (Hashtbl.find abort_tab g) with Not_found -> None) in
     match action with
       | Some a ->
           begin

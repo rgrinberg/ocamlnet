@@ -158,10 +158,108 @@ let string_of_event ev =
       sprintf "Extra(%s)" (Netexn.to_string x)
 ;;
 
+
+let fd_cmp =
+  match Sys.os_type with
+    | "Win32" ->
+	Pervasives.compare
+    | _ ->
+	(fun (fd1:Unix.file_descr) fd2 ->
+	   Pervasives.compare (Obj.magic fd1 : int) (Obj.magic fd2 : int)
+	)
+
+
+let is_op_eq op1 op2 = (* in native code faster then op1=op2 *)
+  match op1 with
+    | Wait_in fd1 ->
+	( match op2 with
+	    | Wait_in fd2 -> fd1=fd2
+	    | _ -> false
+	)
+    | Wait_out fd1 ->
+	( match op2 with
+	    | Wait_out fd2 -> fd1=fd2
+	    | _ -> false
+	)
+    | Wait_oob fd1 ->
+	( match op2 with
+	    | Wait_oob fd2 -> fd1=fd2
+	    | _ -> false
+	)
+    | Wait wid1 ->
+	( match op2 with
+	    | Wait wid2 -> (Oo.id wid1 = Oo.id wid2)
+	    | _ -> false
+	)
+
+
+let op_cmp op1 op2 =
+  match op1 with
+    | Wait_in fd1 ->
+	( match op2 with
+	    | Wait_in fd2 -> fd_cmp fd1 fd2
+	    | _ -> (-1)
+	)
+    | Wait_out fd1 ->
+	( match op2 with
+	    | Wait_in _ -> 1
+	    | Wait_out fd2 -> fd_cmp fd1 fd2
+	    | _ -> (-1)
+	)
+    | Wait_oob fd1 ->
+	( match op2 with
+	    | Wait_in _ -> 1
+	    | Wait_out _ -> 1
+	    | Wait_oob fd2 -> fd_cmp fd1 fd2
+	    | _ -> (-1)
+	)
+    | Wait wid1 ->
+	( match op2 with
+	    | Wait wid2 -> compare (Oo.id wid1) (Oo.id wid2)
+	    | _ -> 1
+	)
+
+
+let op_hash =
+  match Sys.os_type with
+    | "Win32" ->
+        Hashtbl.hash
+    | _ ->
+        (fun op ->
+           match op with
+             | Wait_in fd -> (Obj.magic fd : int)
+             | Wait_out fd -> 1031 + (Obj.magic fd : int)
+             | Wait_oob fd -> 2029 + (Obj.magic fd : int)
+             | Wait wid -> 3047 + Oo.id wid
+        )
+
+
+module OpSet =
+  Set.Make
+    (struct
+       type t = operation
+       let compare = op_cmp
+     end
+    )
+
+
+module OpTbl =
+  Hashtbl.Make
+    (struct
+       type t = operation
+       let equal = is_op_eq
+       let hash = op_hash
+     end
+    )
+
+
 let once_int is_weak (esys:event_system) g duration f =
   let id = esys#new_wait_id () in
   let op = Wait id in
   let called_back = ref false in
+
+  let e_ref = Timeout(g,op) in
+  let have_resource = ref false in
 
   let handler _ ev e =
     if !called_back then (
@@ -172,13 +270,13 @@ let once_int is_weak (esys:event_system) g duration f =
       raise Equeue.Terminate
     )
     else
-      let e_ref = Timeout(g,op) in
       if e = e_ref then begin
 	dlogr
 	  (fun () ->
 	     (sprintf
 		"once handler <regular timeout group %d>" (Oo.id g)));
-        esys#remove_resource g op;  (* delete the resource *)
+	if !have_resource then
+          esys#remove_resource g op;  (* delete the resource *)
         called_back := true;
         let () = f() in             (* invoke f (callback) *)
         raise Equeue.Terminate      (* delete the handler *)
@@ -194,10 +292,19 @@ let once_int is_weak (esys:event_system) g duration f =
   in
 
   if duration >= 0.0 then begin
-    if is_weak then
-      esys#add_weak_resource g (op, duration)
-    else
-      esys#add_resource g (op, duration);
+    if is_weak then (
+      esys#add_weak_resource g (op, duration);
+      have_resource := true
+    )
+    else (
+      (* if the timeout is 0 we can bypass Unixqueue *)
+      if duration = 0.0 then
+	esys#add_event e_ref
+      else (
+	esys#add_resource g (op, duration);
+	have_resource := true
+      )
+    );
     esys#add_handler g handler
   end;
   ()

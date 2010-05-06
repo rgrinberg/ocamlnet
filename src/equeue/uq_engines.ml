@@ -530,6 +530,47 @@ end;;
 
 let sync_engine = new sync_engine
 
+
+class ['t] epsilon_engine (target_state:'t engine_state) ues : ['t] engine =
+  let g = Unixqueue.new_group ues in
+object(self)
+  inherit ['t] engine_mixin (`Working 0) ues
+
+  initializer (
+    Unixqueue.once ues g 0.0
+      (fun () -> self # set_state target_state)
+  )
+
+  method abort() =
+    Unixqueue.clear ues g;
+    self # set_state `Aborted
+end
+
+(* old - slightly more heavy-weight implementation: *)
+(*
+class ['t] epsilon_engine target_state ues =
+  (* Simply create a poll engine, and add a timeout event for its group.
+   * The poll engine accepts all events of that group and switches to
+   * `Done.
+   *)
+  let eng =
+    new poll_engine [] ues in
+  let g =
+    eng # group in
+  let wid =
+    Unixqueue.new_wait_id ues in
+  let () =
+    Unixqueue.add_event ues (Unixqueue.Timeout(g, Unixqueue.Wait wid)) in
+  [Unixqueue.event, 't] map_engine 
+    ~map_done:(fun _ -> target_state)
+    (eng :> Unixqueue.event engine)
+;;
+ *)
+
+let epsilon_engine = new epsilon_engine
+
+
+
 class poll_engine ?(extra_match = fun _ -> false) oplist ues =
 object(self)
 
@@ -548,8 +589,6 @@ object(self)
     state <- (`Working 0 : Unixqueue.event engine_state);
     (* Define the event handler: *)
     Unixqueue.add_handler ues group (fun _ _ -> self # handle_event);
-    (* Define the abort (exception) handler: *)
-    Unixqueue.add_abort_action ues group (fun _ -> self # handle_exception);
     (* Add the resources: *)
     List.iter (Unixqueue.add_resource ues group) oplist;
 
@@ -746,28 +785,6 @@ end ;;
 
 
 let watchdog = new watchdog
-
-
-class ['t] epsilon_engine target_state ues =
-  (* Simply create a poll engine, and add a timeout event for its group.
-   * The poll engine accepts all events of that group and switches to
-   * `Done.
-   *)
-  let eng =
-    new poll_engine [] ues in
-  let g =
-    eng # group in
-  let wid =
-    Unixqueue.new_wait_id ues in
-  let () =
-    Unixqueue.add_event ues (Unixqueue.Timeout(g, Unixqueue.Wait wid)) in
-  [Unixqueue.event, 't] map_engine 
-    ~map_done:(fun _ -> target_state)
-    (eng :> Unixqueue.event engine)
-;;
-
-
-let epsilon_engine = new epsilon_engine
 
 
 let rec msync_engine l f x0 esys =

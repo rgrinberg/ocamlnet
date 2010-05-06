@@ -1,5 +1,6 @@
 TOP_DIR=../..
 
+include $(TOP_DIR)/Makefile.conf
 include Makefile.conf
 
 PKGNAME  = netsys

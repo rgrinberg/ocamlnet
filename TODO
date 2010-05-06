@@ -7,6 +7,12 @@ Plan for Ocamlnet 3
   * Netexn does not work for 3.11.2
     WATCH THIS. Ad hoc tests have shown that it works well.
 
+  * CHECK: Netplex children seem to block sigterm
+
+  * Build for gprof
+
+  * mstrings: define default factory for XDR decoding
+
 - Doc:
   * Doc: Tutorial for Rpc_proxy. Upgrade one example (finder)
   * container sockets

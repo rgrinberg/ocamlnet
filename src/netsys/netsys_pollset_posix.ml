@@ -2,6 +2,32 @@
 
 open Netsys_pollset
 
+let fd_equal =
+  match Sys.os_type with
+    | "Win32" ->
+	(fun fd1 fd2 -> fd1=fd2)
+    | _ ->
+	(fun (fd1:Unix.file_descr) fd2 ->
+	   (Obj.magic fd1 : int) = (Obj.magic fd2 : int)
+	)
+
+let fd_hash =
+  match Sys.os_type with
+    | "Win32" ->
+	(fun fd -> Hashtbl.hash fd)
+    | _ ->
+	(fun fd -> (Obj.magic fd : int))
+
+
+module FdTbl =
+  Hashtbl.Make
+    (struct
+       type t = Unix.file_descr
+       let equal = fd_equal
+       let hash = fd_hash
+     end
+    )
+
 
 let oothr = !Netsys_oothr.provider
 
@@ -110,7 +136,7 @@ let rounded_pa_size l =
 
 let poll_based_pollset () : pollset =
 object(self)
-  val mutable ht = Hashtbl.create 10
+  val mutable ht = FdTbl.create 10
     (* maps fd to req events *)
 
   val mutable spa = Netsys_posix.create_poll_array 32
@@ -134,13 +160,13 @@ object(self)
 
 
   method find fd =
-    Hashtbl.find ht fd
+    FdTbl.find ht fd
 
   method add fd ev =
-    Hashtbl.replace ht fd ev
+    FdTbl.replace ht fd ev
 
   method remove fd =
-    Hashtbl.remove ht fd
+    FdTbl.remove ht fd
 
   method wait tmo =
     if oothr # single_threaded then (
@@ -197,7 +223,7 @@ object(self)
 
   method private wait_1 tmo extra_fd_opt =
     let have_extra_fd = extra_fd_opt <> None in
-    let ht_l = Hashtbl.length ht in
+    let ht_l = FdTbl.length ht in
     let l = ht_l + if have_extra_fd then 1 else 0 in
     let pa = 
       if l < Netsys_posix.poll_array_length spa then
@@ -208,7 +234,7 @@ object(self)
 	pa
       ) in
     let j = ref 0 in
-    Hashtbl.iter
+    FdTbl.iter
       (fun fd ev ->
 	 let c = 
 	   { Netsys_posix.poll_fd = fd;
