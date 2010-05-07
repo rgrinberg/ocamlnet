@@ -160,6 +160,14 @@ object(self)
 	~string_of_event:Unixqueue_util.string_of_event self#source in
     sys <- lazy equeue_sys;
     ignore(Lazy.force sys);
+    (* Add ourselves now at object creation time. The only drawback is that
+       we no longer raise [Equeue.Out_of_handlers] - but this is questionable
+       anyway since the addition of [Immediate] events.
+       
+       In order to generate [Out_of_handlers] we would have to count
+       [Immediate] events in addition to handlers.
+     *)
+    self#equeue_add_handler ()
 
   method private setup () =
     (* Find out which resources should be watched for interesting events *)
@@ -640,8 +648,10 @@ object(self)
       if hlist' = [] then (
 	Hashtbl.remove handlers g;
 	handled_groups <- handled_groups - 1;
+(*
 	if handled_groups = 0 then
 	  raise Equeue.Terminate  (* delete uq_handler from esys *)
+ *)
       ) else (
 	Hashtbl.replace handlers g hlist'
       )
@@ -710,8 +720,10 @@ object(self)
 	       if Hashtbl.mem handlers g then (
 		 Hashtbl.remove handlers g;
 		 handled_groups <- handled_groups - 1;
+(*
 		 if handled_groups = 0 then
 		   raise Equeue.Terminate  (* delete uq_handler from esys *)
+ *)
 	       )
 	       else raise Equeue.Reject (* strange, should not happen *)
 	    )
@@ -734,6 +746,11 @@ object(self)
 	  forward_event_to_all();
       | Extra x ->
 	  forward_event_to_all();
+      | Immediate(g,f) ->
+	  if g # is_terminating then raise Equeue.Reject;
+	  ( try f()
+	    with Equeue.Terminate -> ()
+	  )
 
   method private equeue_add_handler () =
     Equeue.add_handler (Lazy.force sys) self#uq_handler

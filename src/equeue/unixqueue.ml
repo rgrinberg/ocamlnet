@@ -26,6 +26,7 @@ type event = Unixqueue_util.event =
   | Timeout of (group * operation)
   | Signal
   | Extra of exn
+  | Immediate of (group * (unit -> unit))
 
 
 

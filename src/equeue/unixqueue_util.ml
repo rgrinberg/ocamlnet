@@ -68,6 +68,7 @@ type event =
   | Timeout of (group * operation)
   | Signal
   | Extra of exn
+  | Immediate of (group * (unit -> unit))
 
 type resource_prop =
     group * float * float ref
@@ -156,6 +157,8 @@ let string_of_event ev =
       "Signal"
   | Extra x ->
       sprintf "Extra(%s)" (Netexn.to_string x)
+  | Immediate(g,_) ->
+      sprintf "Immediate(group %d)" (Oo.id g)
 ;;
 
 
@@ -253,61 +256,59 @@ module OpTbl =
     )
 
 
+let epsilon esys g f =
+  let e = Immediate(g, f) in
+  esys#add_event e
+
+
 let once_int is_weak (esys:event_system) g duration f =
-  let id = esys#new_wait_id () in
-  let op = Wait id in
-  let called_back = ref false in
+  if not is_weak && duration = 0.0 then
+    epsilon esys g f
+  else (
+    let id = esys#new_wait_id () in
+    let op = Wait id in
+    let called_back = ref false in
 
-  let e_ref = Timeout(g,op) in
-  let have_resource = ref false in
+    let e_ref = Timeout(g,op) in
 
-  let handler _ ev e =
-    if !called_back then (
-      dlogr
-	(fun () ->
-	   (sprintf
-	      "once handler <unexpected terminate group %d>" (Oo.id g)));
-      raise Equeue.Terminate
-    )
-    else
-      if e = e_ref then begin
+    let handler _ ev e =
+      if !called_back then (
 	dlogr
 	  (fun () ->
 	     (sprintf
-		"once handler <regular timeout group %d>" (Oo.id g)));
-	if !have_resource then
+		"once handler <unexpected terminate group %d>" (Oo.id g)));
+	raise Equeue.Terminate
+      )
+      else
+	if e = e_ref then begin
+	  dlogr
+	    (fun () ->
+	       (sprintf
+		  "once handler <regular timeout group %d>" (Oo.id g)));
           esys#remove_resource g op;  (* delete the resource *)
-        called_back := true;
-        let () = f() in             (* invoke f (callback) *)
-        raise Equeue.Terminate      (* delete the handler *)
-      end
-      else (
-	dlogr
-	  (fun () ->
-	     (sprintf
-		"once handler <rejected timeout group %d, got %s but expected %s >"
-		(Oo.id g) (string_of_event e) (string_of_event e_ref)));
-        raise Equeue.Reject
-      )
-  in
+          called_back := true;
+          let () = f() in             (* invoke f (callback) *)
+          raise Equeue.Terminate      (* delete the handler *)
+	end
+	else (
+	  dlogr
+	    (fun () ->
+	       (sprintf
+		  "once handler <rejected timeout group %d, got %s but expected %s >"
+		  (Oo.id g) (string_of_event e) (string_of_event e_ref)));
+          raise Equeue.Reject
+	)
+    in
 
-  if duration >= 0.0 then begin
-    if is_weak then (
-      esys#add_weak_resource g (op, duration);
-      have_resource := true
-    )
-    else (
-      (* if the timeout is 0 we can bypass Unixqueue *)
-      if duration = 0.0 then
-	esys#add_event e_ref
-      else (
+    if duration >= 0.0 then (
+      if is_weak then
+	esys#add_weak_resource g (op, duration)
+      else
 	esys#add_resource g (op, duration);
-	have_resource := true
-      )
-    );
-    esys#add_handler g handler
-  end;
-  ()
+      esys#add_handler g handler
+    )
+  )
+
 
 let once = once_int false
 let weak_once = once_int true

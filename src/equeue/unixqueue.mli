@@ -126,6 +126,7 @@ type event = Unixqueue_util.event =
   | Timeout of          (group * operation)   (** A timer has expired *)
   | Signal                                    (** A signal has happened *)
   | Extra of exn                              (** User-generated event *)
+  | Immediate of (group * (unit -> unit))     (** immediate event *)
   (** An [event] is triggered when the condition of an [operation]
    * becomes true, when a signal happens, or when the event is
    * (artificially) added to the event queue ([add_event], below).
@@ -145,6 +146,14 @@ type event = Unixqueue_util.event =
    * The event [Extra] can only be artificially added to the queue,
    * and the argument of [Extra] is an exception value that distinguishes
    * between several kinds of user-generated events.
+   *
+   * The event [Immediate(g,f)] also can only be artificially added to
+   * the queue. In contrast to other events, it is not passed to handlers
+   * when the event is processed. Instead, an immediate event is processed
+   * by calling [f()]. This is a more direct way of notification, and
+   * it is not necessary to define a handler. Even an immediate event is
+   * member of a group [g], and if the [clear] function is called for [g],
+   * the callback function [f] will no longer be called.
    *)
 
 class type event_system =
