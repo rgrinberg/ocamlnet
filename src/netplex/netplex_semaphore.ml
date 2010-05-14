@@ -109,6 +109,7 @@ let plugin : plugin =
 	let cont_sem = self # get_cont_sem cid sem_name protected in
 	int64_incr sem;
 	int64_incr cont_sem;
+	let semval = !sem in
 	if !sem = 1L then (
 	  if not (Queue.is_empty waiting) then (
 	    let waiting_reply = Queue.take waiting in
@@ -116,7 +117,7 @@ let plugin : plugin =
 	    waiting_reply 0L
 	  )
 	);
-	!sem
+	semval
 
       method private decrement_async ctrl cid sem_name wait_flag reply =
 	let (sem, protected, waiting) = self # get_sem ctrl sem_name in
