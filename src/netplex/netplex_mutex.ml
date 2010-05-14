@@ -23,14 +23,18 @@ let access name =
 
 let lock name =
   let w = Netplex_semaphore.decrement ~wait:true (name ^ "#w") in
+  Netlog.logf `Debug "lock: w=%Ld" w;
   assert(w = 0L);
   let s = Netplex_semaphore.increment (name ^ "#s") in
+  Netlog.logf `Debug "lock: s=%Ld" s;
   assert(s = 1L)
 
 let unlock name =
   let s = Netplex_semaphore.decrement (name ^ "#s") in  (* no wait! *)
+  Netlog.logf `Debug "unlock: s=%Ld" s;
   if (s >= 0L) then (
     assert(s = 0L);
     let w = Netplex_semaphore.increment (name ^ "#w") in
+    Netlog.logf `Debug "unlock: w=%Ld" w;
     assert(w = 1L)
   )

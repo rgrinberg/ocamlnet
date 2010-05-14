@@ -171,23 +171,29 @@ let plugin : plugin =
       method ctrl_container_finished ctrl cid _ =
 	try
 	  let ht = Hashtbl.find containers cid in  (* or Not_found *)
+	  let sems = ref [] in
 	  Hashtbl.iter
 	    (fun sem_name value ->
 	       let (sem, _, waiting) = self # get_sem ctrl sem_name in
 	       let zero_flag = (!sem = 0L) in
 	       sem := Int64.sub !sem !value;
 	       if !sem < 0L then sem := 0L;
-	       if zero_flag && !sem > 0L then (
-		 let v = ref !sem in
-		 while not(Queue.is_empty waiting) && !v > 0L do
-		   let waiting_reply = Queue.take waiting in
-		   self#really_decrement sem (ref 0L) false;
-		   waiting_reply 0L;
-		   int64_decr v
-		 done
-	       )
+	       if zero_flag && !sem > 0L then
+		 sems := sem_name :: !sems
 	    )
 	    ht;
+	  List.iter
+	    (fun sem_name ->
+	       let (sem, _, waiting) = self # get_sem ctrl sem_name in
+	       let v = ref !sem in
+	       while not(Queue.is_empty waiting) && !v > 0L do
+		 let waiting_reply = Queue.take waiting in
+		 self#really_decrement sem (ref 0L) false;
+		 waiting_reply 0L;
+		 int64_decr v
+	       done
+	    )
+	    !sems;
 	  Hashtbl.remove containers cid
 	with
 	  | Not_found -> ()
