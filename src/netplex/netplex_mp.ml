@@ -59,8 +59,8 @@ object(self)
 	   with _ -> ()
 	)
 	!pid_list;
-      exit 6
-    )
+    );
+    exit 6
 
   method init() =
     (* SIGTERM is forwarded to all children: *)
