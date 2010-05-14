@@ -70,8 +70,8 @@ val dynamic_workload_manager_factory : workload_manager_factory
     * {[ workload_manager {
     *      type = "dynamic";
     *      max_jobs_per_thread = <n>;
-    *      min_free_job_capacity = <n>;
-    *      max_free_job_capacity = <n>;
+    *      min_free_jobs_capacity = <n>;
+    *      max_free_jobs_capacity = <n>;
     *      max_threads = <n>;
     *    }
     * ]}
