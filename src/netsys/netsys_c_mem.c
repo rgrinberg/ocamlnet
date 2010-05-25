@@ -100,6 +100,36 @@ CAMLprim value netsys_alloc_memory_pages(value addrv, value pv)
 }
 
 
+CAMLprim value netsys_zero_pages(value memv, value offsv, value lenv)
+{
+#if defined(HAVE_MMAP) && defined(HAVE_SYSCONF) && defined(MAP_ANON) && defined (MAP_FIXED)
+    struct caml_bigarray *mem = Bigarray_val(memv);
+    long offs = Long_val(offsv);
+    long len = Long_val(lenv);
+    long pgsize = sysconf(_SC_PAGESIZE);
+    char *data = ((char*) mem->data) + offs;
+    void *data2;
+    
+    if (((uintnat) data) % pgsize == 0 && len % pgsize == 0) {
+	if (len > 0) {
+	    data2 = mmap(data, len, PROT_READ|PROT_WRITE, 
+			 MAP_PRIVATE | MAP_ANON | MAP_FIXED,
+			 (-1), 0);
+	    if (data2 == (void *) -1) uerror("mmap", Nothing);
+	    if (((void *) data) != data2)
+		failwith("Netsys_mem.zero_pages assertion failed");
+	}
+    }
+    else
+	invalid_argument("Netsys_mem.zero_pages only for whole pages");
+
+    return Val_unit;
+#else
+    invalid_argument("Netsys_mem.zero_pages not available");
+#endif
+}
+
+
 CAMLprim value netsys_alloc_aligned_memory(value alignv, value pv)
 {
 #if defined(HAVE_POSIX_MEMALIGN)

@@ -76,6 +76,12 @@ object
 end
 
 
+class type ['a] prioritizer_t =
+object
+  method prioritized : (Unixqueue.event_system -> 'a engine) -> int -> 'a engine
+end
+
+
 class type ['a] cache_t =
 object
   method get_engine : unit -> 'a engine
@@ -109,6 +115,14 @@ let is_active state =
       `Working _ -> true
     | _          -> false
 ;;
+
+module IntSet =
+  Set.Make
+    (struct
+       type t = int
+       let compare (x:t) (y:t) = Pervasives.compare x y
+     end
+    )
 
 
 class [ 't ] engine_mixin (init_state : 't engine_state) esys =
@@ -813,7 +827,9 @@ object(self)
   method serialized ( f : (Unixqueue.event_system -> 'a engine) ) =
     (** Will call [f esys] when it is time to start the engine *)
     let rec next f signal =
-      let e = (f esys : 'a  engine) in
+      let e = 
+	try (f esys : 'a engine)
+	with error -> epsilon_engine (`Error error) esys in
       running <- Some e;
       signal e;
       if is_active e#state then 
@@ -861,6 +877,83 @@ object(self)
 end
 
 let serializer = new serializer
+
+
+class ['a] prioritizer (esys : Unixqueue.event_system) =
+object(self)
+  val mutable prio = 0       (* priority of [running] engines *)
+  val mutable running = 0    (* # running engines *)
+  val mutable prios = IntSet.empty        (* all waiting priorities *)
+  val mutable preempting = false          (* whether there is a bigger prio in prios *)
+  val mutable waiting = Hashtbl.create 3  (* the waiting engines by prio *)
+
+  method prioritized f p =
+    let rec next f signal =
+      running <- running + 1;
+      prio <- p;
+      let e = 
+	try (f esys : 'a engine)
+	with error -> epsilon_engine (`Error error) esys in
+      signal e;
+      if is_active e#state then 
+	when_state
+	  ~is_done:(fun _ -> check())
+	  ~is_error:(fun _ -> check())
+	  ~is_aborted:(fun _ -> check())
+	  e
+      else (
+	let g = Unixqueue.new_group esys in
+	Unixqueue.once esys g 0.0 check;
+      );
+      e
+
+    and check () =
+      running <- running - 1;
+      if running = 0 && prios <> IntSet.empty then (
+	let highest = IntSet.min_elt prios in
+	prios <- IntSet.remove highest prios;
+	preempting <- false;
+	let l = 
+	  try Hashtbl.find waiting highest with Not_found -> assert false in
+	Hashtbl.remove waiting highest;
+	List.iter
+	  (fun (f,signal) ->
+	     ignore(next f signal)
+	  )
+	  (List.rev l);
+      )
+    in
+
+    if running = 0 || prio = p || not preempting then (
+      (* we can start immediately *)
+      next f (fun _ -> ())
+    )
+    else (
+      (* push f onto the queue *)
+      let sig_e, do_signal = signal_engine esys in
+      let eff_e = ref None in
+      let wrap_e =
+	seq_engine
+	  sig_e
+	  (fun _ ->
+	     match !eff_e with
+	       | None -> assert false
+	       | Some e -> e
+	  ) in
+      let signal e =
+	eff_e := Some e;
+	do_signal(`Done()) in
+      let l = try Hashtbl.find waiting p with Not_found -> [] in
+      Hashtbl.replace waiting p ((f,signal)::l);
+      prios <- IntSet.add p prios;
+      if p < prio then
+	preempting <- true;
+      wrap_e
+    )
+end
+
+
+let prioritizer = new prioritizer
 
 
 class ['a] cache call_get_e esys =

@@ -442,6 +442,35 @@ val serializer : Unixqueue.event_system -> 'a serializer_t
   (** Same as function *)
 
 
+(** A prioritizer allows to prioritize the execution of engines: At any
+    time, only engines of a certain priority [p] can be executed. If an
+    engine with a higher priority [ph] wants to start, it prevents further
+    engines with priority level [p] from being started until the higher
+    prioritized engines with level [ph] are done. On the same priority level,
+    there is no limit for the number of executed engines.
+
+    Here, higher priorities have lower numbers.
+ *)
+class type ['a] prioritizer_t =
+object
+  method prioritized : (Unixqueue.event_system -> 'a engine) -> int -> 'a engine
+    (** [let pe = prioritized f p]: Queues up [f] on priority level [p].
+	The engine  [e = f esys] can start when there is no waiting
+	engine on a higher priority level (i.e. with a number less than
+	[p]), and all running engines on lower priority levels are done.
+
+	[pe] enters a final state when [e] does.
+     *)
+end
+
+class ['a] prioritizer : Unixqueue.event_system -> ['a] prioritizer_t
+  (** Creates a prioritizer *)
+
+val prioritizer : Unixqueue.event_system -> 'a prioritizer_t
+  (** Same as function *)
+
+
+
 (** A cache contains a mutable value that is obtained by running an
     engine.
  *)

@@ -56,6 +56,15 @@ let memory_map_file fd ?(pos=0L) ?(addr=0n) shared size =
 external memory_unmap_file : memory -> unit
   = "netsys_memory_unmap_file"
 
+external netsys_zero_pages : memory -> int -> int -> unit
+  = "netsys_zero_pages"
+
+let zero_pages mem pos len =
+  let memlen = Bigarray.Array1.dim mem in
+  if len < 0 || pos < 0 || pos > memlen - len then
+    invalid_arg "Netsys_mem.zero_pages (index out of range)";
+  netsys_zero_pages mem pos len
+
 external as_value : memory -> int -> 'a
   = "netsys_as_value"
 

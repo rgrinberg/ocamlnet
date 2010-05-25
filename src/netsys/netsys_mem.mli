@@ -99,6 +99,21 @@ val memory_unmap_file : memory -> unit
       calling this function. (If so, the function does nothing.)
    *)
 
+val zero_pages : memory -> int -> int -> unit
+  (** [zero_pages m pos len]: If possible, the memory pages in the
+      range [pos] to [pos+len-1] of [m] are allocated again, so that
+      they replace the previous pages.
+
+      It is required that the start address of the range is a
+      multiple of the page size, and the [len] is a multiple of
+      the page size. Fails with [Invalid_argument] if the requirements
+      are not met, or the function is otherwise unavailable.
+
+      Calling [zero_pages] is sometimes an optimization when old
+      memory pages can be dropped, and when the alternative of
+      overwriting these pages would imply a copy-on-write operation.
+   *)
+
 (** {2 Interpreting memory as values} *)
 
 val as_value : memory -> int -> 'a
