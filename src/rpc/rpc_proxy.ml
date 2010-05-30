@@ -305,7 +305,7 @@ module ManagedClient = struct
       }
 
   type extended_state =
-      [ `Down
+      [ `Down of int   (* serial *)
       | `Connecting of conn_state
       | `Up of up_state
       ]
@@ -389,24 +389,24 @@ module ManagedClient = struct
       config = config;
       conn = conn;
       esys = esys;
-      estate = `Down;
+      estate = `Down 0;
       next_batch_call = false;
       null_proc_name = null_proc_name;
       pending_calls = 0;
       pending_calls_callback = (fun _ _ -> ());
-      next_serial = 0;
+      next_serial = 1;
     }
         
   let mclient_state mc =
     match mc.estate with
-      | `Down -> `Down
+      | `Down _ -> `Down
       | `Connecting _ -> `Connecting
       | `Up up -> `Up (try Some(Rpc_client.get_socket_name up.client) 
 		       with _ -> None)
 
   let mclient_serial mc =
     match mc.estate with
-      | `Down -> failwith "Rpc_proxy.ManagedClient.mclient_serial: is down"
+      | `Down serial -> serial
       | `Connecting c -> c.c_serial
       | `Up up -> up.serial
 
@@ -424,13 +424,13 @@ module ManagedClient = struct
 
   let if_up mc f =
     match mc.estate with
-      | `Down
+      | `Down _
       | `Connecting _ -> ()
       | `Up up -> f up
 
   let if_connecting_or_up mc f =
     match mc.estate with
-      | `Down -> ()
+      | `Down _ -> ()
       | `Connecting c -> f c.c_client
       | `Up up -> f up.client
 
@@ -439,12 +439,17 @@ module ManagedClient = struct
       | None -> ()
       | Some g -> Unixqueue.clear mc.esys g
 
+  let next_serial mc =
+    let s = mc.next_serial in
+    mc.next_serial <- s + 1;
+    s
+
   let shut_down mc =
     if_connecting_or_up mc
       (fun client -> Rpc_client.shut_down client);
     if_up mc
       (fun up -> cancel_idle_timer mc up);
-    mc.estate <- `Down;
+    mc.estate <- `Down (next_serial mc);
     change_pending_calls mc 0
 
   let sync_shutdown mc =
@@ -452,7 +457,7 @@ module ManagedClient = struct
       (fun client -> Rpc_client.sync_shutdown client);
     if_up mc
       (fun up -> cancel_idle_timer mc up);
-    mc.estate <- `Down;
+    mc.estate <- `Down (next_serial mc);
     change_pending_calls mc 0
 
   let trigger_shutdown mc f =
@@ -460,13 +465,13 @@ module ManagedClient = struct
       (fun client -> Rpc_client.trigger_shutdown client f);
     if_up mc
       (fun up -> cancel_idle_timer mc up);
-    mc.estate <- `Down;
+    mc.estate <- `Down (next_serial mc);
     change_pending_calls mc 0
 
   let fatal_error mc =
     (* We count a failed mclient only once *)
     match mc.estate with
-      | `Down -> ()
+      | `Down _ -> ()
       | `Connecting c ->
 	  if not c.c_fatal_error then (
 	    c.c_fatal_error <- true;
@@ -488,7 +493,7 @@ module ManagedClient = struct
   let enforce_unavailability mc =
     fatal_error mc;
     ( match mc.estate with
-	| `Down -> ()
+	| `Down _ -> ()
 	| `Connecting c ->
 	    c.c_unavailable <- true
 	| `Up up ->
@@ -515,7 +520,7 @@ module ManagedClient = struct
     if_connecting_or_up mc
       (fun client ->
 	 if not(Rpc_client.is_up client) then (
-	   mc.estate <- `Down;
+	   mc.estate <- `Down (next_serial mc);
 	   change_pending_calls mc 0
 	 )
       )
@@ -544,7 +549,7 @@ module ManagedClient = struct
 	 if tmo = 0.0 then (
 	   (* Stop client immediately again! *)
 	   Rpc_client.trigger_shutdown up.client (fun () -> ());
-	   mc.estate <- `Down;
+	   mc.estate <- `Down(next_serial mc);
 	   change_pending_calls mc 0
 	 )
 	 else
@@ -554,7 +559,7 @@ module ManagedClient = struct
 	     Unixqueue.weak_once mc.esys g tmo
 	       (fun () ->
 		  Rpc_client.trigger_shutdown up.client (fun () -> ());
-		  mc.estate <- `Down;
+		  mc.estate <- `Down(next_serial mc);
 		  change_pending_calls mc 0
 	       );
 	     up.idle_timer <- Some g
@@ -603,7 +608,7 @@ module ManagedClient = struct
 		 error = Rpc_client.Message_lost && cstate.c_unavailable in
 	       if not p_unavail then
 		 fatal_error mc;
-	       mc.estate <- `Down;
+	       mc.estate <- `Down(next_serial mc);
 	       let error =
 		 if p_unavail then Service_unavailable else error in
 	       List.iter
@@ -630,14 +635,12 @@ module ManagedClient = struct
       when_fail Service_unavailable
     else (
       match mc.estate with
-	| `Down ->
+	| `Down serial ->
 	    (* Create a new client and initialize it *)
 	    let mode2 = 
 	      `Socket(Rpc.Tcp, mc.conn, mc.config.mclient_socket_config) in
 	    let client = 
 	      Rpc_client.unbound_create mode2 mc.esys in
-	    let serial = mc.next_serial in
-	    mc.next_serial <- serial + 1;
 	    (* The client remains unbound. We check program compatibility here
 	     *)
 	    Rpc_client.configure client 0 mc.config.mclient_msg_timeout;

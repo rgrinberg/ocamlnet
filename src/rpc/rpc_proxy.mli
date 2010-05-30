@@ -328,8 +328,8 @@ module ManagedClient : sig
 
   val mclient_serial : mclient -> int
     (** Get the serial number of the connection. The serial number is
-	increased when the client is reconnected. The number is unavailable
-	when the client is down ([Failure] in this case).
+	increased when the client is reconnected. If the client is down
+	the serial number of the next connection attempt is returned.
      *)
 
   val pending_calls : mclient -> int
