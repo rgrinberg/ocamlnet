@@ -289,6 +289,7 @@ module ManagedClient = struct
 
   type up_state =
       { client : Rpc_client.t;
+	serial : int;
 	mutable idle_timer : Unixqueue.group option;
 	mutable unavailable : bool;
 	mutable fatal_error : bool;
@@ -296,6 +297,7 @@ module ManagedClient = struct
 
   type conn_state =
       { c_client : Rpc_client.t;
+	c_serial : int;
 	mutable c_when_up : (up_state -> unit) list;
 	mutable c_when_fail : (exn -> unit) list;
 	mutable c_unavailable : bool;
@@ -321,6 +323,7 @@ module ManagedClient = struct
 	(* Called when pending_calls is changed, with old and new value.
            Also called on state change.
 	 *)
+	mutable next_serial : int;
       }
 	
   type t = mclient
@@ -390,7 +393,8 @@ module ManagedClient = struct
       next_batch_call = false;
       null_proc_name = null_proc_name;
       pending_calls = 0;
-      pending_calls_callback = (fun _ _ -> ())
+      pending_calls_callback = (fun _ _ -> ());
+      next_serial = 0;
     }
         
   let mclient_state mc =
@@ -399,6 +403,12 @@ module ManagedClient = struct
       | `Connecting _ -> `Connecting
       | `Up up -> `Up (try Some(Rpc_client.get_socket_name up.client) 
 		       with _ -> None)
+
+  let mclient_serial mc =
+    match mc.estate with
+      | `Down -> failwith "Rpc_proxy.ManagedClient.mclient_serial: is down"
+      | `Connecting c -> c.c_serial
+      | `Up up -> up.serial
 
   let compare mc1 mc2 =
     Pervasives.compare mc1.id mc2.id
@@ -512,13 +522,15 @@ module ManagedClient = struct
 
   let create_up mc cstate =
     { client = cstate.c_client;
+      serial = cstate.c_serial;
       idle_timer = None;
       unavailable = cstate.c_unavailable;
       fatal_error = cstate.c_fatal_error;
     }
 
-  let create_up1 mc client =
+  let create_up1 mc client serial =
     { client = client;
+      serial = serial;
       idle_timer = None;
       unavailable = false;
       fatal_error = false;
@@ -550,13 +562,14 @@ module ManagedClient = struct
       )
 
 
-  let do_initial_ping mc client when_up when_fail =
+  let do_initial_ping mc client serial when_up when_fail =
     (* Arrange that the initial ping is sent. When it arrives,
        when_up will be called, and when_fail on error
      *)
     let prog = List.hd mc.config.mclient_programs in
     let cstate =
       { c_client = client;
+	c_serial = serial;
 	c_when_up = [when_up];
 	c_when_fail = [when_fail];
 	c_unavailable = false;
@@ -623,6 +636,8 @@ module ManagedClient = struct
 	      `Socket(Rpc.Tcp, mc.conn, mc.config.mclient_socket_config) in
 	    let client = 
 	      Rpc_client.unbound_create mode2 mc.esys in
+	    let serial = mc.next_serial in
+	    mc.next_serial <- serial + 1;
 	    (* The client remains unbound. We check program compatibility here
 	     *)
 	    Rpc_client.configure client 0 mc.config.mclient_msg_timeout;
@@ -641,10 +656,10 @@ module ManagedClient = struct
 	    if mc.config.mclient_auth_methods <> [] then
 	      Rpc_client.set_auth_methods client mc.config.mclient_auth_methods;
 	    if mc.config.mclient_initial_ping then
-	      do_initial_ping mc client when_up when_fail
+	      do_initial_ping mc client serial when_up when_fail
 	    else (
 	      (* Easier: just claim that the client is up *)
-	      let up = create_up1 mc client in
+	      let up = create_up1 mc client serial in
 	      mc.estate <- `Up up;
 	      change_pending_calls mc 0;
 	      when_up up
