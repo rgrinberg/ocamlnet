@@ -190,6 +190,7 @@ object(self)
 			     true
 			 | `event_shutdown ->
 			     self # disable_accepting();
+			     self # disable_container_sockets();
 			     self # protect
 			       "shutdown"
 			       (sockserv # processor # shutdown)
