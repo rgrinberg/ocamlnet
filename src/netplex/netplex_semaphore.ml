@@ -112,8 +112,10 @@ let plugin : plugin =
 	let semval = !sem in
 	if !sem = 1L then (
 	  if not (Queue.is_empty waiting) then (
-	    let waiting_reply = Queue.take waiting in
-	    self#really_decrement sem cont_sem protected;
+	    let (waiting_reply, waiting_cid) = Queue.take waiting in
+	    let waiting_cont_sem = 
+	      self # get_cont_sem waiting_cid sem_name protected in
+	    self#really_decrement sem waiting_cont_sem protected;
 	    waiting_reply 0L
 	  )
 	);
@@ -128,7 +130,7 @@ let plugin : plugin =
 	)
 	else (
 	  if wait_flag then
-	    Queue.push reply waiting
+	    Queue.push (reply,cid) waiting
 	  else 
 	    reply (-1L)
 	)
@@ -174,6 +176,9 @@ let plugin : plugin =
 	  let sems = ref [] in
 	  Hashtbl.iter
 	    (fun sem_name value ->
+	       (*Netlog.logf `Debug "semaphore shutdown name=%s d=%Ld"
+		 sem_name !value;
+		*)
 	       let (sem, _, waiting) = self # get_sem ctrl sem_name in
 	       let zero_flag = (!sem = 0L) in
 	       sem := Int64.sub !sem !value;
@@ -184,11 +189,13 @@ let plugin : plugin =
 	    ht;
 	  List.iter
 	    (fun sem_name ->
-	       let (sem, _, waiting) = self # get_sem ctrl sem_name in
+	       let (sem, protected, waiting) = self # get_sem ctrl sem_name in
 	       let v = ref !sem in
 	       while not(Queue.is_empty waiting) && !v > 0L do
-		 let waiting_reply = Queue.take waiting in
-		 self#really_decrement sem (ref 0L) false;
+		 let (waiting_reply,waiting_cid) = Queue.take waiting in
+		 let waiting_cont_sem =
+		   self # get_cont_sem waiting_cid sem_name protected in
+		 self#really_decrement sem waiting_cont_sem protected;
 		 waiting_reply 0L;
 		 int64_decr v
 	       done
