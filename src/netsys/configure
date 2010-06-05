@@ -24,7 +24,7 @@ if ( cd configtests; ocamlc -c printexc_register_printer.ml ) \
 then
     have_printexc_register_printer=1
     have_printexc_register_printer_bool=true
-    code_printexc_register_printer = 'Printexc.register_printer f'
+    code_printexc_register_printer='Printexc.register_printer f'
 fi
 
 if [ $have_printexc_register_printer -gt 0 ]; then
