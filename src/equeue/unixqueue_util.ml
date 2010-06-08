@@ -257,7 +257,18 @@ module OpTbl =
 
 
 let epsilon esys g f =
-  let e = Immediate(g, f) in
+  (* The callback is invoked again if the previous attempt caused an error.
+     We protect here against this, and suppress any action in this case.
+   *)
+  let called_back = ref false in
+  let f'() =
+    if !called_back then
+      ()
+    else (
+      called_back := true;
+      f()
+    ) in
+  let e = Immediate(g, f') in
   esys#add_event e
 
 
