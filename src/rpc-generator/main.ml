@@ -133,6 +133,9 @@ let main() =
 	"-U", (Arg.String (fun s -> cpp_options := !cpp_options @ [ "-U" ^ s ])),
 	      "var Undefine the preprocessor variable var";
 
+	"-I", (Arg.String (fun s -> cpp_options := !cpp_options @ [ "-I" ^ s ])),
+	      "path Include this path into the cpp search path";
+
       ]
       (fun s -> targets := !targets @ [s])
 "usage: ocamlrpcgen [-aux] [-clnt] [-srv | -srv2]
