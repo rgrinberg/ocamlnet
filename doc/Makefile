@@ -12,7 +12,7 @@ html-doc:
 	rm -f loadopts.tmp
 	pkglist="$$(cd ..; echo src/*/ocamldoc.dump | xargs -n 1 dirname | xargs -n 1 basename )"; \
 	for p in $$pkglist; do \
-		[ "$$p" != "equeue-gtk2" ] || continue; \
+		[ "$$p" != "equeue-gtk1" ] || continue; \
 		echo "-load ../src/$$p/ocamldoc.dump" >>loadopts.tmp; \
 	done
 	$(OCAMLDOC) -d html-main -stars -t "Ocamlnet 3 Reference Manual" \
