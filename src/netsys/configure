@@ -210,10 +210,19 @@ fi
 ######################################################################
 
 printf "Checking for POSIX pthread... "
-posix_pthr_compile=0
+
+# Following test is stolen from Ocaml's configure script:
 posix_pthr_link_options=""
+case `uname -s` in
+    SunOS)         posix_pthr_link_options="-lpthread -lposix4" ;;
+    FreeBSD)       posix_pthr_link_options="-pthread" ;;
+    OpenBSD)       posix_pthr_link_options="-pthread" ;;
+    *)             posix_pthr_link_options="-lpthread" ;;
+esac
+
+posix_pthr_compile=0
 rm -f configtests/posix_pthread.err
-if (cd configtests; ocamlc -o posix_pthread posix_pthread.c main.ml -custom ) \
+if (cd configtests; ocamlc -o posix_pthread posix_pthread.c main.ml -custom -cclib "$posix_pthr_link_options" ) \
       >>configtests/posix_pthread.err 2>&1
 then
     posix_pthr_compile=1
