@@ -937,7 +937,7 @@ static void sigchld_process(pid_t pid) {
        in Unix.
     */
 
-    for (k=0; k<sigchld_list_len && atom==NULL; k++) {
+    for (k=0; k<sigchld_list_len; k++) {
 	atom = &(sigchld_list[k]);
 	if (atom->pid != 0 && ! atom->terminated) {
 	    waitpid(pid, &(atom->status), WNOHANG);
@@ -945,6 +945,10 @@ static void sigchld_process(pid_t pid) {
 		close(atom->pipe_fd);
 	    }
 	    atom->terminated = 1;
+	    if ( atom->ignore ) {
+		/* We can finally free this atom */
+		atom->pid = 0;
+	    };
 	}
     }
 
