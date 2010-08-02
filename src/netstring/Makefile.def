@@ -38,6 +38,7 @@ INSTALL_EXTRA_CMX = netmappings_iso netmappings_jp netmappings_kr \
 		    netbuffer
 INSTALL_EXTRA = $(INSTALL_EXTRA_CMO:=.cmo) \
 		$(INSTALL_EXTRA_CMX:=.cmx) $(INSTALL_EXTRA_CMX:=.p.cmx) \
+		$(INSTALL_EXTRA_CMX:=.o) $(INSTALL_EXTRA_CMX:=.p.o) \
 		netdb-packlist \
 		dllnetaccel_c.*
 
