@@ -1,3 +1,19 @@
+CHECK FOR FURTHER INCLUSION:
+
+- signalfd (Linux), as an efficient way of catching SIGCHLD
+- eventfd (Linux), as an efficient way of waking equeue up from
+  other threads
+
+- Uq_io: engines-based I/O primitives (e.g. input_e, input_line_e etc.)
+  Supports various "devices":
+    - Pollable descriptor
+    - Multiplex controller
+    - (later:) Seekable descriptor
+
+  Update equeue guide
+
+- Camlbox: library function which uses a helper thread for notification
+
 ----------------------------------------------------------------------
 Plan for Ocamlnet 3
 ----------------------------------------------------------------------
@@ -352,6 +368,7 @@ Further ideas
 - SSL support for Http_client
 
 - Finish Ftp_client
+  * rewrite problematic parts in engines style
 
 - Netplex + RPC + SSL: should be easy to configure
 
