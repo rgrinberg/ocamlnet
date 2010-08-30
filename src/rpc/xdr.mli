@@ -366,7 +366,8 @@ val unpack_xdr_value_l : ?pos:int -> ?len:int -> ?fast:bool -> ?prefix:bool ->
    *   (default: false)
    *
    * [mstring_factories]: when a [T_mstring(name,_)] type is found, the
-   * factory is looked up in this hash table under [name]. If there is no such
+   * factory is looked up in this hash table under [name], and if this
+   * fails under the name ["*"]. If there is no such
    * factory, unpacking fails! (Default: empty table.)
    *
    * The variant [unpack_xdr_value_l] returns not only the decoded value,

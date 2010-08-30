@@ -61,8 +61,8 @@ module ReliabilityCache = struct
 
   let g_rcache_config =
     ref (create_rcache_config
-	   ~policy:`Independent
-	   ~disable_timeout_max:1.0
+	   (* ~policy:`Independent
+	   ~disable_timeout_max:1.0 *)
 	   ())
 
   let g_rcache_config_modifiable = ref true

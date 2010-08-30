@@ -126,6 +126,12 @@ In O'Caml, these types are mapped as follows:
   mapped to [string]. The size constraint is dynamically checked
   in both cases when RPC message are analyzed or created.
 
+Since Ocamlnet-3, there is also the variant of managed strings. A
+managed string (declared by the keyword [_managed] in the XDR file)
+is mapped to {!Xdr.XV_mstring} on the term level. This constructor
+takes an argument of type {!Xdr_mstring.mstring}, which is also the
+type on the fully-mapped level.
+
 {2 XDR: Options}
 
 The "pointer type" [*t] is considered as an option type in XDR

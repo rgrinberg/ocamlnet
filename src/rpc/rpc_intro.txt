@@ -192,6 +192,14 @@ Obviously, asynchronous clients are a bit more complicated than
 synchronous ones; however it is still rather simple to program them. For
 more information on how the event handling works, see {!Equeue_intro}.
 
+Note that clients have only a limited lifetime: After a shutdown or an
+error they become unusable. Since Ocamlnet version 3 there is another
+flavor of client, the so-called proxies. See {!Rpc_proxy.tut} for an
+introduction. In particular, proxies can reconnect the connection to
+the server after a shutdown, and they can even manage several
+connections to the same server, or to different servers that are seen
+as equivalent.
+
 {2:intro_srv Generating servers with [ocamlrpcgen]}
 
 The flag [-srv] causes [ocamlrpcgen] to generate the module
@@ -681,6 +689,20 @@ numbers according to the IEEE standards.
 Strings and opaque values are mapped to O'Caml strings. If strings have a fixed
 length or a maximum length, this constraint is checked when the conversion is
 performed.
+
+Since Ocamlnet-3, strings can be declared as "managed" in the XDR 
+file, e.g.
+
+{[
+typedef _managed string s<>;
+]}
+
+A managed string is mapped to the object type {!Xdr_mstring.mstring}.
+The idea of managed strings is to avoid data copies as much as possible,
+and to introduce some freedom of representation. In particular, managed
+strings can be backed by normal strings or by bigarrays of char. The
+RPC library chooses the representation that works best, and avoids copying
+so far possible.
 
 {2:map_arrays Mapping array types}
 

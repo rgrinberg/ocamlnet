@@ -1725,7 +1725,11 @@ let unpack_term
   let rec read_mstring name n k0 =
     let factory =
       try Hashtbl.find mstring_factories name
-      with Not_found -> failwith "read_mstring: no such factory" in
+      with Not_found -> 
+	( try Hashtbl.find mstring_factories "*"
+	  with Not_found ->
+	    failwith "read_mstring: no such factory"
+	) in
     k := k0 + 4;
     if !k > k_end then raise_xdr_format_too_short();
     let m = Rtypes.read_uint4_unsafe str k0 in

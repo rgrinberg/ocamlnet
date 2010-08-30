@@ -959,6 +959,9 @@ let create2_srv prot esys =
   let none = Hashtbl.create 3 in
   Hashtbl.add none "AUTH_NONE" auth_none;
 
+  let mf = Hashtbl.create 1 in
+  Hashtbl.add mf "*" Xdr_mstring.string_based_mstrings;
+  
   { main_socket_name = `Implied;
     service = Uint4Map.empty;
     portmapped = None;
@@ -975,8 +978,8 @@ let create2_srv prot esys =
     transport_timeout = (-1.0);
     nolog = false;
     get_last_proc = (fun () -> "");
-    mstring_factories = Hashtbl.create 1
-  }
+    mstring_factories = mf 
+  }  
 ;;
 
 

@@ -64,7 +64,8 @@
  * reported - instead, the exception is logged to {!Netlog}. For a stricter
  * error handling, it is suggested to call [flush] first. Also, [close_in]
  * and [close_out] no longer raise [Closed_channel] when the channel is
- * already closed.
+ * already closed. Read more about this in the section
+ * {!Netchannels.rec_out_channel.close_error}.
  *)
 
 exception Closed_channel
@@ -167,21 +168,69 @@ class type rec_out_channel = object
      *)
   method flush : unit -> unit
     (** If there is a write buffer, it will be flushed. Otherwise, nothing
-     * happens
+     * happens.
      *)
   method close_out : unit -> unit
     (** Flushes the buffer, if any, and closes the channel for output.
      *
      * When the channel is already closed, this is a no-op.
-     *
-     * Error policy: Usually errors are logged to {!Netlog} but not passed
-     * back to the caller. It is more important to ensure that the underlying
-     * resources are released than to report all issues to the caller.
-     * If a stricter error policy is required, users should call [flush]
-     * first. Implementations may nevertheless raise exceptions in [close_out],
-     * especially in cases when the channel is seriously corrupted (e.g. the
-     * descriptor is invalid), or to report special user conditions.
      *)
+
+ (** {2:close_error How to close channels in case of errors}
+
+     The [close_out] method has actually two tasks: First, it writes out
+     all remaining data (like [flush]), and second, it releases OS
+     resources (e.g. closes file descriptors). There is the question
+     what has to happen when the write part fails - is the resource released
+     anyway or not?
+
+     We choose here a pragmatic approach under the assumption that
+     an OS error at close time is usually unrecoverable, and it is
+     more important to release the OS resource. Also, we
+     assume that the user is wise enough to call [flush] first if
+     it is essential to know write errors at close time. Under these
+     assumptions:
+
+     - The [flush] method fully reports any errors when writing out
+       the remaining data.
+     - When [flush] raises an error exception, it should discard
+       any data in the buffer. This is not obligatory, however,
+       but considered good practice, and is subject to discussion.
+     - The [close_out] method usually does not report errors by
+       raising exceptions, but only by logging them via {!Netlog}.
+       The OS resource is released in any case. As before, this
+       behavior is not obligatory, but considered as good practice,
+       and subject to discussion.
+
+     This ensures that the following code snippet reports all errors, but also
+     releases OS resources:
+     
+     {[
+       try 
+         ch # flush();
+         ch # close_out();
+       with error -> 
+          ch # close_out(); raise error
+     ]}
+
+     There are some cases where data can be first written when it is
+     known that the channel is closed. These data would not be written
+     by a preceding [flush]. In such cases:
+
+     - The best way to deal with it is to define another method,
+       e.g. called [write_eof], that marks the data as logically 
+       being complete, so a following [flush] can do the complete
+       shutdown cycle of the channel.
+     - At least, however, one should allow then that a double
+       [close_out] releases the descriptor: the first [close_out]
+       will report the error condition as exception, but discard
+       all data in the channel. The second [close_out] finally
+       releases the OS resource.
+
+     In any way, hard errors indicating bugs of the program logic
+     (like invalid file descriptors) should always be immediately
+     reported.
+  *)
 end
 
 (** Basic Unix-level class type for output channels as used by ocamlnet. In addition
@@ -419,6 +468,9 @@ class output_channel :
    * non-seekable channels.
    *
    * The method [close_out] also closes the underlying [out_channel].
+   * There is some implicit logic to either use [close_out] or [close_out_noerr]
+   * depending on whether the immediately preceding operation already reported
+   * an error.
    *
    * @param onclose this function is called when the [close_out] method is
    * invoked, just after the underlying [out_channel] has been closed.

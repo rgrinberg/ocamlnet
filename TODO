@@ -20,20 +20,10 @@ Plan for Ocamlnet 3
 
 --Still to do:
 
-  * Netexn does not work for 3.11.2
-    WATCH THIS. Ad hoc tests have shown that it works well.
-
-  * CHECK: Netplex children seem to block sigterm
-
-  * Build for gprof
-
-  * mstrings: define default factory for XDR decoding
-
   * Netclient: better storage methods. Pass status code (or even header)
     to the `File or `Body function.
 
 - Doc:
-  * Doc: Tutorial for Rpc_proxy. Upgrade one example (finder)
   * container sockets
 
 --- Already done:
@@ -188,6 +178,8 @@ A list of possible improvements, once interfaces are stable again:
   the message fully.
 
 - RPC: server should support caching for configured procedures
+  (Hmmm, unclear. Maybe we just want a server where one can intercept the
+  raw messages.)
 
 - Netshm: use blitting functions encoded in C (for int32 bigarrays)
 
@@ -199,11 +191,12 @@ Implementation improvements after Ocamlnet 3.0
   * revise shared reliability caches.
   * idempotent calls: better the endpoint is immediately switched after
     the first failure
-  * improve docs
 
 - Name_resolution_error
+  use this in Uq_engines.connector.
 
 - Configurable async name resolution
+  [Maybe include netdns?]
 
 - Cluster Message bus (netfunk)
 
@@ -264,7 +257,6 @@ Further ideas
 
 - ocamlrpcgen:
    * immutable records
-   * bigarrays as strings
    ...
 
 - input/output channels with the possibility of intercepting
@@ -290,6 +282,8 @@ Further ideas
   * Rpc_server: Allow to set timeout for the server response itself
     (self-watching)
   * Annotations
+  * Sandbox mode for decoding messages. In a first pass it is checked
+    whether array and string sizes are all good (before allocating mem)
 
 - Focus Win32:
 
@@ -297,16 +291,6 @@ Further ideas
     the pipe struct is freed?
 
 - Focus Netplex:
-  * Netplex_control_routine:
-    Use plugin mechanism to run ad-hoc defined routines in controller
-    context.
-
-    define_control_routines
-      ["foo", (foo : string array -> string array); ... ]
-
-    let [| ... |] = call_control_routine "foo" [| ... |]
-
-
   * Revisit: helper containers for multi-processing. Make it easy to
     define a template at system startup time, and to instantiate it
     later at any time
@@ -395,14 +379,6 @@ Old stuff, check first
 
 Equeue:
 	- Fix command engines as commented in the code.
-
-	- Uq_engines.connector: currently raises Not_found for a name
-	  resolution error. Do something better.
-
-	Syntax for engine concatenation?
-   	- when_state style:
-  	  eng1 >> (function Success _ -> | Error _ -> | ...)
-	- ...
 
 netcgi2-plex:
 	- Implement mount_dir/mount_at

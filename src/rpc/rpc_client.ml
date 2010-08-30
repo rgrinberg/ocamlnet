@@ -1122,6 +1122,8 @@ let rec internal_create initial_xid
       nolog = false;
     }
   in
+  Hashtbl.add cl.mstring_factories "*" Xdr_mstring.string_based_mstrings;
+  
 
   let portmapper_engine prot host prog esys = 
     (* Performs GETPORT for the program on [host]. We use 

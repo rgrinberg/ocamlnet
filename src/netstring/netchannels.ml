@@ -858,6 +858,17 @@ let copy_channel
 
 class output_channel ?(onclose = fun () -> ()) ch 
 		     (* : out_obj_channel *) =
+  let errflag = ref false in
+  let monitored f arg =
+    try 
+      let r = f arg in
+      errflag := false;
+      r
+    with
+      | error ->
+	  errflag := true;
+	  raise error in
+
 object (self)
   val ch = ch
   val onclose = onclose
@@ -874,44 +885,59 @@ object (self)
     let p0 = Pervasives.pos_out ch in
     try 
       Pervasives.output ch buf pos len;
+      errflag := false;
       len
     with
-	Sys_blocked_io ->
+      | Sys_blocked_io ->
 	  let p1 = Pervasives.pos_out ch in
+	  errflag := false;
 	  p1 - p0
+      | error ->
+	  errflag := true;
+	  raise error
 
   method really_output buf pos len =
     if closed then self # complain_closed();
-    Pervasives.output ch buf pos len
+    monitored (Pervasives.output ch buf pos) len
 
   method output_char c =
     if closed then self # complain_closed();
-    Pervasives.output_char ch c
+    monitored (Pervasives.output_char ch) c
 
   method output_string s =
     if closed then self # complain_closed();
-    Pervasives.output_string ch s
+    monitored (Pervasives.output_string ch) s
 
   method output_byte b =
     if closed then self # complain_closed();
-    Pervasives.output_byte ch b
+    monitored (Pervasives.output_byte ch) b
 
   method output_buffer b =
     if closed then self # complain_closed();
-    Buffer.output_buffer ch b
+    monitored(Buffer.output_buffer ch) b
 
   method output_channel ?len ch =
     if closed then self # complain_closed();
-    ignore(copy_channel ?len ch (self : #out_obj_channel :> out_obj_channel))
+    ignore
+      (monitored
+	 (copy_channel ?len ch)
+	 (self : #out_obj_channel :> out_obj_channel))
 
   method flush() =
     if closed then self # complain_closed();
-    Pervasives.flush ch
+    monitored Pervasives.flush ch
 
   method close_out() =
     if not closed then (
       try
-	Pervasives.close_out ch; 
+	(* if !errflag is set, we know that the immediately preceding
+	   operation raised an exception, and we are now likely in the
+	   exception handler
+	 *)
+	if !errflag then
+	  Pervasives.close_out_noerr ch
+	else
+	  Pervasives.close_out ch; 
 	closed <- true; 
 	onclose()
       with
@@ -933,7 +959,7 @@ end
 
 
 class output_command ?onclose cmd =
-let ch = Unix.open_process_out cmd in
+  let ch = Unix.open_process_out cmd in
 object (self)
   inherit output_channel ?onclose ch as super
 
@@ -1113,6 +1139,10 @@ end ;;
 let with_out_obj_channel ch f =
   try
     let result = f ch in
+    (* we _have_ to flush here because close_out often does no longer
+       report exceptions
+     *)
+    ( try ch # flush() with Closed_channel -> ());
     ( try ch # close_out() with Closed_channel -> ());
     result
   with
@@ -1754,31 +1784,38 @@ class output_filter
       (p : io_obj_channel) (out : out_obj_channel) : out_obj_channel =
 object(self)
   val p = p
+  val mutable p_closed = false  (* output side of p is closed *)
   val out = out
   val buf = String.create 1024  (* for copy_channel *)
 
   method output s pos len =
+    if p_closed then raise Closed_channel;
     let n = p # output s pos len in
     self # transfer();
     n
 
   method really_output s pos len =
+    if p_closed then raise Closed_channel;
     p # really_output s pos len;
     self # transfer();
 
   method output_char c =
+    if p_closed then raise Closed_channel;
     p # output_char c;
     self # transfer();
 
   method output_string s =
+    if p_closed then raise Closed_channel;
     p # output_string s;
     self # transfer();
 
   method output_byte b =
+    if p_closed then raise Closed_channel;
     p # output_byte b;
     self # transfer();
 
   method output_buffer b =
+    if p_closed then raise Closed_channel;
     p # output_buffer b;
     self # transfer();
 
@@ -1786,6 +1823,7 @@ object(self)
     (* To avoid large intermediate buffers, the channel is copied
      * chunk by chunk 
      *)
+    if p_closed then raise Closed_channel;
     let len_to_do = ref (match len with None -> -1 | Some l -> max 0 l) in
     let buf = buf in
     while !len_to_do <> 0 do
@@ -1805,14 +1843,19 @@ object(self)
     out # flush()
 
   method close_out() =
-    p # close_out();
-    ( try
-	self # transfer()
-      with
-	| error ->
-	    Netlog.logf `Err
-	      "Netchannels: Suppressed error in close_out: %s"
-	      (Netexn.to_string error);
+    if not p_closed then (
+      p # close_out();
+      p_closed <- true;
+      ( try
+	  self # transfer()
+	with
+	  | error ->
+	      (* We report the error. However, we prevent that another,
+		 immediately following [close_out] reports the same
+		 error again. This is done by setting p_closed.
+	       *)
+	      raise error
+      )
     )
 
   method pos_out = p # pos_out

@@ -55,9 +55,16 @@
    in multi-threaded programs as long as the values [camlbox] and
    [camlbox_sender] are not used by several threads at the same time.
 
+   {b Examples.} There a few examples in the distribution tarball
+   (examples/camlbox).
+
+   {b Multi-core:}
    Camlboxes can be used to gain speed-ups on multi-cores. See
    examples/camlbox/README in the distribution tarball for an example
    how to accomplish this.
+
+   {b Integration into event-based programs:} See the section
+   below, {!Netcamlbox.events}.
  *)
 
 
@@ -195,3 +202,102 @@ val camlbox_wake : camlbox_sender -> unit
 
       This function is non-blocking.
    *)
+
+(**
+   {2:events Integration into event-based programs}
+
+   The functions [camlbox_wait] and [camlbox_send] may both block the
+   execution of the program when no message has arrived, and no space
+   is available, respectively. This is a challenge for event-based
+   programs where all waiting is bound to events on file descriptors.
+   
+   Generally, Camlboxes use semaphores for speed. The results are good,
+   often only 4 microseconds for sending and receiving a short
+   message.  This is only possible because semaphores implement a fast
+   path where the help of the kernel is not needed, i.e. no context
+   switch happens. This is basically incompatible with the style of
+   waiting implemented for file descriptors, because this kind of
+   waiting for an event must always go through the kernel, and is
+   thus slower by design.
+
+   But anyway, what to do if Camlboxes need to be integrated into
+   a program that bases already on file descriptor polling? Of course,
+   speed will decrease, but maybe not dramatically. We assume here
+   that the program uses {!Unixqueue}s as the basic data structure
+   for organizing polling.
+
+   {b Option 1: Use Threads.} A program waiting for incoming Camlbox
+   messages could be structured as follows:
+    - There is a fast path and a slow path. The fast path: After
+      processing the previous message, the program looks at 
+      the number of messages in the box, and if this is > 0, the next
+      message is immediately taken and processed (no waiting).
+    - The slow path: If the number is zero, a worker thread is created
+      that calls [camlbox_wait] and thus blocks until a message arrives.
+      If this happens, an artifical [Unixqueue] event is created and
+      added to [esys]. While the spawned thread is waiting for the message,
+      the main thread just performs its normal operations on the [esys]
+      (e.g. an RPC server processes incoming calls). The main thread is
+      set up to watch for the special event the worker thread adds, and
+      to run the piece of code processing the incoming message.
+
+   As usual, multi-threaded programming is not very nice to control.
+
+   {b Option 2: Use a named pipe.} A program waiting for incoming Camlbox
+   messages could be structured as follows. In this suggestion, we need
+   help from the message sender to get notified in a poll-compatible
+   way when a message is sent.
+    - The message receiver also creates a named pipe. The receiver opens
+      one end of the pipe for reading. Every sender opens the other end
+      of the pipe for writing.
+    - When a message is sent, the sender not only sends the message via
+      the camlbox, but also sends a single byte over the named pipe.
+    - The receiver waits for events on the named pipe. If bytes arrive,
+      they are read, and the fast path loop is entered.
+    - In the fast path loop, the program looks repeatedly at 
+      the number of messages in the box, and while this is > 0, the next
+      message is immediately taken and processed (no waiting).
+    - When the fast path loop is left, control is passed back to the
+      normal file descriptor polling.
+
+   Instead of a named pipe, any other notification means can also be used,
+   so far it is compatible with file descriptor polling. (E.g.
+   Linux added recently the [eventfd] system call as a cheaper
+   way for pure notification via file descriptors.)
+
+   The two options only handle the case of [camlbox_wait]. But also
+   [camlbox_send] can block. This is usually a bit simpler to solve,
+   especially in the case where two processes exchange messages, and
+   both are sender and receiver. In this frequent scenario, one can
+   track the number of messages in the Camlbox, and one can arrange that
+   the sender is notified when the number of messages decreases, i.e.
+   more space becomes available in the Camlbox. (In some sense, the
+   problem of handling [camlbox_send] is reduced to [camlbox_wait].)
+
+   In the general case, though, when there are n>1 senders, the
+   problems of handling [camlbox_send] is really difficult. One would
+   need a way to broadcast events from the receiver to all senders.
+   The only way I'm aware of (avoiding multi-threading) is the following:
+
+   - Again, a (single) named pipe is used for notification. The
+     receiver creates it, and opens both ends of the pipe. It writes
+     bytes into the writing end until the internal pipe buffer is full.
+     The write side is then closed, and only the read side is kept open.
+     One byte is read, so initially the pipe buffer is almost full.
+     We are going to use a full pipe buffer as representation that
+     the Camlbox has no space, and an almost full pipe buffer (one free byte) as
+     representation that the box has space.
+   - The senders open the write end of the pipe. They poll until there
+     is space in the pipe buffer. If so, they all try to write a single
+     byte into the buffer, but in non-blocking mode. Usually only one
+     sender will succeed doing so, and this sender is allowed to send
+     the message via the Camlbox.
+   - The receiver takes care that the notification via the pipe buffer
+     works. After a message is processed, a byte is read from the 
+     pipe buffer, allowing another message to be sent.
+
+   One can improve this by encoding the number of free slots in the
+   Camlbox via the number of free bytes in the pipe buffer (i.e. n
+   free slots = n missing bytes in the buffer until it is full).
+   
+*)
