@@ -11,7 +11,7 @@ OBJECTS  = netconst.cmo netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
 
 PKGNAME  = netstring
 
-REQUIRES = pcre
+REQUIRES = pcre bigarray
 INCLUDES += $(INC_NETSYS)
 
 ISO_MAPPINGS   = mappings/iso*.unimap
@@ -58,7 +58,7 @@ PACKLIST = netdb-packlist
 BUILD_EXTRA = $(PMAP:.pmap=.cmo) netmappings_min.cmo
 
 ALL_EXTRA = $(BUILD_EXTRA) netstring_top.cmo netaccel.cma netaccel_link.cmo
-OPT_EXTRA = $(BUILD_EXTRA:.cmo=.cmx) $(BUILD_EXTRA:.cmo=.p.cmx)
+OPT_EXTRA = $(BUILD_EXTRA:.cmo=.cmx)
 
 netaccel.cma: netaccel_c.o netaccel.cmo
 	$(OCAMLMKLIB) -o netaccel -oc netaccel_c netaccel_c.o netaccel.cmo

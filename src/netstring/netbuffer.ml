@@ -91,6 +91,11 @@ let blit_to_string b srcpos dest destpos n =
 
 let blit = blit_to_string
 
+let blit_to_memory b srcpos dest destpos n =
+  if srcpos < 0 || n < 0 || srcpos > b.length-n then
+    raise (Invalid_argument "Netbuffer.blit_to_memory");
+  Netsys_mem.blit_string_to_memory b.buffer srcpos dest destpos n
+
     
 let unsafe_buffer b =
   b.buffer
@@ -155,25 +160,43 @@ let add_char_4 b c1 c2 c3 c4 =
   String.unsafe_set b.buffer (l+3) c4;
   b.length <- l + 4
 
+let space_for_additions ?len b =
+  match len with
+      Some l -> 
+	ensure_space b (b.length + l);
+	l
+    | None ->
+	ensure_space b (b.length + 1);
+	b.buffer_length - b.length
+	  
+let advance b n =
+  let l = b.length + n in
+  if n < 0 || l > b.buffer_length then
+    invalid_arg "Netbuffer.advance";
+  b.length <- l
+
 let add_inplace ?len b f =
-  let len' =
-    match len with
-	Some l -> 
-	  ensure_space b (b.length + l);
-	  l
-      | None ->
-	  ensure_space b (b.length + 1);
-	  b.buffer_length - b.length
-  in
+  let len' = space_for_additions ?len b in
   let n = f b.buffer b.length len' in
-  b.length <- b.length + n;
+  advance b n;
   n
+
+let area_for_additions ?len b =
+  let len' = space_for_additions ?len b in
+  (b.buffer, b.length, len')
 
 let add_buffer b1 b2 =
   let len = b1.length + b2.length in
   ensure_space b1 len;
   String.unsafe_blit b2.buffer 0 b1.buffer b1.length b2.length;
   b1.length <- len
+
+let add_sub_memory b s k l =
+  if k < 0 || l < 0 || k > Bigarray.Array1.dim s-l then
+    invalid_arg "Netbuffer.add_sub_memory";
+  ensure_space b (l + b.length);
+  Netsys_mem.blit_memory_to_string s k b.buffer b.length l;
+  b.length <- b.length + l
 
 
 let insert_sub_string_invalid() =

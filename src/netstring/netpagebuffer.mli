@@ -40,6 +40,9 @@ val add_string : t -> string -> unit
 val add_sub_string : t -> string -> int -> int -> unit
   (** Adds a sub string to the end of the buffer *)
 
+val add_sub_memory : t -> Netsys_mem.memory -> int -> int -> unit
+  (** Adds a sub memory buffer to the end of the buffer *)
+
 val add_inplace : t -> (Netsys_mem.memory -> int -> int -> int) -> int
   (** [add_inplace b f]: Calls [f m pos len] where [m] is the last page
       of the buffer, and [pos] is the first free byte on the page, and
@@ -64,9 +67,25 @@ val advance : t -> int -> unit
       these [n] bytes to new values directly.
    *)
 
+val page_for_consumption : t -> (Netsys_mem.memory * int * int)
+  (** [let (m,pos,len) = page_for_consumption b]: Returns the first page 
+      in [m], the first used byte on the page in [pos], and 
+      the number of used bytes on the page in [len].
+   *)
+
+
 val delete_hd : t -> int -> unit
   (** [delete_hd b n]: Deletes [n] bytes from the beginning of the buffer
    *)
 
 val clear : t -> unit
   (** Deletes all contents of the buffer *)
+
+(** {2 Searching} *)
+
+val index_from : t -> int -> char -> int
+    (** [index_from nb k c]: Searches the character [c] in the buffer beginning
+     * at position [k]. If found, the position of the left-most occurence is
+     * returned. Otherwise, [Not_found] is raised.
+     *)
+

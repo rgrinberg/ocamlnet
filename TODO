@@ -1,19 +1,3 @@
-CHECK FOR FURTHER INCLUSION:
-
-- signalfd (Linux), as an efficient way of catching SIGCHLD
-- eventfd (Linux), as an efficient way of waking equeue up from
-  other threads
-
-- Uq_io: engines-based I/O primitives (e.g. input_e, input_line_e etc.)
-  Supports various "devices":
-    - Pollable descriptor
-    - Multiplex controller
-    - (later:) Seekable descriptor
-
-  Update equeue guide
-
-- Camlbox: library function which uses a helper thread for notification
-
 ----------------------------------------------------------------------
 Plan for Ocamlnet 3
 ----------------------------------------------------------------------
@@ -22,6 +6,8 @@ Plan for Ocamlnet 3
 
   * Netclient: better storage methods. Pass status code (or even header)
     to the `File or `Body function.
+
+  * Strange: Uq operator ( >> ) is sometimes not generalized
 
 - Doc:
   * container sockets
@@ -187,6 +173,14 @@ A list of possible improvements, once interfaces are stable again:
 Implementation improvements after Ocamlnet 3.0
 ----------------------------------------------------------------------
 
+- signalfd (Linux), as an efficient way of catching SIGCHLD
+- eventfd (Linux), as an efficient way of waking equeue up from
+  other threads
+
+- Update Equeue_intro:
+   * Throw out the chapter about async channel
+   * Include a chapter about Uq_io
+
 - Rpc_proxy: 
   * revise shared reliability caches.
   * idempotent calls: better the endpoint is immediately switched after
@@ -195,18 +189,22 @@ Implementation improvements after Ocamlnet 3.0
 - Name_resolution_error
   use this in Uq_engines.connector.
 
-- Configurable async name resolution
+- Configurable async name resolution (already started: Uq_resolver)
   [Maybe include netdns?]
 
 - Cluster Message bus (netfunk)
 
 - Improved shared memory support; RPC over shared memory
+  [Depends very much on whether camlboxes can be made safer, and
+   can be more easily integrated with equeue)
 
 - Fix netplex + nethttpd + async API: netcgi cannot be used right now
 
 - Netclient: Support for CONNECT
 
 - Netclient: Code-cleanup
+
+- Netclient: engine interface for HTTP
 
 - access to good random number generator on all platforms
   (for cryptogrpahy)

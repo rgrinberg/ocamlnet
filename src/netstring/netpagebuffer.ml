@@ -200,6 +200,48 @@ let add_string buf s =
   add_sub_string buf s 0 (String.length s)
 
 
+let add_sub_memory buf m pos len =
+  (* very similar to add_sub_string. For performance reasons this is a
+     copy
+   *)
+  let m_len = Bigarray.Array1.dim m in
+  if pos < 0 || len < 0 || len > m_len - pos then
+    invalid_arg "Netpagebuffer.add_sub_memory";
+  let len_for_new_pages =
+    len - (buf.pgsize - buf.stop_index) in
+  let new_pages =
+    if len_for_new_pages >= 0 then
+      len_for_new_pages / buf.pgsize + 1
+    else
+      0 in
+  let old_last_page = buf.n_pages - 1 in
+  alloc_pages buf new_pages;
+  let len_old_last_page = min len (buf.pgsize - buf.stop_index) in
+  Bigarray.Array1.blit
+    (Bigarray.Array1.sub 
+       m pos len_old_last_page)
+    (Bigarray.Array1.sub
+       buf.pages.(old_last_page) buf.stop_index len_old_last_page);
+  buf.stop_index <- buf.stop_index + len_old_last_page;
+  if buf.stop_index = buf.pgsize then buf.stop_index <- 0;
+  let len_remaining = ref (len - len_old_last_page) in
+  let cur_pos = ref (pos + len_old_last_page) in
+  let cur_pg = ref(old_last_page + 1) in
+  while !len_remaining > 0 do
+    let l = min !len_remaining buf.pgsize in
+    Bigarray.Array1.blit
+      (Bigarray.Array1.sub m !cur_pos l)
+      (Bigarray.Array1.sub buf.pages.(!cur_pg) 0 l);
+    cur_pos := !cur_pos + l;
+    len_remaining := !len_remaining - l;
+    incr cur_pg;
+    if !len_remaining = 0 then (
+      buf.stop_index <- l;
+      if l = buf.pgsize then buf.stop_index <- 0
+    )
+  done
+
+
 let page_for_additions buf =
   let last_page = buf.n_pages - 1 in
   ( buf.pages.(last_page), buf.stop_index, buf.pgsize - buf.stop_index )
@@ -222,6 +264,12 @@ let add_inplace buf f =
     invalid_arg "Netpagebuffer.add_inplace";
   advance buf n;
   n
+
+
+let page_for_consumption buf =
+  let stop =
+    if buf.n_pages = 1 then buf.stop_index else buf.pgsize in
+  ( buf.pages.(0), buf.start_index, stop )
 
 
 let delete_hd buf n =
@@ -257,3 +305,39 @@ let clear buf =
   buf.n_pages <- 1;
   buf.start_index <- 0;
   buf.stop_index <- 0
+
+
+exception Found of int
+
+let index_from buf k c =
+  if k < 0 || k > length buf then  (* we allow k=length *)
+    invalid_arg "Netpagebuffer.index_from";
+
+  let abs_pos1 = k + buf.start_index in
+  let pg1 = abs_pos1 / buf.pgsize in
+  let idx1 = abs_pos1 mod buf.pgsize in
+  let pg = ref pg1 in
+  let idx = ref idx1 in
+
+  try
+    while !pg < buf.n_pages do
+      let page = buf.pages.( !pg ) in
+      let stop_idx =
+	if !pg = buf.n_pages - 1 then 
+	  buf.stop_index
+	else
+	  buf.pgsize in
+      while !idx < stop_idx && Bigarray.Array1.unsafe_get page !idx <> c do
+	incr idx
+      done;
+      if !idx < stop_idx then (
+	let pos = !pg * buf.pgsize + !idx - buf.start_index in
+	raise(Found pos)
+      );
+      incr pg;
+      idx := 0
+    done;
+    raise Not_found
+  with
+    | Found pos -> pos
+

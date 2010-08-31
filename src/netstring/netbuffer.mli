@@ -85,6 +85,21 @@ val add_inplace : ?len:int -> t -> (string -> int -> int -> int) -> int
 val add_buffer : t -> t -> unit
   (** [add_buffer nb1 nb2]: Adds the contents of [nb2] to the end of [nb1] *)
 
+val area_for_additions : ?len:int -> t -> (string * int * int)
+val advance : t -> int -> unit
+  (** These two functions work together, so that the effect of [add_inplace]
+      can be obtained in two steps. First, the user calls
+      {[
+        let (s,pos,len) = area_for_additions nb
+      ]}
+      to get the area where to put new data of length [n], with [n <= len].
+      After this the data is made valid by
+      {[
+        advance n
+      ]}
+   *)
+
+
 (** {2 Inserting strings} *)
 
 val insert_string : t -> int -> string -> unit
@@ -156,6 +171,18 @@ val index_from : t -> int -> char -> int
      * at position [k]. If found, the position of the left-most occurence is
      * returned. Otherwise, [Not_found] is raised.
      *)
+
+(** {2 Memory} *)
+
+val blit_to_memory : t -> int -> Netsys_mem.memory -> int -> int -> unit
+    (** [blit_to_memory nb srcpos dest destpos len]: Copies the [len] bytes at
+     *  position [srcpos] from [nb] to the membuffer [dest] at position
+	[destpos].
+     *)
+
+val add_sub_memory : t -> Netsys_mem.memory -> int -> int -> unit
+  (** Same as [add_sub_string], but gets data from a memory buffer *)
+
 
 (** {2 Miscelleneous} *)
 

@@ -660,12 +660,12 @@ let delay_engine = new delay_engine
 let signal_engine esys =
   let wid = Unixqueue.new_wait_id esys in
   let p = new poll_engine [Unixqueue.Wait wid, (-1.0)] esys in
-  let r = ref (lazy (assert false)) in
+  let r = ref `Aborted in
   let e = new map_engine
             ~map_done:(fun _ -> assert false) 
-	    ~map_aborted:(fun _ -> (Lazy.force !r :> _ engine_state)) p in
+	    ~map_aborted:(fun _ -> (!r :> _ engine_state)) p in
   let signal st =
-    r := lazy st;
+    r := st;
     p#abort() in
   (e, signal)
 

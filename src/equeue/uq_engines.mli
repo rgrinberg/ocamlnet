@@ -629,6 +629,9 @@ class ['a] input_engine : (Unix.file_descr -> 'a) ->
       ]}
 
       This engine returns the read data as string.
+
+      See also {!Uq_io.input_e} for a more generic way of reading with
+      engines.
    *)
 
 class ['a] output_engine : (Unix.file_descr -> 'a) ->
@@ -654,6 +657,9 @@ class ['a] output_engine : (Unix.file_descr -> 'a) ->
       ]}
 
       This engine returns the number of written bytes.
+
+      See also {!Uq_io.output_e} for a more generic way of writing with
+      engines.
    *)
 
 class poll_process_engine : ?period:float ->
@@ -688,10 +694,26 @@ class poll_process_engine : ?period:float ->
    *   Defaults to 0.1 seconds.
    *)
 
+(** {2 More I/O}
+
+    The module {!Uq_io} provides a bunch of functions to read and write
+    data via various "devices". All these functions return engines, and
+    are easy to use. Devices can be file descriptors, but also other
+    data structures. In particular, there is also support for buffered I/O
+    and for reading line-by-line from an input device.
+
+ *)
+
 
 (** {1 Transfer engines} *)
 
-(** Transfer engines copy data between file descriptors. *)
+(** Transfer engines copy data between file descriptors. This kind
+    of engine, as well as the types [async_out_channel] and 
+    [async_in_channel], are likely to be declared as deprecated in
+    the future. If possible, one should use multiplex controllers
+    (see below), and for copying streams the generic copier 
+    {!Uq_io.copy_e} is a better choice.
+ *)
 
 (** An asynchrounous output channel provides methods to output data to
  * a stream descriptor. It is based on [raw_out_channel], which is 
@@ -964,79 +986,6 @@ class copier : copy_task ->
    *
    * TODO: This class cannot yet cope with Win32 named piped.
    *)
-
-
-(* IDEA: *)
-
-(* 
-   class type ['a] pipebuffer =
-   object
-     method queue : 'a Queue.t
-       (* A queue of elements. Note that it is a programming error to modify
-          the queue directly.
-        *)
-
-     method max_length : int
-       (* The maximum number of elements of [queue]. If there are less elements
-          in [queue], it is said that there is space in the queue.
-        *)
-
-     method end_of_queue : bool
-       (* This flag is set by [close_out], and means that no further elements
-          will be added anymore. There may still be elements in the queue,
-          however, that need to be processed before the end of the data stream
-          is reached
-        *)
-
-     method add : 'a -> [unit] engine
-       (* Waits until there is space in the queue, then adds the passed
-          element to the [queue], and the engine transitions to [`Done]
-        *)
-
-     method wait_for_space : unit -> [unit] engine
-       (* Waits until there is space in the queue, and then transitions
-          the returned engine to [`Done].
-        *)
-
-     method take : unit -> ['a option] engine
-       (* Waits until there is at least one element [Some x] in [queue], 
-          takes it from the end of the queue, and transitions the engine to 
-          [`Done(Some x)]. If the queue is empty and the [end_of_queue] flag
-          is set, the engine transitions to [`Done None].
-        *)
-
-     method wait_for_element : unit -> [unit] engine
-       (* Waits until there is at least one element [x] in [queue], 
-          and transitions the engine to [`Done ()]. The engine is also
-          transitioned to [`Done()] when the queue is empty, and the
-          [end_of_queue] flag is set.
-        *)
-
-     method close_in : unit -> unit
-       (* Indicates that there is no longer interest in taking elements from
-          the queue. The engines returned by [add], [wait_for_space], [take],
-          and [wait_for_element] will transition to [`Aborted].
-          - It is no error to close the pipeline several times. The second
-          close is simply ignored.
-       *)
-  
-     method close_out : unit -> unit
-       (* Indicates that there won't be any further additions to the queue.
-          The engines returned by [add] and [wait_for_space] will transition
-          to [`Aborted]. The engines returned by [take] and
-          [wait_for_element] will transition to [`Done].
-          - It is no error to close the pipeline several times. The second
-          close is simply ignored.
-        *)
-
-   end
-
-
-   class pipebuffer_eng : int -> pipebuffer
-     (* Arg: queue length *)
-
-
- *)
 
 
 (** {1 Socket engines} *)
@@ -1366,6 +1315,40 @@ val connector : ?proxy:#client_socket_connector ->
    *
    * It is possible that name service queries block execution.
    *)
+
+(** {b Example} of using [connector]: This engine [e] connects to the
+    "echo" service as provided by inetd, sends a line of data to it,
+    and awaits the response.
+
+    {[
+	let e =
+	  Uq_engines.connector
+	    (`Socket(`Sock_inet_byname(Unix.SOCK_STREAM, "localhost", 7),
+		     Uq_engines.default_connect_options))
+	    esys
+	  ++ (fun cs ->
+		match cs with
+		  | `Socket(fd,_) ->
+		      let mplex =
+			Uq_engines.create_multiplex_controller_for_connected_socket
+			  ~supports_half_open_connection:true
+			  fd esys in
+		      let d_unbuf = `Multiplex mplex in
+		      let d = `Buffer_in(Uq_io.create_in_buffer d_unbuf) in
+		      Uq_io.output_string_e d_unbuf "This is line1\n"
+		      ++ (fun () ->
+			    Uq_io.input_line_e d 
+			    ++ (fun s ->
+				  print_endline s;
+				  eps_e (`Done()) esys
+			       )
+			 )
+		  | _ -> assert false
+	     )
+    ]}
+
+ *)
+
 
 
 
@@ -1768,6 +1751,18 @@ class input_async_mplex :
     * is not closed! You can define the [shutdown] callback to do something
     * in this case.
    *)
+
+(** {1 More Engines} *)
+
+(**
+  Pointers to other modules related to engines:
+
+  - RPC clients: The function {!Rpc_proxy.ManagedClient.rpc_engine} allows
+    to call an RPC via an engine. When the call is done, the engine transitions
+    to [`Done r], and [r] is the result of the remote call.
+  - Subprograms: The class {!Shell_uq.call_engine} allows to start an
+    external program, and to monitor it via an engine.
+ *)
 
 (** {1 Debugging} *)
 
