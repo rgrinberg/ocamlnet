@@ -259,7 +259,20 @@ class ['a,'b] fmap_engine : 'a #engine ->
 val fmap_engine : 'a #engine -> 
                    ('a final_state -> 'b final_state) -> 
                      'b engine
-  (** Same as function *)
+  (** Same as function
+
+      After opening {!Uq_engines.Operators}, this is also available
+      as operator [>>], e.g.
+
+      {[ 
+         e >>
+           (function
+             | `Done r -> ...
+             | `Error error -> ...
+             | `Aborted -> ...
+           )
+       ]}
+   *)
 
 class ['a] meta_engine : 'a #engine -> ['a final_state] engine
   (** maps the final state [s] to [`Done s] *)
@@ -308,7 +321,13 @@ class ['a, 'b] seq_engine : 'a #engine -> ('a -> 'b #engine) -> ['b] engine
 
 
 val seq_engine : 'a #engine -> ('a -> 'b #engine) -> 'b engine
-  (** Same as function *)
+  (** Same as function.
+   *
+   * After opening {!Uq_engines.Operators}, this is also available
+   * as operator [++], e.g.
+   * {[ e1 ++ (fun r1 -> e2) ]}
+   * (when [e1] and [e2] are engines, and [r1] is the result of [e1]).
+   *)
 
 class ['a] stream_seq_engine : 'a -> ('a -> 'a #engine) Stream.t -> 
                                Unixqueue.event_system -> ['a] engine
@@ -528,7 +547,7 @@ end
     * [request_notification].
    *)							     
 
-
+(** Handy operators: [++], [>>], and [eps_e] *)
 module Operators : sig
   (** The most important operators. This module should be opened. *)
 
@@ -1031,6 +1050,8 @@ type sockspec =
 ;;
 
 
+(** {2 Client sockets} *)
+
 type connect_address =
     [ `Socket of sockspec * connect_options
     | `Command of string * (int -> Unixqueue.event_system -> unit)
@@ -1104,6 +1125,97 @@ val client_socket : connect_status -> Unix.file_descr ;;
   (** For backward compatibility. {b Deprecated name} for [client_endpoint] *)
 
 
+
+(** This class type provides engines to connect to a service. In order
+ * to get and activate such an engine, call [connect].
+ *)
+class type client_endpoint_connector = object
+  method connect : connect_address -> 
+                   Unixqueue.event_system ->
+		     connect_status engine
+    (** Instantiates an engine that connects to the endpoint given by the
+     * [connect_address] argument. If successful, the state of the engine
+     * changes to [`Done(status)] where [status] contains the socket 
+     * details. The connection is established in the background.
+     *
+     * The type of status will correspond to the type of connect address
+     * (e.g. a [`Socket] address will return a [`Socket] status).
+     *
+     * The close-on-exec flag of the created socket descriptor is always set.
+     * The socket descriptor is always in non-blocking mode.
+     *)
+end
+;;
+
+
+class type client_socket_connector = client_endpoint_connector
+  (** For backward compatibility. {b Deprecated name} for 
+      [client_endpoint_connector]
+   *)
+
+
+val connector : ?proxy:#client_socket_connector ->
+                connect_address ->
+                Unixqueue.event_system ->
+	          connect_status engine 
+  (** This engine connects to a socket as specified by the [connect_address],
+   * optionally using the [proxy], and changes to the state
+   * [`Done(status)] when the connection is established.
+   *
+   * If the [proxy] does not support the [connect_address], the class 
+   * will raise [Addressing_method_not_supported].
+   *
+   * The descriptor [fd] (part of the [connect_status]) is in non-blocking mode,
+   * and the close-on-exec flag is set.
+   * It is the task of the caller to close this descriptor.
+   *
+   * The engine attaches automatically to the event system, and detaches
+   * when it is possible to do so. This depends on the type of the
+   * connection method. For direct socket connections, the engine can
+   * often detach immediately when the conection is established. For proxy
+   * connections it is required that the engine
+   * copies data to and from the file descriptor. In this case, the
+   * engine detaches when the file descriptor is closed.
+   *
+   * It is possible that name service queries block execution.
+   *)
+
+(** {b Example} of using [connector]: This engine [e] connects to the
+    "echo" service as provided by inetd, sends a line of data to it,
+    and awaits the response.
+
+    {[
+	let e =
+	  Uq_engines.connector
+	    (`Socket(`Sock_inet_byname(Unix.SOCK_STREAM, "localhost", 7),
+		     Uq_engines.default_connect_options))
+	    esys
+	  ++ (fun cs ->
+		match cs with
+		  | `Socket(fd,_) ->
+		      let mplex =
+			Uq_engines.create_multiplex_controller_for_connected_socket
+			  ~supports_half_open_connection:true
+			  fd esys in
+		      let d_unbuf = `Multiplex mplex in
+		      let d = `Buffer_in(Uq_io.create_in_buffer d_unbuf) in
+		      Uq_io.output_string_e d_unbuf "This is line1\n"
+		      ++ (fun () ->
+			    Uq_io.input_line_e d 
+			    ++ (fun s ->
+				  print_endline s;
+				  eps_e (`Done()) esys
+			       )
+			 )
+		  | _ -> assert false
+	     )
+    ]}
+
+ *)
+
+
+(** {2 Server sockets} *)
+
 type listen_address =
     [ `Socket of sockspec * listen_options
     | `W32_pipe of Netsys_win32.pipe_mode * string * listen_options
@@ -1157,35 +1269,6 @@ and listen_options =
 
 val default_listen_options : listen_options;;
   (** Returns the default options *)
-
-
-(** This class type provides engines to connect to a service. In order
- * to get and activate such an engine, call [connect].
- *)
-class type client_endpoint_connector = object
-  method connect : connect_address -> 
-                   Unixqueue.event_system ->
-		     connect_status engine
-    (** Instantiates an engine that connects to the endpoint given by the
-     * [connect_address] argument. If successful, the state of the engine
-     * changes to [`Done(status)] where [status] contains the socket 
-     * details. The connection is established in the background.
-     *
-     * The type of status will correspond to the type of connect address
-     * (e.g. a [`Socket] address will return a [`Socket] status).
-     *
-     * The close-on-exec flag of the created socket descriptor is always set.
-     * The socket descriptor is always in non-blocking mode.
-     *)
-end
-;;
-
-
-class type client_socket_connector = client_endpoint_connector
-  (** For backward compatibility. {b Deprecated name} for 
-      [client_endpoint_connector]
-   *)
-
 
 (** This class type is for service providers that listen for connections.
  * By calling [accept], one gets an engine that waits for the next
@@ -1290,68 +1373,6 @@ class type server_socket_listener = server_endpoint_listener
 
 
 
-val connector : ?proxy:#client_socket_connector ->
-                connect_address ->
-                Unixqueue.event_system ->
-	          connect_status engine 
-  (** This engine connects to a socket as specified by the [connect_address],
-   * optionally using the [proxy], and changes to the state
-   * [`Done(status)] when the connection is established.
-   *
-   * If the [proxy] does not support the [connect_address], the class 
-   * will raise [Addressing_method_not_supported].
-   *
-   * The descriptor [fd] (part of the [connect_status]) is in non-blocking mode,
-   * and the close-on-exec flag is set.
-   * It is the task of the caller to close this descriptor.
-   *
-   * The engine attaches automatically to the event system, and detaches
-   * when it is possible to do so. This depends on the type of the
-   * connection method. For direct socket connections, the engine can
-   * often detach immediately when the conection is established. For proxy
-   * connections it is required that the engine
-   * copies data to and from the file descriptor. In this case, the
-   * engine detaches when the file descriptor is closed.
-   *
-   * It is possible that name service queries block execution.
-   *)
-
-(** {b Example} of using [connector]: This engine [e] connects to the
-    "echo" service as provided by inetd, sends a line of data to it,
-    and awaits the response.
-
-    {[
-	let e =
-	  Uq_engines.connector
-	    (`Socket(`Sock_inet_byname(Unix.SOCK_STREAM, "localhost", 7),
-		     Uq_engines.default_connect_options))
-	    esys
-	  ++ (fun cs ->
-		match cs with
-		  | `Socket(fd,_) ->
-		      let mplex =
-			Uq_engines.create_multiplex_controller_for_connected_socket
-			  ~supports_half_open_connection:true
-			  fd esys in
-		      let d_unbuf = `Multiplex mplex in
-		      let d = `Buffer_in(Uq_io.create_in_buffer d_unbuf) in
-		      Uq_io.output_string_e d_unbuf "This is line1\n"
-		      ++ (fun () ->
-			    Uq_io.input_line_e d 
-			    ++ (fun s ->
-				  print_endline s;
-				  eps_e (`Done()) esys
-			       )
-			 )
-		  | _ -> assert false
-	     )
-    ]}
-
- *)
-
-
-
-
 val listener : ?proxy:#server_socket_listener ->
                listen_address ->
 	       Unixqueue.event_system ->
@@ -1364,6 +1385,8 @@ val listener : ?proxy:#server_socket_listener ->
    * to accept incoming connections.
    *)
 
+
+(** {2 Datagrams} *)
 
 type datagram_type =
     [ `Unix_dgram
@@ -1751,6 +1774,71 @@ class input_async_mplex :
     * is not closed! You can define the [shutdown] callback to do something
     * in this case.
    *)
+
+(** {1 Recursion} *)
+
+(** When programming with engines, it is normal to use recursion for any
+    kind of loops. For example, to read the lines from a file:
+
+    {[
+      open Uq_engines.Operators  (* for ">>" and "++" *)
+
+      let fd = 
+        Unix.openfile filename [Unix.O_RDONLY] 0 in
+      let d = 
+        `Buffer_in(Uq_io.create_in_buffer(`Polldescr(`Read_write,fd,esys))) in
+
+      let rec read_lines acc =
+        Uq_io.input_line_e d >>
+          (function                       (* catch exception End_of_file *)
+            | `Done line -> `Done(Some line)
+            | `Error End_of_file -> `Done None
+            | `Error error -> `Error error
+            | `Aborted -> `Aborted
+          ) ++
+          (function
+            | Some line ->
+                read_lines (line :: acc)
+            | None ->
+                eps_e (`Done (List.rev acc)) esys
+          ) in
+
+      let e = read_lines []
+    ]}
+
+    There is generally the question whether this style leads to stack
+    overflows. This depends on the mechanisms that come into play:
+
+    - The engine mechanism passing control from one engine to the next is
+      not tail-recursive, and thus the stack can overflow when the
+      recursion becomes too deep
+    - The event queue mechanism, however, does not have this problem.
+      Control falls automatically back to the event queue whenever I/O
+      needs to be done.
+
+    In this example, this means that only the engine mechanism is used
+    as long as the data is read from the buffer. When the buffer needs
+    to be refilled, however, control is passed back to the event queue
+    (so the stack is cleaned), and the continuation of the execution
+    is only managed via closures (which only allocate memory on the
+    heap, not on the stack). Usually, this is a good compromise: The
+    engine mechnism is a lot faster, but I/O is an indicator for using
+    the better but slower technique.
+
+    Also note another difference: The event queue mechanism allows that
+    other asynchronous code attached to the same event queue may run
+    (control maybe yielded to unrelated execution contexts). The
+    pure engine mechanism does not allow that. This may be handy when
+    exclusive access to variables is needed. (But be careful here -
+    this is very sensitive to minimal changes of the implementation.)
+
+    Certain engines enforce using the event queue mechanisms although they
+    are unrelated to I/O. Especially {!Uq_engines.delay_engine} is
+    useful here: A "delay" of 0 seconds is already sufficient to
+    go back to the event queue. If recursions sometimes lead to
+    stack overflows the solution is to include such a zero delay
+    before doing the self call.
+ *)
 
 (** {1 More Engines} *)
 

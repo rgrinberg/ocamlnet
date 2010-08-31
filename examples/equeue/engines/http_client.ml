@@ -1,6 +1,7 @@
 (* This is the HTTP client example from the User's Manual *)
 
-open Uq_engines;;
+open Uq_engines
+open Uq_engines.Operators
 
 class async_buffer b =
 object (self)
@@ -18,25 +19,30 @@ let main() =
 			    )) ues in
   let b = Buffer.create 10000 in
 
+  let e =
+    c ++ 
+      (fun connstat ->
+	 match connstat with
+	  | `Socket(fd, _) ->
+	       prerr_endline "CONNECTED";     (* debug output *)
+	       let d = `Polldescr(Netsys.get_fd_style fd, fd, ues) in
+	       Uq_io.output_string_e d "GET / HTTP/1.0\n\n" ++
+		 (fun () ->
+		    Uq_io.write_eof_e d ++
+                      (fun _ ->
+			let buffer = new async_buffer b in
+			new receiver ~src:fd ~dst:buffer ues
+                      )
+		 )
+	  | _ -> assert false
+      ) in
+
   when_state
-    ~is_done:(fun connstat ->
-		match connstat with
-		    `Socket(fd, _) ->
-		      prerr_endline "CONNECTED";
-		      let printer = new output_async_descr ~dst:fd ues in
-		      let buffer = new async_buffer b in
-		      let receiver = new receiver ~src:fd ~dst:buffer ues in
-		      let s = "GET / HTTP/1.0\n\n" in
-		      ignore(printer # output s 0 (String.length s));
-	              when_state
-                        ~is_done:(fun _ ->
-                                    prerr_endline "HTTP RESPONSE RECEIVED!")
-	                ~is_error:(fun _ ->
-                                    prerr_endline "ERROR!")
-                        receiver
-		  | _ -> assert false
-	     )
-    c;
+    ~is_done:(fun _ ->
+                prerr_endline "HTTP RESPONSE RECEIVED!")
+    ~is_error:(fun _ ->
+                prerr_endline "ERROR!")
+    e;
 
   Unixqueue.run ues;
 

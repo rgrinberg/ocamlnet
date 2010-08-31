@@ -24,6 +24,7 @@ User's Guide").
       {- {!Equeue_intro.eng_notify}}
       {- {!Equeue_intro.eng_async_ch}}
       {- {!Equeue_intro.eng_recv}}
+      {- {!Equeue_intro.eng_uqio}}
       {- {!Equeue_intro.eng_eg}}
     }
   }
@@ -915,6 +916,23 @@ the function is invoked with the result of the engine, and the function
 must return a second engine. The result of [seq_engine] is
 the result of the second engine.
 
+As [seq_engine] occurs frequently, there is a special operator
+for it, [++]:
+
+{[
+  open Uq_engines.Operators
+
+  let eng1 = connector addr1 ues in
+  let eng123 = 
+     eng1 ++
+       (fun result1 ->
+	  let eng2 = connector addr2 ues in
+	  eng2 ++
+            (fun result2 ->
+               let eng3 = connector addr3 ues in
+               eng3)))
+]}
+
 In these examples, we have called {!Unixqueue.run}
 to start the event system. This function returns when all actions are
 completed; this implies that finally all engines are synchronized again
@@ -927,8 +945,7 @@ connections have been established, a third connection is started:
   let eng1 = connector addr1 ues in
   let eng2 = connector addr2 ues in
   let eng12 = new sync_engine eng1 eng2 in
-  let eng123 = new seq_engine
-                 eng12
+  let eng123 = eng12 ++
                  (fun result12 ->
                     let eng3 = connector addr3 ues in
                     eng3)
@@ -986,7 +1003,7 @@ by:
            )
 ]}
 
-Some more details: The callback function must be even
+Some more details: The callback function should be even
 called when only minor state changes occur, e.g. when
 [`Working n] changes to [`Working (n+1)].
 The engine is free to invoke the callback function even more
@@ -995,13 +1012,14 @@ frequently.
 Another detail: It is allowed that more callbacks are
 requested when a callback function is running.
 
-Note that all engine construction classes base on the
-notification mechanism, so it is absolutely required that it
-is implemented error-free.
-
 
 
 {3:eng_async_ch Asynchronous channels}
+
+{b Editorial note:} This section describes a feature that is now
+seen as outdated, and often not the optimal way of doing async I/O.
+Asynchronous channels are still available, though. Readers may
+skip this section.
 
 Because engines are based on Unixqueues, one can imagine
 that complex operations on file descriptors are executed by engines.
@@ -1199,6 +1217,11 @@ manual for a description.
 
 {3:eng_recv Receivers}
 
+{b Editorial note:} This section describes a feature that is now
+seen as outdated, and often not the optimal way of doing async I/O.
+Asynchronous channels are still available, though. Readers may
+skip this section.
+
 The question is what one can do with asynchronous channels.
 We have mentioned that these objects were designed with copy tasks
 in mind that transfer data from file descriptors into data objects.
@@ -1227,10 +1250,87 @@ The receiver is an engine, and this means that it
 reports its state to the outer world. When the copy task has been
 completed, it transitions into the state [`Done()].
 
-In the next section we present a real example that
-also uses the receiver class.
-    </sect1>
 
+
+{3:eng_uqio The I/O functions in {!Uq_io}}
+
+The functions in {!Uq_io} are patterned after the I/O functions
+in the standard library, only that they use the engine paradigm.
+For example, we have in [Pervasives]
+
+{[
+val input : in_channel -> string -> int -> int -> int
+]}
+
+for reading data from an [in_channel] and putting it into the string,
+and the corresponding function {!Uq_io.input_e} has the signature
+
+{[
+val input_e : [< in_device ] -> string_like -> int -> int -> 
+                int Uq_engines.engine
+]}
+
+Instead from an [in_channel] it gets data from an [in_device]. There
+are several kinds of {!Uq_io.in_device}, especially:
+
+- [`Polldescr(fd_style, fd, esys)] is a device reading data from
+  the file descriptor [fd] via the event queue [esys]. The [fd_style]
+  indicates how to read data (whether it is [Unix.read], [Unix.recv],
+  or another system call).
+- [`Buffer_in b] is a device reading data from a buffer [b], and
+  [b] is in turn connected to another device serving as data source.
+  Buffers [b] are created with {!Uq_io.create_in_buffer}.
+
+The type [string_like] allows the values [`String s] for a string [s],
+and [`Memory m] for a bigarray of chars [m].
+
+There is, of course, also an {!Uq_io.out_device} for the other
+data flow direction. I/O functions include:
+
+- {!Uq_io.input_e}
+- {!Uq_io.really_input_e}
+- {!Uq_io.input_line_e} (however, only for buffer-backed devices)
+- {!Uq_io.output_e}
+- {!Uq_io.really_output_e}
+- {!Uq_io.output_string_e}
+- {!Uq_io.output_memory_e}
+- {!Uq_io.output_netbuffer_e}
+- {!Uq_io.flush_e}
+- {!Uq_io.write_eof_e} and {!Uq_io.shutdown_e} for socket shutdown and
+  normal close
+- {!Uq_io.inactivate} for an unconditional close (w/o prior flush)
+
+For example, let's develop a function reading line-by-line from a
+file descriptor to check whether the special line "pearl" exists:
+
+{[
+let find_pearl fd esys =
+  let d1 = `Polldescr(Netsys.get_fd_style fd, fd, eys) in
+  let d2 = `Buffer_in(Uq_io.create_in_buffer d1) in
+  let found = ref false in
+
+  let rec loop () =
+    Uq_io.input_line_e d2 ++
+      (fun line ->
+        if line = "pearl" then found := true;
+	loop()
+      ) in
+
+  Uq_engines.map_engine
+    ~map_done:(fun _ -> `Done !found)
+    ~map_error:(fun err -> 
+                  if err = End_of_file then `Done !found else `Error err)
+    (loop())
+]}
+
+The result type of [find_pearl] is [bool engine].
+
+We exploit here that [input_line_e] raises [End_of_file] when the end
+of the input stream is reached. This exception is, of course, not directly
+raised, but rather the engine state [`Error End_of_file] is entered.
+Because of this, there is no test for the end of the recursion in [loop].
+The exception is caught by a [map_engine], and mapped to a regular
+result.
 
 
 {3:eng_eg Example: A simple HTTP client}
@@ -1280,43 +1380,37 @@ We also create a buffer:
 ]}
 
 Now we are interested in the moment when the connection is
-established. In this moment, we set up an 
-[output_async_descr] object that copies
-its contents to the connection, so we can asynchronously
-send our HTTP request. Furthermore, we create an
+established. In this moment, we send the request using
+{!Uq_io.output_string_e}. Furthermore, we create an
 [async_buffer] object that collects the
 HTTP response, which can arrive at any time from now on.
 
 {[
-  when_state
-    ~is_done:(fun connstat ->
-		match connstat with
-		    `Socket(fd, _) ->
-		      prerr_endline "CONNECTED";
-		      let printer = new output_async_descr ~dst:fd ues in
-		      let buffer = new async_buffer b in
-		      let receiver = new receiver ~src:fd ~dst:buffer ues in
-		      let s = "GET / HTTP/1.0\n\n" in
-		      ignore(printer # output s 0 (String.length s));
-	              when_state
-                        ~is_done:(fun _ ->
-                                    prerr_endline "HTTP RESPONSE RECEIVED!")
-	                ~is_error:(fun _ ->
-                                    prerr_endline "ERROR!")
-                        receiver
-		  | _ -> assert false
-	     )
-    c
-  ;;
-]}
+  let e =
+    c ++ 
+      (fun connstat ->
+	 match connstat with
+	  | `Socket(fd, _) ->
+	       prerr_endline "CONNECTED";     (* debug output *)
+	       let d = `Polldescr(Netsys.get_fd_style fd, fd, ues) in
+	       Uq_io.output_string_e d "GET / HTTP/1.0\n\n" ++
+		 (fun () ->
+		    Uq_io.write_eof_e d ++
+                      (fun _ ->
+			let buffer = new async_buffer b in
+			new receiver ~src:fd ~dst:buffer ues
+                      )
+		 )
+	  | _ -> assert false
+      ) in
 
-Some details: We can ignore the result of [printer#output]
-because the [printer] has unlimited capacity (the
-default of [output_async_descr] channels). Because
-[printer] is not closed, this channel does not
-close the destination descriptor [fd] (which would
-be fatal). The [receiver], however, closes the file
-descriptor when it finds the end of the input stream.
+  when_state
+    ~is_done:(fun _ ->
+                prerr_endline "HTTP RESPONSE RECEIVED!")
+    ~is_error:(fun _ ->
+                prerr_endline "ERROR!")
+    e
+]}
 
 One important line is missing: Up to now we have only
 set up the client, but it is not yet running. To invoke it we need:
@@ -1327,13 +1421,7 @@ set up the client, but it is not yet running. To invoke it we need:
 
 This client is not perfect, not only, because it is restricted
 to the most basic form of the HTTP protocol. The error handling could
-be better: In the case that [printer] transitions to
-error state, it will close [fd]. But the file descriptor
-is in use by [receiver] at the same time, causing
-a followup error that is finally reported. A better solution would
-use a duplicate of the file descriptor for [receiver],
-so both engines can independently close their descriptors. Furthermore,
-the error state of [printer] would be trapped.
+be better: The descriptor [fd] is not closed in this case.
 
 
 
