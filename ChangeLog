@@ -1,3 +1,12 @@
+2010-08-31  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
+
+	* Released Ocamlnet-3.0.0
+
+----------------------------------------------------------------------	
+These are old change logs before the Ocamlnet-3 development
+started.	
+----------------------------------------------------------------------	
+
 2008-03-30  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Adding netzip library
