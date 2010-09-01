@@ -855,11 +855,11 @@ struct sigchld_atom {
 
 static struct sigchld_atom *sigchld_list = NULL;   /* an array of atoms */
 static int                  sigchld_list_len = 0;  /* length of array */
+static int                  sigchld_list_cnt = 0;  /* counts modifications */
 
 #ifdef HAVE_PTHREAD
 static int                  sigchld_init = 0;
-static int                  sigchld_mutex_init = 0;
-static pthread_mutex_t      sigchld_mutex;
+static pthread_mutex_t      sigchld_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int                  sigchld_pipe_wr = (-1);
 static int                  sigchld_pipe_rd = (-1);
 #endif
@@ -872,25 +872,32 @@ static void sigchld_lock(int block_signal, int master_lock) {
     sigemptyset(&set);
     sigaddset(&set, SIGCHLD);
 
+    /* We cannot always raise exceptions here, so we prefer to
+       print errors to stderr. These are very surprising errors
+       anyway.
+    */
+    
 #ifdef HAVE_PTHREAD
     if (block_signal) {
 	code = pthread_sigmask(SIG_BLOCK, &set, NULL);
 	if (code != 0)
-	    uerror("pthread_sigmask", Nothing);
+	    fprintf(stderr, "Netsys: pthread_sigmask returns: %s\n",
+		    strerror(errno));
     }
     if (master_lock)
 	caml_enter_blocking_section();
-    if (!sigchld_mutex_init) 
-	pthread_mutex_init(&sigchld_mutex, NULL);
-    sigchld_mutex_init = 1;
-    pthread_mutex_lock(&sigchld_mutex);
+    code = pthread_mutex_lock(&sigchld_mutex);
+    if (code != 0)
+	fprintf(stderr, "Netsys: pthread_mutex_lock returns: %s\n",
+		strerror(code));
     if (master_lock)
 	caml_leave_blocking_section();
 #else
     if (block_signal) {
 	code = sigprocmask(SIG_BLOCK, &set, NULL);
 	if (code == -1)
-	    uerror("sigprocmask", Nothing);
+	    fprintf(stderr, "Netsys: sigprocmask returns: %s\n",
+		    strerror(code));
     }
 #endif
 }
@@ -904,25 +911,29 @@ static void sigchld_unlock(int unblock_signal) {
     sigaddset(&set, SIGCHLD);
 
 #ifdef HAVE_PTHREAD
-     if (sigchld_mutex_init)
-	 pthread_mutex_unlock(&sigchld_mutex);
+    code = pthread_mutex_unlock(&sigchld_mutex);
+    if (code != 0)
+	fprintf(stderr, "Netsys: pthread_mutex_unlock returns: %s\n",
+		strerror(code));
     if (unblock_signal) {
 	code = pthread_sigmask(SIG_UNBLOCK, &set, NULL);
 	if (code != 0)
-	    uerror("pthread_sigmask", Nothing);
+	    fprintf(stderr, "Netsys: pthread_sigmask returns: %s\n",
+		    strerror(errno));
     }
 #else
     if (unblock_signal) {
 	code = sigprocmask(SIG_UNBLOCK, &set, NULL);
 	if (code == -1)
-	    uerror("sigprocmask", Nothing);
+	    fprintf(stderr, "Netsys: sigprocmask returns: %s\n",
+		    strerror(code));
     }
 #endif
 }
 
 
 static void sigchld_process(pid_t pid) {
-    int k;
+    int k, code, old_cnt;
     struct sigchld_atom *atom;
 
     /* The SIGCHLD signal is blocked in the current thread during the
@@ -937,10 +948,14 @@ static void sigchld_process(pid_t pid) {
        in Unix.
     */
 
+    old_cnt = sigchld_list_cnt;
     for (k=0; k<sigchld_list_len; k++) {
 	atom = &(sigchld_list[k]);
 	if (atom->pid != 0 && ! atom->terminated) {
-	    waitpid(pid, &(atom->status), WNOHANG);
+	    code = waitpid(atom->pid, &(atom->status), WNOHANG);
+	    if (code == -1)
+		fprintf(stderr, "Netsys: waitpid returns error: %s\n",
+			strerror(errno));
 	    if (! atom->ignore) {
 		close(atom->pipe_fd);
 	    }
@@ -952,6 +967,9 @@ static void sigchld_process(pid_t pid) {
 	}
     }
 
+    if (old_cnt != sigchld_list_cnt)
+	fprintf(stderr, "Netsys: sigchld_process: bug in mutual exclusion\n");
+
     sigchld_unlock(0);
 }
 
@@ -960,24 +978,28 @@ static void sigchld_process(pid_t pid) {
 #ifdef HAVE_PTHREAD
 /* This function runs in a separate thread */
 static void *sigchld_consumer(void *arg) {
-    int cont = 1;
     int n;
     char buf[sizeof(pid_t)];
     pid_t pid;
 
-    while (cont) {
+    while (1) {
 	n=read(sigchld_pipe_rd, buf, sizeof(pid_t));
 	if (n==0)
-	    cont=0;
+	    break;
 	else if(n==-1) {
-	    if (errno != EINTR)
-		cont=0;
-	}
-	if (cont) {
-	    memcpy(&pid, buf, sizeof(pid_t));
-	    sigchld_process(pid);
-	}
+	    if (errno == EINTR)
+		continue;
+	    else
+		break;
+	} else if (n != sizeof(pid_t))
+	    break;
+	memcpy(&pid, buf, sizeof(pid_t));
+	sigchld_process(pid);
     }
+
+    if (n != 0)
+	fprintf(stderr,
+		"Netsys: sigchld_consumer thread terminates after error\n");
 
     return NULL;
 }
@@ -1077,6 +1099,7 @@ CAMLprim value netsys_install_sigchld_handler(value dummy) {
 
     sigchld_lock(1, 1);
  
+    memset(&action, 0, sizeof(struct sigaction));
     action.sa_sigaction = sigchld_action;
     sigemptyset(&(action.sa_mask));
     action.sa_flags = SA_SIGINFO | SA_NOCLDSTOP;
@@ -1133,8 +1156,7 @@ CAMLprim value netsys_subprocess_cleanup_after_fork(value dummy) {
 	close(sigchld_pipe_rd);
 	close(sigchld_pipe_wr);
 	sigchld_init = 0;
-	if (!sigchld_mutex_init) pthread_mutex_init(&sigchld_mutex, NULL);
-	sigchld_mutex_init = 1;
+	pthread_mutex_init(&sigchld_mutex, NULL);
     }
 #endif
     if (reinit)
@@ -1269,6 +1291,7 @@ CAMLprim value netsys_watch_subprocess(value pid_v, value pgid_v,
 	atom->ignore = 0;
 	atom->pipe_fd = -1;
     };
+    sigchld_list_cnt++;
 
     sigchld_unlock(1);
 

@@ -48,9 +48,12 @@ ARCHIVE_CMXA ?= $(ARCHIVE).cmxa
 ARCHIVE_P ?= $(ARCHIVE).p
 ARCHIVE_P_CMXA ?= $(ARCHIVE_P).cmxa
 
-all: $(ARCHIVE_CMA) $(ALL_EXTRA) all-mt-$(MT_TYPE)
+ALL ?= $(ARCHIVE_CMA) $(ALL_EXTRA) all-mt-$(MT_TYPE)
+OPT ?= $(ARCHIVE_CMXA) $(OPT_EXTRA) opt-mt-$(MT_TYPE) opt-p-$(HAVE_GPROF)
 
-opt: $(ARCHIVE_CMXA) $(OPT_EXTRA) opt-mt-$(MT_TYPE) opt-p-$(HAVE_GPROF)
+all: $(ALL)
+
+opt: $(OPT)
 
 all-mt-vm: $(ALLMT_EXTRA)
 all-mt-posix: $(ALLMT_EXTRA)

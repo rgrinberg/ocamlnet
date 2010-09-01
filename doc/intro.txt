@@ -24,6 +24,12 @@ Some introductional notes how Ocamlnet is organized:
 
 - {!Foreword}
 
+An overview of the list of changes is available in this external
+article:
+
+- {{:http://blog.camlcity.org/blog/ocamlnet3_release.html} Ocamlnet 3
+  finally released}
+
 {2 Platform support}
 
 Please read this document for extended information which features
@@ -31,6 +37,11 @@ are supported on which platform:
 
 - {!Platform}: Which functions are available on which platform
   (POSIX/Win32). Also hints for portable programming.
+
+{3:platform_blog External articles}
+
+- {{:http://blog.camlcity.org/blog/ocamlnet3_win32.html} Stranger in
+  a strange land}, by Gerd Stolpmann. The Win32 port in Ocamlnet 3.
 
 {2:netstring The [netstring] library}
 
@@ -160,10 +171,19 @@ build web servers, and with [rpc] to build RPC servers.
     Netplex_encap
     Rpc_netplex}
     
-{3:nethttpd_intro Guides}
+{3:netplex_intro Guides}
 
 - {!module:Netplex_intro}: Introduction to [Netplex]
 - {!module:Netplex_advanced}: Advanced features of [Netplex]
+
+{3:netplex_blog External articles}
+
+- {{:http://blog.camlcity.org/blog/parallelmm.html} Parallelizing with
+  Ocamlnet}, by Gerd Stolpmann. Demonstrates how to parallelize
+  matrix multiplications with Netplex-controlled worker processes.
+- {{:http://blog.camlcity.org/blog/ocamlnet3_mp.html} 
+  Mastering Multi-processing}, by Gerd Stolpmann. About the new
+  synchronization primitives in Ocamlnet 3
 
 
 {2:equeue The [rpc] library}
@@ -190,6 +210,11 @@ This library implements OncRPC (alias SunRPC).
 
 - {!module:Rpc_intro}: Introduction
 - {!module:Rpc_mapping_ref}: RPC Language Mapping Reference
+
+{3:rpc_blog External articles}
+
+- {{:http://blog.camlcity.org/blog/ocamlnet3_ha.html} The next server,
+  please!}, by Gerd Stolpmann. About highly-available RPC.
 
 {3:rpc_local The [rpc-auth-local] extension}
 
@@ -266,6 +291,10 @@ by a number of other libraries of Ocamlnet to parallelize network code
 {3:equeue_intro Guides}
 
 - {!module:Equeue_intro}: Introduction to programming with [equeue]
+
+{3:equeue_blog External articles}
+
+- {{:http://ambassadortothecomputers.blogspot.com/2009/02/equeue-compared-to-lwt.html} Equeue compared to Lwt}, by Jake Donham.
 
 {3:equeue_gtk The [equeue-gtk1] and [equeue-gtk2] extensions}
 

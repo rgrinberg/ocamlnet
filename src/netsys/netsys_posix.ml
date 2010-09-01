@@ -378,6 +378,7 @@ let spawn ?(chdir = Wd_keep) ?(pg = Pg_keep) ?(fd_actions = [])
 type watched_subprocess = 
     { atom_idx : int;
       mutable alive : bool;
+      mutable allocated : bool;
     }
 
 external netsys_watch_subprocess : int -> int -> bool -> Unix.file_descr * int
@@ -410,11 +411,19 @@ external kill_all_subprocesses : int -> bool -> bool -> unit
 external killpg_all_subprocesses : int -> bool -> unit
   = "netsys_killpg_all_subprocesses"
 
+let forget_subprocess ws =
+  if ws.allocated then (
+    netsys_forget_subprocess ws.atom_idx;
+    ws.allocated <- false;
+  );
+  ws.alive <- false
+
 let watch_subprocess pid pgid kill_flag =
   if pid <= 0 || pgid < 0 then
     invalid_arg "Netsys_posix.watch_subprocess";
   let fd, atom_idx = netsys_watch_subprocess pid pgid kill_flag in
-  let ws = { atom_idx = atom_idx; alive = true } in
+  let ws = { atom_idx = atom_idx; alive = true; allocated = true } in
+  Gc.finalise forget_subprocess ws;
   (fd, ws)
 
 let ignore_subprocess ws =
@@ -422,12 +431,6 @@ let ignore_subprocess ws =
     failwith "Netsys_posix.ignore_subprocess: stale reference";
   netsys_ignore_subprocess ws.atom_idx;
   ws.alive <- false
-
-let forget_subprocess ws =
-  if ws.alive then (
-    netsys_forget_subprocess ws.atom_idx;
-    ws.alive <- false
-  )
 
 let get_subprocess_status ws =
   if not ws.alive then

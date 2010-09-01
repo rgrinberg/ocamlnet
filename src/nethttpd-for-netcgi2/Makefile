@@ -5,8 +5,8 @@ OBJECTS  =
 DOBJECTS = 
 DEP_FILES =
 
-# prevent that a cma/cmxa is created:
-ARCHIVE_CMA =
-ARCHIVE_CMXA =
+# prevent that anything is created:
+ALL =
+OPT =
 
 include $(TOP_DIR)/Makefile.rules
