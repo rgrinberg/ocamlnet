@@ -956,14 +956,16 @@ static void sigchld_process(pid_t pid) {
 	    if (code == -1)
 		fprintf(stderr, "Netsys: waitpid returns error: %s\n",
 			strerror(errno));
-	    if (! atom->ignore) {
-		close(atom->pipe_fd);
+	    if (code > 0) {
+		if (! atom->ignore) {
+		    close(atom->pipe_fd);
+		}
+		atom->terminated = 1;
+		if ( atom->ignore ) {
+		    /* We can finally free this atom */
+		    atom->pid = 0;
+		};
 	    }
-	    atom->terminated = 1;
-	    if ( atom->ignore ) {
-		/* We can finally free this atom */
-		atom->pid = 0;
-	    };
 	}
     }
 
