@@ -20,11 +20,15 @@ DOBJECTS = netsys.mli netsys_posix.mli netsys_pollset.mli netlog.mli \
 	   netsys_types.mli netsys_mem.mli
 LINK_OPTIONS = $(NETSYS_LINK_OPTIONS)
 
-ALL_EXTRA = netsys_oothr.cma netsys_oothr_mt_init.cmo
-ALLMT_EXTRA = netsys_oothr_mt_init.cmo
+ALL_EXTRA = netsys_oothr.cma
+ALLMT_EXTRA = netsys_oothr_mt.cma netsys_oothr_mt_init.cmo
 OPT_EXTRA = netsys_oothr.cmxa netsys_c_gprof.o
 OPTP_EXTRA = netsys_oothr.p.cmxa netsys_gprof_init.cmx
-OPTMT_EXTRA = netsys_oothr_mt_init.cmx
+OPTMT_EXTRA = netsys_oothr_mt.cmxa netsys_oothr_mt_init.cmx
+OPTMTP_EXTRA = netsys_oothr_mt.p.cmxa netsys_oothr_mt_init.cmx
+# Note: we cannot refer here to *.p.cmx because there is no direct
+# rule to build these files from .ml. They are implicitly built
+# when the corresponding *.cmx (without .p) is created.
 
 OCAMLC_OPTIONS_FOR_netsys_oothr_mt.mli = $(THREAD)
 OCAMLC_OPTIONS_FOR_netsys_oothr_mt.ml = $(THREAD)
@@ -46,20 +50,26 @@ netsys_types.cmx: netsys_types.cmi
 
 CLEAN_LIST += netsys_types.ml
 
-netsys_oothr.cma: netsys_oothr.cmo netsys_oothr_mt.cmo
-	$(OCAMLC) -o netsys_oothr.cma -a \
+netsys_oothr.cma: netsys_oothr.cmo
+	$(OCAMLC) -o netsys_oothr.cma -a netsys_oothr.cmo
+
+netsys_oothr.cmxa: netsys_oothr.cmx
+	$(OCAMLOPT) -o netsys_oothr.cmxa -a netsys_oothr.cmx
+
+netsys_oothr.p.cmxa: netsys_oothr.cmx
+	$(OCAMLOPT) -o netsys_oothr.p.cmxa -a netsys_oothr.p.cmx
+
+netsys_oothr_mt.cma: netsys_oothr.cmo netsys_oothr_mt.cmo
+	$(OCAMLC) -o netsys_oothr_mt.cma -a \
 		netsys_oothr.cmo netsys_oothr_mt.cmo
 
+netsys_oothr_mt.cmxa: netsys_oothr.cmx netsys_oothr-$(MT_TYPE)
+	$(OCAMLOPT) -o netsys_oothr_mt.cmxa -a \
+		netsys_oothr.cmx netsys_oothr_mt.cmx
 
-netsys_oothr.cmxa: netsys_oothr.cmx netsys_oothr-$(MT_TYPE)
-	extra=""; \
-	if [ -f  netsys_oothr_mt.cmx ]; then extra="netsys_oothr_mt.cmx"; fi; \
-	$(OCAMLOPT) -o netsys_oothr.cmxa -a netsys_oothr.cmx $$extra
-
-netsys_oothr.p.cmxa: netsys_oothr.cmx netsys_oothr-$(MT_TYPE)
-	extra=""; \
-	if [ -f  netsys_oothr_mt.p.cmx ]; then extra="netsys_oothr_mt.p.cmx"; fi; \
-	$(OCAMLOPT) -o netsys_oothr.p.cmxa -a netsys_oothr.p.cmx $$extra
+netsys_oothr_mt.p.cmxa: netsys_oothr.cmx netsys_oothr-$(MT_TYPE)
+	$(OCAMLOPT) -o netsys_oothr_mt.p.cmxa -a \
+		netsys_oothr.p.cmx netsys_oothr_mt.p.cmx
 
 .PHONY: netsys_oothr-vm netsys_oothr-posix
 netsys_oothr-vm:

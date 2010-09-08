@@ -2,6 +2,9 @@
 
 open Printf
 
+external _exit : int -> unit = "netsys__exit";;
+(* needed here to avoid dep on Netsys *)
+
 type action =
     [ `Callback of int -> unit
     | `Install of unit -> unit
@@ -95,7 +98,7 @@ let handle signo =
        signal handler again, and by sending the signal to the process.
      *)
     if List.mem signo lethal_default_actions then (
-      Netsys._exit 126;
+      _exit 126;
       (*  - This does not reliably work in multi-threaded programs: *)
       (*
       ignore(Sys.signal signo Sys.Signal_default);

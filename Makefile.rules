@@ -48,8 +48,10 @@ ARCHIVE_CMXA ?= $(ARCHIVE).cmxa
 ARCHIVE_P ?= $(ARCHIVE).p
 ARCHIVE_P_CMXA ?= $(ARCHIVE_P).cmxa
 
-ALL ?= $(ARCHIVE_CMA) $(ALL_EXTRA) all-mt-$(MT_TYPE)
-OPT ?= $(ARCHIVE_CMXA) $(OPT_EXTRA) opt-mt-$(MT_TYPE) opt-p-$(HAVE_GPROF)
+ALL ?= $(ARCHIVE_CMA) $(ALL_EXTRA) \
+       all-mt-$(MT_TYPE)
+OPT ?= $(ARCHIVE_CMXA) $(OPT_EXTRA) \
+       opt-mt-$(MT_TYPE) opt-p-$(HAVE_GPROF) opt-mt-$(MT_TYPE)-p-$(HAVE_GPROF)
 
 all: $(ALL)
 
@@ -61,6 +63,12 @@ opt-mt-vm:
 opt-mt-posix: $(OPTMT_EXTRA)
 opt-p-0:
 opt-p-1: $(ARCHIVE_P_CMXA) $(OPTP_EXTRA)
+opt-mt-vm-p-0:
+opt-mt-posix-p-0:
+opt-mt-vm-p-1:
+opt-mt-posix-p-1: $(OPTMTP_EXTRA)
+
+
 
 $(ARCHIVE_CMA): $(OBJECTS) $(COBJECTS)
 	if [ "X$(COBJECTS)" = "X" ]; then \

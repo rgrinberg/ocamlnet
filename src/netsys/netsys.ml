@@ -579,6 +579,7 @@ let domain_of_inet_addr addr =
   Unix.domain_of_sockaddr(Unix.ADDR_INET(addr,0))
 
 external _exit : int -> unit = "netsys__exit";;
+(* same external also in netsys_signal.ml *)
 
 
 external mcast_set_loop : Unix.file_descr -> bool -> unit 

@@ -1,3 +1,10 @@
+2010-09-09  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Netsys: netsys_oothr.cma no longer contains a reference to
+	  Thread. New archive netsys_oothr_mt.cma for this.
+
+	* Netsys: resolving circular dep netsys <-> netsys_signal
+
 2010-08-31  Gerd Stolpmann  <gerd@gerd-stolpmann.de>
 
 	* Released Ocamlnet-3.0.0
