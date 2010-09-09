@@ -1,5 +1,11 @@
 2010-09-09  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
+	* Released: Ocamlnet-3.0.3
+
+	* Nethttpd: Nethttpd_plex.nethttpd_factory got new arg
+	  processor_factory. This allows it to override this
+	  factory. (Caveat: this factory must be polymorphic.)
+
 	* Netsys: netsys_oothr.cma no longer contains a reference to
 	  Thread. New archive netsys_oothr_mt.cma for this.
 

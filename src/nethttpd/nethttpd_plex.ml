@@ -18,6 +18,14 @@ type ('a,'b) service_factory =
                     | `File_service of Nethttpd_services.file_service 
 		    ]
 
+type httpd_factory =
+    { httpd_factory :
+	'a . 
+	  (Netplex_types.container -> Nethttpd_reactor.http_reactor_config) ->
+	    'a Nethttpd_types.http_service ->
+	      Netplex_types.processor
+    }
+
 
 let std_log_error container info msg =
   let s = Nethttpd_util.std_error_log_string info msg in
@@ -213,7 +221,7 @@ let default_services =
 
 
 let create_processor hooks config_cgi handlers services log_error log_access 
-                     error_response ctrl_cfg cfg addr =
+                     error_response processor_factory ctrl_cfg cfg addr =
 
   let req_str_param = cfg_req_str_param cfg in
   let opt_str_param = cfg_opt_str_param cfg in
@@ -422,13 +430,14 @@ let create_processor hooks config_cgi handlers services log_error log_access
      end
     ) in
 
-  nethttpd_processor
-    ~hooks
-    mk_config
-    srv
+  match processor_factory with
+    | None ->
+	nethttpd_processor ~hooks mk_config srv
+    | Some fr ->
+	fr.httpd_factory mk_config srv
 ;;
 
-class nethttpd_factory ?(name = "nethttpd") 
+let nethttpd_factory ?(name = "nethttpd") 
                        ?(hooks = new Netplex_kit.empty_processor_hooks())
                        ?(config_cgi = Netcgi.default_config) 
                        ?(handlers=[]) 
@@ -436,14 +445,13 @@ class nethttpd_factory ?(name = "nethttpd")
 		       ?(log_error = std_log_error)
 		       ?(log_access = std_log_access)
                        ?(error_response = std_error_response)
+		       ?processor_factory
 		       () : processor_factory =
 object
   method name = name
   method create_processor ctrl_cfg cfg addr =
     create_processor 
       hooks config_cgi handlers services log_error log_access error_response
+      processor_factory
       ctrl_cfg cfg addr
 end
-
-let nethttpd_factory =
-  new nethttpd_factory 

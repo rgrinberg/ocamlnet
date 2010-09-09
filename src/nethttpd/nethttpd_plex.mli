@@ -128,6 +128,15 @@ type ('a,'b) service_factory =
 val default_services : (string * ('a,'b) service_factory) list
   (** The default services *)
 
+type httpd_factory =
+    { httpd_factory :
+	'a . 
+	  (Netplex_types.container -> Nethttpd_reactor.http_reactor_config) ->
+	    'a Nethttpd_types.http_service ->
+	      Netplex_types.processor
+    }
+  (** The type of the [nethttpd_processor] function *)
+
 
 val nethttpd_factory :
       ?name:string ->
@@ -138,6 +147,7 @@ val nethttpd_factory :
       ?log_error:(Netplex_types.container -> config_log_error) ->
       ?log_access:(?debug:bool -> Netplex_types.container -> config_log_access) ->
       ?error_response:config_error_response -> 
+      ?processor_factory:httpd_factory ->
       unit ->
         Netplex_types.processor_factory
   (** Factory for a web server component.
@@ -246,7 +256,8 @@ val nethttpd_factory :
     *   be referenced by the "type" parameters in the [processor] section
     *   of the config file.
     * - [hooks]: One can pass a Netplex hook object to set the hooks of the
-    *   processor.
+    *   processor. (This argument is ignored if a [processor_factory] is
+    *   passed to this function.)
     * - [config_cgi]: The CGI configuration to use
     * - [handlers]: a list of handler function. These functions can be
     *   referenced from a [service] section in the config file where
@@ -260,4 +271,6 @@ val nethttpd_factory :
     *   {!Nethttpd_plex.std_log_access}.
     * - [error_response]: a handler which is invoked to generate error
     *   responses. Defaults to {!Nethttpd_plex.std_error_response}.
+    * - [processor_factory]: the function creating the processor.
+    *   Default is [nethttpd_processor].
    *)
