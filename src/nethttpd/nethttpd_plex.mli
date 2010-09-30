@@ -85,8 +85,11 @@ val read_dynamic_service_config :
    *)
 
 
+type encap = [ `Reactor | `Engine ]
+
 val nethttpd_processor : 
   ?hooks:Netplex_types.processor_hooks ->
+  ?encap:encap ->
   (Netplex_types.container -> #Nethttpd_reactor.http_reactor_config) ->
   'a Nethttpd_types.http_service ->
   Netplex_types.processor
@@ -102,6 +105,21 @@ val nethttpd_processor :
     *
     * [hooks]: One can pass a Netplex hook object to set the hooks of the
     * processor.
+    *
+    * [encap]: Selects the encapsulation, [`Reactor] or [`Engine]. 
+    * The default is [`Reactor]. Each encapsulation has specific strengths
+    * and weaknesses:
+    * - [`Reactor] is simpler code. Also, the request and response bodies
+    *   need not to be buffered up, and are directly connected with the 
+    *   underlying socket (low memory requirement). The disadvantage is
+    *   that a reactor processes TCP connections serially (important to know
+    *   when there is only a single Unix process)
+    * - [`Engine]: The request body needs to be completely buffered up.
+    *   If pipelining is enabled, the response bodies are also buffered
+    *   (FIXME).
+    *   The advantage of this encapsulation is that the engine can
+    *   process multiple TCP connections simultaneously, even in a 
+    *   single process/thread.
      *)
 
 type ('a,'b) service_factory =
@@ -141,6 +159,7 @@ type httpd_factory =
 val nethttpd_factory :
       ?name:string ->
       ?hooks:Netplex_types.processor_hooks ->
+      ?encap:encap ->
       ?config_cgi:Netcgi.config -> 
       ?handlers:(string * 'a Nethttpd_services.dynamic_service) list ->
       ?services:(string * ('a,'b) service_factory) list ->
@@ -257,6 +276,9 @@ val nethttpd_factory :
     *   of the config file.
     * - [hooks]: One can pass a Netplex hook object to set the hooks of the
     *   processor. (This argument is ignored if a [processor_factory] is
+    *   passed to this function.)
+    * - [encap]: See {!Nethttpd_plex.nethttpd_processor}. (This argument is
+    *   ignored if a [processor_factory] is
     *   passed to this function.)
     * - [config_cgi]: The CGI configuration to use
     * - [handlers]: a list of handler function. These functions can be

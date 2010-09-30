@@ -287,3 +287,7 @@ val read_media_types_file : string -> (string * string) list
     * Returns the contents as pairs [ (suffix, type) ].
    *)
 
+
+module Debug : sig
+  val enable : bool ref
+end

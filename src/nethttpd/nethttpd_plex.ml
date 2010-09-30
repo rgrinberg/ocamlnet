@@ -41,30 +41,48 @@ let std_log_access ?(debug=false) container info =
     container # log_subch "access" `Debug s_debug
   )
 
-    
+type encap = [ `Reactor | `Engine ]
 
 class nethttpd_processor ?(hooks = new Netplex_kit.empty_processor_hooks())
+                         ?(encap = `Reactor)
                          mk_config srv : Netplex_types.processor =
 object(self)
   inherit Netplex_kit.processor_hooks_delegation hooks
 
   method process ~when_done (container : Netplex_types.container) fd proto =
     let config = mk_config container in
-    ( try
-	Nethttpd_reactor.process_connection config fd srv
-      with
-	| err ->
-	    container # log `Err ("Uncaught exception: " ^ 
-				    Netexn.to_string err)
-    );
-    when_done()
+    match encap with
+      | `Reactor ->
+	  ( try
+	      Nethttpd_reactor.process_connection config fd srv
+	    with
+	      | err ->
+		  container # log `Err ("Exception caught by HTTP server: " ^ 
+					  Netexn.to_string err)
+	  );
+	  when_done()
+      | `Engine ->
+	  let engine_config =
+	    new Nethttpd_engine.buffering_engine_processing_config in
+	  let ctx =
+	    Nethttpd_engine.process_connection
+	      config engine_config fd container#event_system srv in
+	  Uq_engines.when_state 
+	    ~is_done:(fun () -> 
+			when_done())
+	    ~is_error:(fun e ->
+			 container#log `Err
+			   ("Exception caught by HTTP server: " ^ 
+			      Printexc.to_string e);
+			 when_done())
+	    ctx#engine
 
   method supported_ptypes = 
     [ `Multi_processing ; `Multi_threading ]
 end
 
-let nethttpd_processor ?hooks mk_config srv =
-  new nethttpd_processor ?hooks mk_config srv
+let nethttpd_processor ?hooks ?encap mk_config srv =
+  new nethttpd_processor ?hooks ?encap mk_config srv
 
 
 let is_options_request env =
@@ -221,7 +239,7 @@ let default_services =
 
 
 let create_processor hooks config_cgi handlers services log_error log_access 
-                     error_response processor_factory ctrl_cfg cfg addr =
+                     error_response processor_factory encap ctrl_cfg cfg addr =
 
   let req_str_param = cfg_req_str_param cfg in
   let opt_str_param = cfg_opt_str_param cfg in
@@ -432,13 +450,14 @@ let create_processor hooks config_cgi handlers services log_error log_access
 
   match processor_factory with
     | None ->
-	nethttpd_processor ~hooks mk_config srv
+	nethttpd_processor ~hooks ?encap mk_config srv
     | Some fr ->
 	fr.httpd_factory mk_config srv
 ;;
 
 let nethttpd_factory ?(name = "nethttpd") 
                        ?(hooks = new Netplex_kit.empty_processor_hooks())
+		       ?encap
                        ?(config_cgi = Netcgi.default_config) 
                        ?(handlers=[]) 
 		       ?(services=default_services)
@@ -452,6 +471,6 @@ object
   method create_processor ctrl_cfg cfg addr =
     create_processor 
       hooks config_cgi handlers services log_error log_access error_response
-      processor_factory
+      processor_factory encap
       ctrl_cfg cfg addr
 end

@@ -22,6 +22,16 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *)
 
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Nethttpd_services" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Nethttpd_services" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Nethttpd_services" Debug.enable
+
 open Nethttp
 open Nethttp.Header
 open Nethttpd_types
@@ -553,6 +563,9 @@ object(self)
     ( try
 	let loc = self # output_header_field "Location" in (* or Not_found *)
 	if loc = "" || loc.[0] <> '/' then raise Not_found;
+	dlogr (fun () -> 
+		 sprintf "env-%d dynamic_env_wrapper suppressing output"
+		   (Oo.id env));
 	out_enabled := false;  (* suppress output *)
       with
 	  Not_found ->
@@ -578,6 +591,9 @@ object(self)
     Format.fprintf fmt "@]@ )"
 
   method process_header (env : extended_environment) =
+    dlogr (fun () ->
+	     sprintf "env-%d process_header dynamic_service"
+	       (Oo.id env));
     try
       let req_path_esc = env#cgi_script_name in
       let _req_path = 
@@ -602,6 +618,9 @@ object(self)
 	  raise(Standard_response(`Precondition_failed,None,None));
       );
 
+      dlogr (fun () ->
+	       sprintf "env-%d process_header dynamic_service accepts %s %s"
+		 (Oo.id env) req_method req_path_esc);
       (`Accept_body(self :> http_service_receiver) : http_service_reaction)
     with
       | Not_found ->
@@ -609,10 +628,12 @@ object(self)
       | Standard_response(status,hdr_opt,errmsg_opt) ->
 	  `Std_response(status,hdr_opt,errmsg_opt)
 
-  val mutable activation = None
-  val mutable fixed_env = None
+  val response_param = None
 
   method process_body env =
+    dlogr (fun () ->
+	     sprintf "env-%d process_body dynamic_service"
+	       (Oo.id env));
     (* Set PATH_INFO and PATH_TRANSLATED: *)
     let props =
       match spec.dyn_uri with
@@ -641,26 +662,46 @@ object(self)
 	    properties
 	| None -> 
 	    env#cgi_properties in
-    let env = new dynamic_env_wrapper env props in
-    let cgi = spec.dyn_activation env in
-    activation <- Some cgi;
-    fixed_env <- Some env;
+    let fenv = new dynamic_env_wrapper env props in
+    let cgi = spec.dyn_activation fenv in
 
-    (self :> http_service_generator)
+    dlogr (fun () ->
+	     sprintf "env-%d process_body dynamic_service cgi=%d fixed_env=%d"
+	       (Oo.id env) (Oo.id cgi) (Oo.id fenv));
+
+    (* We cannot set here response_param directly because this object
+       is globally used by all incoming requests
+     *)
+    let self' =
+      {< response_param = Some (cgi,fenv) >} in
+    (self' :> http_service_generator)
 
   method generate_response env =
-    match (activation, fixed_env) with
-      | (Some cgi, Some env) ->
-	  spec.dyn_handler env cgi;
+
+    dlogr (fun () ->
+	     sprintf "env-%d generate_response dynamic_service"
+	       (Oo.id env));
+
+    match response_param with
+      | Some (cgi,fenv) ->
+	  dlogr (fun () ->
+		   sprintf "env-%d generate_response dynamic_service calling handler with cgi=%d fixed_env=%d"
+		     (Oo.id env) (Oo.id cgi) (Oo.id fenv));
+	  spec.dyn_handler fenv cgi;
+	  dlogr (fun () ->
+		   sprintf "env-%d generate_response dynamic_service \
+                            back from handler"
+		     (Oo.id env));
+
 	  (* Check for CGI-type redirection. In this case we have to do
              the actual redirection (see also dynamic_env_wrapper)
 	   *)
 	  ( try
 	      let loc = 
-		env # output_header_field "Location" in (* or Not_found *)
+		fenv # output_header_field "Location" in (* or Not_found *)
 	      if loc = "" || loc.[0] <> '/' then raise Not_found;
-	      env # output_header # set_fields [];  (* Reset output *)
-	      raise(Redirect_response(loc, env # input_header))
+	      fenv # output_header # set_fields [];  (* Reset output *)
+	      raise(Redirect_response(loc, fenv # input_header))
 	    with
 		Not_found ->
 		  ()

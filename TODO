@@ -1,3 +1,6 @@
+- Uq_engines.signal_engine: should be thread-safe (signal function
+  can be called from other thread)
+
 ----------------------------------------------------------------------
 Plan for Ocamlnet 3
 ----------------------------------------------------------------------

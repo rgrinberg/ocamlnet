@@ -1,3 +1,12 @@
+2010-10-01  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Nethttpd: Fixing a bug in Nethttpd_services that prevents in
+	  some cases that HTTP connections with pipelining are correctly
+	  processed. This bug showed especially up in conjuction with
+	  Nethttpd_engine.
+
+	* Nethttpd: adding encap args in Nethttpd_plex.
+
 2010-09-09  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Released: Ocamlnet-3.0.3

@@ -202,7 +202,8 @@ object(self)
     let old_state = state in
     state <- s;
     dlogr (fun () ->
-	     sprintf "FD %Ld: response state: %s" fdi (string_of_state s));
+	     sprintf "FD %Ld resp-%d: response state: %s"
+	       fdi (Oo.id self) (string_of_state s));
     if s <> old_state && (s = `Processed || s = `Error || s = `Dropped) then (
       (* do all actions on the queue *)
       try
@@ -266,8 +267,8 @@ object(self)
 	      let len = get_content_length resp_header in  (* or Not_found *)
 	      announced_content_length <- Some len;
 	      dlogr (fun () ->
-		       sprintf "FD %Ld: response anncounced_content_length=%Ld"
-			 fdi len)
+		       sprintf "FD %Ld resp-%d: response anncounced_content_length=%Ld"
+			 fdi (Oo.id self) len)
 	    with
 		Not_found -> 
 		  announced_content_length <- None
@@ -279,8 +280,8 @@ object(self)
 					   | Some _ -> `Identity
 					   | None -> `Chunked );
 		  dlogr (fun () ->
-			   sprintf "FD %Ld: response transfer_encoding=%s"
-			     fdi
+			   sprintf "FD %Ld resp-%d: response transfer_encoding=%s"
+			     fdi (Oo.id self)
 			     (match transfer_encoding with
 				| `Identity -> "identity"
 				| `Chunked -> "chunked"
@@ -290,9 +291,9 @@ object(self)
 		  close_connection <- true;
 		  transfer_encoding <- `Identity;
 		  dlogr (fun () ->
-			   sprintf "FD %Ld: response \
+			   sprintf "FD %Ld resp-%d: response \
                              transfer_encoding=identity; close_connection=true"
-			     fdi)
+			     fdi (Oo.id self))
 	  );
 	  (* Update the header: *)
 	  ( match transfer_encoding, suppress_body with
@@ -348,8 +349,9 @@ object(self)
 		    Queue.push (`Resp_wire_data (s,pos,len')) queue;
 		  if len > 0 && len' = 0 then
 		    dlogr (fun () ->
-			     sprintf "FD %Ld: response warning: \
-                                  response is longer than announced" fdi)
+			     sprintf "FD %Ld resp-%d: response warning: \
+                                  response is longer than announced" 
+			       fdi (Oo.id self))
 
 	      | `Chunked ->
 		  if len > 0 then (
@@ -415,15 +417,16 @@ object(self)
 	      let tok = Queue.take queue in
 	      front_token <- (tok :> front_token_opt);
 	      dlogr (fun () ->
-		       sprintf "FD %Ld: response new front_token: %s"
-			 fdi (string_of_front_token_x tok));
+		       sprintf "FD %Ld resp-%d: response new front_token: %s"
+			 fdi (Oo.id self) (string_of_front_token_x tok));
 	      self # front_token
 	    with Queue.Empty ->
 	      raise Send_queue_empty
 	  )
       | `Resp_wire_action f ->
 	  front_token <- `None;
-	  dlogr (fun () -> sprintf "FD %Ld: response Resp_wire_action" fdi);
+	  dlogr (fun () -> sprintf "FD %Ld resp-%d: response Resp_wire_action" 
+		   fdi (Oo.id self));
 	  f();
 	  self # front_token
 

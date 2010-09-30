@@ -97,6 +97,12 @@ exception Ev_output_filled of Unixqueue.group * reset_cond
   (** condition: The output channel filled data into the [http_response] object, and
     * notifies now the [http_engine] 
    *)
+ (* FIXME: This event is also sent for response objects that are
+    still buffering but not yet writing to the output descriptor.
+    This is not harmful, because it means this event is sent too often.
+    This is inelegant, though, and might be a performance problem.
+  *)
+
 
 exception Ev_input_empty of Unixqueue.group * reset_cond
   (** condition: The input channel became empty, and the engine must be notified 
@@ -132,7 +138,7 @@ end
     
 
 
-class http_engine_input config ues group in_cnt fdi =
+class http_engine_input config ues group in_cnt fdi rqid =
   let cond_input_empty =
     new condition ues 
       (fun reset -> Unixqueue.Extra(Ev_input_empty(group,reset))) in
@@ -155,7 +161,7 @@ object(self)
     cond_input_empty
 
   method input s spos slen =
-    dlogr (fun () -> sprintf "FD %Ld: input.input" fdi);
+    dlogr (fun () -> sprintf "FD %Ld req-%d: input.input" fdi !rqid);
     if closed then raise Netchannels.Closed_channel;
     if locked then failwith "Nethttpd_engine: channel is locked";
     if aborted then failwith "Nethttpd_engine: channel aborted";
@@ -194,7 +200,7 @@ object(self)
     pos_in
 
   method close_in() =
-    dlogr (fun () -> sprintf "FD %Ld: input.close_in" fdi);
+    dlogr (fun () -> sprintf "FD %Ld req-%d: input.close_in" fdi !rqid);
     if not closed then (
       if locked then failwith "Nethttpd_engine: channel is locked";
       front <- None;
@@ -214,7 +220,7 @@ object(self)
     notify_list <- List.filter (fun f -> f()) notify_list
 
   method add_data ((_,_,len) as data_chunk) =
-    dlogr (fun () -> sprintf "FD %Ld: input.add_data" fdi);
+    dlogr (fun () -> sprintf "FD %Ld req-%d: input.add_data" fdi !rqid);
     assert(len > 0);
     if not eof then (
       let old_can_input = self # can_input in
@@ -225,7 +231,7 @@ object(self)
       (* else: we are probably dropping all data! *)
 
   method add_eof() =
-    dlogr (fun () -> sprintf "FD %Ld: input.add_eof" fdi);
+    dlogr (fun () -> sprintf "FD %Ld req-%d: input.add_eof" fdi !rqid);
     if not eof then (
       let old_can_input = self # can_input in
       eof <- true;
@@ -233,16 +239,16 @@ object(self)
     )
     
   method unlock() =
-    dlogr (fun () -> sprintf "FD %Ld: input.unlock" fdi);
+    dlogr (fun () -> sprintf "FD %Ld req-%d: input.unlock" fdi !rqid);
     locked <- false
 
   method drop() =
-    dlogr (fun () -> sprintf "FD %Ld: input.drop" fdi);
+    dlogr (fun () -> sprintf "FD %Ld req-%d: input.drop" fdi !rqid);
     locked <- false;
     eof <- true
 
   method abort() =
-    dlogr (fun () -> sprintf "FD %Ld: input.abort" fdi);
+    dlogr (fun () -> sprintf "FD %Ld req-%d: input.abort" fdi !rqid);
     aborted <- true
 
 end
@@ -285,7 +291,7 @@ object(self)
      * the length of an individual chunk is limited to 8K - it just prevents
      * some dumb programming errors.
      *)
-    dlogr (fun () -> sprintf "FD %Ld: output.output" fdi);
+    dlogr (fun () -> sprintf "FD %Ld resp-%d: output.output" fdi (Oo.id resp));
     if closed then raise Netchannels.Closed_channel;
     if locked then failwith "Nethttpd_engine: channel is locked";
     if aborted then failwith "Nethttpd_engine: channel aborted";
@@ -306,11 +312,12 @@ object(self)
     pos_out
 
   method flush() =
-    dlogr (fun () -> sprintf "FD %Ld: output.flush" fdi);
+    dlogr (fun () -> sprintf "FD %Ld resp-%d: output.flush" fdi (Oo.id resp));
     ()
 
   method close_out() =
-    dlogr (fun () -> sprintf "FD %Ld: output.close_out" fdi);
+    dlogr (fun () -> 
+	     sprintf "FD %Ld resp-%d: output.close_out" fdi (Oo.id resp));
     if not closed then (
       if locked then failwith "Nethttpd_engine: channel is locked";
       let old_can_output = self # can_output in
@@ -323,7 +330,8 @@ object(self)
     )
 
   method close_after_send_file() =
-    dlogr (fun () -> sprintf "FD %Ld: output.close_after_send_file" fdi);
+    dlogr (fun () -> sprintf "FD %Ld resp-%d: output.close_after_send_file" 
+	     fdi (Oo.id resp));
     closed <- true;
     f_access();
     
@@ -332,7 +340,7 @@ object(self)
     ((resp # state = `Active) && resp # send_queue_empty)
 
   method unlock() =
-    dlogr (fun () -> sprintf "FD %Ld: output.unlock" fdi);
+    dlogr (fun () -> sprintf "FD %Ld resp-%d: output.unlock" fdi (Oo.id resp));
     locked <- false
 
   method resp_notify() =
@@ -354,7 +362,7 @@ object(self)
     notify_list <- List.filter (fun f -> f()) notify_list
 
   method abort() =
-    dlogr (fun () -> sprintf "FD %Ld: output.abort" fdi);
+    dlogr (fun () -> sprintf "FD %Ld resp-%d: output.abort" fdi (Oo.id resp));
     aborted <- true
 
 end
@@ -413,9 +421,10 @@ class http_request_manager config ues group req_line req_hdr expect_100_continue
   let f_access = ref (fun () -> ()) in  (* set below *)
   let in_cnt = ref 0L in
   let reqrej = ref false in
+  let rqid = ref (-1) in
 
   let output_state = ref `Start in
-  let in_ch = new http_engine_input config ues group in_cnt fdi in
+  let in_ch = new http_engine_input config ues group in_cnt fdi rqid in
   let out_ch = new http_engine_output config ues group resp output_state
                  (fun () -> !f_access()) fdi in
 
@@ -435,8 +444,9 @@ object(self)
    *)
 
   initializer (
-    dlogr (fun () -> sprintf "FD=%Ld: new request_manager req-%d"
-	     fdi (Oo.id self))
+    dlogr (fun () -> sprintf "FD=%Ld: new request_manager req-%d resp-%d"
+	     fdi (Oo.id self) (Oo.id resp));
+    rqid := (Oo.id self)
   )
 
   val mutable req_state = ( `Received_header : engine_req_state )
@@ -457,12 +467,12 @@ object(self)
   method log_access = env#log_access
 
   method abort() =
-    dlogr (fun () -> sprintf "req-%d: abort" (Oo.id self));
+    dlogr (fun () -> sprintf "FD %Ld req-%d: abort" fdi (Oo.id self));
     in_ch # abort();
     out_ch # abort();
 
   method schedule_accept_body ~on_request ?(on_error = fun ()->()) () =
-    dlogr (fun () -> sprintf "req-%d: accept_body" (Oo.id self));
+    dlogr (fun () -> sprintf "FD %Ld req-%d: accept_body" fdi (Oo.id self));
     (* Send the "100 Continue" response if requested: *)
     if expect_100_continue then (
       resp # send resp_100_continue;
@@ -478,7 +488,7 @@ object(self)
       
 
   method schedule_reject_body ~on_request ?(on_error = fun ()->()) () =
-    dlogr (fun () -> sprintf "req-%d: reject_body" (Oo.id self));
+    dlogr (fun () -> sprintf "FD %Ld req-%d: reject_body" fdi (Oo.id self));
     (* Unlock everything: *)
     in_ch # drop();
     out_ch # unlock();
@@ -499,7 +509,7 @@ object(self)
      * - We also set [req_state] to `Finishing to inform all other parts of the
      *   engine what is going on.
      *)
-    dlogr (fun () -> sprintf "req-%d: schedule_finish" (Oo.id self));
+    dlogr (fun () -> sprintf "FD %Ld req-%d: schedule_finish" fdi (Oo.id self));
     in_ch # drop();
     out_ch # unlock();
     env # unlock();
@@ -507,6 +517,9 @@ object(self)
     match !(env # output_state) with
       | `Start ->
 	  (* The whole response is missing! Generate a "Server Error": *)
+	  dlogr (fun () -> 
+		   sprintf "FD %Ld req-%d: missing response error" 
+		     fdi (Oo.id self));
 	  output_std_response config env `Internal_server_error None
 	    (Some "Nethttpd: Missing response, replying 'Server Error'");
 	  (env # output_state) := `End;
@@ -846,6 +859,9 @@ object(self)
 		       (Netsys.int64_of_file_descr fd));
 	    ( match cur_request_manager with
 		| Some rm ->
+		    dlogr (fun () -> 
+			     sprintf "FD %Ld: req end for req-%d"
+			       (Netsys.int64_of_file_descr fd) (Oo.id rm));
 		    cur_request_manager <- None;
 		    ( match rm # req_state with
 			| `Finishing ->
@@ -1088,14 +1104,19 @@ type x_reaction =
 
 
 exception Ev_stage2_processed of 
-  (http_service_generator option * Unixqueue.group)
+  (http_service_generator option * 
+     http_request_header_notification *
+     Unixqueue.group)
   (* Event: Stage 2 has been processed. The argument is the follow-up action:
    * - None: Finish request immediately
    * - Some g: Proceed with generator g
+   * The other args only allow identification of the event.
    *)
 
 exception Ev_stage3_processed of
-  ((string * http_header) option * Unixqueue.group)
+  ((string * http_header) option * 
+      http_request_notification *
+     Unixqueue.group)
   (* Event: Stage 2 has been processed. The argument is the follow-up action:
    * - None: Finish request
    * - Some(uri,hdr): Redirect response to this location
@@ -1106,6 +1127,9 @@ class redrained_environment ~out_channel (env : extended_environment) =
 object(self)
   inherit redirected_environment env
   method output_ch = out_channel
+  method out_channel = out_channel
+
+    (* CHECK: send_file? maybe it needs also to be overridden *)
 end
 
 
@@ -1156,6 +1180,8 @@ let process_connection config pconfig fd ues (stage1 : _ http_service)
   let group = Unixqueue.new_group ues in
      (* for the extra events *)
 
+  let fdi = Netsys.int64_of_file_descr fd in (* debug msg *)
+
 object(self)
 
   val mutable watched_groups = []
@@ -1192,24 +1218,25 @@ object(self)
      * request is over, and can be finished.
      *)
 
-    dlogr (fun () -> sprintf "req-%d: preparing stage3" req_id);
+    dlogr (fun () -> sprintf "FD %Ld req-%d: preparing stage3 env=%d"
+	     fdi req_id (Oo.id env));
 
     (* This construction just catches the [Ev_stage3_processed] event: *)
     let pe = new Uq_engines.poll_engine 
 	       ~extra_match:(function 
-			       | Ev_stage3_processed (_,g) -> g = group
+			       | Ev_stage3_processed (_,r,g) -> r=req && g=group
 			       | _ -> false) 
 	       [] ues in
     watched_groups <- pe#group :: watched_groups;
     Uq_engines.when_state
       ~is_done:(function
-		  | Unixqueue.Extra(Ev_stage3_processed(redirect_opt,_)) ->
+		  | Unixqueue.Extra(Ev_stage3_processed(redirect_opt,_,_)) ->
 		      (* Maybe we have to perform a redirection: *)
 		      ( match redirect_opt with
 			  | Some (new_uri,new_hdr) ->
 			      dlogr (fun () ->
-				       sprintf "req-%d: redirect_response \
-                                                to %s" req_id new_uri);
+				       sprintf "FD %Ld req-%d: redirect_response \
+                                                to %s" fdi req_id new_uri);
 			      if !(env # output_state) <> `Start 
 			      then
 				log_error req
@@ -1242,7 +1269,8 @@ object(self)
 			      )
 			  | None ->
 			      dlogr (fun () -> 
-				       sprintf "req-%d: stage3 done" req_id);
+				       sprintf "FD %Ld req-%d: stage3 done" 
+					 fdi req_id);
 			      req # schedule_finish())
 		  | _ -> assert false)
       pe;
@@ -1251,7 +1279,8 @@ object(self)
       (fun out_ch ->
 	 let env' =
 	   new redrained_environment ~out_channel:out_ch env in
-	 dlogr (fun () -> sprintf "req-%d: stage3" req_id);
+	 dlogr (fun () -> sprintf "FD %Ld req-%d: stage3 reqenv=%d env=%d"
+		  fdi req_id (Oo.id req#environment) (Oo.id env'));
 	 let redirect_opt =
 	   try
 	     stage3 # generate_response env';
@@ -1276,9 +1305,11 @@ object(self)
 		   ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
 		 None
 	 in
-	 dlogr (fun () -> sprintf "req-%d: stage3 postprocessing" req_id);
+	 dlogr (fun () -> 
+		  sprintf "FD %Ld req-%d: stage3 postprocessing" fdi req_id);
 	 (* Send the event that we are done here: *)
-	 ues # add_event (Unixqueue.Extra(Ev_stage3_processed(redirect_opt,group)))
+	 ues # add_event
+	   (Unixqueue.Extra(Ev_stage3_processed(redirect_opt,req,group)))
       )
       req # environment # output_ch_async
 
@@ -1291,8 +1322,14 @@ object(self)
      * determine the point in time when the body has accepted due to 
      * [schedule_accept_body], and when the stage2 processor is done). To do so,
      * we send a [Ev_stage2_processed] event, and catch that by the main event loop.
+
+     * (NB. We could also use a Uq_engines.signal_engine for this purpose,
+     * but signal engines are not thread-safe (the signal function cannot be
+     * called from other threads). Thread-safety is announced in the API,
+     * though.)
      *)
-    dlogr (fun () -> sprintf "req-%d: preparing stage2" (Oo.id req));
+    dlogr (fun () -> sprintf "FD %Ld req-%d: preparing stage2 env=%d"
+	     fdi (Oo.id req) (Oo.id env));
     let accepted_request = ref None in
     let stage3_opt = ref None in
     (* When both variables are [Some], we are in synch again. *)
@@ -1301,9 +1338,15 @@ object(self)
       match (!accepted_request, !stage3_opt) with
 	| (Some req', Some(Some stage3)) ->
 	    (* Synch + stage2 was successful. Continue with stage3: *)
+	    dlogr (fun () -> sprintf "FD %Ld synch req-%d req'-%d"
+		     fdi (Oo.id req) (Oo.id req'));
+	    (* assertion: req = req' *)
 	    self # do_stage3 (Oo.id req) req' env redir_count stage3
 	| (Some req', Some None) ->
 	    (* Synch, but stage2 was not successful. Finish the request immediately. *)
+	    dlogr (fun () -> sprintf "FD %Ld synch-err req-%d req'-%d"
+		     fdi (Oo.id req) (Oo.id req'));
+	    (* assertion: req = req' *)
 	    req' # schedule_finish()
 	| _ ->
 	    (* All other cases: not yet in synch. Do nothing. *)
@@ -1320,13 +1363,13 @@ object(self)
     (* This construction just catches the [Ev_stage2_processed] event: *)
     let pe = new Uq_engines.poll_engine 
 	       ~extra_match:(function 
-			       | Ev_stage2_processed(_,g) -> g=group 
+			       | Ev_stage2_processed(_,r,g) -> r=req && g=group 
 			       | _ -> false) 
 	       [] ues in
     watched_groups <- pe#group :: watched_groups;
     Uq_engines.when_state
       ~is_done:(function
-		  | Unixqueue.Extra(Ev_stage2_processed(st3_opt,_)) ->
+		  | Unixqueue.Extra(Ev_stage2_processed(st3_opt,_,_)) ->
 		      stage3_opt := Some st3_opt;
 		      check_synch()
 		  | _ -> assert false)
@@ -1336,7 +1379,8 @@ object(self)
       (fun in_ch ->
 	 let env' =
 	   new redirected_environment ~in_channel:in_ch env in
-	 dlogr (fun () -> sprintf "req-%d: stage2" (Oo.id req));
+	 dlogr (fun () -> sprintf "FD %Ld req-%d: stage2 reqenv=%d env=%d"
+		  fdi (Oo.id req) (Oo.id req#environment) (Oo.id env'));
 	 let stage3_opt =
 	   try
 	     Some(stage2 # process_body env')
@@ -1366,8 +1410,9 @@ object(self)
 		 None
 	 in
 	 (* Send the event that we are done here: *)
-	 dlogr (fun () -> sprintf "req-%d: stage2 done" (Oo.id req));
-	 ues # add_event (Unixqueue.Extra(Ev_stage2_processed(stage3_opt,group)))
+	 dlogr (fun () -> sprintf "FD %Ld req-%d: stage2 done" fdi (Oo.id req));
+	 ues # add_event
+	   (Unixqueue.Extra(Ev_stage2_processed(stage3_opt,req,group)))
       )
       req # environment # input_ch_async
 
@@ -1379,11 +1424,12 @@ object(self)
      *)
     dlogr 
       (fun () ->
-	 sprintf "req-%d: process_request FD=%Ld redir_count=%d"
-	   (Oo.id req) (Netsys.int64_of_file_descr fd) redir_count);
+	 sprintf "FD %Ld req-%d: process_request FD=%Ld env=%d redir_count=%d"
+	   fdi (Oo.id req) (Netsys.int64_of_file_descr fd) (Oo.id redir_env)
+	   redir_count);
     if redir_count > 10 then
       failwith "Too many redirections";
-    dlogr (fun () -> sprintf "req-%d: stage1" (Oo.id req));
+    dlogr (fun () -> sprintf "FD %Ld req-%d: stage1" fdi (Oo.id req));
     let reaction = 
       try (stage1 # process_header redir_env :> x_reaction)
       with 
@@ -1402,7 +1448,7 @@ object(self)
 	     | `File _ -> "File"
 	     | `Std_response _ -> "Std_response"
 	     | `Redirect_request _ -> "Redirect_request" in
-	 sprintf "req-%d: stage1 results in: %s" (Oo.id req) s_reaction
+	 sprintf "FD %Ld req-%d: stage1 results in: %s" fdi (Oo.id req) s_reaction
       );
     ( match reaction with
 	| `Accept_body stage2 ->
@@ -1436,8 +1482,8 @@ object(self)
 			     req' # schedule_finish())
 	      ();
 	| `Redirect_request(new_uri, new_hdr) ->
-	    dlogr (fun () -> sprintf "req-%d: redirect_request to: %s"
-		     (Oo.id req) new_uri);
+	    dlogr (fun () -> sprintf "FD %Ld req-%d: redirect_request to: %s"
+		     fdi (Oo.id req) new_uri);
 	    let (new_script_name, new_query_string) = decode_query new_uri in
 	    new_hdr # update_multiple_field 
 	      "Content-length" (redir_env # multiple_input_header_field "Content-length");
