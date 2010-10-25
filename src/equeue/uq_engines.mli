@@ -283,7 +283,10 @@ val meta_engine : 'a #engine -> 'a final_state engine
 class ['t] epsilon_engine : 
              't engine_state -> Unixqueue.event_system -> ['t] engine
   (** This engine transitions from its initial state [`Working 0] in one
-   * step ("epsilon time") to the passed constant state.
+   * step ("epsilon time") to the passed constant state. During this time
+   * event processing will continue, so concurrently running engines can
+   * make progress. For performance reasons, however, external resources
+   * like file descriptors are not watched for new events.
    *
    * In previous versions of this library the class was called [const_engine].
    * However, this is not a constant thing. In particular, it is possible
