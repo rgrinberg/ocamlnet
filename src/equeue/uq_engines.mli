@@ -566,8 +566,8 @@ module Operators : sig
      *)
 
   val ( >> ) : 'a #engine -> 
-                   ('a final_state -> 'a final_state) -> 
-                     'a engine
+                   ('a final_state -> 'b final_state) -> 
+                     'b engine
     (** Another name for [fmap_engine]. Use this operator to map the
 	final value of an engine:
 
