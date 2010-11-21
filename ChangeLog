@@ -1,3 +1,16 @@
+2010-11-22  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Uq_engines.Operators: generalized the type of ( >> )
+
+	* Netsys_mem: init_value allows now to set the custom_ops
+	  struct for custom blocks. Also, some corner cases for
+	  bigarrays have been fixed. Renamed Copy_custom to Copy_custom_int.
+
+	* Netsys_mem: new function copy_value
+
+	* Netcamlbox: it is now also possible to put messages with
+	  int32,int64,nativeint and bigarrays into boxes
+
 2010-10-01  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Nethttpd: Fixing a bug in Nethttpd_services that prevents in

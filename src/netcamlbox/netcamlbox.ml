@@ -94,6 +94,13 @@ type header =
       capacity : int;
       msg_size : int;
       mutable split_idx : int;
+      (* function pointers for custom operations: the header contains the
+	 pointers the receiver uses.
+       *)
+      bigarray_custom_ops : int;
+      int32_custom_ops : int;
+      int64_custom_ops : int;
+      nativeint_custom_ops : int;
     }
 
 type semaphores =
@@ -119,8 +126,28 @@ exception Message_too_big
 let align = 128
   (* header and slots are aligned by this *)
 
-let ws_bytes = 
+let ws_bytes =   (* word size in bytes *)
     Sys.word_size / 8
+
+let this_bigarray_custom_ops =
+  Netsys_mem.get_custom_ops
+    (Bigarray.Array1.create Bigarray.char Bigarray.c_layout 1)
+
+let this_int32_custom_ops =
+  Netsys_mem.get_custom_ops 0l
+
+let this_int64_custom_ops =
+  Netsys_mem.get_custom_ops 0L
+
+let this_nativeint_custom_ops =
+  Netsys_mem.get_custom_ops 0n
+
+let ntoi n = (* for addresses *)
+  Nativeint.to_int(Nativeint.shift_right n 1)
+
+let iton i = (* for addresses *)
+  Nativeint.shift_left (Nativeint.of_int i) 1
+
 
 let create_header capacity msg_size =
   let dummy = Bigarray.Array1.create Bigarray.char Bigarray.c_layout  0 in
@@ -131,7 +158,11 @@ let create_header capacity msg_size =
       offset = 0;
       capacity = capacity;
       msg_size = msg_size;
-      split_idx = 0
+      split_idx = 0;
+      bigarray_custom_ops = ntoi (snd this_bigarray_custom_ops);
+      int32_custom_ops = ntoi (snd this_int32_custom_ops);
+      int64_custom_ops = ntoi (snd this_int64_custom_ops);
+      nativeint_custom_ops = ntoi (snd this_nativeint_custom_ops);
     } in
   let _, hdr_bytelen = init_value dummy 0 hdr [ Copy_simulate ] in
   hdr.sem_offset <- hdr_bytelen;
@@ -221,8 +252,7 @@ let create_camlbox addr capacity msg_size =
 	  raise error in
   
   value_area mem;
-  hdr0.address <- 
-    Nativeint.to_int(Nativeint.shift_right (memory_address mem) 1);
+  hdr0.address <- ntoi (memory_address mem);
   let hdr_voffs, _ = init_value mem 0 hdr0 [] in
   let hdr = (as_value mem hdr_voffs : header) in
   init_semaphores hdr mem;
@@ -268,6 +298,10 @@ let header_size = lazy(
       capacity = 0;
       msg_size = 0;
       split_idx = 0;
+      bigarray_custom_ops = 0;
+      int32_custom_ops = 0;
+      int64_custom_ops = 0;
+      nativeint_custom_ops = 0;
     } in
   let voffset, bytelen =
     init_value
@@ -349,6 +383,11 @@ let camlbox_get box k =
   let slot_offset = box.hdr.offset + k * slot_size in
   as_value box.mem (slot_offset + ws_bytes)
 
+let camlbox_get_copy box k =
+  Netsys_mem.copy_value
+    [Netsys_mem.Copy_custom_int; Netsys_mem.Copy_bigarray]
+    (camlbox_get box k)
+
 let swap (x:int array) p q =
   let u = x.(p) in
   x.(p) <- x.(q);
@@ -422,14 +461,24 @@ let camlbox_send box value =
   assert(v <> 0);
   let slot_size = (((box.hdr.msg_size-1) / align) + 1) * align in
   let slot_offset = box.hdr.offset + k * slot_size in
+  let target_custom_ops =
+    [ fst this_bigarray_custom_ops, iton box.hdr.bigarray_custom_ops;
+      fst this_int32_custom_ops, iton box.hdr.int32_custom_ops;
+      fst this_int64_custom_ops, iton box.hdr.int64_custom_ops;
+      fst this_nativeint_custom_ops, iton box.hdr.nativeint_custom_ops;
+    ] in
   let (_, _) =
     try
       init_value 
-	~targetaddr:(Nativeint.shift_left (Nativeint.of_int box.hdr.address) 1)
+	~targetaddr:(iton box.hdr.address)
+	~target_custom_ops
 	box.mem 
 	slot_offset
 	value
-	[ ] 
+	[ Netsys_mem.Copy_bigarray;
+	  Netsys_mem.Copy_custom_int;
+	  Netsys_mem.Copy_atom
+	] 
     with
 	Out_of_space -> raise Message_too_big in
   ( try

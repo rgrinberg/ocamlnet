@@ -180,18 +180,21 @@ val init_string_bytelen : int -> int
       [len].
    *)
 
+type custom_ops = nativeint
+
 type init_value_flag = 
   | Copy_bigarray
-  | Copy_custom
+  | Copy_custom_int
   | Copy_atom
   | Copy_simulate
 
 val init_value : 
       ?targetaddr:nativeint -> 
+      ?target_custom_ops:(string * custom_ops) list ->
       memory -> int -> 'a -> init_value_flag list -> (int * int)
   (** [let voffset, bytelen = init_value mem offset v flags]:
       Initializes the memory at [offset] and following bytes as
-      copy of the heap-allocated value [v]. 
+      copy of the boxed value [v]. 
       Returns in [voffset] the offset where the value starts
       (i.e. [offset] plus one word), and in [bytelen] the number
       of bytes used in [mem]. 
@@ -206,18 +209,20 @@ val init_value :
       - Objects, closures, and lazy values are not supported
       - Bigarrays are only supported if the [Copy_bigarray] flag
         is given. In this case, a copy of the bigarray is also made
-        and appended to the value copy. Memory-mapped bigarrays are
-        not supported.
-      - Abstract and custom values are not supported, except
-        [int32], [int64], and [nativeint] if the [Copy_custom]
-        is given, and except bigarrays if [Copy_bigarray] is
-        given. There is a function pointer in such data blocks which
+        and appended to the value copy (i.e. it is also placed into
+        the buffer [mem]).
+      - Abstract and custom values need to be enabled. For
+        [int32], [int64], and [nativeint] the flag [Copy_custom_int]
+        enables copying, and for bigarrays the flag [Copy_bigarray].
+        Generally, there is a function pointer in such data blocks which
         might be invalid when the memory buffer is loaded into a 
-        different executable.
+        different executable. This specific problem can be fixed
+        by passing [target_custom_ops] with the right pointers.
       - Atoms (i.e. zero-sized blocks such as empty arrays) are only
         supported if the [Copy_atom] flag is present. It is, however,
         illegal to copy atoms because they lose then their atomic
-        property. This breaks comparisons.
+        property. This breaks comparisons, e.g. [if array=[| |] then...].
+        Unfortunately there is nothing we can do about it.
       - The input value may reside outside the Ocaml heap. This may break
         badly written C wrappers that do not use abstract or custom
         tags to mark foreign data.
@@ -236,6 +241,27 @@ val init_value :
       is really mapped. This is useful for preparing memory that is going
       to be mapped at a different address than it is right now.
    *)
+
+val get_custom_ops : 'a -> (string * custom_ops)
+  (** Returns custom ops for a sample value (or [Invalid_argument]) *)
+
+val copy_value : init_value_flag list -> 'a -> 'a
+  (** [copy_value flags v]: Creates a deep copy of [v] and returns it.
+      The copy is allocated in the normal Ocaml heap.
+
+      Restrictions:
+      - Objects, closures, and lazy values are not supported (FIXME)
+      - Bigarrays are only supported if the [Copy_bigarray] flag
+        is given. In this case, a copy of bigarrays are also made,
+        and placed into additional buffers obtained via [stat_alloc].
+      - Abstract and custom values need to be enabled. For
+        [int32], [int64], and [nativeint] the flag [Copy_custom_int]
+        enables copying, and for bigarrays the flag [Copy_bigarray].
+      - Atoms are automatically fixed. [Copy_atoms] is ignored.
+
+      Cyclic input values are supported. [Copy_simulate] is ignored.
+   *)
+
 
 (** {2 I/O using [memory] as buffers} *)
 

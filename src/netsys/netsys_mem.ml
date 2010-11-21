@@ -111,23 +111,31 @@ let init_string mem offset len =
 
 type init_value_flag =
   | Copy_bigarray
-  | Copy_custom
+  | Copy_custom_int
   | Copy_atom
   | Copy_simulate
 
-external netsys_init_value : 
-  memory -> int -> 'a -> init_value_flag list -> nativeint -> (int * int)
-  = "netsys_init_value"
+type custom_ops = nativeint
 
-let init_value ?targetaddr mem offset v flags =
+external netsys_init_value : 
+  memory -> int -> 'a -> init_value_flag list -> nativeint -> 
+  (string * custom_ops) list -> (int * int)
+  = "netsys_init_value_bc" "netsys_init_value"
+
+let init_value ?targetaddr ?(target_custom_ops=[]) mem offset v flags =
   let taddr = 
     match targetaddr with
       | None ->
 	  memory_address mem
       | Some a ->
 	  a in
-  netsys_init_value mem offset v flags taddr
+  netsys_init_value mem offset v flags taddr target_custom_ops
 
+external get_custom_ops : 'a -> string * custom_ops
+  = "netsys_get_custom_ops"
+
+external copy_value : init_value_flag list -> 'a -> 'a
+  = "netsys_copy_value"
 
 external netsys_mem_read : Unix.file_descr -> memory -> int -> int -> int
   = "netsys_mem_read"

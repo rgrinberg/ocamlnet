@@ -520,18 +520,57 @@ CAMLprim value netsys_init_string(value memv, value offv, value lenv)
 }
 
 
+struct named_custom_ops {
+    char *name;
+    void *ops;
+    struct named_custom_ops *next;
+};
+
+/* From gc.h: */
+#ifndef CAML_GC_H
+#define Caml_black (3 << 8)
+#define Color_hd(hd) ((color_t) ((hd) & Caml_black))
+#define Whitehd_hd(hd) (((hd)  & ~Caml_black)/*| Caml_white*/)
+#endif
+
+/* e.g. to get the color:
+
+   color = Color_hd(Hd_val(value))
+
+   to set the color:
+
+   Hd_val(value) = Whitehd_hd(Hd_val(value)) | color
+*/
+
+#ifndef CAML_MAJOR_GC_H
+extern uintnat caml_allocated_words;
+#endif
+
+
+/* enable_atoms:
+     0 = throw error
+     1 = do not copy them
+     2 = create copy
+   enable_bigarrays:
+     0 = throw error
+     1 = copy them to malloc'ed memory
+     2 = copy them to buffer memory
+*/
+
 int netsys_init_value_1(struct htab *t,
 			struct nqueue *q,
-			value memv, 
-			value offv, 
+			char *dest,
+			char *dest_end,
 			value orig,  
 			int enable_bigarrays, 
 			int enable_customs,
 			int enable_atoms,
 			int simulation,
 			void *target_addr,
-			long *start_offset,
-			long *bytelen
+			struct named_custom_ops *target_custom_ops,
+			int color,
+			intnat *start_offset,
+			intnat *bytelen
 			)
 {
     void *orig_addr;
@@ -548,30 +587,46 @@ int netsys_init_value_1(struct htab *t,
     int   copy_tag;
     size_t copy_words;
     void *fixup_addr;
-    char *mem_data;
-    char *mem_cur;
-    char *mem_end;
-    char *mem_ptr;
-    long  off;
+    char *dest_cur;
+    char *dest_ptr;
     int code, i;
     intnat addr_delta;
+    struct named_custom_ops *ops_ptr;
+    void *int32_target_ops;
+    void *int64_target_ops;
+    void *nativeint_target_ops;
+    void *bigarray_target_ops;
 
     copy = 0;
 
-    off = Long_val(offv);
-    mem_data = (char *) Bigarray_val(memv)->data;
-    mem_end = mem_data + Bigarray_val(memv)->dim[0];
-    mem_cur = mem_data + off;
-    addr_delta = ((char *) target_addr) - mem_data;
+    dest_cur = dest;
+    addr_delta = ((char *) target_addr) - dest;
 
-    if (mem_cur >= mem_end && !simulation) return (-4);   /* out of space */
+    if (dest_cur >= dest_end && !simulation) return (-4);   /* out of space */
 
     if (!Is_block(orig)) return (-2);
-    if (off % sizeof(void *) != 0) return (-2);
 
     orig_addr = (void *) orig;
     code = netsys_queue_add(q, orig_addr);
     if (code != 0) return code;
+
+    /* initialize *_target_ops */
+    bigarray_target_ops = NULL;
+    int32_target_ops = NULL;
+    int64_target_ops = NULL;
+    nativeint_target_ops = NULL;
+    ops_ptr = target_custom_ops;
+    while (ops_ptr != NULL) {
+	if (strcmp(ops_ptr->name, "_bigarray") == 0)
+	    bigarray_target_ops = ops_ptr->ops;
+	else if (strcmp(ops_ptr->name, "_i") == 0)
+	    int32_target_ops = ops_ptr->ops;
+	else if (strcmp(ops_ptr->name, "_j") == 0)
+	    int64_target_ops = ops_ptr->ops;
+	else if (strcmp(ops_ptr->name, "_n") == 0)
+	    nativeint_target_ops = ops_ptr->ops;
+	ops_ptr = ops_ptr->next;
+    };
 
     /* First pass: Iterate over the addresses found in q. Ignore
        addresses already seen in the past (which are in t). For
@@ -611,14 +666,17 @@ int netsys_init_value_1(struct htab *t,
 		}
 
 		work_words = Wosize_hp(work_header);
-		if (work_words == 0 && !enable_atoms) return (-2);
+		if (work_words == 0) {
+		    if (!enable_atoms) return (-2);
+		    if (enable_atoms == 1) goto next;
+		};
 		
 		/* Do the copy. */
 
 		work_bytes = Bhsize_hp(work_header);
-		copy_header = mem_cur;
-		mem_cur += work_bytes;
-		if (mem_cur > mem_end && !simulation) return (-4);
+		copy_header = dest_cur;
+		dest_cur += work_bytes;
+		if (dest_cur > dest_end && !simulation) return (-4);
 		
 		if (simulation) 
 		    copy_addr = work_addr;
@@ -626,6 +684,7 @@ int netsys_init_value_1(struct htab *t,
 		    memcpy(copy_header, work_header, work_bytes);
 		    copy = Val_hp(copy_header);
 		    copy_addr = (void *) copy;
+		    Hd_val(copy) = Whitehd_hd(Hd_val(copy)) | color;
 		}
 
 		/* Add the association (work_addr -> copy_addr) to t: */
@@ -647,6 +706,8 @@ int netsys_init_value_1(struct htab *t,
 		/* It an opaque value */
 		int do_copy = 0;
 		int do_bigarray = 0;
+		void *target_ops = NULL;
+		char caml_id = ' ';  /* only b, i, j, n */
 		/* Check for bigarrays and other custom blocks */
 		switch (work_tag) {
 		case Abstract_tag:
@@ -667,34 +728,17 @@ int netsys_init_value_1(struct htab *t,
 			if (id[0] == '_') {
 			    switch (id[1]) {
 			    case 'b':
+				if (!enable_bigarrays) return (-2);
 				if (strcmp(id, "_bigarray") == 0) {
-				    if (enable_bigarrays) {
-					struct caml_ba_array *b;
-					int m;
-					b = Bigarray_val(work);
-					m = b->flags & CAML_BA_MANAGED_MASK;
-					/* Only non-mapped O'Caml-managed arrays: */
-					if (m != CAML_BA_MANAGED)
-					    return (-2);
-					/* There must not be any proxies, i.e. this
-					   bigarray must be neither a subarray, or
-					   a superarray
-					*/
-					if (b->proxy != NULL) 
-					    return (-2);
-					do_copy = 1;
-					do_bigarray = 1;
-				    }
-				    else
-					return (-2);
-				};
-				break;
+				    caml_id = 'b';
+				    break;
+				}
 			    case 'i': /* int32 */
 			    case 'j': /* int64 */
 			    case 'n': /* nativeint */
 				if (!enable_customs) return (-2);
 				if (id[2] == 0) {
-				    do_copy = 1;
+				    caml_id = id[1];
 				    break;
 				}
 			    default:
@@ -704,21 +748,39 @@ int netsys_init_value_1(struct htab *t,
 			else
 			    return (-2);
 		    }
-		} /* switch */
+		}; /* switch */
+
+		switch (caml_id) {  /* look closer at some cases */
+		case 'b': {
+		    target_ops = bigarray_target_ops;
+		    do_copy = 1;
+		    do_bigarray = 1;
+		    break;
+		}
+		case 'i':
+		    target_ops = int32_target_ops; do_copy = 1; break;
+		case 'j':
+		    target_ops = int64_target_ops; do_copy = 1; break;
+		case 'n':
+		    target_ops = nativeint_target_ops; do_copy = 1; break;
+		};
 
 		if (do_copy) {  
 		    /* Copy the value */
 		    work_bytes = Bhsize_hp(work_header);
-		    copy_header = mem_cur;
-		    mem_cur += work_bytes;
+		    copy_header = dest_cur;
+		    dest_cur += work_bytes;
 
 		    if (simulation)
 			copy_addr = work_addr;
 		    else {
-			if (mem_cur > mem_end) return (-4);
+			if (dest_cur > dest_end) return (-4);
 			memcpy(copy_header, work_header, work_bytes);
 			copy = Val_hp(copy_header);
 			copy_addr = (void *) copy;
+			Hd_val(copy) = Whitehd_hd(Hd_val(copy)) | color;
+			if (target_ops != NULL)
+			    Custom_ops_val(copy) = target_ops;
 		    }
 		    
 		    code = netsys_htab_add(t, work_addr, copy_addr);
@@ -733,6 +795,7 @@ int netsys_init_value_1(struct htab *t,
 		    header_t data_header1;
 		    size_t size = 1;
 		    size_t size_aligned;
+		    size_t size_words;
 		    b_work = Bigarray_val(work);
 		    b_copy = Bigarray_val(copy);
 		    for (i = 0; i < b_work->num_dims; i++) {
@@ -745,27 +808,59 @@ int netsys_init_value_1(struct htab *t,
 		    size_aligned = size;
 		    if (size%sizeof(void *) != 0)
 			size_aligned += sizeof(void *) - (size%sizeof(void *));
+		    size_words = Wsize_bsize(size_aligned);
 
-		    /* Also allocate mem for a header: */
+		    /* If we put the copy of the bigarray into our own
+		       dest buffer, also generate an abstract header,
+		       so it can be skipped when iterating over it.
+
+		       We use here a special representation, so we can
+		       encode any length in this header (with a normal
+		       Ocaml header we are limited by Max_wosize, e.g.
+		       16M on 32 bit systems). The special representation
+		       is an Abstract_tag with zero length, followed
+		       by the real length (in words)
+		    */
 		    
-		    data_header = mem_cur;
-		    data_copy = mem_cur + sizeof(void *);
-		    mem_cur += size_aligned + sizeof(void *);
+		    if (enable_bigarrays == 2) {
+			data_header = dest_cur;
+			dest_cur += 2*sizeof(void *);
+			data_copy = dest_cur;
+			dest_cur += size_aligned;
+		    } else if (!simulation) {
+			data_header = NULL;
+			data_copy = stat_alloc(size_aligned);
+		    };
 
 		    if (!simulation) {
-			if (mem_cur > mem_end) return (-4);
+			if (dest_cur > dest_end) return (-4);
 
 			/* Initialize header: */
 			
-			data_header1 =
-			    (size_aligned << 10) + (3 << 8) + Abstract_tag;
-			memcpy(data_header, (char *) &data_header1,
-			       sizeof(header_t));
+			if (data_header != NULL) {
+			    data_header1 = Abstract_tag;
+			    memcpy(data_header, 
+				   (char *) &data_header1,
+				   sizeof(header_t));
+			    memcpy(data_header + sizeof(header_t),
+				   (size_t *) &size_words,
+				   sizeof(size_t));
+			};
 
 			/* Copy bigarray: */
 			
 			memcpy(data_copy, b_work->data, size);
 			b_copy->data = data_copy;
+			b_copy->proxy = NULL;
+
+			/* If the copy is in our own buffer, it is
+			   now externally managed.
+			*/
+			b_copy->flags = 
+			    (b_copy->flags & ~CAML_BA_MANAGED_MASK) |
+			    (enable_bigarrays == 2 ? 
+			     CAML_BA_EXTERNAL :
+			     CAML_BA_MANAGED);
 		    }
 		}
 
@@ -773,7 +868,7 @@ int netsys_init_value_1(struct htab *t,
 	} /* if (copy_addr == NULL) */
 
 	/* Switch to next address in q: */
-
+    next:
 	code = netsys_queue_take(q, &work_addr);
     } /* while */
     
@@ -784,12 +879,12 @@ int netsys_init_value_1(struct htab *t,
 
     if (!simulation) {
 	/* fprintf(stderr, "second pass\n"); */
-	mem_ptr = mem_data + off;
-	while (mem_ptr < mem_cur) {
-	    copy_header1 = *((header_t *) mem_ptr);
+	dest_ptr = dest;
+	while (dest_ptr < dest_cur) {
+	    copy_header1 = *((header_t *) dest_ptr);
 	    copy_tag = Tag_hd(copy_header1);
 	    copy_words = Wosize_hd(copy_header1);
-	    copy = (value) (mem_ptr + sizeof(void *));
+	    copy = (value) (dest_ptr + sizeof(void *));
 	    
 	    if (copy_tag < No_scan_tag) {
 		for (i=0; i < copy_words; ++i) {
@@ -799,20 +894,25 @@ int netsys_init_value_1(struct htab *t,
 			code = netsys_htab_lookup(t, (void *) field,
 						  &fixup_addr);
 			if (code != 0) return code;
-			
-			Field(copy,i) = 
-			    (value) (((char *) fixup_addr) + addr_delta);
+
+			if (fixup_addr != NULL)
+			    Field(copy,i) = 
+				(value) (((char *) fixup_addr) + addr_delta);
 		    }
 		}
 	    }
+	    else if (copy_tag == Abstract_tag && copy_words == 0) {
+		/* our special representation for skipping data regions */
+		copy_words = ((size_t *) dest_ptr)[1] + 1;
+	    };
 	    
-	    mem_ptr += (copy_words + 1) * sizeof(void *);
+	    dest_ptr += (copy_words + 1) * sizeof(void *);
 	}
     }	
 
     /* hey, fine. Return result */
-    *start_offset = off + sizeof(void *);
-    *bytelen = mem_cur - mem_data - off;
+    *start_offset = sizeof(void *);
+    *bytelen = dest_cur - dest;
 
     /* fprintf(stderr, "return regularly\n");*/
 
@@ -826,7 +926,8 @@ value netsys_init_value(value memv,
 			value offv, 
 			value orig,  
 			value flags,
-			value targetaddrv
+			value targetaddrv,
+			value target_custom_ops
 			)
 {
     int code;
@@ -835,15 +936,22 @@ value netsys_init_value(value memv,
     struct nqueue q;
     int          q_init;
     value r;
-    long start_offset, bytelen;
+    intnat start_offset, bytelen;
     int  cflags;
     void *targetaddr;
+    char *mem_data;
+    char *mem_end;
+    intnat off;
+    struct named_custom_ops *ops, *old_ops, *next_ops;
     
     q_init=0;
     t_init=0;
 
+    off = Long_val(offv);
+    if (off % sizeof(void *) != 0) { code=(-2); goto exit; }
+
     cflags = caml_convert_flag_list(flags, init_value_flags);
-    targetaddr = (void *) Nativeint_val(targetaddrv);
+    targetaddr = (void *) (Nativeint_val(targetaddrv) + off);
 
     code = netsys_queue_init(&q, 1000);
     if (code != 0) goto exit;
@@ -853,18 +961,50 @@ value netsys_init_value(value memv,
     if (code != 0) goto exit;
     t_init=1;
 
-    code = netsys_init_value_1(&t, &q, memv, offv, orig, 
-			       cflags & 1, cflags & 2, cflags & 4, cflags & 8,
-			       targetaddr, &start_offset, &bytelen);
+    ops = NULL;
+    while (Is_block(target_custom_ops)) {
+	value pair;
+	old_ops = ops;
+	pair = Field(target_custom_ops,0);
+	ops = (struct named_custom_ops*) 
+	          stat_alloc(sizeof(struct named_custom_ops));
+	ops->name = stat_alloc(caml_string_length(Field(pair,0))+1);
+	strcmp(ops->name, String_val(Field(pair,0)));
+	ops->ops = (void *) Nativeint_val(Field(pair,1));
+	ops->next = old_ops;
+	target_custom_ops = Field(target_custom_ops,1);
+    };
+
+    mem_data = ((char *) Bigarray_val(memv)->data) + off;
+    mem_end = mem_data + Bigarray_val(memv)->dim[0];
+
+    /* note: the color of the new values does not matter because bigarrays
+       are ignored by the GC. So we pass 0 (white).
+    */
+    
+    code = netsys_init_value_1(&t, &q, mem_data, mem_end, orig, 
+			       (cflags & 1) ? 2 : 0, 
+			       (cflags & 2) ? 1 : 0, 
+			       (cflags & 4) ? 2 : 0,
+			       cflags & 8,
+			       targetaddr, ops, 0,
+			       &start_offset, &bytelen);
     if (code != 0) goto exit;
 
     netsys_queue_free(&q);
     q_init = 0;
     netsys_htab_free(&t);
     t_init = 0;
+
+    while (ops != NULL) {
+	next_ops = ops->next;
+	stat_free(ops->name);
+	stat_free(ops);
+	ops = next_ops;
+    };
     
     r = caml_alloc_small(2,0);
-    Field(r,0) = Val_long(start_offset);
+    Field(r,0) = Val_long(start_offset + off);
     Field(r,1) = Val_long(bytelen);
 
     return r;
@@ -883,4 +1023,225 @@ value netsys_init_value(value memv,
     default:
 	failwith("Netsys_mem.init_value: Unknown error");
     }
+}
+
+
+value netsys_init_value_bc(value * argv, int argn)
+{
+    return
+	netsys_init_value(argv[0], argv[1], argv[2], argv[3],
+			  argv[4], argv[5]);
+}
+
+
+/* The following is inspired by intern.c in the ocaml runtime.
+   We first count how many words we are going to need, then we
+   allocate these at once, and then fill them as in init_value.
+
+   So what we do here is to allocate a single string, and to overwrite
+   this memory region with many values. This is allowed by the runtime,
+   provided we do not leave any unused byte behind, and we put the
+   right GC color into all the values (the same color the string got).
+
+   There is one caveat: For 32 bit platforms, there is no official
+   way of allocating more than 4M words at once, so we have to
+   fall back to undocumented low-level functions (same as in
+   intern.c)
+
+*/
+
+value netsys_copy_value(value flags, value orig)
+{
+    int code;
+    int cflags;
+    intnat start_offset, bytelen;
+    mlsize_t wosize;
+    char *dest, *dest_end, *extra_block, *extra_block_end;
+    struct htab t;
+    int         t_init;
+    struct nqueue q;
+    int         q_init;
+    int color;
+    struct named_custom_ops bigarray_ops;
+    struct named_custom_ops int32_ops;
+    struct named_custom_ops int64_ops;
+    struct named_custom_ops nativeint_ops;
+    CAMLparam2(orig,flags);
+    CAMLlocal1(block);
+
+    /* First test on trivial cases: */
+    if (Is_long(orig) || Wosize_val(orig) == 0) {
+	CAMLreturn(orig);
+    };
+
+    q_init=0;
+    t_init=0;
+
+    cflags = caml_convert_flag_list(flags, init_value_flags);
+
+    code = netsys_queue_init(&q, 1000);
+    if (code != 0) goto exit;
+    q_init=1;
+    
+    code = netsys_htab_init(&t, 1000);
+    if (code != 0) goto exit;
+    t_init=1;
+
+    /* fprintf (stderr, "counting\n"); */
+
+    /* Count only! */
+    code = netsys_init_value_1(&t, &q, NULL, NULL, orig, 
+			       (cflags & 1) ? 1 : 0,  /* enable_bigarrays */
+			       (cflags & 2) ? 1 : 0,  /* enable_customs */
+			       1, /* enable_atoms */
+			       1, /* simulate */
+			       NULL, NULL, 0, &start_offset, &bytelen);
+    if (code != 0) goto exit;
+
+    netsys_queue_free(&q);
+    q_init = 0;
+    netsys_htab_free(&t);
+    t_init = 0;
+
+    /* fprintf (stderr, "done counting bytelen=%ld\n", bytelen); */
+
+    /* set up the custom ops. We always set this, because we assume that
+       the values in [orig] are not trustworthy
+    */
+    bigarray_ops.name = "_bigarray";
+    bigarray_ops.ops = 
+	Custom_ops_val(alloc_bigarray_dims(CAML_BA_UINT8 | BIGARRAY_C_LAYOUT, 
+					   1, NULL, 1));
+    bigarray_ops.next = &int32_ops;
+
+    int32_ops.name = "_i";
+    int32_ops.ops = Custom_ops_val(caml_copy_int32(0));
+    int32_ops.next = &int64_ops;
+
+    int64_ops.name = "_j";
+    int64_ops.ops = Custom_ops_val(caml_copy_int64(0));
+    int64_ops.next = &nativeint_ops;
+
+    nativeint_ops.name = "_n";
+    nativeint_ops.ops = Custom_ops_val(caml_copy_nativeint(0));
+    nativeint_ops.next = NULL;
+
+    /* alloc */
+
+    extra_block = NULL;
+    extra_block_end = NULL;
+
+    /* shamelessly copied from intern.c */
+    wosize = Wosize_bhsize(bytelen);
+    /* fprintf (stderr, "wosize=%ld\n", wosize); */
+    if (wosize > Max_wosize) {
+	/* Round desired size up to next page */
+	asize_t request = ((bytelen + Page_size - 1) >> Page_log) << Page_log;
+	extra_block = caml_alloc_for_heap(request);
+	if (extra_block == NULL) caml_raise_out_of_memory();
+	extra_block_end = extra_block + request;
+	color = caml_allocation_color(extra_block);
+	dest = extra_block;
+	dest_end = dest + bytelen;
+	block = Val_hp(extra_block);
+    } else {
+	if (wosize <= Max_young_wosize){
+	    block = caml_alloc_small (wosize, String_tag);
+	}else{
+	    block = caml_alloc_shr (wosize, String_tag);
+	}
+	color = Color_hd(Hd_val(block));
+	dest = Hp_val(block);
+	dest_end = dest + bytelen;
+    }
+
+    /* fprintf (stderr, "done alloc\n"); */
+
+    /* Now it's the real copy */
+
+    code = netsys_queue_init(&q, 1000);
+    if (code != 0) goto exit;
+    q_init=1;
+    
+    code = netsys_htab_init(&t, 1000);
+    if (code != 0) goto exit;
+    t_init=1;
+
+    code = netsys_init_value_1(&t, &q, dest, dest_end, orig, 
+			       (cflags & 1) ? 1 : 0,  /* enable_bigarrays */
+			       (cflags & 2) ? 1 : 0,  /* enable_customs */
+			       1, /* enable_atoms */
+			       0, /* simulate */
+			       dest, &bigarray_ops, color,
+			       &start_offset, &bytelen);
+    if (code != 0) goto exit;
+
+    netsys_queue_free(&q);
+    q_init = 0;
+    netsys_htab_free(&t);
+    t_init = 0;
+
+    /* fprintf (stderr, "done copied\n"); */
+
+    /* Also from intern.c: */
+    if (extra_block != NULL) {
+	if (dest_end < extra_block_end){
+	    /* caml_make_free_blocks is not exported... So do it on
+	       our own: put a dummy header into the gap.
+	    */
+	    int sz = extra_block_end - dest_end;
+	    * ((header_t *) dest_end) = 
+		(header_t) (Wosize_bhsize (sz)) << 10;
+	};
+	caml_allocated_words +=
+	    Wsize_bsize ((char *) dest_end - extra_block);
+	caml_add_to_heap(extra_block);
+    };
+
+    /*
+    { 
+	int k;
+	intnat *m;
+	m = ((intnat *) block)-1;
+	for (k=0; k<=wosize; k++) {
+	    fprintf(stderr, "k=%d: %016Lx\n", k, m[k]);
+	};
+    };
+    */
+
+    CAMLreturn(block);
+
+ exit:
+    if (q_init) netsys_queue_free(&q);
+    if (t_init) netsys_htab_free(&t);
+
+    switch(code) {
+    case (-1):
+	unix_error(errno, "netsys_copy_value", Nothing);
+    case (-2):
+	failwith("Netsys_mem.copy_value: Library error");
+    case (-4):
+	caml_raise_constant(*caml_named_value("Netsys_mem.Out_of_space"));
+    default:
+	failwith("Netsys_mem.copy_value: Unknown error");
+    }
+}
+
+
+value netsys_get_custom_ops (value v) 
+{
+    struct custom_operations *custom_ops;
+    CAMLparam1(v);
+    CAMLlocal1(r);
+
+    if (Is_block(v) && Tag_val(v) == Custom_tag) {
+	custom_ops = Custom_ops_val(v);
+	r = alloc_small(2,0);
+	Field(r,0) = caml_copy_string(custom_ops->identifier);
+	Field(r,1) = caml_copy_nativeint((intnat) custom_ops);
+    }
+    else 
+	invalid_argument("Netsys_mem.get_custom_ops");
+
+    CAMLreturn(r);
 }

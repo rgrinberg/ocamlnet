@@ -36,14 +36,16 @@
 
    The user is also responsible for keeping only references to 
    existing messages. It is possible to get a value pointer 
-   for a certain message and then to delete the message. 
+   for a certain message via [camlbox_get] and then to delete the message. 
    The user must no longer access the value - once the value is deleted
    it may be overwritten, and the program may crash. Another danger
    is that message values are modified so that pointers to heap
    values are put into the message. This may lead to delayed crashes
    when the heap value is moved to a different location or is even
    deleted by the garbage collector. There is nothing the camlbox
-   implementation can do about that.
+   implementation can do about that. If this is a problem, it is
+   advised to use [camlbox_get_copy] instead which is not dangerous
+   in this respect.
 
    On the system level, camlboxes are stored in POSIX shared memory
    objects. These objects have kernel persistence and continue to
@@ -143,14 +145,26 @@ val camlbox_get : camlbox -> int -> 'a
       to crash the program.
    *)
 
-(* TODO: camlbox_get_copy: Safer but slower *)
+val camlbox_get_copy : camlbox -> int -> 'a
+  (** [camlbox_get box k]: Returns a deep copy of message number [k] from [box].
+      This is safer than [camlbox_get], because the returned value remains
+      valid when the message is deleted from the box.
+
+      If there is no message at [k] the exception [Empty] will be
+      raised.
+
+      The result value must have the same type as the sent value.
+      This is not checked, however. Violating this rule is likely
+      to crash the program.
+   *)
 
 val camlbox_delete : camlbox -> int -> unit
   (** [camlbox_delete box k]: Deletes the message number [k] from [box].
       Any value obtained via [camlbox_get] for a message or a part
       of a message becomes invalid and must not be used anymore.
       There is no way to check this - violating this rule is likely
-      to crash the program.
+      to crash the program. (In doubt use [camlbox_get_copy] instead
+      which cannot interfer with [camlbox_delete].)
 
       If there is no message at [k] the exception [Empty] will be
       raised.
@@ -182,11 +196,13 @@ val camlbox_send : camlbox_sender -> 'a -> unit
          message size of the camlbox, or the exception [Message_too_big]
          is raised.
        - Objects, closures, and lazy values are not supported
-       - Abstract and custom block values are not supported. This
-         also holds for bigarrays, [int32], [int64], and [nativeint].
-       - (CHECK: atoms like empty arrays)
-       - Values returned by C wrappers that do not use abstract or custom
-         blocks for wrapping data may break this function.
+       - Abstract and custom block values are not supported except
+         bigarrays, [int32], [int64], and [nativeint].
+       - Atoms (like empty arrays) may cause problems when the message
+         is extracted by [camlbox_get] because atoms are duplicated,
+         and no longer unique. For example, a test [if array=[||] then...]
+         is likely not to work. Use [if Array.length array = 0 then...],
+         or use [camlbox_get_copy] for extraction.
 
       The value is copied to the receiving camlbox.
 
