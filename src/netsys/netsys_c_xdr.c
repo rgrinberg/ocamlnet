@@ -10,17 +10,20 @@
 CAMLprim value netsys_s_read_int4_64(value sv, value pv) 
 {
     char *s;
-    long p;
+    intnat p;
 
     s = String_val(sv);
     p = Long_val(pv);
-    return Val_long((long) (ntohl (*((unsigned int *) (s+p)))));
+    /* careful: the result of ntohl is unsigned. We first have to
+       convert it to signed, then extend it to intnat.
+    */
+    return Val_long((int) (ntohl (*((unsigned int *) (s+p)))));
 }
 
 CAMLprim value netsys_s_write_int4_64(value sv, value pv, value iv) 
 {
     char *s;
-    long p;
+    intnat p;
 
     s = String_val(sv);
     p = Long_val(pv);

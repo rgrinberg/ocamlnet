@@ -286,6 +286,28 @@ let test_uint8_of_sth() =
   (overflow uint8_of_int64 (Int64.of_string "-1"))
 ;;
 
+let test_read_int4 () =
+  let s1 = "\001\002\003\004" in
+  let s2 = "\128\129\130\131" in
+  let s3 = "\192\129\130\131" in
+
+  (* signed *)
+  int32_of_int4 (read_int4 s1 0) = 0x01020304l &&
+  int32_of_int4 (read_int4 s2 0) = 0x80818283l &&
+  overflow32 int_of_int4 (read_int4 s2 0) &&
+  int32_of_int4 (read_int4 s3 0) = 0xc0818283l &&
+  int_of_int4 (read_int4 s3 0) = (-1065254269) &&
+
+  (* unsigned *)
+  logical_int32_of_uint4 (read_uint4 s1 0) = 0x01020304l &&
+  logical_int32_of_uint4 (read_uint4 s2 0) = 0x80818283l &&
+  overflow32 int_of_uint4 (read_uint4 s2 0) &&
+  logical_int32_of_uint4 (read_uint4 s3 0) = 0xc0818283l &&
+  overflow int32_of_uint4 (read_uint4 s3 0) &&
+  overflow32 int_of_uint4 (read_uint4 s3 0)
+;;
+
+
 (* TODO: fp4, fp8 testen *)
 
 
@@ -297,3 +319,4 @@ test "sth_of_int8" test_sth_of_int8;;
 test "int8_of_sth" test_int8_of_sth;;
 test "sth_of_uint8" test_sth_of_uint8;;
 test "uint8_of_sth" test_uint8_of_sth;;
+test "test_read_int4" test_read_int4;;
