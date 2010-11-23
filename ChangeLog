@@ -1,3 +1,10 @@
+2010-11-23  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Released: Ocamlnet-3.1
+	
+	* Rtypes: on 64 bit platforms, negative ints were incorrectly
+	  decoded
+
 2010-11-22  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Uq_engines.Operators: generalized the type of ( >> )
