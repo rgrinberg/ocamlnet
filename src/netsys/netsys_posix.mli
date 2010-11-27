@@ -590,6 +590,14 @@ external shm_open : string -> shm_open_flag list -> int -> Unix.file_descr
 external shm_unlink : string -> unit = "netsys_shm_unlink"
   (** Unlinks the name for a shared memory object *)
 
+val shm_create : string -> int -> Unix.file_descr * string
+  (** [let (fd,name) = shm_create prefix size]: Creates an shm object
+      with a unique name. The name has the passed [prefix]. The [prefix]
+      must start with "/" but must not contain any further "/". The object
+      has a length of [size] bytes. The object has a permissions 0o600
+      (independent of umask).
+   *)
+
 
 (** {1 POSIX semaphores} *)
 
@@ -643,6 +651,15 @@ val sem_close : named_semaphore -> unit
 
 val sem_unlink : string -> unit
   (** Unlinks the semaphore name *)
+
+val sem_create : string -> int -> named_semaphore * string
+  (** [let (sem,name) = sem_create prefix init_value]: Creates
+      a new semaphore with a unique name. The name has the passed [prefix]. 
+      The [prefix] must start with "/" but must not contain any further "/".
+      The semaphore is initialized with [init_value]. The object has
+      permissions 0o600 (modulo umask).
+   *)
+
 
 (** {b Anonymous semaphores.} *)
 

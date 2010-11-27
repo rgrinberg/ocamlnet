@@ -32,6 +32,7 @@ INC_EQUEUE_SSL     = -I $(TOP_DIR)/src/equeue-ssl
 INC_NETCGI2        = -I $(TOP_DIR)/src/netcgi2
 INC_NETCGI2_APACHE = -I $(TOP_DIR)/src/netcgi2-apache
 INC_NETPLEX        = -I $(TOP_DIR)/src/netplex
+INC_NETCAMLBOX     = -I $(TOP_DIR)/src/netcamlbox
 INC_RPC            = -I $(TOP_DIR)/src/rpc
 INC_SHELL          = -I $(TOP_DIR)/src/shell
 

@@ -153,7 +153,7 @@ object(self)
 
 		let watch() =
 		  incr cnt;
-		  if !cnt = terminate_tmo then (
+		  if terminate_tmo >= 0 && !cnt = terminate_tmo then (
 		    logger # log 
 		      ~component:"netplex.controller"
 		      ~level:`Alert
@@ -197,15 +197,15 @@ object(self)
 			true
 		in
 
-		let rec watch_loop() =
-		  Unixqueue.once esys g 1.0
+		let rec watch_loop delta =
+		  Unixqueue.once esys g delta
 		    (fun () ->
-		       if watch() then watch_loop()
+		       if watch() then watch_loop 1.0
 		    )
 		in
-		if not watching && terminate_tmo >= 0 then (
+		if not watching then (
 		  watching <- true;
-		  if watch() then  watch_loop()
+		  if watch() then watch_loop 0.01
 		)
 	    end
 	  )

@@ -40,7 +40,7 @@ let int64_decr v =
 let release = ref (fun () -> ())
 
 
-let plugin : plugin =
+let plugin_i =
   ( object(self)
       val mutable semaphores = Hashtbl.create 50
       val mutable containers = Hashtbl.create 50
@@ -90,7 +90,7 @@ let plugin : plugin =
 	  | "get" ->
 	      let sem_name =
 		Netplex_ctrl_aux._to_Semaphore'V1'get'arg procarg_val in
-	      let (sem, _, _) = self # get_sem ctrl sem_name in
+	      let (sem, _, _) = self # get_sem_tuple ctrl sem_name in
 	      reply(Some(Netplex_ctrl_aux._of_Semaphore'V1'get'res !sem))
 
 	  | "create" ->
@@ -100,12 +100,18 @@ let plugin : plugin =
 		snd(self # get_or_create_sem
 		      ctrl sem_name init_val protected) in
 	      reply(Some(Netplex_ctrl_aux._of_Semaphore'V1'create'res r))
+
+	  | "destroy" ->
+	      let sem_name =
+		Netplex_ctrl_aux._to_Semaphore'V1'destroy'arg procarg_val in
+	      self # destroy_sem ctrl sem_name;
+	      reply(Some(Netplex_ctrl_aux._of_Semaphore'V1'destroy'res ()))
 		    
 	  | _ ->
 	      failwith "Unknown procedure"
 
       method private increment ctrl cid sem_name =
-	let (sem, protected, waiting) = self # get_sem ctrl sem_name in
+	let (sem, protected, waiting) = self # get_sem_tuple ctrl sem_name in
 	let cont_sem = self # get_cont_sem cid sem_name protected in
 	int64_incr sem;
 	int64_incr cont_sem;
@@ -122,7 +128,7 @@ let plugin : plugin =
 	semval
 
       method private decrement_async ctrl cid sem_name wait_flag reply =
-	let (sem, protected, waiting) = self # get_sem ctrl sem_name in
+	let (sem, protected, waiting) = self # get_sem_tuple ctrl sem_name in
 	let cont_sem = self # get_cont_sem cid sem_name protected in
 	if !sem > 0L then (
 	  self#really_decrement sem cont_sem protected;
@@ -150,8 +156,15 @@ let plugin : plugin =
 	  Hashtbl.add semaphores (ctrl, sem_name) new_sem;
 	  (new_sem, true)
 
-      method private get_sem ctrl sem_name =
+      method create_sem ctrl sem_name init_val protected =
+	snd(self # get_or_create_sem ctrl sem_name init_val protected)
+
+      method get_sem_tuple ctrl sem_name =
 	fst(self # get_or_create_sem ctrl sem_name 0L true)
+
+      method get_sem ctrl sem_name =
+	let ((value,_,_),_) = self # get_or_create_sem ctrl sem_name 0L true in
+	!value
 
       method private get_cont_sem cid sem_name protected =
 	if protected then (
@@ -170,6 +183,20 @@ let plugin : plugin =
 	)
 	else (ref 0L)
 
+      method destroy_sem ctrl sem_name =
+	try
+	  let (_,_,waiting) = Hashtbl.find semaphores (ctrl, sem_name) in
+	  let q = Queue.create() in
+	  Queue.transfer waiting q;
+	  Queue.iter
+	    (fun (waiting_reply, waiting_cid) ->
+	       let ht = Hashtbl.find containers waiting_cid in
+	       Hashtbl.remove ht sem_name;
+	       waiting_reply (-1L)
+	    )
+	    q
+	with Not_found -> ()
+
       method ctrl_container_finished ctrl cid _ =
 	try
 	  let ht = Hashtbl.find containers cid in  (* or Not_found *)
@@ -179,7 +206,7 @@ let plugin : plugin =
 	       (*Netlog.logf `Debug "semaphore shutdown name=%s d=%Ld"
 		 sem_name !value;
 		*)
-	       let (sem, _, waiting) = self # get_sem ctrl sem_name in
+	       let (sem, _, waiting) = self # get_sem_tuple ctrl sem_name in
 	       let zero_flag = (!sem = 0L) in
 	       sem := Int64.sub !sem !value;
 	       if !sem < 0L then sem := 0L;
@@ -189,7 +216,8 @@ let plugin : plugin =
 	    ht;
 	  List.iter
 	    (fun sem_name ->
-	       let (sem, protected, waiting) = self # get_sem ctrl sem_name in
+	       let (sem, protected, waiting) = 
+		 self # get_sem_tuple ctrl sem_name in
 	       let v = ref !sem in
 	       while not(Queue.is_empty waiting) && !v > 0L do
 		 let (waiting_reply,waiting_cid) = Queue.take waiting in
@@ -207,6 +235,8 @@ let plugin : plugin =
 	  
      end
   )
+
+let plugin = (plugin_i :> plugin)
 
 let () =
   (* Release memory after [fork]: *)
@@ -233,15 +263,45 @@ let decrement ?(wait=false) sem_name =
 
 
 let get sem_name =
-  let cont = Netplex_cenv.self_cont() in
-  Netplex_ctrl_aux._to_Semaphore'V1'get'res
-    (cont # call_plugin plugin "get" 
-       (Netplex_ctrl_aux._of_Semaphore'V1'get'arg sem_name))
+  try
+    match Netplex_cenv.self_obj() with
+      | `Container cont ->
+	  let cont = Netplex_cenv.self_cont() in
+	  Netplex_ctrl_aux._to_Semaphore'V1'get'res
+	    (cont # call_plugin plugin "get" 
+	       (Netplex_ctrl_aux._of_Semaphore'V1'get'arg sem_name))
+      | `Controller ctrl ->
+	  plugin_i # get_sem ctrl sem_name
+  with
+    | Not_found ->
+	raise Netplex_cenv.Not_in_container_thread
 
 
 let create ?(protected=false) sem_name init_val =
-  let cont = Netplex_cenv.self_cont() in
-  Netplex_ctrl_aux._to_Semaphore'V1'create'res
-    (cont # call_plugin plugin "create" 
-       (Netplex_ctrl_aux._of_Semaphore'V1'create'arg 
-	  (sem_name, init_val, protected)))
+  try
+    match Netplex_cenv.self_obj() with
+      | `Container cont ->
+	  Netplex_ctrl_aux._to_Semaphore'V1'create'res
+	    (cont # call_plugin plugin "create" 
+	       (Netplex_ctrl_aux._of_Semaphore'V1'create'arg 
+		  (sem_name, init_val, protected)))
+      | `Controller ctrl ->
+	  plugin_i # create_sem ctrl sem_name init_val protected
+  with
+    | Not_found ->
+	raise Netplex_cenv.Not_in_container_thread
+
+
+let destroy sem_name =
+  try
+    match Netplex_cenv.self_obj() with
+      | `Container cont ->
+	  Netplex_ctrl_aux._to_Semaphore'V1'destroy'res
+	    (cont # call_plugin plugin "destroy" 
+	       (Netplex_ctrl_aux._of_Semaphore'V1'destroy'arg sem_name))
+      | `Controller ctrl ->
+	  plugin_i # destroy_sem ctrl sem_name
+  with
+    | Not_found ->
+	raise Netplex_cenv.Not_in_container_thread
+

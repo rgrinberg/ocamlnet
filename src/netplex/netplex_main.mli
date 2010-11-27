@@ -12,17 +12,28 @@ val args :
   (** [let (opt_list, cmdline_cfg) = args()]:
     * Returns [opt_list] for inclusion in the [Arg.parse] option list.
     * The effects made available by the returned [cmdline_cfg] value.
+    *
+    * The defaults (unless overridden by [defaults]): The config file
+    * is derived from the name of the executable (by appending [.conf]
+    * instead of the current extension). There is no config tree.
     * 
     * @param defaults The default argument values
    *)
 
 val create : ?config_filename:string ->
+             ?config_tree:config_tree ->
              ?pidfile:string option ->
              ?foreground:bool ->
              unit -> cmdline_config
-  (** Creates the command-line configuration object *)
+  (** Creates the command-line configuration object.
+
+      By setting [config_tree] a special configuration can be injected -
+      the file [config_filename] is not loaded in this case (but may
+      still appear in error messages)
+   *)
 
 val modify : ?config_filename:string ->
+             ?config_tree:config_tree ->
              ?pidfile:string option ->
              ?foreground:bool ->
              cmdline_config -> cmdline_config
@@ -36,6 +47,12 @@ val config_filename : cmdline_config -> string
 val config_filename_opt : cmdline_config -> string option
   (** Returns the filename of the configuration file, or [None] if it
       has not been set on the command-line
+   *)
+
+val config_tree_opt : cmdline_config -> config_tree option
+  (** Returns the tree of the configuration file, or [None] if it
+      has not been set by [create] or [modify]. Note that [args]
+      never sets the config tree.
    *)
 
 val pidfile : cmdline_config -> string option
@@ -53,16 +70,22 @@ val startup :
       processor_factory list -> 
       cmdline_config -> 
         unit
-  (** Parses the configuration file and starts the Netplex daemon.
+  (** Establishes a configuration and starts the Netplex daemon.
+    *
+    * If a ready-made configuration tree is included in the passed configuration
+    * it is taken as the configuration. If otherwise only the name of the
+    * config file is available, this file is parsed.
     * Fails with [Netplex_config.Config_error] when an error in the
-    * configuration file is detected.
+    * configuration is detected.
     *
     * The [late_initializer] is called after the Netplex controller has been
     * fully initialized, and before the main event loop is entered. You can
     * perform here further initializations, e.g. starting helper threads.
     *
     * The [config_parser] is by default [Netplex_config.read_config_file].
-    * You can override it by whatever parser you would like to use.
+    * You can override it by whatever parser you would like to use. The
+    * parser is only used if a configuration tree is unavailable, and
+    * the configuration needs to be loaded from a file.
     *
     * As side-effect, the current logger of the {!Netlog} module is set
     * to selected Netplex logger. Note that this setting remains active

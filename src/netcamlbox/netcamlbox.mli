@@ -75,16 +75,16 @@ type camlbox_address = string
         slashes. Addresses are system-global.
      *)
 
-type camlbox
-  (** A [camlbox] may receive messages *)
+type 'a camlbox
+  (** A [camlbox] may receive messages of type ['a] *)
 
-type camlbox_sender
-  (** An endpoint that may send messages to a camlbox *)
+type 'a camlbox_sender
+  (** An endpoint that may send messages of type ['a] to a camlbox *)
 
 exception Empty
 exception Message_too_big
 
-val create_camlbox : camlbox_address -> int -> int -> camlbox
+val create_camlbox : camlbox_address -> int -> int -> 'a camlbox
   (** [create_camlbox addr n size]: Creates a new camlbox for up to
       [n] messages of [size] bytes. The messages are numbered from
       0 to [n-1]. The camlbox is only meaningful for the creating
@@ -92,6 +92,13 @@ val create_camlbox : camlbox_address -> int -> int -> camlbox
       Other processes can only send using a [camlbox_sender].
 
       It is an error if the camlbox already exists.
+
+      It is suggested that the result of [create_camlbox] is immediately
+      coerced to the right type [t], e.g.
+      {[
+        let box = (create_camlbox addr n size : t camlbox)
+      ]}
+      as this ensures type safety for all following operations.
    *)
 
 val unlink_camlbox : camlbox_address -> unit
@@ -101,37 +108,42 @@ val unlink_camlbox : camlbox_address -> unit
       are done with it.
    *)
 
+val format_camlbox : Unix.file_descr -> int -> int -> 'a camlbox
+  (** [format_camlbox fd n size]: The file [fd] is mapped into memory,
+      and formatted as camlbox.
+   *)
+
 val camlbox_fd : camlbox_address -> Unix.file_descr
   (** Opens a new file descriptor to this address *)
 
 val camlbox_capacity : camlbox_address -> int
   (** Returns the maximum number of messages [n] *)
 
-val camlbox_bcapacity : camlbox -> int
+val camlbox_bcapacity : 'a camlbox -> int
   (** same for an already opened box *)
 
-val camlbox_scapacity : camlbox_sender -> int
+val camlbox_scapacity : 'a camlbox_sender -> int
   (** same for a box already opened for sending *)
 
 val camlbox_msg_size : camlbox_address -> int
   (** Returns the max size of a message in bytes *)
 
-val camlbox_bmsg_size : camlbox -> int
+val camlbox_bmsg_size : 'a camlbox -> int
   (** same for an already opened box *)
 
-val camlbox_smsg_size : camlbox_sender -> int
+val camlbox_smsg_size : 'a camlbox_sender -> int
   (** same for a box already opened for sending *)
 
 val camlbox_messages : camlbox_address -> int
   (** Returns the number of messages at the moment *)
 
-val camlbox_bmessages : camlbox -> int
+val camlbox_bmessages : 'a camlbox -> int
   (** same for an already opened box *)
 
-val camlbox_smessages : camlbox_sender -> int
+val camlbox_smessages : 'a camlbox_sender -> int
   (** same for a box already opened for sending *)
 
-val camlbox_get : camlbox -> int -> 'a
+val camlbox_get : 'a camlbox -> int -> 'a
   (** [camlbox_get box k]: Returns message number [k] from [box].
       The returned value lives in the camlbox, and using it is only
       safe as long as the camlbox exists and the message is not
@@ -145,7 +157,7 @@ val camlbox_get : camlbox -> int -> 'a
       to crash the program.
    *)
 
-val camlbox_get_copy : camlbox -> int -> 'a
+val camlbox_get_copy : 'a camlbox -> int -> 'a
   (** [camlbox_get box k]: Returns a deep copy of message number [k] from [box].
       This is safer than [camlbox_get], because the returned value remains
       valid when the message is deleted from the box.
@@ -158,7 +170,7 @@ val camlbox_get_copy : camlbox -> int -> 'a
       to crash the program.
    *)
 
-val camlbox_delete : camlbox -> int -> unit
+val camlbox_delete : 'a camlbox -> int -> unit
   (** [camlbox_delete box k]: Deletes the message number [k] from [box].
       Any value obtained via [camlbox_get] for a message or a part
       of a message becomes invalid and must not be used anymore.
@@ -170,7 +182,7 @@ val camlbox_delete : camlbox -> int -> unit
       raised.
    *)
 
-val camlbox_wait : camlbox -> int list
+val camlbox_wait : 'a camlbox -> int list
   (** Waits until new messages arrive, and return the message numbers.
       A new message is only reported once by [camlbox_wait]. The
       order of the messages is not specified.
@@ -180,16 +192,24 @@ val camlbox_wait : camlbox -> int list
       It is allowed that this function returns the empty list.
    *)
 
-val camlbox_cancel_wait : camlbox -> unit
+val camlbox_cancel_wait : 'a camlbox -> unit
   (** Cancels a [camlbox_wait] operation called by a different thread *)
 
-val camlbox_sender : camlbox_address -> camlbox_sender
-  (** Prepares for sending *)
+val camlbox_sender : camlbox_address -> 'a camlbox_sender
+  (** Prepares for sending.
 
-val camlbox_sender_of_fd : Unix.file_descr -> camlbox_sender
+      It is suggested that the result of [camlbox_sender] is immediately
+      coerced to the right type [t], e.g.
+      {[
+        let box = (camlbox_sender addr : t camlbox_sender)
+      ]}
+      as this ensures type safety for all following operations.
+ *)
+
+val camlbox_sender_of_fd : Unix.file_descr -> 'a camlbox_sender
   (** Gets a sender for a file descriptor from [camlbox_fd]. *)
 
-val camlbox_send : camlbox_sender -> 'a -> unit
+val camlbox_send : 'a camlbox_sender -> 'a -> unit
   (** Sends a message to a camlbox. The value must be boxed (neither [char],
       [bool], [int], nor a variant type), and a number of restrictions apply:
        - The size of the representation must not exceed the maximum
@@ -211,7 +231,7 @@ val camlbox_send : camlbox_sender -> 'a -> unit
       Several threads may try to send messages at the same time.
    *)
 
-val camlbox_wake : camlbox_sender -> unit
+val camlbox_wake : 'a camlbox_sender -> unit
   (** Sends an "empty message" - this only means that if the receiving
       thread is waiting for new messages it is interrupted and 
       [camlbox_wait] will return the empty list.

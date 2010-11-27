@@ -45,3 +45,8 @@ val extract_config :
     The [logging] section is explained in {!Netplex_log}.
 
  *)
+
+
+module Debug : sig
+  val enable : bool ref
+end

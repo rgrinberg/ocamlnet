@@ -82,6 +82,7 @@
  *)
 
 open Netsys_mem
+open Printf
 
 type camlbox_address = string
 
@@ -110,7 +111,7 @@ type semaphores =
       s_slot_lock : Netsys_posix.anon_sempahore ;
     }
 
-type camlbox =
+type 'a camlbox =
     { mem : memory;
       hdr : header;            (* pointing into mem *)
       slot_list : int array;   (* pointing into mem *)
@@ -118,7 +119,7 @@ type camlbox =
       is_new : bool array;     (* local *)
     }
 
-type camlbox_sender = camlbox
+type 'a camlbox_sender = 'a camlbox
 
 exception Empty
 exception Message_too_big
@@ -211,46 +212,23 @@ let get_semaphores hdr mem =
   }
 
 
-let create_camlbox addr capacity msg_size =
-  if not (Netsys_posix.have_posix_shm()) then
-    invalid_arg "create_camlbox (no POSIX shm)";
+let mk_camlbox fn_name capacity msg_size f = 
   if not (Netsys_posix.have_posix_semaphores()) then
-    invalid_arg "create_camlbox (no POSIX semaphores)";
+    invalid_arg (sprintf "%s (no POSIX semaphores)" fn_name);
   if capacity < 1 || capacity > Sys.max_array_length || msg_size < 1 then
-    invalid_arg "create_camlbox (bad params)";
-  if String.contains addr '/' then
-    invalid_arg "create_camlbox (bad name)";
+    invalid_arg (sprintf "%s (bad params)" fn_name);
   if capacity > Netsys_posix.sem_value_max then
-    invalid_arg "create_camlbox (capacity exceeds sem_value_max)";
+    invalid_arg (sprintf "%s (capacity exceeds sem_value_max)" fn_name);
   let slot_size = (((msg_size-1) / align) + 1) * align in
   if slot_size < msg_size then (* overflow *)
-    invalid_arg "create_camlbox (too large)";
+    invalid_arg (sprintf "%s (too large)" fn_name);
   let (hdr0, slot_list0) = create_header capacity msg_size in
   let shm_size = hdr0.offset + capacity * slot_size in
   if shm_size < hdr0.offset then (* overflow *)
-    invalid_arg "create_camlbox (too large)";
+    invalid_arg (sprintf "%s (too large)" fn_name);
   if (shm_size - hdr0.offset) / slot_size <> capacity then (* overflow *)
-    invalid_arg "create_camlbox (too large)";
-  
-  let shm =
-    Netsys_posix.shm_open
-      ("/" ^ addr)
-      [ Netsys_posix.SHM_O_RDWR;
-	Netsys_posix.SHM_O_CREAT;
-	Netsys_posix.SHM_O_EXCL
-      ]
-      0o600 in
-  let mem = 
-    try
-      Unix.ftruncate shm shm_size;
-      let mem = Netsys_mem.memory_map_file shm true shm_size in
-      Unix.close shm;
-      mem
-    with
-      | error ->
-	  Unix.close shm;
-	  raise error in
-  
+    invalid_arg (sprintf "%s (too large)" fn_name);
+  let mem = f shm_size in
   value_area mem;
   hdr0.address <- ntoi (memory_address mem);
   let hdr_voffs, _ = init_value mem 0 hdr0 [] in
@@ -266,6 +244,42 @@ let create_camlbox addr capacity msg_size =
     sem = get_semaphores hdr mem;
     is_new = Array.make capacity true;
   }
+
+let format_camlbox fd capacity msg_size =
+  mk_camlbox "format_camlbox" capacity msg_size
+    (fun shm_size ->
+       Unix.ftruncate fd shm_size;
+       Netsys_mem.memory_map_file fd true shm_size
+    )
+
+let create_camlbox addr capacity msg_size =
+  if not (Netsys_posix.have_posix_shm()) then
+    invalid_arg "create_camlbox (no POSIX shm)";
+  if String.contains addr '/' then
+    invalid_arg "create_camlbox (bad name)";
+
+  mk_camlbox "create_camlbox" capacity msg_size
+    (fun shm_size ->
+       let shm =
+	 Netsys_posix.shm_open
+	   ("/" ^ addr)
+	   [ Netsys_posix.SHM_O_RDWR;
+	     Netsys_posix.SHM_O_CREAT;
+	     Netsys_posix.SHM_O_EXCL
+	   ]
+	   0o600 in
+       let mem = 
+	 try
+	   Unix.ftruncate shm shm_size;
+	   let mem = Netsys_mem.memory_map_file shm true shm_size in
+	   Unix.close shm;
+	   mem
+	 with
+	   | error ->
+	       Unix.close shm;
+	       raise error in
+       mem
+    )
 
 
 let unlink_camlbox addr =

@@ -7,10 +7,19 @@ exception Config_error of string
 
 class address = object end
 
+type ext_config_tree =
+    [ `Section of address * string * ext_config_tree list
+	(* (relative_name, contents) *)
+    | `Parameter of address * string * param_value
+	(* (relative_name, contents) *)
+    ]
+
+
 let is_win32 =
   match Sys.os_type with
     | "Win32" -> true
     | _ -> false;;
+
 
 let parse_config_file filename =
   let rec parse_tree =
@@ -19,8 +28,8 @@ let parse_config_file filename =
 	   v = parse_rhs
 	>] ->
 	  ( match v with
-	      | `Section tl -> `Section(new address, id, tl)
-	      | `Parameter p -> `Parameter(new address, id, p)
+	      | `Section tl -> `Section(id, tl)
+	      | `Parameter p -> `Parameter(id, p)
 	  )
   and parse_tree_list =
     parser
@@ -87,7 +96,15 @@ let parse_config_file filename =
 ;;
 
 
-let rec iter_config_tree f prefix cnt (tree : config_tree) =
+let rec ext_config_tree (tree : config_tree) : ext_config_tree =
+  match tree with
+    | `Section(name, tl) ->
+	`Section(new address, name, List.map ext_config_tree tl)
+    | `Parameter(name, v) ->
+	`Parameter(new address, name, v)
+
+
+let rec iter_config_tree f prefix cnt (tree : ext_config_tree) =
   match tree with
     | `Section(addr, name, tl) ->
 	let n =
@@ -114,8 +131,8 @@ let rec iter_config_tree f prefix cnt (tree : config_tree) =
 ;;	
 
 
-class config_file filename : Netplex_types.config_file =
-  let tree = parse_config_file filename in
+class repr_config_file filename simple_tree : Netplex_types.config_file =
+  let tree = ext_config_tree simple_tree in
 object(self)
   val addresses = Hashtbl.create 100
 
@@ -134,7 +151,7 @@ object(self)
   )
 
   method filename = filename
-  method tree = tree
+  method tree = simple_tree
 
   method root_addr =
     match tree with
@@ -309,8 +326,12 @@ object(self)
 end
 
 
+let repr_config_file = new repr_config_file
+
+
 let read_config_file filename =
-  new config_file filename
+  let tree = parse_config_file filename in
+  repr_config_file filename tree
 
 
 let inet4_binding =

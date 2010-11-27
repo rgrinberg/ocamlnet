@@ -207,7 +207,7 @@ val self_cont : unit -> container
 val self_obj : unit -> [ `Container of container |
 			 `Controller of controller ]
   (** Returns the container or the controller running the code of the
-      caller, or raise [Not_in_container_thread] (sic!) if called from
+      caller, or raise [Not_found] if called from
       neither a container not a controller thread.
    *)
 

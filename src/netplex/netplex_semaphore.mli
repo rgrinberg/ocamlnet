@@ -28,7 +28,7 @@ val plugin : plugin
    *)
 
 
-(** The folloing functions can {b only} be invoked in container
+(** The following functions can {b only} be invoked in container
     contexts. Outside of such a context the exception
     {!Netplex_cenv.Not_in_container_thread} is raised. 
  *)
@@ -59,6 +59,8 @@ val get : string -> int64
   (** Get the value of the named semaphore. Useful e.g. for monitoring
       the semaphore. If the semaphore does not exist, a value of 0 is
       returned.
+
+      [get] can also be invoked from the controller process.
    *)
 
 val create : ?protected:bool -> string -> int64 -> bool
@@ -74,8 +76,19 @@ val create : ?protected:bool -> string -> int64 -> bool
       A semaphore needs not to be explicitly created by calling [create].
       It is automatically created at the first use time with a value of 0
       and [protected=true].
+
+      [create] can also be invoked from the controller process.
    *)
 
+val destroy : string -> unit
+  (** Destroy this semaphore. Any waiting [decrement] will immediately
+      get (-1L).
+
+      Note that there is no protection against unintended re-creation
+      after [destroy].
+
+      [destroy] can also be invoked from the controller process.
+   *)
 
 
 (** Example (code fragment):

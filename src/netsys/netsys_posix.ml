@@ -642,6 +642,27 @@ external shm_open : string -> shm_open_flag list -> int -> file_descr
   = "netsys_shm_open"
 external shm_unlink : string -> unit = "netsys_shm_unlink"
 
+let shm_create prefix size =
+  let pid = Unix.getpid() in
+  let t = Unix.gettimeofday() in
+  let rec loop n =
+    let id = sprintf "%d/%f/%d" pid t n in
+    let dg = Digest.to_hex (Digest.string id) in
+    let dg8 = String.sub dg 0 8 in
+    let name = sprintf "%s_%s" prefix dg8 in
+    try
+      let fd =
+	shm_open
+	  name [SHM_O_RDWR; SHM_O_CREAT; SHM_O_EXCL ] 0o600 in
+      Unix.fchmod fd 0o600;
+      Unix.ftruncate fd size;
+      (fd, name)
+    with
+      | Unix.Unix_error(Unix.EEXIST,_,_) ->
+          loop (n+1) in
+  loop 0
+
+
 type sem_kind = [ `Named | `Anonymous ]
 
 type sem_rep
@@ -697,6 +718,25 @@ let sem_close (_,sr) = netsys_sem_close sr
 
 external sem_unlink : string -> unit 
   = "netsys_sem_unlink"
+
+let sem_create prefix initval =
+  let pid = Unix.getpid() in
+  let t = Unix.gettimeofday() in
+  let rec loop n =
+    let id = sprintf "%d/%f/%d" pid t n in
+    let dg = Digest.to_hex (Digest.string id) in
+    let dg8 = String.sub dg 0 8 in
+    let name = sprintf "%s_%s" prefix dg8 in
+    try
+      let sem =
+	sem_open
+	  name [SEM_O_CREAT; SEM_O_EXCL] 0o600 initval in
+      (sem, name)
+    with
+      | Unix.Unix_error(Unix.EEXIST,_,_) ->
+          loop (n+1) in
+  loop 0
+
 
 external netsys_sem_init : 
   Netsys_types.memory -> int -> bool -> int -> sem_rep

@@ -371,15 +371,21 @@ object(self)
 	       Netplex_cenv.cancel_all_timers();
 	       Netplex_cenv.unregister_cont container par_thread;
 	       (* indicates successful termination: *)
-	       List.iter
-		 (fun fd ->
-		    ( try Netsys.gshutdown fd_style fd Unix.SHUTDOWN_ALL
-		      with _ -> ()
-		    );
-		    Netlog.Debug.release_fd fd;
-		    Netsys.gclose fd_style fd;
-		 )
-		 [ fd_clnt; sys_fd_clnt ]
+	       if par # ptype <> `Multi_processing then 
+		 List.iter
+		   (fun fd ->
+		      ( try Netsys.gshutdown fd_style fd Unix.SHUTDOWN_ALL
+			with _ -> ()
+		      );
+		      Netlog.Debug.release_fd fd;
+		      Netsys.gclose fd_style fd;
+		   )
+		   [ fd_clnt; sys_fd_clnt ]
+		   (* Multi-processing: we do not close explicitly, but
+		      at process exit time. This has the advantage that we
+		      never have to wait for the process when the closed
+		      descriptor is recognized.
+		    *)
 	     )
 	  )
 	  fd_close
@@ -990,7 +996,8 @@ object(self)
 					   );
 	 self # check_for_poll_reply c
       )
-      clist
+      clist;
+    if !n = 0 then f_done()
 
   val lev_trans =
     [ log_emerg, `Emerg;
@@ -1504,7 +1511,9 @@ object(self)
 	   );
 	 incr n
       )
-      services
+      services;
+    if !n = 0 then
+      real_shutdown()
     
 
   method private matching_services re =

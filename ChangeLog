@@ -1,3 +1,11 @@
+2010-11-27  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Netplex_semaphore: added destroy
+
+	* Netplex config files: added support for config_tree
+
+	* Adding Netmcore
+
 2010-11-23  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Released: Ocamlnet-3.1

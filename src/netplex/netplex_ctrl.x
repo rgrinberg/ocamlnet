@@ -331,6 +331,12 @@ program Semaphore {
 	   Implicitly created semaphores are always protected.
 	*/
 
+	void destroy(longstring) = 6;
+	/* Destroys this semaphore. Any waiting [decrement] operation gets
+	   immediately (-1) as return value.
+	*/
+	
+
     } = 1;
 } = 4;
 

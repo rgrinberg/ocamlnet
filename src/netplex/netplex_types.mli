@@ -760,9 +760,9 @@ end
 
 
 type config_tree =
-    [ `Section of address * string * config_tree list
+    [ `Section of string * config_tree list
 	(* (relative_name, contents) *)
-    | `Parameter of address * string * param_value
+    | `Parameter of string * param_value
 	(* (relative_name, contents) *)
     ]
 

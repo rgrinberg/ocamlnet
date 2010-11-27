@@ -5,6 +5,7 @@ open Printf
 
 type cmdline_config =
     { mutable config_filename_opt : string option;
+      mutable config_tree_opt : config_tree option;
       mutable pidfile : string option;
       mutable foreground : bool;
     }
@@ -15,20 +16,27 @@ let is_win32 =
     | _ -> false;;
 
 let create ?config_filename
+           ?config_tree
            ?(pidfile = None)
            ?(foreground = false) () =
   { config_filename_opt = config_filename;
+    config_tree_opt = config_tree;
     pidfile = pidfile;
     foreground = foreground
   }
 
 let modify ?config_filename
+           ?config_tree
            ?pidfile
            ?foreground cfg =
   { config_filename_opt = ( match config_filename with
 			      | Some f -> Some f
 			      | None -> cfg.config_filename_opt
 			  );
+    config_tree_opt = ( match config_tree with
+			  | Some f -> Some f
+			  | None -> cfg.config_tree_opt
+		      );
     pidfile = ( match pidfile with
 		  | Some popt -> popt
 		  | None -> cfg.pidfile
@@ -65,9 +73,17 @@ let args ?(defaults = create()) () =
 let config_filename cf = 
   match cf.config_filename_opt with
     | Some f -> f
-    | None -> "/etc/netplex.conf"
+    | None ->
+	let command_name = Sys.argv.(0) in
+	( try
+	    (Filename.chop_extension command_name) ^ ".conf"
+	  with
+	    | _ -> command_name ^ ".conf"
+	)
 
 let config_filename_opt cf = cf.config_filename_opt
+
+let config_tree_opt cf = cf.config_tree_opt
 
 let pidfile cf = cf.pidfile
 
@@ -121,7 +137,12 @@ let rec run ctrl =
 let startup ?(late_initializer = fun _ _ -> ())
             ?(config_parser = Netplex_config.read_config_file)
             par c_logger_cf c_wrkmg_cf c_proc_cf cf =
-  let config_file = config_parser (config_filename cf) in
+  let config_file = 
+    match cf.config_tree_opt with
+      | None ->
+	  config_parser (config_filename cf)
+      | Some tree ->
+	  Netplex_config.repr_config_file (config_filename cf) tree in
   
   let netplex_config =
     Netplex_config.read_netplex_config
