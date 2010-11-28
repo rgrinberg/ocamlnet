@@ -1,10 +1,16 @@
 2010-11-27  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
-	* Netplex_semaphore: added destroy
+	* Netplex bugfixes: services could not be finished that had
+	  already no containers
 
-	* Netplex config files: added support for config_tree
+	* Netplex_semaphore: added destroy. Some functions can now be
+	  called from controller context.
 
-	* Adding Netmcore
+	* Netplex config files: added support for config_tree. No
+	  longer defaulting to /etc/netplex. Instead, the suffix ".conf"
+	  is appended to the name of the executable.
+
+	* Adding Netmcore, Netmcore_camlbox
 
 2010-11-23  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 

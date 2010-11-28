@@ -171,7 +171,7 @@ let x_plugin =
 	    (fun f ->
 	       self # schedule_callback ctrl f (`shvar_ok var_value)
 	    )
-	    q;
+	    q';
 	  `shvar_ok
 	with
 	  | Not_found ->
@@ -202,8 +202,9 @@ let x_plugin =
 	  else (
 	    if is_set then
 	      emit (`shvar_ok v)
-	    else
+	    else (
 	      Queue.push emit q
+	    )
 	  )
 	with
 	  | Not_found -> 

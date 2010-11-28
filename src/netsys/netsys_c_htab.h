@@ -24,6 +24,10 @@ extern int netsys_htab_init(struct htab *t, unsigned long n);
    library error. On success, the structure [t] is initialized.
  */
 
+extern void netsys_htab_clear(struct htab *t);
+/* Re-initializes the htab t
+ */
+
 extern int netsys_htab_add(struct htab *t, 
                            void *orig_addr, void *relo_addr);
 /* Adds the mapping from orig_addr to relo_addr to t.

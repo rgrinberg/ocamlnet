@@ -246,6 +246,9 @@ val get_sem : res_id -> string
     created with {!Netsys_posix.sem_create}.
  *)
 
+val self_process_id : unit -> process_id
+  (** Returns the process ID of a worker *)
+
 (** {2 Initialization and system start} *)
 
 (** This module can either be used as Netplex plugin and integrated into
@@ -260,6 +263,7 @@ val add_plugins : Netplex_types.controller -> unit
 
 val startup : socket_directory:string ->
               ?pidfile:string ->
+              ?init_ctrl:(Netplex_types.controller -> unit) ->
               first_process:(res_id * Netplex_encap.encap) ->
               unit ->
                 unit
@@ -276,6 +280,9 @@ val startup : socket_directory:string ->
       [pidfile]: If passed, the PID of the master process is written
       to this file.
    *)
+
+val destroy_resources : unit -> unit
+  (** Destroys all resources that may be left *)
 
 
 module Debug : sig

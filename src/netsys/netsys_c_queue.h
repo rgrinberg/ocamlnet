@@ -20,6 +20,9 @@ extern int netsys_queue_init(struct nqueue *q, unsigned long n);
    library error. On success, the structure [t] is initialized.
 */
 
+extern void netsys_queue_clear(struct nqueue *q);
+/* Re-initializes the queue */
+
 extern int netsys_queue_add(struct nqueue *q, void *elem);
 /* Adds elem to the end of the queue. The queue is resized if required.
    elem must be non-NULL.
@@ -35,6 +38,9 @@ extern int netsys_queue_take(struct nqueue *q, void **elem);
    Return 0 on success, or (-1) on system error (errno), or (-2) on
    library error, or (-3) when the queue is empty.
  */
+
+extern long netsys_queue_size(struct nqueue *q);
+/* Returns the number of elements */
 
 extern void netsys_queue_free(struct nqueue *q);
 /* Frees the memory allocated by q */

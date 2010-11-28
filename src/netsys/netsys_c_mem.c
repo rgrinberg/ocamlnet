@@ -922,6 +922,67 @@ int netsys_init_value_1(struct htab *t,
 
 static int init_value_flags[] = { 1, 2, 4, 8 };
 
+static struct htab *stat_tab = NULL;
+static struct nqueue *stat_queue = NULL;
+
+static int prep_stat_tab(void)
+{
+    int code, need_init;
+    need_init=0;
+    if (stat_tab == NULL) {
+	stat_tab = (struct htab *) malloc(sizeof(struct htab));
+	if (stat_tab == NULL) {
+	    errno = ENOMEM;
+	    return (-1);
+	};
+	need_init=1;
+    };
+    if (need_init || stat_tab->table == NULL) {
+	code = netsys_htab_init(stat_tab, 256);
+	if (code != 0) return code;
+    }
+    else
+	netsys_htab_clear(stat_tab);
+    return 0;
+}
+
+
+static void unprep_stat_tab(void)
+{
+    if (stat_tab->table_size > 256)
+	netsys_htab_free(stat_tab);
+}
+
+
+static int prep_stat_queue(void)
+{
+    int code, need_init;
+    need_init=0;
+    if (stat_queue == NULL) {
+	stat_queue = (struct nqueue *) malloc(sizeof(struct nqueue));
+	if (stat_queue == NULL) {
+	    errno = ENOMEM;
+	    return (-1);
+	};
+	need_init=1;
+    };
+    if (need_init || stat_queue->table == NULL) {
+	code = netsys_queue_init(stat_queue, 256);
+	if (code != 0) return code;
+    }
+    else
+	netsys_queue_clear(stat_queue);
+    return 0;
+}
+
+
+static void unprep_stat_queue(void)
+{
+    if (netsys_queue_size(stat_queue) > 256)
+	netsys_queue_free(stat_queue);
+}
+
+
 value netsys_init_value(value memv, 
 			value offv, 
 			value orig,  
@@ -931,10 +992,6 @@ value netsys_init_value(value memv,
 			)
 {
     int code;
-    struct htab t;
-    int         t_init;
-    struct nqueue q;
-    int          q_init;
     value r;
     intnat start_offset, bytelen;
     int  cflags;
@@ -944,22 +1001,17 @@ value netsys_init_value(value memv,
     intnat off;
     struct named_custom_ops *ops, *old_ops, *next_ops;
     
-    q_init=0;
-    t_init=0;
+    code = prep_stat_tab();
+    if (code != 0) goto exit;
+
+    code = prep_stat_queue();
+    if (code != 0) goto exit;
 
     off = Long_val(offv);
     if (off % sizeof(void *) != 0) { code=(-2); goto exit; }
 
     cflags = caml_convert_flag_list(flags, init_value_flags);
     targetaddr = (void *) (Nativeint_val(targetaddrv) + off);
-
-    code = netsys_queue_init(&q, 1000);
-    if (code != 0) goto exit;
-    q_init=1;
-    
-    code = netsys_htab_init(&t, 1000);
-    if (code != 0) goto exit;
-    t_init=1;
 
     ops = NULL;
     while (Is_block(target_custom_ops)) {
@@ -982,7 +1034,7 @@ value netsys_init_value(value memv,
        are ignored by the GC. So we pass 0 (white).
     */
     
-    code = netsys_init_value_1(&t, &q, mem_data, mem_end, orig, 
+    code = netsys_init_value_1(stat_tab, stat_queue, mem_data, mem_end, orig, 
 			       (cflags & 1) ? 2 : 0, 
 			       (cflags & 2) ? 1 : 0, 
 			       (cflags & 4) ? 2 : 0,
@@ -991,10 +1043,8 @@ value netsys_init_value(value memv,
 			       &start_offset, &bytelen);
     if (code != 0) goto exit;
 
-    netsys_queue_free(&q);
-    q_init = 0;
-    netsys_htab_free(&t);
-    t_init = 0;
+    unprep_stat_tab();
+    unprep_stat_queue();
 
     while (ops != NULL) {
 	next_ops = ops->next;
@@ -1010,8 +1060,8 @@ value netsys_init_value(value memv,
     return r;
 
  exit:
-    if (q_init) netsys_queue_free(&q);
-    if (t_init) netsys_htab_free(&t);
+    unprep_stat_queue();
+    unprep_stat_tab();
 
     switch(code) {
     case (-1):
@@ -1057,10 +1107,6 @@ value netsys_copy_value(value flags, value orig)
     intnat start_offset, bytelen;
     mlsize_t wosize;
     char *dest, *dest_end, *extra_block, *extra_block_end;
-    struct htab t;
-    int         t_init;
-    struct nqueue q;
-    int         q_init;
     int color;
     struct named_custom_ops bigarray_ops;
     struct named_custom_ops int32_ops;
@@ -1074,34 +1120,24 @@ value netsys_copy_value(value flags, value orig)
 	CAMLreturn(orig);
     };
 
-    q_init=0;
-    t_init=0;
+    code = prep_stat_tab();
+    if (code != 0) goto exit;
+
+    code = prep_stat_queue();
+    if (code != 0) goto exit;
 
     cflags = caml_convert_flag_list(flags, init_value_flags);
-
-    code = netsys_queue_init(&q, 1000);
-    if (code != 0) goto exit;
-    q_init=1;
-    
-    code = netsys_htab_init(&t, 1000);
-    if (code != 0) goto exit;
-    t_init=1;
 
     /* fprintf (stderr, "counting\n"); */
 
     /* Count only! */
-    code = netsys_init_value_1(&t, &q, NULL, NULL, orig, 
+    code = netsys_init_value_1(stat_tab, stat_queue, NULL, NULL, orig, 
 			       (cflags & 1) ? 1 : 0,  /* enable_bigarrays */
 			       (cflags & 2) ? 1 : 0,  /* enable_customs */
 			       1, /* enable_atoms */
 			       1, /* simulate */
 			       NULL, NULL, 0, &start_offset, &bytelen);
     if (code != 0) goto exit;
-
-    netsys_queue_free(&q);
-    q_init = 0;
-    netsys_htab_free(&t);
-    t_init = 0;
 
     /* fprintf (stderr, "done counting bytelen=%ld\n", bytelen); */
 
@@ -1159,15 +1195,10 @@ value netsys_copy_value(value flags, value orig)
 
     /* Now it's the real copy */
 
-    code = netsys_queue_init(&q, 1000);
-    if (code != 0) goto exit;
-    q_init=1;
+    netsys_htab_clear(stat_tab);
+    netsys_queue_clear(stat_queue);
     
-    code = netsys_htab_init(&t, 1000);
-    if (code != 0) goto exit;
-    t_init=1;
-
-    code = netsys_init_value_1(&t, &q, dest, dest_end, orig, 
+    code = netsys_init_value_1(stat_tab, stat_queue, dest, dest_end, orig, 
 			       (cflags & 1) ? 1 : 0,  /* enable_bigarrays */
 			       (cflags & 2) ? 1 : 0,  /* enable_customs */
 			       1, /* enable_atoms */
@@ -1176,10 +1207,8 @@ value netsys_copy_value(value flags, value orig)
 			       &start_offset, &bytelen);
     if (code != 0) goto exit;
 
-    netsys_queue_free(&q);
-    q_init = 0;
-    netsys_htab_free(&t);
-    t_init = 0;
+    unprep_stat_tab();
+    unprep_stat_queue();
 
     /* fprintf (stderr, "done copied\n"); */
 
@@ -1212,8 +1241,8 @@ value netsys_copy_value(value flags, value orig)
     CAMLreturn(block);
 
  exit:
-    if (q_init) netsys_queue_free(&q);
-    if (t_init) netsys_htab_free(&t);
+    unprep_stat_tab();
+    unprep_stat_queue();
 
     switch(code) {
     case (-1):

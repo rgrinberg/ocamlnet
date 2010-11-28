@@ -25,6 +25,22 @@ int netsys_queue_init(struct nqueue *q, unsigned long n)
 }
 
 
+void netsys_queue_clear(struct nqueue *q)
+{
+    q->table_start = 0;
+    q->table_end = 0;
+}
+
+
+long netsys_queue_size(struct nqueue *q)
+{
+    if (q->table_end >= q->table_start)
+	return q->table_end - q->table_start;
+    else
+	return (q->table_size - q->table_end) + q->table_start;
+}
+
+
 int netsys_queue_add(struct nqueue *q, void *elem)
 {
     int code;
@@ -96,4 +112,5 @@ int netsys_queue_take(struct nqueue *q, void **elem)
 void netsys_queue_free(struct nqueue *q)
 {
     free(q->table);
+    q->table = NULL;
 }

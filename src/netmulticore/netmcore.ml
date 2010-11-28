@@ -208,6 +208,9 @@ let next_pid = ref 0
 let next_resid = ref 0
   (* only in master context *)
 
+let self_pid = ref None
+  (* the pid of this worker (if so) *)
+
 let create_process_fwd = ref (fun _ _ _ _ _ -> assert false)
   (* defined below *)
 
@@ -265,6 +268,8 @@ let master_start ctrl (fork_res_id,inherited_res_id_l,arg) =
     let f = fork_res # process_body in
     let pid = !next_pid in
     incr next_pid;
+    let sem_name = sprintf "Netmcore.process_result.%d" pid in
+    ignore(Netplex_semaphore.create ~protected:false sem_name 0L);
     let join_res_id = fork_res#join_res in
     !create_process_fwd  f arg (`Process pid) join_res_id inherited_res_id_l;
     Some(`Process pid :> process_id)
@@ -272,6 +277,7 @@ let master_start ctrl (fork_res_id,inherited_res_id_l,arg) =
 
 
 let forget_process pid =
+  dlogr (fun () -> sprintf "forget_process pid=%d" pid);
   Hashtbl.remove process_table pid;
   let sem_name = sprintf "Netmcore.process_result.%d" pid in
   Netplex_semaphore.destroy sem_name
@@ -429,6 +435,7 @@ let create_process f arg (`Process pid)
 	  maybe_install_levers ctrl
 
 	method post_start_hook c =
+	  self_pid := Some pid;
 	  let lev = get_levers() in
 	  Hashtbl.clear process_table;
 	  (* Get rid of all resources - except inherited resources. *)
@@ -472,8 +479,13 @@ let create_process f arg (`Process pid)
 	  dlogr (fun () -> sprintf "End worker pid=%d" pid);
 	  c # shutdown()
 
-	method post_finish_hook _ ctrl _ =
+	method post_finish_hook _ ctrl cont_id =
 	  dlogr (fun () -> sprintf "post_finish_hook pid=%d" pid);
+	  Hashtbl.iter
+	    (fun res_id res ->
+	       res # released_in (`Container (Oo.id cont_id))
+	    )
+	    resource_table;
 	  if not (Hashtbl.mem resource_table join_res_id) then
 	    forget_process pid;
 	  if Some(`Process pid) = !initial_process then (
@@ -502,9 +514,13 @@ let def_process f =
       | _ ->
 	  failwith "Netmcore.def_process: not in master context" in
   let get_ctrl() =
-    match Netplex_cenv.self_obj() with
-      | `Controller ctrl -> ctrl
-      | _ -> failwith "Netmcore: not in master context" in
+    try
+      match Netplex_cenv.self_obj() with
+	| `Controller ctrl -> ctrl
+	| _ -> raise Not_found
+    with
+      | Not_found ->
+	  failwith "Netmcore: not in master context" in
 
   let fork_res_id = `Resource !next_resid in
   incr next_resid;
@@ -723,12 +739,28 @@ let create_preallocated_shm prefix size =
 	  failwith "Netmcore.create_preallocated_shm: unknown context" in
   res_id
     
+let self_process_id() =
+  match !self_pid with
+    | None ->
+	failwith "Netmcore.self_process_id: not in worker context"
+    | Some pid ->
+	`Process pid
+
 
 let add_plugins ctrl =
   ctrl # add_plugin Netplex_semaphore.plugin
 
 
-let startup ~socket_directory ?pidfile ~first_process () =
+let destroy_resources () =
+  Hashtbl.iter
+    (fun res_id res ->
+       res # destroy()
+    )
+    resource_table
+
+
+let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ()) ~first_process
+            () =
   let (fork_res_id, arg) = first_process in
   let config_tree =
     `Section("netplex",
@@ -751,6 +783,7 @@ let startup ~socket_directory ?pidfile ~first_process () =
   Netplex_main.startup
     ~late_initializer:(fun cf ctrl ->
 			 add_plugins ctrl;
+			 init_ctrl ctrl;
 			 let pid = start fork_res_id arg in
 			 initial_process := Some pid
 		      )

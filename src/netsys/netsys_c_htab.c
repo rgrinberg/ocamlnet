@@ -3,6 +3,7 @@
 #include "netsys_c_htab.h"
 #include <stdlib.h>
 #include <errno.h>
+#include <string.h>
 
 /* Define an FNV-1 hash function
    (see http://en.wikipedia.org/wiki/Fowler_Noll_Vo_hash)
@@ -99,6 +100,18 @@ int netsys_htab_init(struct htab *t, unsigned long n)
     t->table_size = 0;
     t->table_used = 0;
     return netsys_htab_grow(t, n);
+}
+
+
+void netsys_htab_clear(struct htab *t) 
+{
+    unsigned long k, size;
+    struct htab_cell *table;
+
+    size = t->table_size;
+    table = t->table;
+    memset(table, 0, size * sizeof(struct htab_cell));
+    t->table_used = 0;
 }
 
 
