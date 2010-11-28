@@ -122,8 +122,9 @@ module Meeting_place = struct
   
   type state =
     | Empty
-    | First of meet_request
-
+    | First of int * meet_request
+	(* slot, request *)
+	
   let meeting_place arg_encap =
     let config =
       Config_encap.unwrap arg_encap in
@@ -140,9 +141,9 @@ module Meeting_place = struct
     let response_boxes = Hashtbl.create 29 in
     let get_response_box id =
       try
-	Hashtbl.find response_boxes id
+	Hashtbl.find response_boxes id 
       with Not_found ->
-	let b = Netmcore_camlbox.lookup_camlbox_sender id in
+	let b = Netmcore_camlbox.lookup_camlbox_sender (`Resource id) in
 	Hashtbl.add response_boxes id b;
 	(b : response Netcamlbox.camlbox_sender)
     in
@@ -154,32 +155,39 @@ module Meeting_place = struct
       let req_slots = Netcamlbox.camlbox_wait box in
       List.iter
 	(fun req_slot ->
-	   let req = !(Netcamlbox.camlbox_get_copy box req_slot) in
-	   Netcamlbox.camlbox_delete box req_slot;
+	   let req = !(Netcamlbox.camlbox_get box req_slot) in
+	   (* no copy! So be careful... *)
 	   match req with
 	     | Meet_request mreq ->
 		 if !meetings_left > 0 then (
 		   match !state with
 		     | Empty ->
-			 state := First mreq
-		     | First first_req ->
+			 state := First(req_slot,mreq)
+		     | First(first_slot,first_req) ->
+			 let `Resource r1 = first_req.response_box  in
+			 let `Resource r2 = mreq.response_box in
 			 let fst_box = 
-			   get_response_box first_req.response_box in
+			   get_response_box r1 in
 			 Netcamlbox.camlbox_send 
 			   fst_box { mate_opt = Some mreq.me };
 			 let snd_box = 
-			   get_response_box mreq.response_box in
+			   get_response_box r2 in
 			 Netcamlbox.camlbox_send 
 			   snd_box { mate_opt = Some first_req.me };
 			 decr meetings_left;
-			 state := Empty
+			 state := Empty;
+			 Netcamlbox.camlbox_delete box first_slot;
+			 Netcamlbox.camlbox_delete box req_slot
 		 )
 		 else (
-		   let r_box = get_response_box mreq.response_box in
+		   let `Resource r = mreq.response_box in
+		   let r_box = get_response_box r in
+		   Netcamlbox.camlbox_delete box req_slot;
 		   Netcamlbox.camlbox_send r_box { mate_opt = None };
 		 )
 	     | Shutdown ->
 		 Netlog.logf `Debug "Got shutdown request";
+		 Netcamlbox.camlbox_delete box req_slot;
 		 live := false
 	)
 	req_slots
@@ -212,7 +220,7 @@ module Meeting_place = struct
   let connect pid =
     let req_box_id = get_box_id pid in
     let (r_box : response Netcamlbox.camlbox), r_box_id =
-      Netmcore_camlbox.create_camlbox "chameneos" 1 512 in
+      Netmcore_camlbox.create_camlbox "chameneos" 2 512 in
     { mp_req_box = Netmcore_camlbox.lookup_camlbox_sender req_box_id;
       mp_resp_box = r_box;
       mp_resp_box_id = r_box_id;
@@ -224,9 +232,19 @@ module Meeting_place = struct
     match Netcamlbox.camlbox_wait mp_conn.mp_resp_box with
       | [ slot ] ->
 	  let r =
-	    (Netcamlbox.camlbox_get_copy mp_conn.mp_resp_box slot).mate_opt in
+	    (Netcamlbox.camlbox_get mp_conn.mp_resp_box slot).mate_opt in
+	  (* No camlbox_get_copy of r! Instead, we make our own copy, which
+	     is cheaper for very simple messages
+	   *)
+	  let r_copy =
+	    match r with
+	      | None -> 
+		  None
+	      | Some ch -> 
+		  Some 
+		    { ch with Chameneos_type.id = ch.Chameneos_type.id } in
 	  Netcamlbox.camlbox_delete mp_conn.mp_resp_box slot;
-	  r
+	  r_copy
       | _ ->
 	  assert false
 end
@@ -297,7 +315,7 @@ module Compute = struct
     printf "\n";
 
     let config =
-      { Meeting_place.num_slots = List.length colors;
+      { Meeting_place.num_slots = 2 * List.length colors;
 	meetings = n 
       } in
     let place_pid = Meeting_place.start config in
