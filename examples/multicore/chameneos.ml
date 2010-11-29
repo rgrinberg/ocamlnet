@@ -281,6 +281,10 @@ module Chameneos = struct
     let ch = arg.chameneos in
     let connector = Meeting_place.connect arg.place_pid in
     let pref_slot = ref 0 in
+    (* The idea of pref_slot is to avoid cache bouncing: when the
+       same slot is reused by the same process, the memory of this
+       slot continues to be owned by the same cache
+     *)
 
     let rec loop () =
       match Meeting_place.meet pref_slot connector ch with 
