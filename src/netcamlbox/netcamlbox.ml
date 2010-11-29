@@ -464,12 +464,41 @@ let camlbox_cancel_wait box =
 
 let camlbox_wake = camlbox_cancel_wait
 
-let camlbox_send box value =
+let find_free_slot box p =
+  let rec loop i =
+    if i < box.hdr.capacity then (
+      if box.slot_list.(i) = p then
+	Some(p,i)
+      else
+	loop (i+1)
+    )
+    else
+      None in
+  loop box.hdr.split_idx
+
+
+let camlbox_send ?prefer ?slot box value =
   Netsys_posix.sem_wait box.sem.s_free_slots Netsys_posix.SEM_WAIT_BLOCK;
   Netsys_posix.sem_wait box.sem.s_slot_lock Netsys_posix.SEM_WAIT_BLOCK;
   assert(box.hdr.split_idx < box.hdr.capacity);
-  let k = box.slot_list.(box.hdr.split_idx) in
+  let i_opt =
+    match prefer with
+      | None -> None
+      | Some p -> find_free_slot box p in
+  let k = 
+    match i_opt with
+      | None ->
+	  box.slot_list.(box.hdr.split_idx)
+      | Some(p,i) ->
+	  let save = box.slot_list.(box.hdr.split_idx) in
+	  box.slot_list.(box.hdr.split_idx) <- p;
+	  box.slot_list.(i) <- save;
+	  p in
   box.hdr.split_idx <- box.hdr.split_idx + 1;
+  ( match slot with
+      | None -> ()
+      | Some s -> s := k
+  );
   Netsys_posix.sem_post box.sem.s_slot_lock;
   let v = Netsys_posix.sem_getvalue box.sem.s_slot_ignore_a.(k) in
   assert(v <> 0);

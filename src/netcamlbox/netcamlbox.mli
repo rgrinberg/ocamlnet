@@ -209,7 +209,8 @@ val camlbox_sender : camlbox_address -> 'a camlbox_sender
 val camlbox_sender_of_fd : Unix.file_descr -> 'a camlbox_sender
   (** Gets a sender for a file descriptor from [camlbox_fd]. *)
 
-val camlbox_send : 'a camlbox_sender -> 'a -> unit
+val camlbox_send : ?prefer:int -> ?slot:int ref -> 
+                   'a camlbox_sender -> 'a -> unit
   (** Sends a message to a camlbox. The value must be boxed (neither [char],
       [bool], [int], nor a variant type), and a number of restrictions apply:
        - The size of the representation must not exceed the maximum
@@ -229,6 +230,9 @@ val camlbox_send : 'a camlbox_sender -> 'a -> unit
       This function blocks until the receiving camlbox has free space.
 
       Several threads may try to send messages at the same time.
+
+      [prefer]: suggests a slot for sending
+      [slot]: the actual slot number is stored here
    *)
 
 val camlbox_wake : 'a camlbox_sender -> unit

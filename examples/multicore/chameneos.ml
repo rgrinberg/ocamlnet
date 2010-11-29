@@ -226,9 +226,11 @@ module Meeting_place = struct
       mp_resp_box_id = r_box_id;
     }
     
-  let meet mp_conn ch =
+  let meet pref_slot mp_conn ch =
     let req = { me = ch; response_box = mp_conn.mp_resp_box_id } in
-    Netcamlbox.camlbox_send mp_conn.mp_req_box (ref (Meet_request req));
+    Netcamlbox.camlbox_send
+      ~prefer:!pref_slot ~slot:pref_slot
+      mp_conn.mp_req_box (ref (Meet_request req));
     match Netcamlbox.camlbox_wait mp_conn.mp_resp_box with
       | [ slot ] ->
 	  let r =
@@ -278,9 +280,10 @@ module Chameneos = struct
     let arg = Run_encap.unwrap arg_encap in
     let ch = arg.chameneos in
     let connector = Meeting_place.connect arg.place_pid in
-    
+    let pref_slot = ref 0 in
+
     let rec loop () =
-      match Meeting_place.meet connector ch with 
+      match Meeting_place.meet pref_slot connector ch with 
 	| None -> ()
 	| Some other -> 
 	    ch.meetings <- ch.meetings + 1;
