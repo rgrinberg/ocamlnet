@@ -1,3 +1,7 @@
+2010-12-06  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Netdate: Fixing possible exceptions
+
 2010-11-27  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Netplex bugfixes: services could not be finished that had
