@@ -196,7 +196,7 @@ let parse ?zone:(dzone=0) str =
     let may_store r = function
       | None -> ()
       | v when !r = None -> r := v
-      | _ -> invalid_arg "Parse.date" in
+      | _ -> invalid_arg "Netdate.parse" in
     let tz = match (tz, dst) with
       | (Some tz, Some true) -> Some (tz - 100)
       | _ -> tz in
@@ -237,7 +237,7 @@ let parse ?zone:(dzone=0) str =
 	add_data ~wd ();
 	scan_gen rest
     | [< 'Month mo; 'Number(lmd,md); rest >] -> scan_date_m mo (lmd,md) rest
-    | [< '_ >] -> invalid_arg "Parse.date"
+    | [< '_ >] -> invalid_arg "Netdate.parse"
     | [< >] -> ()
   and scan_number (l,n) = parser
     | [< 'Meridian mdn; rest >] ->
@@ -246,13 +246,13 @@ let parse ?zone:(dzone=0) str =
     | [< 'Colon; 'Number((0|1|2),m); rest >]-> 
 	if l <= 2 then 
 	  scan_hour n m rest
-	else invalid_arg "Parse.date"
+	else invalid_arg "Netdate.parse"
     | [< 'Slash; 'Number((0|1|2),m); rest >] -> 
 	scan_date_s (l,n) m rest
     | [< 'Dot; 'Number((0|1|2),m); rest >] ->
 	if l<=2 then
 	  scan_date_dot n m rest
-	else invalid_arg "Parse.date"
+	else invalid_arg "Netdate.parse"
     | [< 'Minus; rest >] -> scan_date_d (l,n) rest
     | [< 'Month mo; rest >] ->
 	add_data ~md:n ~mo ();
@@ -260,7 +260,7 @@ let parse ?zone:(dzone=0) str =
     | [< rest >] ->
 	if l=4 then
 	  add_data ~y:n ()
-	else invalid_arg "Parse.date";
+	else invalid_arg "Netdate.parse";
 	scan_gen rest
   and scan_hour h m = parser
     | [< 'Colon; 'Number(_,s); rest >] -> scan_hour_second_frac h m s rest
@@ -305,7 +305,7 @@ let parse ?zone:(dzone=0) str =
 	    if lp = 2 then
 	      add_data ~y2:p ~mo:n ~md:m ()
 	    else
-	      invalid_arg "Parse.date";
+	      invalid_arg "Netdate.parse";
 	scan_gen rest
     | [< rest >] ->
 	add_data ~mo:n ~md:m ();
@@ -316,7 +316,7 @@ let parse ?zone:(dzone=0) str =
 	  add_data ~md:n ~mo:m ~y: p ()
 	else if l=2 then
 	  add_data ~md:n ~mo:m ~y2: p ()
-	else invalid_arg "Parse.date";
+	else invalid_arg "Netdate.parse";
 	scan_gen rest
     | [< rest >] ->
 	add_data ~md:n ~mo:m ();
@@ -328,14 +328,14 @@ let parse ?zone:(dzone=0) str =
 	else
 	  if ln=2 then
 	    add_data ~y2:n ~mo ~md ()
-	  else  invalid_arg "Parse.date";
+	  else  invalid_arg "Netdate.parse";
 	scan_gen rest
     | [< 'Month mo; 'Minus; 'Number(ly,y); rest >] ->
 	if ly=4 then
 	  add_data ~y ~mo ~md:n ()
 	else if ly=2 then
 	  add_data ~y2:y ~mo ~md:n ()
-	else invalid_arg "Parse.date";
+	else invalid_arg "Netdate.parse";
 	scan_gen rest
   and scan_date_m mo (lmd,md) = parser
     | [< 'Comma; 'Number(4,y); rest >] ->
@@ -355,17 +355,17 @@ let parse ?zone:(dzone=0) str =
     | [< >] -> None
   in
   (try scan_gen tokens;
-   with Stream.Error _ -> invalid_arg "Parse.date");
+   with Stream.Error _ -> invalid_arg "Netdate.parse");
   let may_get r =
     match !r with
-      | None -> invalid_arg "Parse.date"
+      | None -> invalid_arg "Netdate.parse"
       | Some r -> r in
   let get_default d r =
     match !r with
       | None -> d
       | Some r -> r in
   let month = may_get month in
-  if month < 1 || month > 12 then invalid_arg "Parse.date";
+  if month < 1 || month > 12 then invalid_arg "Netdate.parse";
   {
     year = may_get year;
     month = month;
