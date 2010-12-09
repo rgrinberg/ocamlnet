@@ -1,3 +1,9 @@
+2010-12-09  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Http_client: fixing aggressive connection caching. Also
+	  new module Http_client_conncache for extending the functionality
+	  of connection caches.
+
 2010-12-06  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Netdate: Fixing possible exceptions

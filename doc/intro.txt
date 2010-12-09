@@ -265,6 +265,7 @@ This library includes clients for HTTP, Telnet, and (incomplete) FTP.
 
 {!modules:
    Http_client
+   Http_client_conncache
    Telnet_client
    Ftp_client
    Ftp_data_endpoint

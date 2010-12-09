@@ -786,7 +786,7 @@ class digest_auth_method : basic_auth_method
   * pipelines.
  *)
 
-type connection_cache
+type connection_cache = Http_client_conncache.connection_cache
 
 val close_connection_cache : connection_cache -> unit
   (** Closes all descriptors known to the cache *)
@@ -801,9 +801,6 @@ val create_aggressive_cache : unit -> connection_cache
     * possible. The consequence is that users are responsible for
     * closing the descriptors (by calling [close_connection_cache]) when the
     * cache is no longer in use.
-    *
-    * Aggressive caching is an experimental feature. Reports about success
-    * and/or problems are very welcome.
    *)
 
 (** A pipeline is a queue of HTTP calls to perform *)

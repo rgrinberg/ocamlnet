@@ -19,6 +19,7 @@ let () =
   Netlog.Debug.register_module "Http_client" Debug.enable
 
 
+open Http_client_conncache
 open Printf
 
 exception Bad_message of string;;
@@ -1477,211 +1478,14 @@ class digest_auth_method =
 (***                 THE CONNECTION CACHE                           ***)
 (**********************************************************************)
 
-type conn_state = [ `Inactive | `Active of < > ]
-  (** A TCP connection may be either [`Inactive], i.e. it is not used
-    * by any pipeline, or [`Active obj], i.e. it is in use by the pipeline
-    * [obj].
-   *)
-
-class type connection_cache =
-object
-  method get_connection_state : Unix.file_descr -> conn_state
-    (** Returns the state of the file descriptor *)
-  method set_connection_state : Unix.file_descr -> conn_state -> unit
-    (** Sets the state of the file descriptor. It is allowed that
-      * inactive descriptors are simply closed and forgotten.
-     *)
-  method find_inactive_connection : Unix.sockaddr -> Unix.file_descr
-    (** Returns an inactive connection to the passed peer, or raise
-      * [Not_found].
-     *)
-  method find_my_connections : < > -> Unix.file_descr list
-    (** Returns all active connections owned by the object *)
-  method close_connection : Unix.file_descr -> unit
-    (** Deletes the connection from the cache, and closes it *)
-  method close_all : unit -> unit
-    (** Closes all descriptors known to the cache *)
-end
-
+type connection_cache = Http_client_conncache.connection_cache
 
 let close_connection_cache conn_cache =
   conn_cache # close_all()
 
+let create_restrictive_cache() = new restrictive_cache()
 
-class restrictive_cache : connection_cache =
-object(self)
-  val mutable active_conns = Hashtbl.create 10
-  val mutable rev_active_conns = Hashtbl.create 10
-
-  method get_connection_state fd =
-    `Active(Hashtbl.find active_conns fd)
-
-  method set_connection_state fd state =
-    match state with
-      | `Active owner ->
-	  Hashtbl.replace active_conns fd owner;
-	  let fd_list = 
-	    try Hashtbl.find rev_active_conns owner with Not_found -> [] in
-	  if not (List.mem fd fd_list) then
-	    Hashtbl.replace rev_active_conns owner (fd :: fd_list);
-	  
-      | `Inactive ->
-	  self # close_connection fd
-
-  method find_inactive_connection _ = raise Not_found
-
-  method find_my_connections owner =
-    try
-      Hashtbl.find rev_active_conns owner
-    with
-	Not_found -> []
-
-  method close_connection fd =
-    ( try
-	let owner = Hashtbl.find active_conns fd in
-	let fd_list = 
-	  try Hashtbl.find rev_active_conns owner with Not_found -> [] in
-	let fd_list' =
-	  List.filter (fun fd' -> fd' <> fd) fd_list in
-	Hashtbl.replace rev_active_conns owner fd_list'
-      with
-	  Not_found -> ()
-    );
-    Hashtbl.remove active_conns fd;
-    Netlog.Debug.release_fd fd;
-    Unix.close fd
-
-  method close_all () =
-    Hashtbl.iter
-      (fun fd _ ->
-	 Netlog.Debug.release_fd fd;
-	 Unix.close fd)
-      active_conns;
-    Hashtbl.clear active_conns;
-    Hashtbl.clear rev_active_conns
-	  
-end
-
-
-let create_restrictive_cache() = new restrictive_cache
-
-
-class aggressive_cache : connection_cache =
-object(self)
-  val mutable active_conns = Hashtbl.create 10
-    (* maps file_descr to owner *)
-  val mutable rev_active_conns = Hashtbl.create 10
-    (* maps owner to file_descr list *)
-  val mutable inactive_conns = Hashtbl.create 10
-    (* maps file_descr to sockaddr *)
-  val mutable rev_inactive_conns = Hashtbl.create 10
-    (* maps sockaddr to file_descr list *)
-
-  method get_connection_state fd =
-    try
-      `Active(Hashtbl.find active_conns fd)
-    with
-	Not_found ->
-	  if Hashtbl.mem inactive_conns fd then
-	    `Inactive
-	  else
-	    raise Not_found
-
-  method set_connection_state fd state =
-    match state with
-      | `Active owner ->
-	  self # forget_inactive_connection fd;
-	  Hashtbl.replace active_conns fd owner;
-	  let fd_list = 
-	    try Hashtbl.find rev_active_conns owner with Not_found -> [] in
-	  if not (List.mem fd fd_list) then
-	    Hashtbl.replace rev_active_conns owner (fd :: fd_list);
-      | `Inactive ->
-	  ( try
-	      let peer = Netsys.getpeername fd in
-	      self # forget_active_connection fd;
-	      Hashtbl.replace inactive_conns fd peer;
-	      let fd_list =
-		try Hashtbl.find rev_inactive_conns peer with Not_found -> [] in
-	      if not (List.mem fd fd_list) then
-		Hashtbl.replace rev_inactive_conns peer (fd :: fd_list)
-	    with
-	      | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
-		  self # close_connection fd
-	  )
-
-  method find_inactive_connection peer =
-    match Hashtbl.find rev_inactive_conns peer with
-      | [] -> raise Not_found
-      | fd :: _ -> fd
-
-  method find_my_connections owner =
-    try
-      Hashtbl.find rev_active_conns owner
-    with
-	Not_found -> []
-
-  method private forget_active_connection fd =
-    ( try
-	let owner = Hashtbl.find active_conns fd in
-	let fd_list = 
-	  try Hashtbl.find rev_active_conns owner with Not_found -> [] in
-	let fd_list' =
-	  List.filter (fun fd' -> fd' <> fd) fd_list in
-	if fd_list' <> [] then 
-	  Hashtbl.replace rev_active_conns owner fd_list'
-	else
-	  Hashtbl.remove rev_active_conns owner
-      with
-	  Not_found -> ()
-    );
-    Hashtbl.remove active_conns fd;
-   
-
-  method private forget_inactive_connection fd =
-    try
-      let peer = Hashtbl.find inactive_conns fd in
-      (* Do not use getpeername! fd might be disconnected in the meantime! *)
-      let fd_list = 
-	try Hashtbl.find rev_inactive_conns peer with Not_found -> [] in
-      let fd_list' =
-	List.filter (fun fd' -> fd' <> fd) fd_list in
-      if fd_list' <> [] then 
-	Hashtbl.replace rev_inactive_conns peer fd_list'
-      else
-	Hashtbl.remove rev_inactive_conns peer;
-      Hashtbl.remove inactive_conns fd;
-    with
-      | Not_found ->
-	  ()
-
-
-  method close_connection fd =
-    self # forget_active_connection fd;
-    self # forget_inactive_connection fd;
-    Netlog.Debug.release_fd fd;
-    Unix.close fd
-
-
-  method close_all () =
-    Hashtbl.iter
-      (fun fd _ ->
-	 Netlog.Debug.release_fd fd;
-	 Unix.close fd)
-      active_conns;
-    Hashtbl.clear active_conns;
-    Hashtbl.clear rev_active_conns;
-    Hashtbl.iter
-      (fun fd _ ->
-	 Netlog.Debug.release_fd fd;
-	 Unix.close fd)
-      inactive_conns;
-    Hashtbl.clear inactive_conns;
-    Hashtbl.clear rev_inactive_conns
-end
-
-
-let create_aggressive_cache() = new aggressive_cache
+let create_aggressive_cache() = new aggressive_cache()
 
 
 (**********************************************************************)
@@ -2818,6 +2622,7 @@ class connection the_esys
 	       ( let peer = Unix.ADDR_INET(addr, peer_port) in
 		 try
 		   let fd = conn_cache # find_inactive_connection peer in
+		   (* Case: reuse old connection *)
 		   connect_time <- 0.0;
 		   conn_cache # set_connection_state fd (`Active conn_owner);
 		   io <- new io_buffer options conn_cache fd Up_rw;
@@ -3011,9 +2816,11 @@ class connection the_esys
       timeout_groups <- List.filter (fun x -> x <> g) timeout_groups;
 
 
-    method private abort_connection =
+    method private abort_connection ~reusable =
       (* This method is called when the connection is in an errorneous
        * state, and the protocol handler decides to give it up.
+       * 
+       * reusable: whether it is possible to reuse this connection later
        *)
       ( match connecting with
 	  | None -> ()
@@ -3027,11 +2834,16 @@ class connection the_esys
 			 "FD %s - HTTP connection: Shutdown!"
 			 io#socket_str);
 	      begin match io#socket_state with
-		  Down -> ()
+		  Down -> 
+		    (* We already closed/released io, so we do nothing here *)
+		    ()
 		| Up_r -> 
 		    io # close()
 		| Up_rw ->
-		    io # release()    (* hope this is right *)
+		    if reusable then
+		      io # release()
+		    else
+		      io # close()
 	      end;
 	      Unixqueue.clear esys g;
 	      polling_wr <- false;
@@ -3120,7 +2932,7 @@ class connection the_esys
 		       "FD %s - HTTP connection: Connection reset by peer"
 		       io#socket_str
 		  );
-	      self # abort_connection;
+	      self # abort_connection ~reusable:false;
 	      end_of_queueing := true;
 	      counters.crashed_connections <-
 		counters.crashed_connections + 1;
@@ -3133,7 +2945,7 @@ class connection the_esys
 		       io#socket_str (Unix.error_message e));
 	      counters.crashed_connections <- 
 		counters.crashed_connections + 1;
-	      self # abort_connection;
+	      self # abort_connection ~reusable:false;
 	      end_of_queueing := true;
 	      (* This exception is reported to the message currently being read
                * only.
@@ -3163,7 +2975,7 @@ class connection the_esys
 	  counters.timed_out_connections <- 
 	    counters.timed_out_connections + 1;
 	);
-	self # abort_connection;
+	self # abort_connection ~reusable:false;
 	end_of_queueing := true
       end;
 
@@ -3286,7 +3098,7 @@ class connection the_esys
 		    close_connection  <- close_connection  || not able_to_pipeline;
 
 		  if close_connection || options.inhibit_persistency then (
-		    self # abort_connection;
+		    self # abort_connection ~reusable:false;
 		    end_of_queueing := true;
 		    (* We do not count this event - it is regular! *)
 		  );
@@ -3312,7 +3124,7 @@ class connection the_esys
                             Aborting the invalidated connection"
 			   io#socket_str);
 
-		  self # abort_connection;
+		  self # abort_connection ~reusable:false;
 		  end_of_queueing := true;
 		  counters.crashed_connections <-
 		    counters.crashed_connections + 1;
@@ -3349,7 +3161,7 @@ class connection the_esys
 			 sprintf "FD %s - HTTP connection: \
                             Aborting the errorneuos connection"
 			   io#socket_str);
-		  self # abort_connection;
+		  self # abort_connection ~reusable:false;
 		  end_of_queueing := true;
 		  counters.crashed_connections <-
 		    counters.crashed_connections + 1;
@@ -3377,7 +3189,7 @@ class connection the_esys
 		     sprintf "FD %s - HTTP connection: \
                               Extra octets -- aborting connection"
 		       io#socket_str);
-	      self # abort_connection;
+	      self # abort_connection ~reusable:false;
 	      end_of_queueing := true;
 	      counters.crashed_connections <-
 		counters.crashed_connections + 1;
@@ -3780,7 +3592,11 @@ class connection the_esys
       (* Release the connection if the queues have become empty *)
 
       if (Q.length write_queue = 0 && Q.length read_queue = 0) then (
-	self # abort_connection;
+	(* The connection is reusable for future messages - if anything
+	   did not allow persistency, we would already have closed the
+	   connection, and stopped processing.
+	 *)
+	self # abort_connection ~reusable:true;
 	counters.successful_connections <- counters.successful_connections + 1
       );
 
@@ -3942,7 +3758,7 @@ class connection the_esys
 
     method reset =
       (* Close the socket; clear the Unixqueue *)
-      self # abort_connection;
+      self # abort_connection ~reusable:false;
 
       (* Discard all messages on the queues. *)
       self # clear_read_queue No_reply;
