@@ -52,7 +52,7 @@ type server_error =
 let string_of_server_error =
   function
     | Unavailable_program -> 
-	"Unevailable_program"
+	"Unavailable_program"
     | Unavailable_version(v1,v2) ->
 	"Unavailable_version(" ^ 
 	  Int64.to_string(Rtypes.int64_of_uint4 v1) ^ ", " ^ 
