@@ -2185,6 +2185,15 @@ CAMLprim value netsys_set_console_mode(value mv) {
 }
 
 
+CAMLprim value netsys_getacp(value dummy) {
+#ifdef _WIN32
+    return Val_int(GetACP());
+#else
+    invalid_argument("netsys_getacp");
+#endif
+}
+
+
 CAMLprim value netsys_init_console_codepage(value dummy) {
 #ifdef _WIN32
     int cp;

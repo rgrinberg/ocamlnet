@@ -698,6 +698,13 @@ val clear_console : unit -> unit
   (** Clears the screen and the buffer, and sets the cursor to (0,0). *)
 
 
+(** {1 Miscelleneous} *)
+
+val get_active_code_page : unit -> int
+  (** Get the active code page. See 
+      http://msdn.microsoft.com/en-us/library/dd317756%28v=VS.85%29.aspx
+      for a list of codes. Also see {!Netconversion.win32_code_pages}.
+   *)
 
 
 (** {1 Proxy Descriptors} *)

@@ -426,6 +426,8 @@ let lookup_output_thread fd =
     failwith "Netsys_win32.lookup_output_thread: not found"
 
 
+external get_active_code_page : unit -> int 
+  = "netsys_getacp"
 
 external netsys_real_select : 
          Unix.file_descr list -> 
