@@ -251,6 +251,9 @@ let names =
    * `Enc_subset is missing in this list, of course.
    *
    * http://www.iana.org/assignments/character-sets
+   *
+   * A good reference is also:
+   * http://www.firstobject.com/character-set-name-alias-code-page.htm
    *)
   [ `Enc_utf16,        [ "UTF-16"; "UTF16"; "UCS2"; "ISO10646UCS2" ];
     `Enc_utf16_be,     [ "UTF-16BE"; "UTF16BE" ];
@@ -552,6 +555,70 @@ let available_output_encodings() =
     names;
   !l
 ;;
+
+
+let (win32_code_pages : (_ * encoding) list) =
+  [  65001, `Enc_utf8;
+     1200,  `Enc_utf16_le;
+     1201,  `Enc_utf16_be;
+     20127, `Enc_usascii;
+     28591, `Enc_iso88591;
+     28592, `Enc_iso88592;
+     28593, `Enc_iso88593;
+     28594, `Enc_iso88594;
+     28595, `Enc_iso88595;
+     28596, `Enc_iso88596;
+     28597, `Enc_iso88597;
+     28598, `Enc_iso88598;
+     28599, `Enc_iso88599;
+     (* `Enc_iso885910 *)
+     (* `Enc_iso885911 *)
+     28603, `Enc_iso885913;
+     (* `Enc_iso885914 *)
+     28605, `Enc_iso885915;
+     (* `Enc_iso885916 *)
+     20866, `Enc_koi8r;
+     (* `Enc_jis0201 *)
+     20932, `Enc_eucjp;
+     51949, `Enc_euckr;
+     1250, `Enc_windows1250;
+     1251, `Enc_windows1251;
+     1252, `Enc_windows1252;
+     1253, `Enc_windows1253;
+     1254, `Enc_windows1254;
+     1255, `Enc_windows1255;
+     1256, `Enc_windows1256;
+     1257, `Enc_windows1257;
+     1258, `Enc_windows1258;
+     437, `Enc_cp437;
+     737, `Enc_cp737;
+     775, `Enc_cp775;
+     850, `Enc_cp850;
+     852, `Enc_cp852;
+     855, `Enc_cp855;
+     (* `Enc_cp856 *)
+     857, `Enc_cp857;
+     860, `Enc_cp860;
+     861, `Enc_cp861;
+     862, `Enc_cp862;
+     863, `Enc_cp863;
+     864, `Enc_cp864;
+     865, `Enc_cp865;
+     866, `Enc_cp866;
+     869, `Enc_cp869;
+     874, `Enc_cp874;
+     (* `Enc_cp1006 *)
+     37, `Enc_cp037;
+     20424, `Enc_cp424;
+     500, `Enc_cp500;
+     875, `Enc_cp875;
+     1026, `Enc_cp1026;
+     1047, `Enc_cp1047;
+     (* `Enc_adobe_standard_encoding *)
+     (* `Enc_adobe_symbol_encoding *)
+     (* `Enc_adobe_zapf_dingbats_encoding *)
+     10000, `Enc_macroman;
+  ]
 
 
 (* Internal conversion interface:

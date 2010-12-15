@@ -7,7 +7,7 @@ OBJECTS  = netconst.cmo netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
 	   neturl.cmo \
 	   netaddress.cmo \
 	   netmime.cmo netsendmail.cmo nethttp.cmo \
-	   netpagebuffer.cmo
+	   netpagebuffer.cmo netfs.cmo
 
 PKGNAME  = netstring
 
@@ -47,6 +47,7 @@ DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netdate.mli netencoding.mli netulex.mli netaccel.mli \
 	netaccel_link.mli nethtml.mli netstring_str.mli netstring_pcre.mli \
 	netmappings.mli netaux.mli nethttp.mli netpagebuffer.mli \
+	netfs.mli \
 	netchannels_tut.txt netmime_tut.txt netsendmail_tut.txt \
 	netulex_tut.txt neturl_tut.txt
 

@@ -610,6 +610,12 @@ val available_output_encodings : unit -> encoding list
    * modules.
    *)
 
+val win32_code_pages : (int * encoding) list
+  (** Mapping between Win32 code page numbers and Ocamlnet encodings.
+      This is incomplete. The official list:
+      http://msdn.microsoft.com/en-us/library/dd317756%28v=VS.85%29.aspx
+   *)
+
 
 
 (**********************************************************************)
