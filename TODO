@@ -6,8 +6,8 @@
   * Netfs: maybe add copy method? - DONE
   * Netfs: rm -r is maybe "too" insecure - DONE
   * Netfs: support Win32 better - DONE (filenames)
-  * Netfs BUG: In copy und copy_into, filenames are not converted between
-    encodings.
+  * Netfs BUG: In copy_into, filenames are not converted between
+    encodings. - DONE
 
 - unlinkat - DONE
 - fchdir - DONE

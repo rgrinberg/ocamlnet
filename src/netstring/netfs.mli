@@ -21,10 +21,9 @@
     - Character encoding restriction: A certain ASCII-compatible character
       encoding is assumed (including UTF-8)  
     - Character exclusion: Certain characters may be excluded
-    - Case insensitivity
 
     Implementations may impose more constraints that cannot be expressed
-    here (path length, exclusion of special names etc.).
+    here (case insensitivity, path length, exclusion of special names etc.).
 
     There is no assumption that [/] is the real root of the local filesystem.
     It can actually be anywhere - a local subdirectory, or a remote directory,
@@ -102,9 +101,6 @@ object
 	otherwise. For example, for Unix the code points 0 and 47 (slash)
 	are normally the only excluded code points.
      *)
-
-  method case_insensitive : bool
-    (** Whether the filesystem is case-insensitive *)
 
   method nominal_dot_dot : bool
     (** Whether the effect of [..] can be obtained by stripping off the
@@ -217,8 +213,15 @@ val local_fs : ?encoding:Netconversion.encoding -> ?root:string ->
     is [None]. If a different encoding is passed to [local_fs], these
     bytes are just interpreted in this encoding. There is no conversion.
 
-    There is right now no generic way of detecting whether a filesystem
-    is case-insensitive (help on this topic is greatly appreciated).
+    For desktop programs, though, usually the character encoding of the
+    locale is taken for filenames. You can get this by passing
+
+    {[
+    let encoding = 
+      Netconversion.user_encoding()
+    ]}
+
+    as [encoding] argument.
  *)
 
 (** {b Windows}: If the [root] argument is not passed to [local_fs]
@@ -233,8 +236,6 @@ val local_fs : ?encoding:Netconversion.encoding -> ?root:string ->
     notations are not possible anymore - paths must start with [/],
     and there is neither support for drive letters nor for UNC paths.
 
-    Windows filesystems are usually case-insensitive. 
-
     The [encoding] arg defaults to current ANSI codepage, 
     and it is
     not supported to request a different encoding. (The difficulty is
@@ -248,7 +249,8 @@ val local_fs : ?encoding:Netconversion.encoding -> ?root:string ->
 
 (** {2 Algorithms} *)
 
-val copy : ?replace:bool -> stream_fs -> string -> stream_fs -> string -> unit
+val copy : ?replace:bool -> 
+           stream_fs -> string -> stream_fs -> string -> unit
   (** [copy orig_fs orig_name dest_fs dest_name]: Copies the file [orig_name]
       from [orig_fs] to the file [dest_name] in [dest_fs]. By default,
       the destination file is truncated and overwritten if it already
@@ -266,7 +268,8 @@ val copy : ?replace:bool -> stream_fs -> string -> stream_fs -> string -> unit
         if it already exists
    *)
 
-val copy_into : ?replace:bool -> stream_fs -> string -> stream_fs -> string -> 
+val copy_into : ?replace:bool -> ?subst:(int->string) ->
+                stream_fs -> string -> stream_fs -> string -> 
                   unit
   (** [copy_into orig_fs orig_name dest_fs dest_name]: 
       Like [copy], but this version also supports recursive copies. The
@@ -275,6 +278,8 @@ val copy_into : ?replace:bool -> stream_fs -> string -> stream_fs -> string ->
 
       If [replace] and the destination file/directory already exists,
       it is deleted before doing the copy.
+
+      - [subst]: See {!Netfs.convert_path}
    *)
 
 type file_kind = [ `Regular | `Directory | `Other ]
@@ -298,4 +303,22 @@ val iter : pre:(string -> file_kind -> unit) ->
       - [pre "dir/file2" `File]
       - [post "dir"]
 
+   *)
+
+val convert_path : ?subst:(int -> string) ->
+                   stream_fs -> stream_fs -> string -> string
+  (** [convert_path oldfs newfs oldpath]: The encoding of [oldpath]
+      (which is assumed to reside in [oldfs]) is converted to the encoding
+      of [newfs] and returned.
+
+      It is possible that the conversion is not possible, and
+      the function [subst] is then called with the problematic code point as
+      argument (in the encoding of [oldfs]). The default [subst] function
+      just raises {!Netconversion.Cannot_represent}.
+
+      If one of the filesystem objects does not specify an encoding,
+      the file name is not converted, but simply returned as-is. This
+      may result in errors when [newfs] has an encoding while [oldfs]
+      does not have one because the file name might use byte representations
+      that are illegal in [newfs]. 
    *)

@@ -791,6 +791,76 @@ val sem_wait : 'kind semaphore -> sem_wait_behavior -> unit
       [sem_wait] may be interrupted by signals.
    *)
 
+(** {1 Locales} *)
+
+type langinfo =
+    { nl_CODESET : string;  (** from [LC_CTYPE]: codeset name *)
+      nl_D_T_FMT : string;  (** from [LC_TIME]: string for formatting date and time *)
+      nl_D_FMT : string;  (** from [LC_TIME]: date format string *)
+      nl_T_FMT : string;  (** from [LC_TIME]: time format string *)
+      nl_T_FMT_AMPM : string;  (** from [LC_TIME]: a.m. or p.m. time format string *)
+      nl_AM_STR : string;  (** from [LC_TIME]: Ante Meridian affix *)
+      nl_PM_STR : string;  (** from [LC_TIME]: Post Meridian affix *)
+      nl_DAY_1 : string;  (** from [LC_TIME]: name of the first day of the week (for example, Sunday) *)
+      nl_DAY_2 : string;  (** from [LC_TIME]: name of the second day of the week (for example, Monday) *)
+      nl_DAY_3 : string;  (** from [LC_TIME]: name of the third day of the week (for example, Tuesday) *)
+      nl_DAY_4 : string;  (** from [LC_TIME]: name of the fourth day of the week (for example, Wednesday) *)
+      nl_DAY_5 : string;  (** from [LC_TIME]: name of the fifth day of the week (for example, Thursday) *)
+      nl_DAY_6 : string;  (** from [LC_TIME]: name of the sixth day of the week (for example, Friday) *)
+      nl_DAY_7 : string;  (** from [LC_TIME]: name of the seventh day of the week (for example, Saturday) *)
+      nl_ABDAY_1 : string;  (** from [LC_TIME]: abbreviated name of the first day of the week *)
+      nl_ABDAY_2 : string;  (** from [LC_TIME]: abbreviated name of the second day of the week *)
+      nl_ABDAY_3 : string;  (** from [LC_TIME]: abbreviated name of the third day of the week *)
+      nl_ABDAY_4 : string;  (** from [LC_TIME]: abbreviated name of the fourth day of the week *)
+      nl_ABDAY_5 : string;  (** from [LC_TIME]: abbreviated name of the fifth day of the week *)
+      nl_ABDAY_6 : string;  (** from [LC_TIME]: abbreviated name of the sixth day of the week *)
+      nl_ABDAY_7 : string;  (** from [LC_TIME]: abbreviated name of the seventh day of the week *)
+      nl_MON_1 : string;  (** from [LC_TIME]: name of the first month of the year *)
+      nl_MON_2 : string;  (** from [LC_TIME]: name of the second month *)
+      nl_MON_3 : string;  (** from [LC_TIME]: name of the third month *)
+      nl_MON_4 : string;  (** from [LC_TIME]: name of the fourth month *)
+      nl_MON_5 : string;  (** from [LC_TIME]: name of the fifth month *)
+      nl_MON_6 : string;  (** from [LC_TIME]: name of the sixth month *)
+      nl_MON_7 : string;  (** from [LC_TIME]: name of the seventh month *)
+      nl_MON_8 : string;  (** from [LC_TIME]: name of the eighth month *)
+      nl_MON_9 : string;  (** from [LC_TIME]: name of the ninth month *)
+      nl_MON_10 : string;  (** from [LC_TIME]: name of the tenth month *)
+      nl_MON_11 : string;  (** from [LC_TIME]: name of the eleventh month *)
+      nl_MON_12 : string;  (** from [LC_TIME]: name of the twelfth month *)
+      nl_ABMON_1 : string;  (** from [LC_TIME]: abbreviated name of the first month *)
+      nl_ABMON_2 : string;  (** from [LC_TIME]: abbreviated name of the second month *)
+      nl_ABMON_3 : string;  (** from [LC_TIME]: abbreviated name of the third month *)
+      nl_ABMON_4 : string;  (** from [LC_TIME]: abbreviated name of the fourth month *)
+      nl_ABMON_5 : string;  (** from [LC_TIME]: abbreviated name of the fifth month *)
+      nl_ABMON_6 : string;  (** from [LC_TIME]: abbreviated name of the sixth month *)
+      nl_ABMON_7 : string;  (** from [LC_TIME]: abbreviated name of the seventh month *)
+      nl_ABMON_8 : string;  (** from [LC_TIME]: abbreviated name of the eighth month *)
+      nl_ABMON_9 : string;  (** from [LC_TIME]: abbreviated name of the ninth month *)
+      nl_ABMON_10 : string;  (** from [LC_TIME]: abbreviated name of the tenth month *)
+      nl_ABMON_11 : string;  (** from [LC_TIME]: abbreviated name of the eleventh month *)
+      nl_ABMON_12 : string;  (** from [LC_TIME]: abbreviated name of the twelfth month *)
+      nl_ERA : string;  (** from [LC_TIME]: era description segments *)
+      nl_ERA_D_FMT : string;  (** from [LC_TIME]: era date format string *)
+      nl_ERA_D_T_FMT : string;  (** from [LC_TIME]: era date and time format string *)
+      nl_ERA_T_FMT : string;  (** from [LC_TIME]: era time format string *)
+      nl_ALT_DIGITS : string;  (** from [LC_TIME]: alternative symbols for digits *)
+      nl_RADIXCHAR : string;  (** from [LC_NUMERIC]: radix character *)
+      nl_THOUSEP : string;  (** from [LC_NUMERIC]: separator for thousands *)
+      nl_YESEXPR : string;  (** from [LC_MESSAGES]: affirmative response expression *)
+      nl_NOEXPR : string;  (** from [LC_MESSAGES]: negative response expression *)
+      nl_YESSTR : string;  (** from [LC_MESSAGES]: affirmative response for yes/no queries(LEGACY) *)
+      nl_NOSTR : string;  (** from [LC_MESSAGES]: negative response for yes/no queries(LEGACY) *)
+      nl_CRNCYSTR : string;  (** from [LC_MONETARY]: currency  *)
+    }
+
+val query_langinfo : string -> langinfo
+  (** [query_langinfo locale]: Temporarily sets the passed [locale] and
+      determines the language attributes. After that the orignal locale is
+      restored. Pass "" as [locale] to get the locale requested in the
+      environment.
+
+      The value for "" is cached.
+   *)
 
 (** {1 Linux I/O Priorities} *)
 

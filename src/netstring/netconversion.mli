@@ -610,6 +610,16 @@ val available_output_encodings : unit -> encoding list
    * modules.
    *)
 
+val user_encoding : unit -> encoding option
+  (** Determines the preferred user encoding:
+
+      - Unix: This is the character set from the current locale
+      - Win32: This is derived from the current ANSI code page
+
+      If an error occurs while determining the result, the value
+      [None] is returned.
+   *)
+
 val win32_code_pages : (int * encoding) list
   (** Mapping between Win32 code page numbers and Ocamlnet encodings.
       This is incomplete. The official list:

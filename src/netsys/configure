@@ -16,6 +16,8 @@ have_at=0
 have_fchdir=0
 have_fdopendir=0
 
+win32=0
+
 stdlib=`ocamlc -where`
 
 ######################################################################
@@ -373,11 +375,23 @@ system=`ocamlc -config | grep system | sed -e 's/system: //'`
 case "$system" in
     mingw|msvc)
 	  echo "yes"
+	  win32=1
           netsys_link_options="$netsys_link_options -lws2_32" ;;
 	*)
 	  echo "no"  ;;
 esac
 
+
+######################################################################
+#
+# Locales: We use nl_langinfo which is not available on Win32.
+# So we just assume we have locales on all other platforms.
+
+if [ $win32 -gt 0 ]; then
+    def_have_locale="#undef HAVE_LOCALE"
+else
+    def_have_locale="#define HAVE_LOCALE"
+fi
 
 ######################################################################
 
@@ -399,6 +413,7 @@ $def_have_at
 $def_have_fchdir
 $def_have_fdopendir
 $def_have_gprof
+$def_have_locale
 EOF
 
 cat <<EOF >netsys_conf.ml

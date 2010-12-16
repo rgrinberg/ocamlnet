@@ -511,6 +511,86 @@ let register_subprocess_handler() =
     ()
 
 
+(* locales *)
+
+type langinfo =
+    { nl_CODESET : string;
+      nl_D_T_FMT : string;
+      nl_D_FMT : string;
+      nl_T_FMT : string;
+      nl_T_FMT_AMPM : string;
+      nl_AM_STR : string;
+      nl_PM_STR : string;
+      nl_DAY_1 : string;
+      nl_DAY_2 : string;
+      nl_DAY_3 : string;
+      nl_DAY_4 : string;
+      nl_DAY_5 : string;
+      nl_DAY_6 : string;
+      nl_DAY_7 : string;
+      nl_ABDAY_1 : string;
+      nl_ABDAY_2 : string;  
+      nl_ABDAY_3 : string;  
+      nl_ABDAY_4 : string;  
+      nl_ABDAY_5 : string;  
+      nl_ABDAY_6 : string;  
+      nl_ABDAY_7 : string;  
+      nl_MON_1 : string;  
+      nl_MON_2 : string;  
+      nl_MON_3 : string;  
+      nl_MON_4 : string;  
+      nl_MON_5 : string;  
+      nl_MON_6 : string;  
+      nl_MON_7 : string;  
+      nl_MON_8 : string;  
+      nl_MON_9 : string;  
+      nl_MON_10 : string;  
+      nl_MON_11 : string;  
+      nl_MON_12 : string;  
+      nl_ABMON_1 : string;  
+      nl_ABMON_2 : string;  
+      nl_ABMON_3 : string;  
+      nl_ABMON_4 : string;  
+      nl_ABMON_5 : string;  
+      nl_ABMON_6 : string;  
+      nl_ABMON_7 : string;  
+      nl_ABMON_8 : string;  
+      nl_ABMON_9 : string;  
+      nl_ABMON_10 : string;  
+      nl_ABMON_11 : string;  
+      nl_ABMON_12 : string;  
+      nl_ERA : string;  
+      nl_ERA_D_FMT : string;  
+      nl_ERA_D_T_FMT : string;  
+      nl_ERA_T_FMT : string;  
+      nl_ALT_DIGITS : string;  
+      nl_RADIXCHAR : string;  
+      nl_THOUSEP : string;  
+      nl_YESEXPR : string;  
+      nl_NOEXPR : string;  
+      nl_YESSTR : string;  
+      nl_NOSTR : string;  
+      nl_CRNCYSTR : string;  
+    }
+
+external netsys_query_langinfo : string -> langinfo = "netsys_query_langinfo"
+
+let cached_langinfo = ref None
+
+let query_langinfo locale =
+  if locale = "" then (
+    match !cached_langinfo with
+      | None ->
+	  let li = netsys_query_langinfo "" in
+	  cached_langinfo := Some li;
+	  li
+      | Some li -> li
+  )
+  else
+    netsys_query_langinfo locale
+
+
+
 (* syslog *)
 
 type level = Netlog.level

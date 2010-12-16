@@ -261,7 +261,7 @@ let names =
     `Enc_utf8,         [ "UTF-8"; "UTF8" ];
     `Enc_java,         [ "UTF-8-JAVA"; "UTF8JAVA"; "JAVA" ];
     `Enc_usascii,      [ "US-ASCII"; "USASCII"; "ASCII"; "ISO646US"; "CP367"; 
-			 "ISOIR6" ];
+			 "ISOIR6"; "ANSIX341968" ];
     `Enc_iso88591,     [ "ISO-8859-1"; "ISO88591"; "LATIN1"; "CP819"; 
 			 "ISOIR100" ];
     `Enc_iso88592,     [ "ISO-8859-2"; "ISO88592"; "LATIN2"; "ISOIR101";
@@ -620,6 +620,21 @@ let (win32_code_pages : (_ * encoding) list) =
      10000, `Enc_macroman;
   ]
 
+let user_encoding() =
+  match Sys.os_type with
+    | "Win32" ->
+	let cp = Netsys_win32.get_active_code_page() in
+	( try Some(List.assoc cp win32_code_pages)
+	  with Not_found -> None
+	)
+    | _ ->
+	( try
+	    let codeset = 
+	      (Netsys_posix.query_langinfo "").Netsys_posix.nl_CODESET in
+	    Some(encoding_of_string codeset)
+	  with
+	    | _ -> None
+	)
 
 (* Internal conversion interface:
  *

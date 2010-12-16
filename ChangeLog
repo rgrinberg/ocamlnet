@@ -1,7 +1,13 @@
 2010-12-16  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
+	* Netsys_posix: adding query_langinfo function for basic
+	  locale support
+
+	* Netconversion: new fn: user_encoding
+
 	* Netfs: new abstraction representing simple filesystems
 	  (both local and remote)
+	
 	* Netsys_posix: adding the *at functions (like openat).
 	  Also fchdir and fdopendir are new.
 

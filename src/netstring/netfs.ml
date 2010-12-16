@@ -40,7 +40,6 @@ class type stream_fs =
 object
   method path_encoding : Netconversion.encoding option
   method path_exclusions : (int * int) list
-  method case_insensitive : bool
   method nominal_dot_dot : bool
   method read : read_flag list -> string -> Netchannels.in_obj_channel
   method write : write_flag list -> string -> Netchannels.out_obj_channel
@@ -96,12 +95,7 @@ let local_fs ?encoding ?root () : stream_fs =
     match encoding with
       | None ->
 	  ( match Sys.os_type with
-	      | "Win32" ->
-		  let cp = Netsys_win32.get_active_code_page() in
-		  ( try Some(List.assoc cp Netconversion.win32_code_pages)
-		    with Not_found -> None
-		      (* hmm, maybe an exception is better? *)
-		  )
+	      | "Win32" -> Netconversion.user_encoding()
 	      | _ -> None
 	  )
       | Some e -> Some e in
@@ -201,15 +195,9 @@ let local_fs ?encoding ?root () : stream_fs =
 	    failwith "Netfs.local_fs: root is not a directory";
 	  r in
 
-  let ci = (* FIXME *)
-    Sys.os_type <> "Unix" in
-  (* Win32: GetVolumeInformation *)
-
-
   ( object(self)
       method path_encoding = enc
       method path_exclusions = excl
-      method case_insensitive = ci
       method nominal_dot_dot = false
 
       method read flags filename =
@@ -453,7 +441,16 @@ let local_fs ?encoding ?root () : stream_fs =
   )
 
 
-let copy ?(replace=false) (orig_fs:stream_fs) orig_name dest_fs dest_name =
+let convert_path ?subst oldfs newfs oldpath =
+  match oldfs#path_encoding, newfs#path_encoding with
+    | Some oldenc, Some newenc ->
+	Netconversion.convert ?subst ~in_enc:oldenc ~out_enc:newenc oldpath
+    | _ ->
+	oldpath
+
+
+let copy ?(replace=false)
+         (orig_fs:stream_fs) orig_name dest_fs dest_name =
   if replace then
     dest_fs # remove [] dest_name;
   if orig_fs = dest_fs then
@@ -488,25 +485,29 @@ let iter ~pre ?(post=fun _ -> ()) (fs:stream_fs) start =
   iter_members start ""
 
 
-let copy_into ?(replace=false) (orig_fs:stream_fs) orig_name dest_fs dest_name =
+let copy_into ?(replace=false) ?subst 
+              (orig_fs:stream_fs) orig_name dest_fs dest_name =
   let orig_base = Filename.basename orig_name in
+  let dest_start = 
+    dest_name ^ "/" ^ convert_path ?subst orig_fs dest_fs orig_base in
   if not(dest_fs # test [] dest_name `D) then
     failwith "Netfs.copy_into: destination directory does not exist";
   if orig_fs # test [] orig_name `D then (
-    let dest_start = dest_name ^ "/" ^ orig_base in
     if replace then
       dest_fs # remove [ `Recursive ] dest_start;
     dest_fs # mkdir [ `Nonexcl ] dest_start;
     iter
       ~pre:(fun rpath typ ->
+	      let dest_rpath =
+		convert_path ?subst orig_fs dest_fs rpath in
 	      match typ with
 		| `Regular ->
 		    copy 
 		      orig_fs (orig_name ^ "/" ^ rpath) 
-		      dest_fs (dest_start ^ "/" ^ rpath)
+		      dest_fs (dest_start ^ "/" ^ dest_rpath)
 		| `Directory ->
 		    dest_fs # mkdir
-		      [ `Nonexcl ] (dest_start ^ "/" ^ rpath)
+		      [ `Nonexcl ] (dest_start ^ "/" ^ dest_rpath)
 		| `Other ->
 		    ()
 	   )
@@ -514,4 +515,4 @@ let copy_into ?(replace=false) (orig_fs:stream_fs) orig_name dest_fs dest_name =
       orig_name
   )
   else
-    copy ~replace orig_fs orig_name dest_fs (dest_name ^ "/" ^ orig_base)
+    copy ~replace orig_fs orig_name dest_fs dest_start
