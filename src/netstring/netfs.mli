@@ -68,6 +68,9 @@ type mkdir_flag =
 type rmdir_flag =
     [ `Dummy ]
 
+type copy_flag =
+    [ `Dummy ]
+
 
 type test_type =
     [ `N | `E | `D | `F | `H | `R | `W | `X | `S ]
@@ -130,7 +133,7 @@ object
 	- [`Binary]: Opens the file in binary mode (if there is such
 	  a distinction)
 
-	Many filesystems refuse this operation if neither [`Create] nor
+	Some filesystems refuse this operation if neither [`Create] nor
 	[`Truncate] is specified because overwriting an existing file
 	is not supported. There are also filesystems that cannot even
 	modify files by truncating them first, but only allow to write
@@ -191,32 +194,21 @@ object
 
   method rmdir : rmdir_flag list -> string -> unit
     (** Removes an empty directory *)
+
+  method copy : copy_flag list -> string -> string -> unit
+    (** Copies a file to a new name *)
 end
 
 
-val local_fs : ?encoding:Netconversion.encoding -> string -> stream_fs
-  (** [local_fs real_root]: Returns a filesystem object where the 
-      [root] of the system is the directory [real_root] of the local
-      filesystem.
+val local_fs : ?encoding:Netconversion.encoding -> ?root:string -> 
+               unit -> stream_fs
+  (** [local_fs()]: Returns a filesystem object for the local filesystem.
 
       - [encoding]: Specifies the character encoding of paths. The default
         is system-dependent.
+      - [root]: the root of the returned object is the directory [root]
+        of the local filesystem.
    *)
-
-val copy : ?replace:bool -> stream_fs -> string -> stream_fs -> string -> unit
-  (** [copy orig_fs orig_name dest_fs dest_name]: Copies the file [orig_name]
-      from [orig_fs] to the file [dest_name] in [dest_fs]. By default,
-      the destination file is truncated and overwritten if it already
-      exists.
-
-      The copy is done by reading from the original file and writing the
-      data to the destination file. For remote filesystems, this might be
-      not the best method.
-
-      - [replace]: If set, the destination file is removed and created again
-        if it already exists
-   *)
-
 
 (** {2 OS Notes} *)
 
@@ -229,17 +221,21 @@ val copy : ?replace:bool -> stream_fs -> string -> stream_fs -> string -> unit
     is case-insensitive (help on this topic is greatly appreciated).
  *)
 
-(** {b Windows}: Each drive letter is considered as a separate
-    filesystem, e.g.
+(** {b Windows}: If the [root] argument is not passed to [local_fs]
+    it is possible to access the whole filesystem:
 
-    {[let fs = local_fs "c:/"]}
+    - Paths starting with drive letters like [c:/] are also considered
+      as absolute
+    - Additionally, paths starting with slashes like [/c:/] mean the same
+    - UNC paths starting with two slashes like [//hostname] are supported
 
-    would make only "c:/" accessible, and
+    However, when a [root] directory is passed, these additional
+    notations are not possible anymore - paths must start with [/],
+    and there is neither support for drive letters nor for UNC paths.
 
-    {[ fs # read [] "/file" ]}
+    Windows filesystems are usually case-insensitive. 
 
-    would actually read the file "c:/file". Windows filesystems are
-    case-insensitive. The [encoding] arg defaults to current ANSI codepage, 
+    The [encoding] arg defaults to current ANSI codepage, 
     and it is
     not supported to request a different encoding. (The difficulty is
     that the Win32 bindings of the relevant OS functions always assume
@@ -248,3 +244,58 @@ val copy : ?replace:bool -> stream_fs -> string -> stream_fs -> string -> unit
     There is no support for backslashes as path separators (such paths
     will be rejected), for better compatibility with other platforms.
  *)
+
+
+(** {2 Algorithms} *)
+
+val copy : ?replace:bool -> stream_fs -> string -> stream_fs -> string -> unit
+  (** [copy orig_fs orig_name dest_fs dest_name]: Copies the file [orig_name]
+      from [orig_fs] to the file [dest_name] in [dest_fs]. By default,
+      the destination file is truncated and overwritten if it already
+      exists.
+
+      If [orig_fs] and [dest_fs] are the same object, the [copy] method
+      is called to perform the operation. Otherwise, the data is read
+      chunk by chunk from the file in [orig_fs] and then written to
+      the destination file in [dest_fs].
+
+      The copy does not preserve ownerships, file permissions, or
+      timestamps. (The [stream_fs] object does not represent these.)
+
+      - [replace]: If set, the destination file is removed and created again
+        if it already exists
+   *)
+
+val copy_into : ?replace:bool -> stream_fs -> string -> stream_fs -> string -> 
+                  unit
+  (** [copy_into orig_fs orig_name dest_fs dest_name]: 
+      Like [copy], but this version also supports recursive copies. The
+      [dest_name] must be an existing directory, and the file or tree at
+      [orig_name] is copied into it.
+
+      If [replace] and the destination file/directory already exists,
+      it is deleted before doing the copy.
+   *)
+
+type file_kind = [ `Regular | `Directory | `Other ]
+
+val iter : pre:(string -> file_kind -> unit) -> 
+           ?post:(string -> unit) ->
+            stream_fs -> string -> unit
+  (** [iter pre fs start]: Iterates over the file hierarchy at [start].
+      The function [pre] is called for every filename. The filenames
+      passed to [pre] are relative to [start]. The [start] must
+      be a directory.
+
+      For directories, the [pre] function is called for the directory
+      before it is called for the members of the directories.
+      The function [post] can additionally be passed. It is only called
+      for directories, but after the members.
+
+      Example: [iter pre fs "/foo"] would call
+      - [pre "dir" `Directory] (meaning the directory "/foo/dir")
+      - [pre "dir/file1" `File]
+      - [pre "dir/file2" `File]
+      - [post "dir"]
+
+   *)

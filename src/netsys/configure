@@ -12,6 +12,9 @@ have_printexc_register_printer_bool=false
 code_printexc_register_printer='()'
 have_ocaml_fancy_page_tables=0
 have_syslog=0
+have_at=0
+have_fchdir=0
+have_fdopendir=0
 
 stdlib=`ocamlc -where`
 
@@ -272,6 +275,87 @@ fi
 
 ######################################################################
 
+printf "Checking for POSIX functions like openat... "
+
+posix_at_compile=0
+posix_at_link_options=""
+rm -f configtests/atfunctions.err
+if (cd configtests; ocamlc -o atfunctions atfunctions.c main.ml -custom ) \
+      >>configtests/atfunctions.err 2>&1
+then
+    posix_at_compile=1
+fi
+
+if [ $posix_at_compile -gt 0 ]; then
+    if ( cd configtests && ./atfunctions >>atfunctions.err 2>&1) ; then
+	have_at=1
+    fi
+fi
+
+if [ $have_at -gt 0 ]; then
+    echo "found"
+    def_have_at="#define HAVE_AT"
+else
+    echo "not found"
+    def_have_at="#undef HAVE_AT"
+fi
+
+######################################################################
+
+printf "Checking for fchdir... "
+
+posix_fchdir_compile=0
+posix_fchdir_link_options=""
+rm -f configtests/fchdir.err
+if (cd configtests; ocamlc -o fchdir fchdir.c main.ml -custom ) \
+      >>configtests/fchdir.err 2>&1
+then
+    posix_fchdir_compile=1
+fi
+
+if [ $posix_fchdir_compile -gt 0 ]; then
+    if ( cd configtests && ./fchdir >>fchdir.err 2>&1) ; then
+	have_fchdir=1
+    fi
+fi
+
+if [ $have_fchdir -gt 0 ]; then
+    echo "found"
+    def_have_fchdir="#define HAVE_FCHDIR"
+else
+    echo "not found"
+    def_have_fchdir="#undef HAVE_FCHDIR"
+fi
+
+######################################################################
+
+printf "Checking for fdopendir... "
+
+posix_fdopendir_compile=0
+posix_fdopendir_link_options=""
+rm -f configtests/fdopendir.err
+if (cd configtests; ocamlc -o fdopendir fdopendir.c main.ml -custom ) \
+      >>configtests/fdopendir.err 2>&1
+then
+    posix_fdopendir_compile=1
+fi
+
+if [ $posix_fdopendir_compile -gt 0 ]; then
+    if ( cd configtests && ./fdopendir >>fdopendir.err 2>&1) ; then
+	have_fdopendir=1
+    fi
+fi
+
+if [ $have_fdopendir -gt 0 ]; then
+    echo "found"
+    def_have_fdopendir="#define HAVE_FDOPENDIR"
+else
+    echo "not found"
+    def_have_fdopendir="#undef HAVE_FDOPENDIR"
+fi
+
+######################################################################
+
 printf "Checking for GPROF... "
 
 if [ -f $stdlib/std_exit.p.cmx ]; then
@@ -311,6 +395,9 @@ $def_have_posix_memalign
 $def_have_posix_pthread
 $def_have_ocaml_fancy_page_tables
 $def_have_syslog
+$def_have_at
+$def_have_fchdir
+$def_have_fdopendir
 $def_have_gprof
 EOF
 

@@ -1,6 +1,29 @@
 - Uq_engines.signal_engine: should be thread-safe (signal function
   can be called from other thread)
 
+- complete Netfs, Netglob
+  * Netfs: test - DONE
+  * Netfs: maybe add copy method? - DONE
+  * Netfs: rm -r is maybe "too" insecure - DONE
+  * Netfs: support Win32 better - DONE (filenames)
+  * Netfs BUG: In copy und copy_into, filenames are not converted between
+    encodings.
+
+- unlinkat - DONE
+- fchdir - DONE
+
+- function for parsing "host:port" strings (also with IPv6 support)
+
+- Neturl: IPv6 support 
+
+- Neturl: internationalized URLs
+
+- continue netmulticore
+
+- Finishing pluggable DNS resolver
+
+- Finish FTP client
+
 ----------------------------------------------------------------------
 Plan for Ocamlnet 3
 ----------------------------------------------------------------------
@@ -9,8 +32,6 @@ Plan for Ocamlnet 3
 
   * Netclient: better storage methods. Pass status code (or even header)
     to the `File or `Body function.
-
-  * Strange: Uq operator ( >> ) is sometimes not generalized
 
 - Doc:
   * container sockets
@@ -358,8 +379,6 @@ Further ideas
 - Netplex + RPC + SSL: should be easy to configure
 
 - Better integration of SOCKS
-
-- Finishing pluggable DNS resolver
 
 - Netplex documentation:
    * netplex-admin

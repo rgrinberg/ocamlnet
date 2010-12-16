@@ -5,6 +5,9 @@
 /* Linux: make all system prototypes available */
 #define _GNU_SOURCE
 
+/* POSIX: we want POSIX.1-2008 if possible */
+#define _XOPEN_SOURCE 700
+
 #ifdef _WIN32
 #include "config_win32.h"
 #include <stdio.h>
@@ -145,6 +148,8 @@ value netsysw32_win_alloc_socket(SOCKET);
 extern value unix_error_of_code (int errcode);
 extern void unix_error (int errcode, char * cmdname, value arg) Noreturn;
 extern void uerror (char * cmdname, value arg) Noreturn;
+
+#define DIR_Val(v) *((DIR **) &Field(v, 0))
 
 #endif
 

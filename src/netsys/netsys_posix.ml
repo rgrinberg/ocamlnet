@@ -35,6 +35,11 @@ let file_descr_of_int =
 
 external sysconf_open_max : unit -> int = "netsys_sysconf_open_max";;
 
+(* misc *)
+
+external fchdir : Unix.file_descr -> unit = "netsys_fchdir" ;;
+external fdopendir : Unix.file_descr -> Unix.dir_handle = "netsys_fdopendir" ;;
+
 (* Process groups, sessions, terminals *)
 
 external getpgid : int -> int = "netsys_getpgid";;
@@ -328,6 +333,50 @@ let run_post_fork_handlers() =
 			   ^ pfh#name ^ ": " ^ Netexn.to_string error)
     )
     !post_fork_registry
+
+
+(* "at" *)
+
+type at_flag = AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_REMOVEDIR
+
+(* The stubs assume these type definitions: *)
+type open_flag1 = Unix.open_flag =
+    O_RDONLY | O_WRONLY | O_RDWR | O_NONBLOCK | O_APPEND | O_CREAT | O_TRUNC
+  | O_EXCL | O_NOCTTY | O_DSYNC | O_SYNC | O_RSYNC
+
+type access_permission1 = Unix.access_permission =
+    R_OK | W_OK | X_OK | F_OK
+
+
+external netsys_at_fdcwd : unit -> Unix.file_descr =
+    "netsys_at_fdcwd"
+
+let at_fdcwd = netsys_at_fdcwd()
+
+external have_at : unit -> bool 
+  = "netsys_have_at"
+external openat :  Unix.file_descr -> string -> Unix.open_flag list -> 
+                   Unix.file_perm ->  Unix.file_descr
+  = "netsys_openat"
+external faccessat : Unix.file_descr -> string -> Unix.access_permission list ->
+                     at_flag list -> unit
+  = "netsys_faccessat"
+external mkdirat : Unix.file_descr -> string -> int -> unit 
+  = "netsys_mkdirat"
+external renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> 
+                    unit
+  = "netsys_renameat"
+external linkat : Unix.file_descr -> string -> Unix.file_descr -> string ->
+                  at_flag list -> unit
+  = "netsys_linkat"
+external unlinkat : Unix.file_descr -> string -> at_flag list -> unit
+  = "netsys_unlinkat"
+external symlinkat : string -> Unix.file_descr -> string -> unit
+  = "netsys_symlinkat"
+external mkfifoat : Unix.file_descr -> string -> int -> unit
+  = "netsys_mkfifoat"
+external readlinkat : Unix.file_descr -> string -> string
+  = "netsys_readlinkat"
 
 
 (* Spawn *)

@@ -30,6 +30,8 @@ type mkdir_flag =
 type rmdir_flag =
     [ `Dummy ]
 
+type copy_flag =
+    [ `Dummy ]
 
 type test_type =
     [ `N | `E | `D | `F | `H | `R | `W | `X | `S ]
@@ -51,13 +53,18 @@ object
   method readdir : readdir_flag list -> string -> string list
   method mkdir : mkdir_flag list -> string -> unit
   method rmdir : rmdir_flag list -> string -> unit
+  method copy : copy_flag list -> string -> string -> unit
 end
 
 
 let slash_re = Netstring_pcre.regexp "/+"
 
-let readdir fn =
-  let d = Unix.opendir fn in
+let drive_re = Netstring_pcre.regexp "^[a-zA-Z]:$"
+
+exception Not_absolute
+exception Unavailable
+
+let readdir d =
   try
     let l = ref [] in
     ( try
@@ -71,8 +78,20 @@ let readdir fn =
     List.rev !l
   with
     | error -> Unix.closedir d; raise error
+
+let copy_prim orig_fs orig_name dest_fs dest_name =
+  Netchannels.with_in_obj_channel
+    (orig_fs#read [`Binary] orig_name)
+    (fun r_ch ->
+       Netchannels.with_out_obj_channel
+	 (dest_fs#write [`Binary; `Truncate; `Create] dest_name)
+	 (fun w_ch ->
+	    w_ch # output_channel r_ch
+	 )
+    )
+
       
-let local_fs ?encoding real_root : stream_fs =
+let local_fs ?encoding ?root () : stream_fs =
   let enc =
     match encoding with
       | None ->
@@ -102,7 +121,7 @@ let local_fs ?encoding real_root : stream_fs =
       | _ ->
 	  [ 0, 0; 47, 47 ] in
   let excl_array_size =
-    List.fold_left (fun mx (from,upto) -> max mx upto) 0 excl in
+    List.fold_left (fun mx (from,upto) -> max mx upto) 0 excl + 1 in
   let excl_array = (
     let a = Array.make excl_array_size false in
     List.iter
@@ -129,15 +148,58 @@ let local_fs ?encoding real_root : stream_fs =
     with Netconversion.Malformed_code ->
       failwith "Netfs: path does not conform to the filesystem encoding" in
 	  
+  let win32_root =
+    root = None && Sys.os_type = "Win32" in
+
+  let is_drive_letter s =
+    Netstring_pcre.string_match drive_re s 0 <> None in
+
+  let is_unc s =
+    String.length s >= 3 && s.[0] = '/' && s.[1] = '/' && s.[2] <> '/' in
+
   let check_and_norm_path p =
-    let l = Netstring_pcre.split_delim slash_re p in
-    ( match l with
-	| [] -> failwith "Netfs: empty path"
-	| "" :: _ -> ()
-	| _ -> failwith "Netfs: path not absolute (does not start with /)"
-    );
-    List.iter check_component l;
-    String.concat "/" l in
+    try
+      let l = Netstring_pcre.split_delim slash_re p in
+      ( match l with
+	  | [] -> failwith "Netfs: empty path"
+	  | "" :: first :: rest ->
+	      if win32_root then (
+		if ((not (is_drive_letter first) || rest=[]) && 
+		     not (is_unc p))
+		then
+		  raise Not_absolute
+	      )
+	  | first :: rest ->
+	      if win32_root then (
+		if not(is_drive_letter first) || rest=[] then
+		  raise Not_absolute
+	      )
+	      else raise Not_absolute
+      );
+      List.iter check_component l;
+      let np = String.concat "/" l in
+      if win32_root then (
+	if is_unc p then
+	  "/" ^ np
+	else
+	  if np.[0] = '/' then
+	    String.sub np 1 (String.length np - 1)  (* remove leading / *)
+	  else np
+      )
+      else np
+    with 
+      | Not_absolute ->
+	  failwith "Netfs: path not absolute"
+  in
+
+  let real_root =
+    match root with
+      | None ->
+	  ""
+      | Some r ->
+	  if (Unix.stat r).Unix.st_kind <> Unix.S_DIR then
+	    failwith "Netfs.local_fs: root is not a directory";
+	  r in
 
   let ci = (* FIXME *)
     Sys.os_type <> "Unix" in
@@ -169,6 +231,9 @@ let local_fs ?encoding real_root : stream_fs =
 	    | _ -> assert false in
 	(* Use Unix.openfile to open so we get Unix_errors on error *)
 	let fd = Unix.openfile fn [Unix.O_RDONLY] 0 in
+	let st = Unix.fstat fd in
+	if st.Unix.st_kind = Unix.S_DIR then
+	  raise(Unix.Unix_error(Unix.EISDIR,"Netfs.read",""));
 	if skip > 0L then
 	  ignore(Unix.LargeFile.lseek fd skip Unix.SEEK_SET);
 	let ch = Unix.in_channel_of_descr fd in
@@ -189,7 +254,7 @@ let local_fs ?encoding real_root : stream_fs =
 	      if exclusive then [ Unix.O_EXCL ] else [];
 	    ] in
 	(* Use Unix.openfile to open so we get Unix_errors on error *)
-	let fd = Unix.openfile fn mode 00666 in
+	let fd = Unix.openfile fn mode 0o666 in
 	let ch = Unix.out_channel_of_descr fd in
 	set_binary_mode_out ch binary;
 	new Netchannels.output_channel ch
@@ -258,29 +323,83 @@ let local_fs ?encoding real_root : stream_fs =
 
       method remove flags filename =
 	let fn = real_root ^ check_and_norm_path filename in
-	if List.mem `Recursive flags then
-	  self#rm_r fn
+	if List.mem `Recursive flags then (
+	  try
+	    self#rm_r_safe fn
+	  with Unavailable ->
+	    self#rm_r_trad fn
+	)
 	else
 	  Unix.unlink fn
 
-      method private rm_r fn =
+      (* A rename race: while the recursive removal progresses, a second
+	 process renames the directory. The removal function suddenly
+	 does not find the directory anymore. Even worse, the second
+	 process could move a different directory into the place of the
+	 old directory being deleted. In this case, the wrong data would
+	 be deleted.
+
+	 We can avoid this in the style of rm_r_safe, or by chdir-ing
+	 into the directory hierarchy. The latter is incompatible with
+	 multi-threading, so we don't do it here.
+       *)
+
+      method private rm_r_trad fn =
+	(* "traditional" implemenation w/o protection against rename races *)
 	let is_dir fn =
 	  try (Unix.stat fn).Unix.st_kind = Unix.S_DIR
 	  with _ -> false in
 	let rec recurse fn =
 	  if is_dir fn then (
-	    let files = readdir fn in
+	    let files = readdir (Unix.opendir fn) in
 	    List.iter
 	      (fun file ->
 		 if file <> "." && file <> ".." then (
 		   recurse (fn ^ "/" ^ file)
 		 )
 	      )
-	      files
+	      files;
+	    Unix.rmdir fn;
 	  )
 	  else
 	    Unix.unlink fn in
 	recurse fn
+
+      method private rm_r_safe fn =
+	(* safer implemention using openat and fdopendir *)
+	let rec rm_dir_entries fd =
+	  let files = readdir (Netsys_posix.fdopendir (Unix.dup fd)) in
+	  List.iter
+	    (fun file ->
+	       if file <> "." && file <> ".." then
+		 rm_dir_or_file fd file
+	    )
+	    files
+	and rm_dir_or_file fd file =
+	  let file_fd = Netsys_posix.openat fd file [Unix.O_RDONLY] 0 in
+	  let file_is_dir =
+	    try (Unix.fstat file_fd).Unix.st_kind = Unix.S_DIR
+	    with _ -> false in
+	  if file_is_dir then (
+	    ( try rm_dir_entries file_fd
+	      with error -> Unix.close file_fd; raise error
+	    );
+	    Unix.close file_fd;
+	    Netsys_posix.unlinkat fd file [Netsys_posix.AT_REMOVEDIR]
+	  )
+	  else (
+	    Unix.close file_fd;
+	    Netsys_posix.unlinkat fd file []
+	  ) in
+	let test_availability() =
+	  if not (Netsys_posix.have_at()) then raise Unavailable;
+	  try
+	    let dir = 
+	      Netsys_posix.fdopendir(Unix.openfile "." [Unix.O_RDONLY] 0) in
+	    Unix.closedir dir
+	  with _ -> raise Unavailable in
+	test_availability();
+	rm_dir_or_file Netsys_posix.at_fdcwd fn
 
       method rename flags oldname newname =
 	let oldfn = real_root ^ check_and_norm_path oldname in
@@ -294,7 +413,7 @@ let local_fs ?encoding real_root : stream_fs =
 
       method readdir flags filename =
 	let fn = real_root ^ check_and_norm_path filename in
-	readdir fn
+	readdir (Unix.opendir fn)
 
       method mkdir flags filename =
 	if List.mem `Path flags then
@@ -327,19 +446,72 @@ let local_fs ?encoding real_root : stream_fs =
       method rmdir flags filename =
 	let fn = real_root ^ check_and_norm_path filename in
 	Unix.rmdir fn
+
+      method copy flags srcfilename destfilename =
+	copy_prim self srcfilename self destfilename
     end
   )
 
 
-let copy ?(replace=false) orig_fs orig_name dest_fs dest_name =
+let copy ?(replace=false) (orig_fs:stream_fs) orig_name dest_fs dest_name =
   if replace then
     dest_fs # remove [] dest_name;
-  Netchannels.with_in_obj_channel
-    (orig_fs#read [`Binary] orig_name)
-    (fun r_ch ->
-       Netchannels.with_out_obj_channel
-	 (dest_fs#write [`Binary; `Truncate; `Create] dest_name)
-	 (fun w_ch ->
-	    w_ch # output_channel r_ch
+  if orig_fs = dest_fs then
+    orig_fs # copy [] orig_name dest_name
+  else
+    copy_prim orig_fs orig_name dest_fs dest_name
+
+type file_kind = [ `Regular | `Directory | `Other ]
+
+
+let iter ~pre ?(post=fun _ -> ()) (fs:stream_fs) start =
+  let rec iter_members dir rdir =
+    let files = fs # readdir [] dir in
+    List.iter
+      (fun file ->
+	 if file <> "." && file <> ".." then (
+	   let absfile = dir ^ "/" ^ file in
+	   let relfile = if rdir="" then file else rdir ^ "/" ^ file in
+	   let l = fs#test_list [] absfile in
+	   if List.mem `D l then (
+	     pre relfile `Directory;
+	     iter_members absfile relfile;
+	     post relfile
+	   )
+	   else (
+	     let t = if List.mem `F l then `Regular else `Other in
+	     pre relfile t
+	   )
 	 )
-    )
+      )
+      files in
+  iter_members start ""
+
+
+let copy_into ?(replace=false) (orig_fs:stream_fs) orig_name dest_fs dest_name =
+  let orig_base = Filename.basename orig_name in
+  if not(dest_fs # test [] dest_name `D) then
+    failwith "Netfs.copy_into: destination directory does not exist";
+  if orig_fs # test [] orig_name `D then (
+    let dest_start = dest_name ^ "/" ^ orig_base in
+    if replace then
+      dest_fs # remove [ `Recursive ] dest_start;
+    dest_fs # mkdir [ `Nonexcl ] dest_start;
+    iter
+      ~pre:(fun rpath typ ->
+	      match typ with
+		| `Regular ->
+		    copy 
+		      orig_fs (orig_name ^ "/" ^ rpath) 
+		      dest_fs (dest_start ^ "/" ^ rpath)
+		| `Directory ->
+		    dest_fs # mkdir
+		      [ `Nonexcl ] (dest_start ^ "/" ^ rpath)
+		| `Other ->
+		    ()
+	   )
+      orig_fs
+      orig_name
+  )
+  else
+    copy ~replace orig_fs orig_name dest_fs (dest_name ^ "/" ^ orig_base)

@@ -29,6 +29,10 @@
 #include <syslog.h>
 #endif
 
+#ifdef HAVE_FDOPENDIR
+#include <dirent.h>
+#endif
+
 
 CAMLprim value netsys_int64_of_file_descr(value fd) {
 #ifdef _WIN32
@@ -234,6 +238,223 @@ CAMLprim value netsys_fdatasync(value fd) {
     invalid_argument("Netsys.fdatasync not available");
 #endif
 }
+
+CAMLprim value netsys_fchdir(value fd) {
+#ifdef HAVE_FCHDIR
+    if (fchdir(Int_val(fd)) == -1) uerror("fchdir", Nothing);
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.fchdir not available");
+#endif
+}
+
+CAMLprim value netsys_fdopendir(value fd)
+{
+#ifdef HAVE_FDOPENDIR
+  DIR * d;
+  value res;
+  d = fdopendir(Int_val(fd));
+  if (d == (DIR *) NULL) uerror("fdopendir", Nothing);
+  res = alloc_small(1, Abstract_tag);
+  DIR_Val(res) = d;
+  return res;
+#else
+  invalid_argument("Netsys_posix.fdopendir not available");
+#endif
+}
+
+/**********************************************************************/
+/* "at" functions (POSIX 1-2008)                                      */
+/**********************************************************************/
+
+CAMLprim value netsys_have_at(value dummy)
+{
+#ifdef AT_FDCWD
+    return Val_true;
+#else
+    return Val_false;
+#endif
+}
+
+CAMLprim value netsys_at_fdcwd(value dummy)
+{
+#ifdef AT_FDCWD
+    return Val_int(AT_FDCWD);
+#else
+    return Val_int(-1);
+#endif
+}
+
+#ifdef HAVE_AT
+
+#ifndef AT_EACCESS
+#define AT_EACCESS 0
+#endif
+
+#ifndef AT_SYMLINK_NOFOLLOW
+#define AT_SYMLINK_NOFOLLOW 0
+#endif
+
+static int at_flags_table[] = {
+    AT_EACCESS, AT_SYMLINK_NOFOLLOW, AT_REMOVEDIR
+};
+#endif
+
+
+/* Must be identical to the constants provided by the Unix module */
+#ifdef HAVE_AT
+static int open_flag_table[] = {
+  O_RDONLY, O_WRONLY, O_RDWR, O_NONBLOCK, O_APPEND, O_CREAT, O_TRUNC, O_EXCL, 
+  O_NOCTTY, O_DSYNC, O_SYNC, O_RSYNC
+};
+#endif
+
+CAMLprim value netsys_openat(value dirfd, value path, value flags, value perm)
+{
+#ifdef HAVE_AT
+    CAMLparam4(dirfd, path, flags, perm);
+    int ret, cv_flags;
+    char * p;
+
+    /* shamelessly copied from ocaml distro */
+    cv_flags = convert_flag_list(flags, open_flag_table);
+    p = stat_alloc(string_length(path) + 1);
+    strcpy(p, String_val(path));
+    enter_blocking_section();
+    ret = openat(Int_val(dirfd), p, cv_flags, Int_val(perm));
+    leave_blocking_section();
+    stat_free(p);
+    if (ret == -1) uerror("openat", path);
+    CAMLreturn (Val_int(ret));
+#else
+    invalid_argument("Netsys_posix.openat not available");
+#endif
+}
+
+/* Must be identical to the constants provided by the Unix module */
+#ifdef HAVE_AT
+static int access_permission_table[] = {
+  R_OK, W_OK, X_OK, F_OK
+};
+#endif
+
+
+CAMLprim value netsys_faccessat(value dirfd, value path, value perms, 
+				value flags)
+{
+#ifdef HAVE_AT
+    int ret, cv_perms, cv_flags;
+    cv_perms = convert_flag_list(perms, access_permission_table);
+    cv_flags = convert_flag_list(flags, at_flags_table);
+    cv_flags &= (AT_EACCESS | AT_SYMLINK_NOFOLLOW);
+    ret = faccessat(Int_val(dirfd), String_val(path), cv_perms, cv_flags);
+    if (ret == -1)
+	uerror("faccessat", path);
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.faccessat not available");
+#endif
+}
+
+
+CAMLprim value netsys_mkdirat(value dirfd, value path, value perm)
+{
+#ifdef HAVE_AT
+    if (mkdirat(Int_val(dirfd), String_val(path), Int_val(perm)) == -1) 
+	uerror("mkdirat", path);
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.mkdirat not available");
+#endif
+}
+
+
+CAMLprim value netsys_renameat(value olddirfd, value oldpath,
+			       value newdirfd, value newpath)
+{
+#ifdef HAVE_AT
+    if (renameat(Int_val(olddirfd), String_val(oldpath),
+		 Int_val(newdirfd), String_val(newpath)) == -1)
+	uerror("renameat", oldpath);
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.renameat not available");
+#endif
+}
+
+
+CAMLprim value netsys_linkat(value olddirfd, value oldpath,
+			     value newdirfd, value newpath, value flags)
+{
+#ifdef HAVE_AT
+    int cv_flags;
+    cv_flags = convert_flag_list(flags, at_flags_table);
+    cv_flags &= AT_SYMLINK_FOLLOW;  /* only allowed flag here */
+    if (linkat(Int_val(olddirfd), String_val(oldpath),
+	       Int_val(newdirfd), String_val(newpath), cv_flags) == -1)
+	uerror("linkat", oldpath);
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.linkat not available");
+#endif
+}
+
+
+CAMLprim value netsys_unlinkat(value dirfd, value path, value flags)
+{
+#ifdef HAVE_AT
+    int cv_flags;
+    cv_flags = convert_flag_list(flags, at_flags_table);
+    cv_flags &= AT_REMOVEDIR;  /* only allowed flag here */
+    if (unlinkat(Int_val(dirfd), String_val(path), cv_flags) == -1)
+	uerror("unlinkat", path);
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.unlinkat not available");
+#endif
+}
+
+
+CAMLprim value netsys_symlinkat(value oldpath,
+				value newdirfd, value newpath)
+{
+#ifdef HAVE_AT
+    if (symlinkat(String_val(oldpath),
+		  Int_val(newdirfd), String_val(newpath)) == -1)
+	uerror("symlinkat", oldpath);
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.symlinkat not available");
+#endif
+}
+
+
+CAMLprim value netsys_mkfifoat(value dirfd, value path, value mode)
+{
+#ifdef HAVE_AT
+    if (mkfifoat(Int_val(dirfd), String_val(path), Int_val(mode)) == -1)
+	uerror("mkfifoat", path);
+    return Val_unit;
+#else
+    invalid_argument("Netsys_posix.mkfifoat not available");
+#endif
+}
+
+
+CAMLprim value netsys_readlinkat(value dirfd, value path)
+{
+#ifdef HAVE_AT
+  char buffer[PATH_MAX];
+  int len;
+  len = readlinkat(Int_val(dirfd), String_val(path), buffer, sizeof(buffer)-1);
+  if (len == -1) uerror("readlinkat", path);
+  buffer[len] = '\0';
+  return copy_string(buffer);
+#else
+    invalid_argument("Netsys_posix.readlinkat not available");
+#endif
+}
+
 
 /**********************************************************************/
 /* poll interface                                                     */

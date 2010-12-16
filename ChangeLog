@@ -1,3 +1,10 @@
+2010-12-16  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Netfs: new abstraction representing simple filesystems
+	  (both local and remote)
+	* Netsys_posix: adding the *at functions (like openat).
+	  Also fchdir and fdopendir are new.
+
 2010-12-09  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Http_client: fixing aggressive connection caching. Also

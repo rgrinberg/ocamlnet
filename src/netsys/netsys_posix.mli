@@ -156,6 +156,73 @@ val run_post_fork_handlers : unit -> unit
    *)
 
 
+(** {1 The "at" variants of system calls} *)
+
+(** Note that a few "at" calls have been omitted because the same
+    functionality can be achieved by first opening the file with
+    [openat] and then by using a function that references the file
+    by descriptor. An example for this is [fstatat]: After the
+    [openat] call one can use [fstat] to get the stat record of the
+    file.
+ *)
+
+val have_at : unit -> bool
+  (** Whether the [*at] functions are available (they were only recently
+      standardized and cannot be expected on all OS yet)
+   *)
+
+val at_fdcwd : Unix.file_descr
+  (** Pseudo descriptor value to be used as first argument of [*at]
+      functions
+   *)
+
+type at_flag = AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_REMOVEDIR
+  (** Flags one can pass to "at" functions. Not all functions support
+      all flags
+   *)
+
+val openat : Unix.file_descr -> string -> Unix.open_flag list -> 
+             Unix.file_perm -> 
+                Unix.file_descr
+  (** Same as [Unix.openfile] but open relative to the directory given
+      by first argument
+   *)
+
+val faccessat : Unix.file_descr -> string -> Unix.access_permission list ->
+                at_flag list ->
+                  unit
+  (** Same as [Unix.access] but the file is taken relative to the directory
+      given by first argument
+   *)
+
+val mkdirat : Unix.file_descr -> string -> int -> unit
+  (** Same as [Unix.mkdir] but the file is taken relative to the directory
+      given by first argument
+   *)
+ 
+val renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit
+  (** [renameat olddirfd oldpath newdirfd newpath] *)
+
+val linkat : Unix.file_descr -> string -> Unix.file_descr -> string ->
+             at_flag list -> unit
+  (** [linkat olddirfd oldpath newdirfd newpath flags] *)
+
+val unlinkat : Unix.file_descr -> string -> at_flag list -> unit
+  (** Same as [Unix.unlink] but unlink the file relative to the directory
+      given by first argument
+   *)
+
+val symlinkat : string -> Unix.file_descr -> string -> unit
+  (** [symlinkat oldpath newdirfd newpath flags] *)
+
+val mkfifoat : Unix.file_descr -> string -> int -> unit
+  (** [mkfifoat dirfd path mode] *)
+
+val readlinkat : Unix.file_descr -> string -> string
+  (** [readlinkat dirfd path] *)
+
+(* TODO: futimens *)
+
 (** {1 Misc} *)
 
 val int_of_file_descr : Unix.file_descr -> int
@@ -170,6 +237,23 @@ external sysconf_open_max : unit -> int = "netsys_sysconf_open_max"
   (** Return the maximum number of open file descriptor per process.
    * It is also ensured that for every file descriptor [fd]:
    * [fd < sysconf_open_max()]
+   *)
+
+external fchdir : Unix.file_descr -> unit = "netsys_fchdir"
+  (** Set the current directory to the directory referenced by the
+      file descriptor
+   *)
+
+external fdopendir : Unix.file_descr -> Unix.dir_handle = "netsys_fdopendir"
+  (** Make a directory handle from a file descriptor. The descriptor
+      is then "owned" by the directory handle, and will be closed by
+      [Unix.closedir].
+
+      This function is useful in conjunction with {!Netsys_posix.openat}
+      to read directories relative to a parent directory.
+
+      This is a recent addition to the POSIX standard; be prepared to
+      get [Invalid_argument] because it is unavailable.
    *)
 
 (* Process groups, sessions, terminals *)
