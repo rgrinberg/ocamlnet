@@ -2320,6 +2320,14 @@ CAMLprim value netsys_sem_wait(value srv, value bv)
 /* Multicast                                                          */
 /**********************************************************************/
 
+#ifndef PF_INET
+#define PF_INET AF_INET
+#endif
+
+#ifndef PF_INET6
+#define PF_INET6 AF_INET6
+#endif
+
 static int socket_domain(int fd) {
     /* Return the socket domain, PF_INET or PF_INET6. Fails for non-IP 
        protos.
