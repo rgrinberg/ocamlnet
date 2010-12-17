@@ -6,7 +6,8 @@
 #define _GNU_SOURCE
 
 /* POSIX: we want POSIX.1-2008 if possible */
-#define _XOPEN_SOURCE 700
+/* #define _XOPEN_SOURCE 700 */
+
 
 #ifdef _WIN32
 #include "config_win32.h"
