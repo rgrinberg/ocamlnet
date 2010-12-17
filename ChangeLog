@@ -1,3 +1,7 @@
+2010-12-17  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Netglob: new module for globbing
+
 2010-12-16  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Netsys_posix: adding query_langinfo function for basic

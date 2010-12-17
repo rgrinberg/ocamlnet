@@ -99,6 +99,13 @@ let local_fs ?encoding ?root () : stream_fs =
 	      | _ -> None
 	  )
       | Some e -> Some e in
+  ( match enc with
+      | None -> ()
+      | Some e ->
+	  if not (Netconversion.is_ascii_compatible e) then
+	    failwith
+	      "Netfs.local_fs: the encoding is not ASCII-compatible";
+  );
   let excl =
     match Sys.os_type with
       | "Win32" | "Cygwin" ->

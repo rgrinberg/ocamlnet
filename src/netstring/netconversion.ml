@@ -504,7 +504,6 @@ let rec required_charsets (e : encoding) =
 ;;
 
 
-
 let rec same_encoding e1 e2 =
   match (e1,e2) with
       (`Enc_subset(e1_sub, f1), `Enc_subset(e2_sub, f2)) ->

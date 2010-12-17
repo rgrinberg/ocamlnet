@@ -596,7 +596,6 @@ val from_unicode : charset -> int -> int
    * - PRE_EVAL(charset)
    *)
 
-
 val available_input_encodings : unit -> encoding list
   (** Returns the list of all available encodings that can be used for
    * input strings. The list reflects the set of loadable/linked [Netmapping]
