@@ -568,8 +568,6 @@ type langinfo =
       nl_THOUSEP : string;  
       nl_YESEXPR : string;  
       nl_NOEXPR : string;  
-      nl_YESSTR : string;  
-      nl_NOSTR : string;  
       nl_CRNCYSTR : string;  
     }
 

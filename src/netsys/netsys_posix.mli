@@ -848,8 +848,6 @@ type langinfo =
       nl_THOUSEP : string;  (** from [LC_NUMERIC]: separator for thousands *)
       nl_YESEXPR : string;  (** from [LC_MESSAGES]: affirmative response expression *)
       nl_NOEXPR : string;  (** from [LC_MESSAGES]: negative response expression *)
-      nl_YESSTR : string;  (** from [LC_MESSAGES]: affirmative response for yes/no queries(LEGACY) *)
-      nl_NOSTR : string;  (** from [LC_MESSAGES]: negative response for yes/no queries(LEGACY) *)
       nl_CRNCYSTR : string;  (** from [LC_MONETARY]: currency  *)
     }
 
