@@ -298,7 +298,7 @@ if [ $have_at -gt 0 ]; then
     echo "found"
     def_have_at="#define HAVE_AT"
 else
-    echo "not found"
+    echo "not found (or incomplete)"
     def_have_at="#undef HAVE_AT"
 fi
 
