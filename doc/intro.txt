@@ -65,6 +65,8 @@ are supported on which platform:
    Netaccel_link
    Nethtml
    Nethttp
+   Netfs
+   Netglob
    Netstring_str
    Netstring_pcre
    Netmappings

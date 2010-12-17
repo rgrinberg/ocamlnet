@@ -17,6 +17,8 @@
     of {!Netglob.glob_fsys} are available.
  *)
 
+(** {2 Types and exceptions} *)
+
 type glob_expr = glob_expr_atom list
 
 and glob_expr_atom =
@@ -27,11 +29,11 @@ and glob_expr_atom =
     | `Brace of glob_expr list
     | `Tilde of string
     ]
-(** 
+(** Atoms:
+
     - [`Literal s]: Matches the string literally. The string must not be empty. 
        The backslash is not an escape character, but matches the
-       backslash character. Two adjecent [`Literal] atoms are
-       not allowed in a [glob_expr].
+       backslash character.
     - [`Star]: The "*" operator
     - [`Qmark]: The "?" operator
     - [`Bracket(negated,set)]:  The [[...]] operator. The [set] argument
@@ -47,19 +49,76 @@ and glob_expr_atom =
     implement brace expressions in a slightly different way (braces are
     parsed and expanded in a separate step before the other pattern
     constructors are handled). The cases where this leads to different
-    results are quite exotic (e.g. "{~g,~h}1" would mean "~g1 ~h1", but
+    results are quite exotic (e.g. ["{~g,~h}1"] would mean ["~g1 ~h1"], but
     this implementation rejects the pattern).
  *)
 
 and glob_set = < set : (int * int) list >
-  (** A set of code points is given as a list of ranges [(from,to)]. The ranges
-      must be sorted, and between consecutive range pairs there must be
-      a hole in the range. The code points are from Unicode.
+  (** A set of code points is given as a list of ranges [(from,to)], with
+      [from <= to]. It is allowed that ranges overlap.
    *)
 
 
 type valid_glob_expr
   (** A validated [glob_expr] *)
+
+
+(** Access to the user database *)
+class type user_info =
+object
+  method path_encoding : Netconversion.encoding option
+    (** Paths of filesystems may be encoded *)
+
+  method home_directory : string -> string
+    (** Returns the home directory of the passed user, or the home
+	directory of the current user for the empty string. Raises
+	[Not_found] if the lookup fails.
+     *)
+end
+
+(** Filesystem primitives. This is intentionally not the same as
+    {!Netfs.stream_fs} because only a few access functions are needed
+    here, and because the functions here should also be capable of accessing
+    relative paths (not starting with /). It is possible to turn a
+    {!Netfs.stream_fs} into {!Netglob.glob_fs} by calling 
+    {!Netglob.of_stream_fs}.
+ *)
+class type glob_fsys =
+object
+  method path_encoding : Netconversion.encoding option
+    (** Paths of filesystems may be encoded *)
+  method read_dir : string -> string list
+    (** Returns the file names contained in the directory, without
+        path. The names "." and ".." should be returned. It is acceptable
+        to return the empty list for an unreadable directory.
+     *)
+  method file_is_dir : string -> bool
+    (** Whether the file name is valid and a directory, or a symlink to
+        a directory.
+     *)
+  method file_exists : string -> bool
+    (** Whether the file name is valid and refers to an existing file,
+        or to a symlink pointing to an existing file.
+     *)
+end
+
+type glob_mode = [ `Existing_paths
+                 | `All_paths
+                 | `All_words
+                 ]
+  (** Modes:
+      - [`Existing_paths]: Only paths are returned that really exist
+      - [`All_paths]: Generated paths not including [*], [?] and
+        bracket expressions are returned even if they do not exist.
+        For example, globbing for ["fictive{1,2,3}"] would return
+        [["ficitve1";"fictive2";"fictive3"]] independent of whether
+        these files exist.
+      - [`All_words]: Patterns that cannot be resolved are returned
+        as-is (like the shell does)
+   *)
+
+type pattern = [ `String of string | `Expr of valid_glob_expr ]
+  (** Input for {!Netglob.glob} *)
 
 exception Bad_glob_expr of string
   (** An syntax error in the glob expression; the argument is the bad
@@ -71,6 +130,8 @@ exception Unsupported_expr of string
    * not supported by this implementation. If they are found, this exception
    * will be raised, and the argument is the whole glob expression
    *)
+
+(** {2 Parsing and printing} *)
 
 val parse_glob_expr : 
            ?encoding:Netconversion.encoding ->
@@ -98,7 +159,7 @@ val parse_glob_expr :
    * - [[!expr]] or [[^expr]]: Negates the bracket expression
    * - [{expr,expr,...}]: Generates a string for each of the alternatives.
    *   A brace expression is even recognized if there is no comma, or even
-   *   no contents (i.e. "{expr}" and "{}"). The elements of brace expressions
+   *   no contents (i.e. ["{expr}"] and ["{}"]). The elements of brace expressions
    *   may be again glob expressions; nested brace expressions are allowed.
    * - [~username]: Generates the home directory of this user
    * - [~]: Generates the home directory of the current user
@@ -126,23 +187,16 @@ val encoding_of_glob_expr : valid_glob_expr -> Netconversion.encoding
 val literal_glob_expr : Netconversion.encoding -> string -> valid_glob_expr
   (** Returns an expression that matches literally the passed string *)
 
-val print_glob_expr :  valid_glob_expr -> string
-  (** Prints the glob expression as string. Meta characters are always
-   * escaped by a backslash. Meta characters are:
-   *   "*", "?", "[", "]", "{", "}", ",", "~" and "\\" 
+val print_glob_expr : ?escape_in_literals:bool -> valid_glob_expr -> string
+  (** Prints the glob expression as string. Meta characters are 
+   * escaped by a backslash when possible. Meta characters are:
+   * ["*"], ["?"], ["["], ["]"], ["{"], ["}"], [","], ["~"] and ["\\"] 
+   *
+   * - [escape_in_literals]: Whether meta characters in [`Literal]
+   *   subexpressions are escaped. This is true by default.
    *)
 
-class type user_info =
-object
-  method path_encoding : Netconversion.encoding option
-    (** Paths of filesystems may be encoded *)
-
-  method home_directory : string -> string
-    (** Returns the home directory of the passed user, or the home
-	directory of the current user for the empty string. Raises
-	[Not_found] if the lookup fails.
-     *)
-end
+(** {2 Operations on [valid_glob_expr]} *)
 
 val expand_glob_expr : 
       ?user_info:user_info ->
@@ -153,7 +207,7 @@ val expand_glob_expr :
    * list of glob expr no longer contains the expanded constructions.
    *
    * - [expand_brace]: Expands [`Brace] subexpressions.
-   * - [expand_tilde]: Expands [`Tilde] subexrpessions.
+   * - [expand_tilde]: Expands [`Tilde] subexpressions.
    * - [user_info]: The subset of file system operations needed for tilde
    *   expansion. Defaults to {!Netglob.local_user_info} (see below).
    *
@@ -236,31 +290,7 @@ val check_directory_glob_expr : valid_glob_expr -> valid_glob_expr option
    * or tilde expressions.
    *)
 
-class type glob_fsys =
-object
-  method path_encoding : Netconversion.encoding option
-    (** Paths of filesystems may be encoded *)
-  method read_dir : string -> string list
-    (** Returns the file names contained in the directory, without
-        path. The names "." and ".." should be returned. It is acceptable
-        to return the empty list for an unreadable directory.
-     *)
-  method file_is_dir : string -> bool
-    (** Whether the file name is valid and a directory, or a symlink to
-        a directory.
-     *)
-  method file_exists : string -> bool
-    (** Whether the file name is valid and refers to an existing file,
-        or to a symlink pointing to an existing file.
-     *)
-end
-
-type glob_mode = [ `Existing_paths
-                 | `All_paths
-                 | `All_words
-                 ]
-
-type pattern = [ `String of string | `Expr of valid_glob_expr ]
+(** {2 Globbing} *)
 
 val glob :
       ?encoding:Netconversion.encoding ->  (* default: `Enc_iso88591 *)
@@ -309,10 +339,10 @@ val glob :
    * {b Braces:} Brace expressions are handled by expanding them first, even
    * before filename generation starts.
    *
-   * {b Existence:} If no files match, the empty list is returned.
-   *
-   * By default, only existing paths are returned. By passing a
-   * different [mode], this can be changed:
+   * {b Mode:} By default, only existing paths are returned
+   * ([mode=`Existing_paths]).
+   * If no files match, the empty list is returned (and not the pattern
+   * as the shell does). By passing a different [mode], this can be changed:
    * - [`All_paths]: It is allowed that non-existing paths
    *    are returned when the paths do not contain *, ?, or \[
    *    metacharacters after the brace expansion. Path expressions
@@ -336,8 +366,8 @@ val glob :
    * of the filename encoding. Also, (2) one should not use literals
    * in the pattern that cannot be represented in the filename encoding.
    * If (2) cannot be satisfied, ensure you have at least 
-   * [mode=`Existing_paths], i.e. the default mode (this returns the
-   * empty list when a conversion problem occurs).
+   * [mode=`Existing_paths], i.e. the default mode (this removes results
+   * from the returned list when a conversion problem occurs).
    *
    * The return value of [glob] is encoded in the encoding of the filesystem
    * if the filesystem provides an encoding. (If you want to check this
@@ -345,7 +375,9 @@ val glob :
    * [path_encoding] method of [fsys].)
    *)
 
-(** Example for mixed encodings: (Linux)
+(** {2 Remarks} *)
+
+(** {b Examples demonstrating the effect of encodings:} (Linux)
 
     {[
        let fsys = local_fsys ~encoding:`Enc_utf8()
@@ -378,13 +410,12 @@ val glob :
     ]}
 
     will find it, however, because ISO-8859-15 includes the euro sign.
-
     In internationalized environments, it is strongly suggested to
     either use the same encodings for patterns and file names, or
     at least UTF-8 for patterns.
  *)
 
-(** Notes for Win32:
+(** {b Notes for Win32:}
 
   - Globbing only supports forward slashes, not backslashes as path
     separators
@@ -395,6 +426,8 @@ val glob :
   - The usually case-insensitive file system is not taken into account.
     (To be fixed.)
  *)
+
+(** {2 Default access objects} *)
 
 class local_user_info : unit -> user_info
 val local_user_info : unit -> user_info
@@ -410,7 +443,7 @@ val of_stream_fs : Netfs.stream_fs -> glob_fsys
   (** Use an arbitrary network filesystem for globbing *)
 
 
-(** {2 Compatibilty}
+(** {2 Compatibility}
 
     This implementation is not fully compatible with the POSIX specs.
     The differences:
@@ -429,4 +462,46 @@ val of_stream_fs : Netfs.stream_fs -> glob_fsys
       "a", "b", "/" and "*" characters.
     - The "^" character negates the set if used at the beginning of
       bracket expressions. POSIX leaves this unspecified.
+    - Brace expresions are an extension (although commonly implemented
+      in shells).
+    - The default globbing mode is [`Existing_paths] which is not
+      defined by POSIX. Use [`All_paths] for getting POSIX behavior.
+
+    Compared with popular shells, there are some subtle differences in
+    how the various syntax elements (wildcards, braces, tildes) are
+    parsed and processed. Shells do it in this order:
+    - Parse and expand brace expressions
+    - Parse and expand tildes
+    - Split the paths at slashes into path components
+    - Parse and expand wildcards
+    
+    For example, after expanding braces it is possible to see totally
+    new tilde or wildcard expressions, e.g. ["~user{1,2}/file"] would
+    be legal. This implementation here does not support this - we first
+    parse the expression, and then interpret it. However, users interested in
+    a higher degree of compatibility can call the {!Netglob} parsing,
+    processing and printing functions in the required order, and emulate
+    the shell behavior. For example,
+
+    {[
+  let alt_glob pat =
+    let g1 = 
+       parse_glob_expr 
+         ~enable_star:false ~enable_qmark:false ~enable_brackets:false
+         ~enable_tilde:false        (* only braces remain enabled *)
+          pat in
+    let g2_list = 
+       expand_glob_expr g1 in
+    let pat2_list = 
+       List.map (print_glob_expr ~escape_in_literals:false) g2_list in
+    let g3_list =
+       List.map
+         (fun pat2 -> parse_glob_expr ~enable_braces:false pat2) 
+         pat2_list in
+    List.flatten
+      (List.map (fun g3 -> glob (`Expr g3)) g3_list)
+    ]}
+
+    would parse and expand brace expressions in a separate step before 
+    running [glob] on the remaining syntactic elements.
  *)

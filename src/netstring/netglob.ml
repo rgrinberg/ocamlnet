@@ -418,13 +418,17 @@ let esc_re = Netstring_pcre.regexp "[][*?{},\\\\~]";;
 let esc_subst m s =
   "\\" ^ Netstring_pcre.matched_group m 0 s
 
-let print_glob_expr expr =
+let print_glob_expr ?(escape_in_literals=true) expr =
   let buf = Buffer.create 200 in
   let rec print gl =
     match gl with
       | `Literal s :: gl' ->
-          Buffer.add_string buf 
-	    (Netstring_pcre.global_substitute esc_re esc_subst s);
+          Buffer.add_string buf
+	    (if escape_in_literals then
+	       Netstring_pcre.global_substitute esc_re esc_subst s
+	     else
+	       s
+	    );
           print gl'
       | `Star :: gl' ->
           Buffer.add_string buf "*";

@@ -2,10 +2,13 @@
 
 (** Class type [stream_fs] for filesystems with stream access to files *)
 
-(** This is an abstraction for both kernel-level and user-level
+(** The class type {!Netfs.stream_fs}
+    is an abstraction for both kernel-level and user-level
     filesystems. It is used as parameter for algorithms (like globbing)
     that operate on filesystems but do not want to assume any particular
     filesystem. Only stream access is provided (no seek).
+
+    {b File paths:}
 
     The filesystem supports hierarchical file names. File paths use
     Unix conventions, i.e.
@@ -25,6 +28,8 @@
     Implementations may impose more constraints that cannot be expressed
     here (case insensitivity, path length, exclusion of special names etc.).
 
+    {b Virtuality:}
+
     There is no assumption that [/] is the real root of the local filesystem.
     It can actually be anywhere - a local subdirectory, or a remote directory,
     or a fictive root. There needs not to be any protection against "running
@@ -34,8 +39,31 @@
     concept of file handle (because this would exclude a number of
     implementations).
 
+    {b Errors: }
+
     Errors should generally be indicated by raising [Unix_error].
+
+    {b Subtyping:}
+
+    The class type {!Netfs.stream_fs} is subtypable, and subtypes can add
+    more features by:
+    - adding more methods
+    - adding more flags to existing methods
+
+    {b Omitted:}
+
+    Real filesystems usually provide a lot more features than what is
+    represented here, such as:
+    - Access control and file permissions
+    - Metadata like timestamps
+    - Random access to files
+
+    This definition here is intentionally minimalistic. In the future
+    more extended versions of this class type may be defined that
+    cover more common filesystem features.
  *)
+
+(** {2 The class type [stream_fs]} *)
 
 type read_flag =
     [ `Skip of int64 | `Binary ]
@@ -73,7 +101,8 @@ type copy_flag =
 
 type test_type =
     [ `N | `E | `D | `F | `H | `R | `W | `X | `S ]
-     (** - [`N]: the file name exists
+     (** Tests:
+         - [`N]: the file name exists
          - [`E]: the file exists
 	 - [`D]: the file exists and is a directory
 	 - [`F]: the file exists and is regular
@@ -224,7 +253,7 @@ val local_fs : ?encoding:Netconversion.encoding -> ?root:string ->
     as [encoding] argument.
  *)
 
-(** {b Windows}: If the [root] argument is not passed to [local_fs]
+(** {b Windows}: If the [root] argument is {b not} passed to [local_fs]
     it is possible to access the whole filesystem:
 
     - Paths starting with drive letters like [c:/] are also considered

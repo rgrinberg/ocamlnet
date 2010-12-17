@@ -741,6 +741,11 @@ if [ $enable_apache -gt 0 ]; then
 may prevent the build\n    of the apache module on platforms \
 where PIC code differs from non-PIC\n    such as x86_64, hppa,..."
 	fi
+	# at some point libstr.a was renamed to libcamlstr.a
+	libstr="str"
+	if [ -f "$apache_ocamllibdir/libcamlstr.a" ]; then
+	    libstr="camlstr"
+	fi
     else
 	apache_major=
 	enable_apache=0
@@ -853,7 +858,7 @@ AUTHDHREQS = $adh_reqs
 # For -enable-apache
 APACHE_MAJOR = $apache_major
 APACHE_LIBDIR = $apache_libdir
-APACHE_OCAMLLIBS = -l$apache_camlrun -ltermcap -lunix -lstr
+APACHE_OCAMLLIBS = -l$apache_camlrun -ltermcap -lunix -l$libstr
 APACHE_INCDIR = $apache_incdir
 APACHE_CONFDIR = $apache_confdir
 APACHE_LDFLAGS_SHLIB = $apache_ldflags_shlib
