@@ -2328,6 +2328,11 @@ CAMLprim value netsys_sem_wait(value srv, value bv)
 #define PF_INET6 AF_INET6
 #endif
 
+#ifndef IPPROTO_IPV6
+#define IPPROTO_IPV6 41
+#endif
+
+
 static int socket_domain(int fd) {
     /* Return the socket domain, PF_INET or PF_INET6. Fails for non-IP 
        protos.
