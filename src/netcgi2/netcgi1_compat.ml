@@ -53,14 +53,7 @@ struct
   }
 
   let default_config =
-    let default_tmp_directory =
-      let candidates =
-	match Sys.os_type with
-	| "Unix" | "Cygwin" -> [ "/var/tmp"; "/tmp"; "." ]
-	| "Win32" -> [ "C:\\TEMP"; "." ]
-	| "MacOS" -> [ Filename.current_dir_name ]
-	| _ -> assert false in
-      List.find Sys.file_exists candidates in
+    let default_tmp_directory = Netsys_tmp.tmp_directory() in
     {
       tmp_directory = default_tmp_directory;
       tmp_prefix = "netcgi";

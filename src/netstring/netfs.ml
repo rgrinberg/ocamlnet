@@ -1,10 +1,10 @@
 (* $Id$ *)
 
 type read_flag =
-    [ `Skip of int64 | `Binary ]
+    [ `Skip of int64 | `Binary | `Streaming ]
 
 type write_flag =
-    [ `Create | `Exclusive | `Truncate | `Binary ]
+    [ `Create | `Exclusive | `Truncate | `Binary | `Streaming ]
 
 type size_flag =
     [ `Dummy ]
@@ -45,7 +45,7 @@ object
   method write : write_flag list -> string -> Netchannels.out_obj_channel
   method size : size_flag list -> string -> int64
   method test : test_flag list -> string -> test_type -> bool
-  method test_list : test_flag list -> string -> test_type list
+  method test_list : test_flag list -> string -> test_type list -> bool list
   method remove : remove_flag list -> string -> unit
   method rename : rename_flag list -> string -> string -> unit
   method symlink : symlink_flag list -> string -> string -> unit
@@ -63,6 +63,11 @@ let drive_re = Netstring_pcre.regexp "^[a-zA-Z]:$"
 exception Not_absolute
 exception Unavailable
 
+let list_isect_empty l1 l2 = (* whether intersection is empty *)
+  List.for_all
+    (fun x1 -> not (List.mem x1 l2))
+    l1
+
 let readdir d =
   try
     let l = ref [] in
@@ -78,12 +83,14 @@ let readdir d =
   with
     | error -> Unix.closedir d; raise error
 
-let copy_prim orig_fs orig_name dest_fs dest_name =
+let copy_prim ~streaming orig_fs orig_name dest_fs dest_name =
+  let sflags = 
+    if streaming then [`Streaming] else []  in
   Netchannels.with_in_obj_channel
-    (orig_fs#read [`Binary] orig_name)
+    (orig_fs#read (sflags @ [`Binary]) orig_name)
     (fun r_ch ->
        Netchannels.with_out_obj_channel
-	 (dest_fs#write [`Binary; `Truncate; `Create] dest_name)
+	 (dest_fs#write (sflags @ [`Binary; `Truncate; `Create]) dest_name)
 	 (fun w_ch ->
 	    w_ch # output_channel r_ch
 	 )
@@ -132,7 +139,7 @@ let local_fs ?encoding ?root () : stream_fs =
       excl;
     a) in
 
-  let check_component c =
+  let check_component path c =
     let iter f s =
       match enc with
 	| None -> 
@@ -143,11 +150,15 @@ let local_fs ?encoding ?root () : stream_fs =
       iter
 	(fun code ->
 	   if code < excl_array_size && excl_array.(code) then
-	     failwith "Netfs: path contains invalid character"
+	     raise (Unix.Unix_error(Unix.EINVAL,
+				    "Netfs: invalid char in path",
+				    path))
 	)
 	c
     with Netconversion.Malformed_code ->
-      failwith "Netfs: path does not conform to the filesystem encoding" in
+      raise (Unix.Unix_error(Unix.EINVAL,
+			     "Netfs: path does not comply to charset encoding",
+			     path)) in
 	  
   let win32_root =
     root = None && Sys.os_type = "Win32" in
@@ -162,7 +173,9 @@ let local_fs ?encoding ?root () : stream_fs =
     try
       let l = Netstring_pcre.split_delim slash_re p in
       ( match l with
-	  | [] -> failwith "Netfs: empty path"
+	  | [] ->  raise (Unix.Unix_error(Unix.EINVAL,
+					  "Netfs: empty path",
+					  p))
 	  | "" :: first :: rest ->
 	      if win32_root then (
 		if ((not (is_drive_letter first) || rest=[]) && 
@@ -177,7 +190,7 @@ let local_fs ?encoding ?root () : stream_fs =
 	      )
 	      else raise Not_absolute
       );
-      List.iter check_component l;
+      List.iter (check_component p) l;
       let np = String.concat "/" l in
       if win32_root then (
 	if is_unc p then
@@ -190,7 +203,9 @@ let local_fs ?encoding ?root () : stream_fs =
       else np
     with 
       | Not_absolute ->
-	  failwith "Netfs: path not absolute"
+	  raise (Unix.Unix_error(Unix.EINVAL,
+				 "Netfs: path not absolute",
+				 p))
   in
 
   let real_root =
@@ -309,12 +324,31 @@ let local_fs ?encoding ?root () : stream_fs =
 	    | `R | `W | `X -> self#test_list_RWX flags fn in
 	List.mem ttype l
 
-      method test_list flags filename =
+      method test_list flags filename tests =
 	let fn = real_root ^ check_and_norm_path filename in
-	( self#test_list_NH flags fn @ 
-	    self#test_list_EDFS flags fn @
+	let nh =
+	  if not(list_isect_empty tests [`N;`H]) then
+	    self#test_list_NH flags fn
+	  else
+	    [] in
+	let edfs =
+	  if not(list_isect_empty tests [`E;`D;`F;`S]) then
+	    self#test_list_EDFS flags fn
+	  else
+	    [] in
+	let rwx =
+	  if not(list_isect_empty tests [`R;`W;`X]) then
 	    self#test_list_RWX flags fn
-	)
+	  else
+	    [] in
+	List.map
+	  (fun t ->
+	     match t with
+	       | `N | `H -> List.mem t nh
+	       | `E | `D | `F | `S -> List.mem t edfs
+	       | `R | `W | `X -> List.mem t rwx
+	  )
+	  tests
 
       method remove flags filename =
 	let fn = real_root ^ check_and_norm_path filename in
@@ -443,7 +477,7 @@ let local_fs ?encoding ?root () : stream_fs =
 	Unix.rmdir fn
 
       method copy flags srcfilename destfilename =
-	copy_prim self srcfilename self destfilename
+	copy_prim ~streaming:false self srcfilename self destfilename
     end
   )
 
@@ -456,14 +490,18 @@ let convert_path ?subst oldfs newfs oldpath =
 	oldpath
 
 
-let copy ?(replace=false)
+let copy ?(replace=false) ?(streaming=false)
          (orig_fs:stream_fs) orig_name dest_fs dest_name =
   if replace then
     dest_fs # remove [] dest_name;
-  if orig_fs = dest_fs then
-    orig_fs # copy [] orig_name dest_name
-  else
-    copy_prim orig_fs orig_name dest_fs dest_name
+  try
+    if orig_fs = dest_fs then
+      orig_fs # copy [] orig_name dest_name
+    else
+      raise(Unix.Unix_error(Unix.ENOSYS,"",""))
+  with
+    | Unix.Unix_error(Unix.ENOSYS,_,_) ->
+	copy_prim ~streaming orig_fs orig_name dest_fs dest_name
 
 type file_kind = [ `Regular | `Directory | `Other ]
 
@@ -476,14 +514,18 @@ let iter ~pre ?(post=fun _ -> ()) (fs:stream_fs) start =
 	 if file <> "." && file <> ".." then (
 	   let absfile = dir ^ "/" ^ file in
 	   let relfile = if rdir="" then file else rdir ^ "/" ^ file in
-	   let l = fs#test_list [] absfile in
-	   if List.mem `D l then (
+	   let l = fs#test_list [] absfile [`D; `F] in
+	   let (is_dir, is_reg) =
+	     match l with 
+	       | [is_dir; is_reg] -> (is_dir, is_reg)
+	       | _ -> assert false in
+	   if is_dir then (
 	     pre relfile `Directory;
 	     iter_members absfile relfile;
 	     post relfile
 	   )
 	   else (
-	     let t = if List.mem `F l then `Regular else `Other in
+	     let t = if is_reg then `Regular else `Other in
 	     pre relfile t
 	   )
 	 )
@@ -492,13 +534,16 @@ let iter ~pre ?(post=fun _ -> ()) (fs:stream_fs) start =
   iter_members start ""
 
 
-let copy_into ?(replace=false) ?subst 
+let copy_into ?(replace=false) ?subst ?streaming
               (orig_fs:stream_fs) orig_name dest_fs dest_name =
   let orig_base = Filename.basename orig_name in
   let dest_start = 
     dest_name ^ "/" ^ convert_path ?subst orig_fs dest_fs orig_base in
   if not(dest_fs # test [] dest_name `D) then
-    failwith "Netfs.copy_into: destination directory does not exist";
+    raise(Unix.Unix_error
+	    (Unix.ENOENT,
+	     "Netfs.copy_into: destination directory does not exist",
+	     dest_name));
   if orig_fs # test [] orig_name `D then (
     if replace then
       dest_fs # remove [ `Recursive ] dest_start;
@@ -510,6 +555,7 @@ let copy_into ?(replace=false) ?subst
 	      match typ with
 		| `Regular ->
 		    copy 
+		      ?streaming
 		      orig_fs (orig_name ^ "/" ^ rpath) 
 		      dest_fs (dest_start ^ "/" ^ dest_rpath)
 		| `Directory ->
@@ -522,4 +568,4 @@ let copy_into ?(replace=false) ?subst
       orig_name
   )
   else
-    copy ~replace orig_fs orig_name dest_fs dest_start
+    copy ~replace ?streaming orig_fs orig_name dest_fs dest_start

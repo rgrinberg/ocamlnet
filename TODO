@@ -17,12 +17,69 @@
 - Neturl: IPv6 support 
 
 - Neturl: internationalized URLs
+  RFC 3492
+
+- Netfs applications:
+  * HTTP
+  * FTP
 
 - continue netmulticore
 
 - Finishing pluggable DNS resolver
+  * new iml Uq_engines.direct_socket_connector
+  * Http_client
+  * Telnet_client
+
+$ find src -name "*.ml" | xargs grep gethostbyname
+src/nethttpd/nethttpd_services.ml:	      let h = Unix.gethostbyname host in
+src/smtp/netsmtp.ml:        | None -> (gethostbyname (gethostname ())).h_name
+src/netclient/http_client.ml:	    let h = Unix.gethostbyname name in
+src/netclient/telnet_client.ml:	      let h = syscall (fun () -> Unix.gethostbyname hostname) in
+src/rpc/rpc_auth_sys.ml:		    let entry = Unix.gethostbyname hostname in
+src/netplex/netplex_config.ml:					Unix.gethostbyname h in
+src/equeue/uq_engines.ml:	let entry = Unix.gethostbyname name in (* may fail *)
+src/equeue/uq_socks5.ml:	let entry = Unix.gethostbyname name in (* may fail *)
+src/equeue/uq_resolver.ml:	let he = Unix.gethostbyname host in
+
 
 - Finish FTP client
+
+  * ftp_client_pi:
+
+    do not expose this class anymore!
+
+    no queueing anymore (do this in ftp_client)
+
+    add method add_cmd_e  with engine interface
+ 
+    ftp_state: add last_reply, cumulated_replies (for last command)
+
+    method add_cmd_e : cmd -> ftp_state engine
+
+    type action_e = ftp_state engine
+    (replaces ftp_method)
+
+    class ftp_client_pi: no Unix.file_descr arg. Instead have commands
+    CONNECT of host*port and DISCONNECT
+
+    command Catch_replies of (cmd * (ftp_state -> unit))
+      [instead of onreply]
+
+  * module Action: replace with engines
+  * *_method: these also become engines
+  * add support for PUT
+
+  type ftp_method = context -> action_e
+
+  ftp_client # exec_e : ftp_method -> ftp_state engine
+
+  ftp_client # exec_e (connect_method ~host ())
+  ++ (fun (_:ftp_state) -> ftp_client # exec_e (login_method ...))
+  etc.
+
+  exec_e has also queing semantics
+
+ ftp_client # exec : calls Unixqueue.run and throws exceptions
 
 ----------------------------------------------------------------------
 Plan for Ocamlnet 3

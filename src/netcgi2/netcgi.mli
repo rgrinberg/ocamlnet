@@ -345,7 +345,7 @@ type config = Netcgi_common.config = {
 
 val default_config : config
   (** The default configuration is:
-      - [tmp_directory]: one of /var/tmp, /tmp, C:\temp, current directory.
+      - [tmp_directory]: {!Netsys_tmp.tmp_directory()}
       - [tmp_prefix]: "netcgi"
       - [permitted_http_methods]: [`GET], [`HEAD], [`POST].
       - [permitted_input_content_types]: ["multipart/form-data"],

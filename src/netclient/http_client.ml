@@ -435,6 +435,7 @@ end
 class virtual generic_call : gen_call =
 object(self)
   val mutable status = (`Unserved : status)
+  val mutable finished = false
 
   val mutable req_uri = ""
   val mutable req_host = ""   (* derived from req_uri *)
@@ -450,7 +451,8 @@ object(self)
   val mutable resp_text = ""
   val mutable resp_proto = ""
   val mutable resp_header = new Netmime.basic_mime_header []
-  val mutable resp_body = new Netmime.memory_mime_body ""
+  val mutable resp_header_set = false
+  val mutable resp_body = None
 
   val mutable resp_body_storage = (`Memory : response_body_storage)
   val mutable reconn_mode = Send_again_if_idem
@@ -466,14 +468,25 @@ object(self)
   val mutable auth_state = `None
 
 
+  method private resp_body =
+    match resp_body with
+      | None ->
+	  let rbody =
+	    match resp_body_storage with
+	      | `Memory ->
+		  new Netmime.memory_mime_body ""
+	      | `File f ->
+		  let name = f() in
+		  new Netmime.file_mime_body name
+	      | `Body f ->
+		  f () in
+	  resp_body <- Some rbody;
+	  rbody
+      | Some rbody -> rbody 
+
+
   method private def_private_api fixup_request =
     ( object(pself) 
-
-	  (* We cannot call methods of [self] due to a bug in O'Caml 3.08
-           * (present until 3.08.3, fixed in 3.08.4 and 3.09)
-           * PR#3576, PR#3678
-           *)
-
 	method private close_resp_ch() =
 	  match resp_ch with
 	    | None -> ()
@@ -492,6 +505,7 @@ object(self)
 
 	method set_effective_request_uri s = eff_req_uri <- s
 
+
 	method prepare_transmission () =
 	  pself # close_resp_ch();
 	  status <- `Unserved;
@@ -501,15 +515,8 @@ object(self)
 	  resp_text <- "";
 	  resp_proto <- "";
 	  resp_header <- new Netmime.basic_mime_header [];
-	  resp_body <- ( match resp_body_storage with
-			   | `Memory ->
-			       new Netmime.memory_mime_body ""
-			   | `File f ->
-			       let name = f() in
-			       new Netmime.file_mime_body name
-			   | `Body f ->
-			       f ()
-		       );
+	  resp_header_set <- false;
+	  resp_body <- None;
 	  fixup_request();
 	  ( try ignore(req_work_header # field "Date")
 	    with Not_found ->
@@ -526,11 +533,14 @@ object(self)
 	  resp_proto <- proto
 
 	method set_response_header h =
-	  resp_header <- h
+	  resp_header <- h;
+	  resp_header_set <- true;
+	  assert(resp_code <> 0);
 
 	method response_body_open_wr() =
 	  pself # close_resp_ch();
-	  let ch = resp_body # open_value_wr() in
+	  let rbody = self#resp_body in
+	  let ch = rbody # open_value_wr() in
 	  resp_ch <- Some ch;
 	  ch
 
@@ -540,7 +550,7 @@ object(self)
 
 	method finish() =
 	  assert(resp_code <> 0);
-	  pself # close_resp_ch();
+	  finished <- true;
 	  status <- (if resp_code >= 200 && resp_code <= 299 then
 		       `Successful
 		     else if resp_code >= 300 && resp_code <= 399 then
@@ -549,19 +559,25 @@ object(self)
 		       `Client_error
 		     else
 		       `Server_error);
+	  (* do this last - it can trigger user callback functions: *)
+	  pself # close_resp_ch();
 
 	method set_error_exception x =
+eprintf "set_error_exception exc=%s\n%!" (Netexn.to_string x);
+	  finished <- true;
+	  ( match x with
+		Http_error(_,_) -> assert false   (* not allowed *)
+	      | _ ->
+		  let do_increment =
+		    match status with
+		      | `Http_protocol_error _ -> false
+		      | _ -> true in
+		  if do_increment then
+		    error_counter <- error_counter + 1;
+		  status <- (`Http_protocol_error x);
+	  );
+	  (* do this last - it can trigger user callback functions: *)
 	  pself # close_resp_ch();
-	  match x with
-	      Http_error(_,_) -> assert false   (* not allowed *)
-	    | _ ->
-		let do_increment =
-		  match status with
-		    | `Http_protocol_error _ -> false
-		    | _ -> true in
-		if do_increment then
-		  error_counter <- error_counter + 1;
-		status <- (`Http_protocol_error x);
 
 	method cleanup () =
 	  pself # close_resp_ch()
@@ -583,14 +599,18 @@ object(self)
 
 	method dump_response_body () =
 	  dlog (sprintf "Call %d - HTTP response body:\n%s\n"
-		  (Oo.id self) resp_body#value)
+		  (Oo.id self) 
+		  (match resp_body with
+		     | Some rbody -> rbody#value
+		     | None -> ""
+		  ))
       end
     )
 
 
   (* Call state *)
 
-  method is_served = status <> `Unserved
+  method is_served = finished
   method status = status
 
   (* Accessing the request message (new style) *)
@@ -626,8 +646,9 @@ object(self)
 
   method private check_response() =
     match status with
-      | `Unserved -> 
-	  failwith "Http_client: HTTP call is unserved, no response yet"
+      | `Unserved ->
+	  if not resp_header_set then
+	    failwith "Http_client: HTTP call is unserved, no response yet"
       | `Http_protocol_error e -> 
 	  raise (Http_protocol e)
       | _ -> ()
@@ -638,7 +659,14 @@ object(self)
     self#check_response(); Nethttp.http_status_of_int resp_code
   method response_protocol = self#check_response(); resp_proto
   method response_header = self#check_response(); resp_header
-  method response_body = self#check_response(); resp_body
+  method response_body = 
+    (* [status] is already set after the header is available. The presence
+       of the body is indicated by [finished].
+     *)
+    self#check_response(); 
+    if not finished then 
+      failwith "Http_client: HTTP call is unserved, response not yet complete";
+    self#resp_body
 
   (* Options *)
 
@@ -665,8 +693,10 @@ object(self)
   method same_call() =
     let same =
       {< status = `Unserved;
+	 finished = false;
 	 resp_header = new Netmime.basic_mime_header [];
-	 resp_body = new Netmime.memory_mime_body "";
+	 resp_header_set = false;
+	 resp_body = None;
 	 eff_req_uri = "";
 	 private_api = None;
 	 error_counter = 0;
@@ -705,9 +735,9 @@ object(self)
   method get_resp_body() =
     self#check_response();
     if resp_code >= 200 && resp_code <= 299 then
-      resp_body # value
+      self # resp_body # value
     else
-      raise(Http_error(resp_code, resp_body#value))
+      raise(Http_error(resp_code, self#resp_body#value))
   method dest_status() =
     self#check_response();
     (resp_proto, resp_code, resp_text)
@@ -1791,6 +1821,7 @@ class io_buffer options conn_cache fd fd_state =
       let av_len = B.length in_buf - in_pos in
       match length_opt with
 	| None ->
+prerr_endline "really_output";
 	    ch # really_output (B.unsafe_buffer in_buf) in_pos av_len;
 	    in_pos <- in_pos + av_len;
 	    assert(in_pos <= B.length in_buf);
@@ -1798,6 +1829,7 @@ class io_buffer options conn_cache fd fd_state =
 
 	| Some len ->
 	    let l = Int64.to_int (min (Int64.of_int av_len) len) in
+prerr_endline "really_output";
 	    ch # really_output (B.unsafe_buffer in_buf) in_pos l;
 	    in_pos <- in_pos + l;
 	    assert(in_pos <= B.length in_buf);
@@ -1839,6 +1871,7 @@ class io_buffer options conn_cache fd fd_state =
       restart_parser <- self # parse_chunk_data code header ch len;
       let av_len = B.length in_buf - in_pos in
       let l = Int64.to_int (min (Int64.of_int av_len) len) in
+prerr_endline "really_output";
       ch # really_output (B.unsafe_buffer in_buf) in_pos l;
       in_pos <- in_pos + l;
       assert(in_pos <= B.length in_buf);
@@ -2207,6 +2240,7 @@ class transmitter
        *)
       try
 	io # parse_response msg;
+             (* may raise Garbage_received but not Bad_message *)
 	match msg # status with
 	  | `Unserved -> 
 	      if state = Handshake && msg # private_api # continue then
@@ -3395,13 +3429,13 @@ class connection the_esys
       Q.transfer read_queue q';
       Q.iter 
 	(fun m ->
-	   m # cleanup();
 	   ( match m # message # status with
 	       | `Unserved ->
 		   m # message # private_api # set_error_exception err;
 	       | _ ->
 		   ()
 	   );
+	   m # cleanup();
 	)
 	q';
 

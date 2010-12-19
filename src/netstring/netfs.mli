@@ -41,7 +41,15 @@
 
     {b Errors: }
 
-    Errors should generally be indicated by raising [Unix_error].
+    Errors should generally be indicated by raising [Unix_error]. For
+    many error codes the interpretation is already given by POSIX. Here
+    are some more special cases:
+    - [EINVAL]: should also be used for invalid paths, or when a flag
+      cannot be supported (and it is non-ignorable)
+    - [ENOSYS]: should also be used if an operation is generally unavailable
+
+    In case of hard errors (like socket errors when communicating with the
+    remote server) there is no need to stick to [Unix_error], though.
 
     {b Subtyping:}
 
@@ -66,10 +74,10 @@
 (** {2 The class type [stream_fs]} *)
 
 type read_flag =
-    [ `Skip of int64 | `Binary ]
+    [ `Skip of int64 | `Binary | `Streaming ]
 
 type write_flag =
-    [ `Create | `Exclusive | `Truncate | `Binary ]
+    [ `Create | `Exclusive | `Truncate | `Binary | `Streaming ]
 
 type size_flag =
     [ `Dummy ]
@@ -146,6 +154,14 @@ object
 	  optimization exists.
 	- [`Binary]: Opens the file in binary mode (if there is such
 	  a distinction)
+        - [`Streaming] for network filesystems: If possible, open the
+	  file in streaming mode, and avoid to copy the whole file to the local
+	  disk before returning the {!Netchannels.in_obj_channel}.
+	  Streaming mode is faster, but has also downsides. Especially,
+	  the implementation of [read] can do less to recover from
+	  transient network problems (like retrying the whole download).
+          Support for this flag is optional, and it is ignored if
+	  there is no extra streaming mode.
      *)
 
   method write : write_flag list -> string -> Netchannels.out_obj_channel
@@ -157,6 +173,7 @@ object
 	- [`Exclusive]: The [`Create] is done exclusively
 	- [`Binary]: Opens the file in binary mode (if there is such
 	  a distinction)
+	- [`Streaming]: see [read] (above) for explanations
 
 	Some filesystems refuse this operation if neither [`Create] nor
 	[`Truncate] is specified because overwriting an existing file
@@ -178,9 +195,9 @@ object
 	symlinks are not followed.
      *)
 
-  method test_list : test_flag list -> string -> test_type list
-    (** Similar to [test] but this function returns all tests that are
-	true.
+  method test_list : test_flag list -> string -> test_type list -> bool list
+    (** Similar to [test] but this function performs all tests in the list
+	at once, and returns a bool for each test.
      *)
 
   method remove : remove_flag list -> string -> unit
@@ -276,9 +293,18 @@ val local_fs : ?encoding:Netconversion.encoding -> ?root:string ->
  *)
 
 
+(** {2 Other impementations of [stream_fs]} *)
+
+(** List:
+
+    - {!Http_fs} allows one to access HTTP-based filesystems
+
+ *)
+
+
 (** {2 Algorithms} *)
 
-val copy : ?replace:bool -> 
+val copy : ?replace:bool -> ?streaming:bool ->
            stream_fs -> string -> stream_fs -> string -> unit
   (** [copy orig_fs orig_name dest_fs dest_name]: Copies the file [orig_name]
       from [orig_fs] to the file [dest_name] in [dest_fs]. By default,
@@ -295,9 +321,10 @@ val copy : ?replace:bool ->
 
       - [replace]: If set, the destination file is removed and created again
         if it already exists
+      - [streaming]: use streaming mode for reading and writing files
    *)
 
-val copy_into : ?replace:bool -> ?subst:(int->string) ->
+val copy_into : ?replace:bool -> ?subst:(int->string) -> ?streaming:bool ->
                 stream_fs -> string -> stream_fs -> string -> 
                   unit
   (** [copy_into orig_fs orig_name dest_fs dest_name]: 
@@ -309,6 +336,7 @@ val copy_into : ?replace:bool -> ?subst:(int->string) ->
       it is deleted before doing the copy.
 
       - [subst]: See {!Netfs.convert_path}
+      - [streaming]: use streaming mode for reading and writing files
    *)
 
 type file_kind = [ `Regular | `Directory | `Other ]

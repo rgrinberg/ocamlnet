@@ -948,19 +948,11 @@ type arg_store = cgi_environment -> string -> Netmime.mime_header_ro ->
 (* [temp_file env] returns a function [unit -> string] to create
    temporary files according to the preferences in [config]. *)
 let temp_file_fun config =
-  let file_no = ref 0 in
   let tmp_directory = config.tmp_directory in
-  let now = Unix.gettimeofday() in
-  let now_milli = truncate((now -. floor now) *. 1000.) in
-  let tmp_prefix_p =
-    config.tmp_prefix
-    ^ Netdate.format "-%Y%m%d%H%M%S-" (Netdate.create now)
-    ^ string_of_int now_milli ^ "-" in
+  let tmp_prefix = config.tmp_prefix in
   fun () ->
     let (name, in_chan, out_chan) =
-      Netchannels.make_temporary_file ~tmp_directory
-	~tmp_prefix:(tmp_prefix_p ^ string_of_int !file_no) () in
-    incr file_no;
+      Netchannels.make_temporary_file ~tmp_directory ~tmp_prefix () in
     close_in in_chan;
     close_out out_chan;
     name

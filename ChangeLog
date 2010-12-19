@@ -1,3 +1,12 @@
+2010-12-19  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Http_fs: added stream_fs implementation for HTTP
+
+	* Netfs: new `Streaming flags for read and write
+
+	* Netsys_tmp: new module for globally setting where temporary
+	  directories are created
+
 2010-12-17  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Netglob: new module for globbing

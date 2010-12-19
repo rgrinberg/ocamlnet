@@ -1526,7 +1526,7 @@ end
 let make_temporary_file 
   ?(mode = 0o600) 
   ?(limit = 1000) 
-  ?(tmp_directory = Filename.current_dir_name ) 
+  ?(tmp_directory = Netsys_tmp.tmp_directory() ) 
   ?(tmp_prefix = "netstring")
   () =
   (* Returns (filename, in_channel, out_channel). *)
@@ -1535,7 +1535,7 @@ let make_temporary_file
       let fn =
         Filename.concat
           tmp_directory
-          (tmp_prefix ^ "-" ^ (string_of_int n))
+          (Netsys_tmp.tmp_prefix tmp_prefix ^ "-" ^ (string_of_int n))
       in
       let fd_in =
 	Unix.openfile fn [ Unix.O_RDWR; Unix.O_CREAT; Unix.O_EXCL ] mode in

@@ -268,6 +268,7 @@ This library includes clients for HTTP, Telnet, and (incomplete) FTP.
 {!modules:
    Http_client
    Http_client_conncache
+   Http_fs
    Telnet_client
    Ftp_client
    Ftp_data_endpoint
@@ -378,6 +379,7 @@ other Ocamlnet libraries.
     Netsys_posix
     Netsys_oothr
     Netsys_signal
+    Netsys_tmp
     Netsys_mem
     Netsys_pollset
     Netsys_pollset_generic

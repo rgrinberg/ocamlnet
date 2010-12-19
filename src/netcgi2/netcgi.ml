@@ -98,16 +98,8 @@ type config = Netcgi_common.config = {
 }
 
 let default_config =
-  let default_tmp_directory =
-    let candidates =
-      match Sys.os_type with
-      | "Unix" | "Cygwin" -> [ "/tmp"; "/var/tmp"; "." ]
-      | "Win32" -> [ "C:\\TEMP"; "." ]
-      | "MacOS" -> [ Filename.current_dir_name ]
-      | _ -> assert false in
-    List.find Sys.file_exists candidates in
   {
-    tmp_directory = default_tmp_directory;
+    tmp_directory = Netsys_tmp.tmp_directory();
     tmp_prefix = "netcgi";
     permitted_http_methods = [`GET; `HEAD; `POST];
     permitted_input_content_types = [ "multipart/form-data";

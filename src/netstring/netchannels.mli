@@ -872,9 +872,9 @@ val make_temporary_file :
    * the triple (name, inch, outch) containing the file [name],
    * the file opened as in_channel [inch] and as out_channel [outch].
    *
-   * @param tmp_directory By default the current directory
-   * @param tmp_prefix By default ["netstring"]. It is better to have a prefix
-   *   that is likely to be unique, e.g. the process ID, or the current time.
+   * @param tmp_directory Defaults to {!Netsys_tmp.tmp_directory()}
+   * @param tmp_prefix By default ["netstring"]. This needs not to be
+   *   unique, but just descriptive.
    * @param mode The creation mask of the file; defaults to 0o600, i.e. the
    *   file is private for the current user
    * @param limit Limits the number of trials to find the unique suffix.

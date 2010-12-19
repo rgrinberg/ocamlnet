@@ -152,6 +152,12 @@ type response_body_storage =
     *   is returned by [f()]
     * - [`Body f]: The response body is stored into the object returned
     *   by [f()]
+    *
+    * When the function [f] is called in the two latter cases the response
+    * header has already been received, and can be retrieved with the
+    * [response_header] method of the call object. Also, [response_status_text],
+    * [response_status_code], and [response_status] return meaningful
+    * values.
    *)
 
 
