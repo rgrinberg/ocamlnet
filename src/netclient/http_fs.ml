@@ -31,6 +31,7 @@ object
   method rename : Netfs.rename_flag list -> string -> string -> unit
   method symlink : Netfs.symlink_flag list -> string -> string -> unit
   method readdir : Netfs.readdir_flag list -> string -> string list
+  method readlink : Netfs.readlink_flag list -> string -> string
   method mkdir : Netfs.mkdir_flag list -> string -> unit
   method rmdir : Netfs.rmdir_flag list -> string -> unit
   method copy : Netfs.copy_flag list -> string -> string -> unit
@@ -345,7 +346,7 @@ object(self)
 	      ( object
 		  method input s pos len =
 		    while (not !call_done && not !eof && 
-			     Netpagebuffer.length buf < page_size)
+			     Netpagebuffer.length buf < 16 * page_size)
 		    do
 		      run()
 		    done;
@@ -459,7 +460,7 @@ object(self)
       let added = ref false in
 
       let ondata n = 
-	if n>=page_size || !eof then (
+	if n>=16*page_size || !eof then (
 	  if not !added then (
 	    p # add call;
 	    added := true
@@ -672,6 +673,9 @@ object(self)
   method rename _ path1 path2 =
     raise(Unix.Unix_error(Unix.ENOSYS, "Http_fs.rename", path1))
 
+  method readlink _ path =
+    raise(Unix.Unix_error(Unix.ENOSYS, "Http_fs.readlink", path))
+
   method symlink _ path1 path2 = 
     raise(Unix.Unix_error(Unix.ENOSYS, "Http_fs.symlink", path1))
 
@@ -684,3 +688,4 @@ object(self)
 end
 
   
+let http_fs = new http_fs

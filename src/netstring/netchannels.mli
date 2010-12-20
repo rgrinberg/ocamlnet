@@ -445,6 +445,13 @@ val string_of_in_obj_channel : in_obj_channel -> string
    * This function does not work for non-blocking channels.
    *)
 
+val lines_of_in_obj_channel : in_obj_channel -> string list
+  (** Reads from the input channel until EOF and returns the lines
+   * as string list. The input channel is not closed.
+   *
+   * This function does not work for non-blocking channels.
+   *)
+
 val with_in_obj_channel : 
   (#in_obj_channel as 'a) -> ('a -> 'b) -> 'b
   (** [with_in_obj_channel ch f]:

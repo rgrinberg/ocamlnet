@@ -1,3 +1,7 @@
+2010-12-20  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Shell_fs: added stream_fs implementation via shell
+
 2010-12-19  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Http_fs: added stream_fs implementation for HTTP

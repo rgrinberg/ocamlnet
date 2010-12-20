@@ -113,6 +113,7 @@ object
   method rename : Netfs.rename_flag list -> string -> string -> unit
   method symlink : Netfs.symlink_flag list -> string -> string -> unit
   method readdir : Netfs.readdir_flag list -> string -> string list
+  method readlink : Netfs.readlink_flag list -> string -> string
   method mkdir : Netfs.mkdir_flag list -> string -> unit
   method rmdir : Netfs.rmdir_flag list -> string -> unit
   method copy : Netfs.copy_flag list -> string -> string -> unit
@@ -188,6 +189,17 @@ class http_fs : ?config_pipeline:(Http_client.pipeline -> unit) ->
         again with the full response later.
         Defaults to {!Http_fs.is_error_response}.
    *)
+
+val http_fs : ?config_pipeline:(Http_client.pipeline -> unit) ->
+                ?streaming:bool ->
+                ?tmp_directory:string ->
+                ?tmp_prefix:string ->
+                ?path_encoding:Netconversion.encoding ->
+                ?enable_read_for_directories:bool ->
+                ?is_error_response:(string -> Http_client.http_call -> exn option) ->
+                string -> http_stream_fs
+  (** Same as normal function *)
+
 
 val is_error_response : string -> Http_client.http_call -> exn option
   (** Default implementation: The [status] [`Successful] (code in the range

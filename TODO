@@ -1,3 +1,12 @@
+NEXT RELEASE:
+
+- fix source code header for all new files
+- Netfs.copy and symlinks
+- Http_fs: check what happens when a file is read but the stream is
+  closed before EOF
+
+***
+
 - Uq_engines.signal_engine: should be thread-safe (signal function
   can be called from other thread)
 
@@ -8,6 +17,8 @@
   * Netfs: support Win32 better - DONE (filenames)
   * Netfs BUG: In copy_into, filenames are not converted between
     encodings. - DONE
+
+- Netfs: readlink - DONE
 
 - unlinkat - DONE
 - fchdir - DONE
@@ -24,6 +35,8 @@
   * FTP
 
 - continue netmulticore
+
+- Performance: after lift_in, the input_line fn is slow
 
 - Finishing pluggable DNS resolver
   * new iml Uq_engines.direct_socket_connector

@@ -488,6 +488,18 @@ let string_of_in_obj_channel (objch : in_obj_channel) : string =
 ;;
 
 
+let lines_of_in_obj_channel ch =
+  let acc = ref [] in
+  try
+    while true do
+      acc := ch#input_line() :: !acc
+    done;
+    assert false
+  with
+    | End_of_file -> List.rev !acc
+;;
+
+
 let with_in_obj_channel ch f =
   try
     let result = f ch in

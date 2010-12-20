@@ -24,6 +24,9 @@ type symlink_flag =
 type readdir_flag =
     [ `Dummy ]
 
+type readlink_flag =
+    [ `Dummy ]
+
 type mkdir_flag =
     [ `Path | `Nonexcl ]
 
@@ -50,6 +53,7 @@ object
   method rename : rename_flag list -> string -> string -> unit
   method symlink : symlink_flag list -> string -> string -> unit
   method readdir : readdir_flag list -> string -> string list
+  method readlink : readlink_flag list -> string -> string
   method mkdir : mkdir_flag list -> string -> unit
   method rmdir : rmdir_flag list -> string -> unit
   method copy : copy_flag list -> string -> string -> unit
@@ -443,6 +447,10 @@ let local_fs ?encoding ?root () : stream_fs =
       method readdir flags filename =
 	let fn = real_root ^ check_and_norm_path filename in
 	readdir (Unix.opendir fn)
+
+      method readlink flags filename =
+	let fn = real_root ^ check_and_norm_path filename in
+	Unix.readlink fn
 
       method mkdir flags filename =
 	if List.mem `Path flags then

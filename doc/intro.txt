@@ -345,7 +345,8 @@ into [equeue].
 {!modules:
     Shell
     Shell_sys
-    Shell_uq}
+    Shell_uq
+    Shell_fs}
 
 {3:shell_intro Guides}
 

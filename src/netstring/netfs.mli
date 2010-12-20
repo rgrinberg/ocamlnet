@@ -97,6 +97,9 @@ type symlink_flag =
 type readdir_flag =
     [ `Dummy ]
 
+type readlink_flag =
+    [ `Dummy ]
+
 type mkdir_flag =
     [ `Path | `Nonexcl ]
 
@@ -227,6 +230,9 @@ object
 	is platform-dependent. The entries can be returned in any order.
      *)
 
+  method readlink : readlink_flag list -> string -> string
+    (** Reads the target of a symlink *)
+
   method mkdir : mkdir_flag list -> string -> unit
     (** Creates a new directory. Flags:
 	- [`Path]: Creates missing parent directories. This is an
@@ -298,6 +304,8 @@ val local_fs : ?encoding:Netconversion.encoding -> ?root:string ->
 (** List:
 
     - {!Http_fs} allows one to access HTTP-based filesystems
+    - {!Shell_fs} allows one to access filesystems by executing shell
+      commands. This works locally and via ssh.
 
  *)
 
