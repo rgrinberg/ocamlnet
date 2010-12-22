@@ -563,7 +563,6 @@ object(self)
 	  pself # close_resp_ch();
 
 	method set_error_exception x =
-eprintf "set_error_exception exc=%s\n%!" (Netexn.to_string x);
 	  finished <- true;
 	  ( match x with
 		Http_error(_,_) -> assert false   (* not allowed *)
@@ -1821,7 +1820,6 @@ class io_buffer options conn_cache fd fd_state =
       let av_len = B.length in_buf - in_pos in
       match length_opt with
 	| None ->
-prerr_endline "really_output";
 	    ch # really_output (B.unsafe_buffer in_buf) in_pos av_len;
 	    in_pos <- in_pos + av_len;
 	    assert(in_pos <= B.length in_buf);
@@ -1829,7 +1827,6 @@ prerr_endline "really_output";
 
 	| Some len ->
 	    let l = Int64.to_int (min (Int64.of_int av_len) len) in
-prerr_endline "really_output";
 	    ch # really_output (B.unsafe_buffer in_buf) in_pos l;
 	    in_pos <- in_pos + l;
 	    assert(in_pos <= B.length in_buf);
@@ -1871,7 +1868,6 @@ prerr_endline "really_output";
       restart_parser <- self # parse_chunk_data code header ch len;
       let av_len = B.length in_buf - in_pos in
       let l = Int64.to_int (min (Int64.of_int av_len) len) in
-prerr_endline "really_output";
       ch # really_output (B.unsafe_buffer in_buf) in_pos l;
       in_pos <- in_pos + l;
       assert(in_pos <= B.length in_buf);

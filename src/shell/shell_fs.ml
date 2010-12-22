@@ -95,6 +95,111 @@ let ssh_interpreter ?(options=[ "-o"; "BatchMode yes"]) ?user ~host () =
        ]
     )
 
+
+let output_stream_adapter ~ci ~close_in ~skip =
+  let page_size = 
+    try Netsys_mem.getpagesize() with _ -> 4096 in
+
+  let stdout_buf = Netpagebuffer.create page_size in
+  let stdout_eof = ref false in
+  let stdout_drop = ref false in
+  let to_skip = ref skip in
+
+  let consumer fd =
+    try
+      let n =
+	Netpagebuffer.add_inplace stdout_buf (Netsys_mem.mem_read fd) in
+      if !stdout_drop then
+	Netpagebuffer.clear stdout_buf;
+      if !to_skip > 0L then (
+	let q = 
+	  min !to_skip (Int64.of_int (Netpagebuffer.length stdout_buf)) in
+	Netpagebuffer.delete_hd stdout_buf (Int64.to_int q);
+	to_skip := Int64.sub !to_skip q;
+      );
+      if n = 0 then (
+	stdout_eof := true;
+	Unix.close fd;
+      );
+      if Netpagebuffer.length stdout_buf > 16 * page_size then
+	ci#interrupt();
+      not !stdout_eof
+    with Unix.Unix_error(Unix.EINTR,_,_) -> true
+  in
+
+  let ch =
+    ( object 
+	method input s pos len =
+	  if Netpagebuffer.length stdout_buf = 0 then (
+	    if !stdout_eof then raise End_of_file;
+	    ci#run();
+	    if Netpagebuffer.length stdout_buf = 0 && !stdout_eof then
+	      raise End_of_file;
+	  );
+	  let n = min len (Netpagebuffer.length stdout_buf) in
+	  Netpagebuffer.blit_to_string stdout_buf 0 s pos n;
+	  Netpagebuffer.delete_hd stdout_buf n;
+	  n
+	method close_in() =
+	  stdout_drop := true;
+	  Netpagebuffer.clear stdout_buf;
+	  ci#run();
+	  close_in()
+      end
+    ) in
+  let ch' = 
+    Netchannels.lift_in ~buffered:true (`Rec ch) in
+
+  (Shell.to_function ~consumer (), ch')
+
+
+let input_stream_adapter ~ci ~close_out =
+  let page_size = 
+    try Netsys_mem.getpagesize() with _ -> 4096 in
+
+  let stdin_buf = Netpagebuffer.create page_size in
+  let stdin_eof = ref false in
+  
+  let producer fd =
+    try
+      let (m,pos,len) = Netpagebuffer.page_for_consumption stdin_buf in
+      let n = Netsys_mem.mem_write fd m pos len in
+      Netpagebuffer.delete_hd stdin_buf n;
+      if Netpagebuffer.length stdin_buf = 0 then (
+	if !stdin_eof then
+	  Unix.close fd
+	else
+	  ci#interrupt()
+      );
+      not !stdin_eof
+    with Unix.Unix_error(Unix.EINTR,_,_) -> true
+  in
+  
+  let ch =
+    ( object 
+	method output s pos len =
+	  Netpagebuffer.add_sub_string stdin_buf s pos len;
+	  if Netpagebuffer.length stdin_buf > 16 * page_size then
+	      ci#run();
+	  len
+	method flush() = 
+	  ci#run()
+	method close_out() =
+	  stdin_eof := true;
+	  ci#run();
+	  close_out()
+	end
+    ) in
+  let ch' =
+    Netchannels.lift_out ~buffered:false (`Rec ch) in
+  (Shell.from_function ~producer (), ch')
+    
+
+let execute ci cctx = ci # exec cctx
+
+let wait ci = ci # run()
+
+
 let slash_re = Netstring_pcre.regexp "/+"
 
 let link_re = Netstring_pcre.regexp ".*? -> (.*)$"
@@ -169,9 +274,6 @@ class shell_fs ?encoding ?(root="/") ?(dd_has_excl=false) ci : shell_stream_fs =
 
   let bs = 65536 in
 
-  let page_size = 
-    try Netsys_mem.getpagesize() with _ -> 4096 in
-
   let simple_exec cmd filename =
     (* Get stdout as string *)
 (* prerr_endline ("cmd: " ^ cmd); *)
@@ -192,7 +294,7 @@ class shell_fs ?encoding ?(root="/") ?(dd_has_excl=false) ci : shell_stream_fs =
 	  (n, Buffer.contents buf)
       | Some _ ->
 	  raise(Unix.Unix_error(Unix.EPERM,
-				"Shell_fs.read",
+				"Shell_fs.simple_exec",
 				filename))
   in
 
@@ -223,77 +325,39 @@ object(self)
       sprintf "if test -e %s; then dd if=%s bs=%d skip=%Ld || exit 2; \
                else exit 1; fi"
 	qfn qfn bs (Int64.div skip (Int64.of_int bs)) in
-    let stdout_buf = Netpagebuffer.create page_size in
-    let stdout_eof = ref false in
-    let stdout_drop = ref false in
-    let to_skip = ref (Int64.rem skip (Int64.of_int bs)) in
-
-    let stdout_consumer fd =
-      try
-	let n =
-	  Netpagebuffer.add_inplace stdout_buf (Netsys_mem.mem_read fd) in
-	if !stdout_drop then
-	  Netpagebuffer.clear stdout_buf;
-	if !to_skip > 0L then (
-	  let q = 
-	    min !to_skip (Int64.of_int (Netpagebuffer.length stdout_buf)) in
-	  Netpagebuffer.delete_hd stdout_buf (Int64.to_int q);
-	  to_skip := Int64.sub !to_skip q;
-	);
-	if n = 0 then (
-	  stdout_eof := true;
-	  Unix.close fd;
-	);
-	if Netpagebuffer.length stdout_buf > 16 * page_size then
-	  ci#interrupt();
-	not !stdout_eof
-      with Unix.Unix_error(Unix.EINTR,_,_) -> true
-    in
 
     let cctx =
-      { sfs_command = cmd;
-	sfs_stdin = Shell.from_dev_null;
-	sfs_stdout = Shell.to_function ~consumer:stdout_consumer ();
-	sfs_stderr = Shell.to_buffer stderr_buf;
-	sfs_status = None
-      } in
+      ref
+	{ sfs_command = cmd;
+	  sfs_stdin = Shell.from_dev_null;
+	  sfs_stdout = Shell.to_dev_null;   (* updated later *)
+	  sfs_stderr = Shell.to_buffer stderr_buf;
+	  sfs_status = None
+	} in
 
-    ci#exec cctx;
+    let (stdout_consumer, ch) =
+      output_stream_adapter 
+	~ci 
+	~close_in:(fun () ->
+		     match !cctx.sfs_status with
+		       | None ->
+			   failwith "Shell_fs.read: no command status"
+		       | Some (Unix.WEXITED 0) ->
+			   ()
+		       | Some (Unix.WEXITED 1) ->
+			   raise(Unix.Unix_error(Unix.ENOENT,
+						 "Shell_fs.read",
+						 filename))
+		       | Some _ ->
+			   raise(Unix.Unix_error(Unix.EPERM,
+						 "Shell_fs.read",
+						 filename))
+		  )
+	~skip:(Int64.rem skip (Int64.of_int bs)) in
 
-    let ch =
-      ( object 
-	  method input s pos len =
-	    if Netpagebuffer.length stdout_buf = 0 then (
-	      if !stdout_eof then raise End_of_file;
-	      ci#run();
-	      if Netpagebuffer.length stdout_buf = 0 && !stdout_eof then
-		raise End_of_file;
-	    );
-	    let n = min len (Netpagebuffer.length stdout_buf) in
-	    Netpagebuffer.blit_to_string stdout_buf 0 s pos n;
-	    Netpagebuffer.delete_hd stdout_buf n;
-	    n
-	  method close_in() =
-	    stdout_drop := true;
-	    Netpagebuffer.clear stdout_buf;
-	    ci#run();
-	    match cctx.sfs_status with
-	      | None ->
-		  failwith "Shell_fs.read: no command status"
-	      | Some (Unix.WEXITED 0) ->
-		  ()
-	      | Some (Unix.WEXITED 1) ->
-		    raise(Unix.Unix_error(Unix.ENOENT,
-					  "Shell_fs.read",
-					  filename))
-	      | Some _ ->
-		    raise(Unix.Unix_error(Unix.EPERM,
-					  "Shell_fs.read",
-					  filename))
-	end
-      ) in
-    Netchannels.lift_in ~buffered:true (`Rec ch)
-       
+    cctx := { !cctx with sfs_stdout = stdout_consumer };
+    ci#exec !cctx;
+    ch
 
   method write flags filename =
     Buffer.clear stderr_buf;
@@ -317,62 +381,38 @@ object(self)
 	sprintf "if test -e %s; then dd of=%s bs=%d %s || exit 2; \
                  else exit 1; fi"
 	  qfn qfn bs notrunc_opt in
-    let stdin_buf = Netpagebuffer.create page_size in
-    let stdin_eof = ref false in
-
-    let stdin_producer fd =
-      try
-	let (m,pos,len) = Netpagebuffer.page_for_consumption stdin_buf in
-	let n = Netsys_mem.mem_write fd m pos len in
-	Netpagebuffer.delete_hd stdin_buf n;
-	if Netpagebuffer.length stdin_buf = 0 then (
-	  if !stdin_eof then
-	    Unix.close fd
-	  else
-	    ci#interrupt()
-	);
-	not !stdin_eof
-      with Unix.Unix_error(Unix.EINTR,_,_) -> true
-    in
 
     let cctx =
-      { sfs_command = cmd;
-	sfs_stdin = Shell.from_function ~producer:stdin_producer ();
-	sfs_stdout = Shell.to_dev_null;
-	sfs_stderr = Shell.to_buffer stderr_buf;
-	sfs_status = None
-      } in
-
-    ci#exec cctx;
-
-    let ch =
-      ( object 
-	  method output s pos len =
-	    Netpagebuffer.add_sub_string stdin_buf s pos len;
-	    if Netpagebuffer.length stdin_buf > 16 * page_size then
-	      ci#run();
-	    len
-	  method flush() = 
-	    ci#run()
-	  method close_out() =
-	    stdin_eof := true;
-	    ci#run();
-	    match cctx.sfs_status with
-	      | None ->
-		  failwith "Shell_fs.write: no command status"
-	      | Some (Unix.WEXITED 0) ->
-		  ()
-	      | Some (Unix.WEXITED 1) ->
-		    raise(Unix.Unix_error(Unix.ENOENT,
-					  "Shell_fs.write",
-					  filename))
-	      | Some _ ->
-		    raise(Unix.Unix_error(Unix.EPERM,
-					  "Shell_fs.write",
-					  filename))
-	end
-      ) in
-    Netchannels.lift_out ~buffered:false (`Rec ch)
+      ref
+	{ sfs_command = cmd;
+	  sfs_stdin = Shell.from_dev_null;   (* updated later *)
+	  sfs_stdout = Shell.to_dev_null;
+	  sfs_stderr = Shell.to_buffer stderr_buf;
+	  sfs_status = None
+	} in
+    
+    let stdin_producer, ch =
+      input_stream_adapter
+	~ci
+	~close_out:(fun () ->
+		      match !cctx.sfs_status with
+			| None ->
+			    failwith "Shell_fs.write: no command status"
+			| Some (Unix.WEXITED 0) ->
+			    ()
+			| Some (Unix.WEXITED 1) ->
+			    raise(Unix.Unix_error(Unix.ENOENT,
+						  "Shell_fs.write",
+						  filename))
+			| Some _ ->
+			    raise(Unix.Unix_error(Unix.EPERM,
+						  "Shell_fs.write",
+						  filename))
+		   ) in
+    
+    cctx := { !cctx with sfs_stdin = stdin_producer };
+    ci#exec !cctx;
+    ch
 
   method size _ filename =
     Buffer.clear stderr_buf;

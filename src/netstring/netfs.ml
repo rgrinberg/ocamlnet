@@ -1,19 +1,19 @@
 (* $Id$ *)
 
 type read_flag =
-    [ `Skip of int64 | `Binary | `Streaming ]
+    [ `Skip of int64 | `Binary | `Streaming | `Dummy ]
 
 type write_flag =
-    [ `Create | `Exclusive | `Truncate | `Binary | `Streaming ]
+    [ `Create | `Exclusive | `Truncate | `Binary | `Streaming | `Dummy ]
 
 type size_flag =
     [ `Dummy ]
 
 type test_flag =
-    [ `Link ]
+    [ `Link | `Dummy ]
 
 type remove_flag =
-    [ `Recursive ]
+    [ `Recursive | `Dummy ]
 
 type rename_flag =
     [ `Dummy ]
@@ -28,7 +28,7 @@ type readlink_flag =
     [ `Dummy ]
 
 type mkdir_flag =
-    [ `Path | `Nonexcl ]
+    [ `Path | `Nonexcl | `Dummy ]
 
 type rmdir_flag =
     [ `Dummy ]
@@ -99,7 +99,7 @@ let copy_prim ~streaming orig_fs orig_name dest_fs dest_name =
 	    w_ch # output_channel r_ch
 	 )
     )
-
+    
       
 let local_fs ?encoding ?root () : stream_fs =
   let enc =
@@ -511,7 +511,7 @@ let copy ?(replace=false) ?(streaming=false)
     | Unix.Unix_error(Unix.ENOSYS,_,_) ->
 	copy_prim ~streaming orig_fs orig_name dest_fs dest_name
 
-type file_kind = [ `Regular | `Directory | `Other ]
+type file_kind = [ `Regular | `Directory | `Symlink | `Other | `None ]
 
 
 let iter ~pre ?(post=fun _ -> ()) (fs:stream_fs) start =
@@ -522,19 +522,33 @@ let iter ~pre ?(post=fun _ -> ()) (fs:stream_fs) start =
 	 if file <> "." && file <> ".." then (
 	   let absfile = dir ^ "/" ^ file in
 	   let relfile = if rdir="" then file else rdir ^ "/" ^ file in
-	   let l = fs#test_list [] absfile [`D; `F] in
-	   let (is_dir, is_reg) =
-	     match l with 
-	       | [is_dir; is_reg] -> (is_dir, is_reg)
+	   let l0 = fs#test_list [] absfile [`D; `F; `E] in
+	   let l1 = fs#test_list [`Link] absfile [`D; `F; `H] in
+	   let (is_dir0, is_reg0, is_existing) =
+	     match l0 with 
+	       | [is_dir; is_reg; is_ex] -> (is_dir, is_reg, is_ex)
 	       | _ -> assert false in
-	   if is_dir then (
-	     pre relfile `Directory;
+	   let (is_dir1, is_reg1, is_link) =
+	     match l1 with 
+	       | [is_dir; is_reg; is_link] -> (is_dir, is_reg, is_link)
+	       | _ -> assert false in
+	   if is_dir1 then (
+	     pre relfile `Directory `Directory;
 	     iter_members absfile relfile;
 	     post relfile
 	   )
 	   else (
-	     let t = if is_reg then `Regular else `Other in
-	     pre relfile t
+	     let t0 = 
+	       if is_reg0 then `Regular 
+	       else if is_dir0 then `Directory 
+	       else if is_existing then `Other
+	       else `None in
+	     let t1 = 
+	       if is_reg1 then `Regular 
+	       else if is_dir1 then `Directory 
+	       else if is_link then `Symlink
+	       else  `Other in
+	     pre relfile t0 t1
 	   )
 	 )
       )
@@ -557,10 +571,10 @@ let copy_into ?(replace=false) ?subst ?streaming
       dest_fs # remove [ `Recursive ] dest_start;
     dest_fs # mkdir [ `Nonexcl ] dest_start;
     iter
-      ~pre:(fun rpath typ ->
+      ~pre:(fun rpath typ link_typ ->
 	      let dest_rpath =
 		convert_path ?subst orig_fs dest_fs rpath in
-	      match typ with
+	      match link_typ with
 		| `Regular ->
 		    copy 
 		      ?streaming
@@ -569,6 +583,11 @@ let copy_into ?(replace=false) ?subst ?streaming
 		| `Directory ->
 		    dest_fs # mkdir
 		      [ `Nonexcl ] (dest_start ^ "/" ^ dest_rpath)
+		| `Symlink ->
+		    dest_fs # symlink
+		      []
+		      (orig_fs # readlink [] (orig_name ^ "/" ^ rpath))
+		      (dest_start ^ "/" ^ dest_rpath)
 		| `Other ->
 		    ()
 	   )

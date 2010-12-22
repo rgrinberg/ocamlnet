@@ -82,7 +82,8 @@ exception Http_error of (int * string);;
   (** {b Deprecated.} 
    * The server sent an error message. The left component of the pair is
    * the error code, the right component is the error text.
-   * This exception is only used by [get_resp_body].
+   * This exception is only used by [get_resp_body], and by the
+   * {!Http_client.Convenience} module.
    *)
 
 type status =
@@ -366,9 +367,13 @@ object
 
   (** {2 Accessing the response message (new style) }
     *
-    * These method will fail if the call has not yet been served! 
-    * If the call has been finished, but was not successful, the
-    * exception [Http_protocol] is raised.
+    * These methods will fail if the call has not yet been served! 
+    * If the call has been finished, but a hard error (e.g. socket error)
+    * occurred, the
+    * exception [Http_protocol] is raised. When the server only
+    * sent an error code, no exception is raised - but the user can
+    * manually test for such codes (e.g. with [repsonse_status] or
+    * [status]).
    *)
 
   method response_status_code : int
@@ -1068,6 +1073,9 @@ sig
     * Requests are not repeated if there is a HTTP return code that indicates
     * a normal operating condition.
     * POST and DELETE requests are never repeated.
+    *
+    * Error codes are reported as {!Http_client.Http_error}. Note that
+    * this is different than what the pipeline core does.
     *)
 
   (** {b Thread safety}

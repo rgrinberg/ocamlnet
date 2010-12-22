@@ -47,7 +47,7 @@ type command_context =
     }
 
 type command_interpreter
-  (** Runs the command, and fills in [sfs_status] *)
+  (** The interpreter runs the command, and fills in [sfs_status] *)
 
 val local_interpreter : unit -> command_interpreter
   (** Executes commands on the local machine *)
@@ -89,4 +89,57 @@ val shell_fs : ?encoding:Netconversion.encoding -> ?root:string ->
       - [dd_has_excl]: whether the [dd] command support "conv=excl".
         Default is [false]; this is a GNU extension.
       
+   *)
+
+
+(** {2 Utility functions for developing other implementations of 
+    [shell_stream_fs]} *)
+
+val execute : command_interpreter -> command_context -> unit
+  (** Starts this command. It is not waited until the command is finished.
+      One can either call [wait] for this, or one of the adapter
+      functions below.
+
+      One can only start one command at a time.
+   *)
+
+val wait : command_interpreter -> unit
+  (** Waits until the running command is finished *)
+
+val output_stream_adapter : ci:command_interpreter -> 
+                           close_in:(unit -> unit) ->
+                           skip:int64 ->
+                             Shell.consumer * Netchannels.in_obj_channel
+  (** Arranges that the output of a shell command is made available as
+      an [in_obj_channel]:
+
+      {[ let (c, ch) = output_stream_adapter ~ci ~close_in ~skip ]}
+
+      The consumer [p] can be used in a [command_context] for either
+      [sfs_stdout] or [sfs_stderr]. The channel [ch] is an input
+      channel, and when reading from it will return the bytes of
+      stdout or stderr.
+
+      [close_in] is called as post-hook when the [close_in] method of
+      [ch] is called. 
+
+      [skip] bytes of stdout/stderr are skipped at the beginning of the
+      stream.
+   *)
+
+val input_stream_adapter : ci:command_interpreter ->
+                           close_out:(unit -> unit) ->
+                             Shell.producer * Netchannels.out_obj_channel
+  (** Arranges that the input of a shell command is made available as
+      an [out_obj_channel]:
+
+      {[ let (p, ch) = input_stream_adapter ~ci ~close_in ]}
+
+      The producer [p] can be used in a [command_context] for 
+      [sfs_stdin]. The channel [ch] is an output
+      channel, and bytes written to it will appear in stdin of the
+      executed command.
+
+      [close_out] is called as post-hook when the [close_out] method of
+      [ch] is called. 
    *)

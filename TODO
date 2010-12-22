@@ -1,14 +1,12 @@
-NEXT RELEASE:
-
-- fix source code header for all new files
-- Netfs.copy and symlinks
 - Http_fs: check what happens when a file is read but the stream is
-  closed before EOF
-
-***
-
-- Uq_engines.signal_engine: should be thread-safe (signal function
-  can be called from other thread)
+  closed before EOF - DONE
+- Http_client: Convenience still raises Http_error.
+  Also define more clearly what "not successful" means for Http_protocol.
+  - DONE
+- Netfs: add `Dummy to all flags - DONE
+- Netfs.copy and symlinks - DONE
+- Netglob: check i18l patterns again - DONE
+- Shell_fs: make the commands to execute configurable - sort of DONE
 
 - complete Netfs, Netglob
   * Netfs: test - DONE
@@ -23,6 +21,20 @@ NEXT RELEASE:
 - unlinkat - DONE
 - fchdir - DONE
 
+***
+
+- Uq_engines.signal_engine: should be thread-safe (signal function
+  can be called from other thread)
+
+- default_page_size statt
+  let page_size = 
+    try Netsys_mem.getpagesize() with _ -> 4096
+
+- Shell: need some function for turning stdin/stdout into an in/out_obj_channel
+  (only one descriptor can do this)
+
+- Http: factor streaming access functions out
+
 - function for parsing "host:port" strings (also with IPv6 support)
 
 - Neturl: IPv6 support 
@@ -31,7 +43,7 @@ NEXT RELEASE:
   RFC 3492
 
 - Netfs applications:
-  * HTTP
+  * HTTP - DONE
   * FTP
 
 - continue netmulticore

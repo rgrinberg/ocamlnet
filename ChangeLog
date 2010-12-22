@@ -1,3 +1,19 @@
+2010-12-23  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Released: Ocamlnet-3.2
+
+	* Http_fs: fixing the case that the channel is closed before
+	  everything is downloaded
+
+	* Netfs: adding `Dummy as value to all flags
+
+	* Netfs: fixing symlinks in iter and copy_into.
+
+	* Netglob: behaves better when the pattern encoding is
+	  distinct from the filename encoding
+
+	* Shell_fs: expose input_stream_adapter, output_stream_adapter
+
 2010-12-20  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Shell_fs: added stream_fs implementation via shell

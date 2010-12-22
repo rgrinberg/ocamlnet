@@ -74,19 +74,19 @@
 (** {2 The class type [stream_fs]} *)
 
 type read_flag =
-    [ `Skip of int64 | `Binary | `Streaming ]
+    [ `Skip of int64 | `Binary | `Streaming | `Dummy ]
 
 type write_flag =
-    [ `Create | `Exclusive | `Truncate | `Binary | `Streaming ]
+    [ `Create | `Exclusive | `Truncate | `Binary | `Streaming | `Dummy ]
 
 type size_flag =
     [ `Dummy ]
 
 type test_flag =
-    [ `Link ]
+    [ `Link | `Dummy ]
 
 type remove_flag =
-    [ `Recursive ]
+    [ `Recursive | `Dummy ]
 
 type rename_flag =
     [ `Dummy ]
@@ -101,7 +101,7 @@ type readlink_flag =
     [ `Dummy ]
 
 type mkdir_flag =
-    [ `Path | `Nonexcl ]
+    [ `Path | `Nonexcl | `Dummy ]
 
 type rmdir_flag =
     [ `Dummy ]
@@ -109,6 +109,12 @@ type rmdir_flag =
 type copy_flag =
     [ `Dummy ]
 
+(** Note [`Dummy]: this flag is always ignored. There are two reasons
+    for having it:
+    - Ocaml does not allow empty variants
+    - it is sometimes convenient to have it
+      (e.g. in: [if <condition> then `Create else `Dummy])
+ *)
 
 type test_type =
     [ `N | `E | `D | `F | `H | `R | `W | `X | `S ]
@@ -244,7 +250,9 @@ object
     (** Removes an empty directory *)
 
   method copy : copy_flag list -> string -> string -> unit
-    (** Copies a file to a new name *)
+    (** Copies a file to a new name. This does not descent into directories.
+	Also, symlinks are resolved, and the linked file is copied.
+     *)
 end
 
 
@@ -324,8 +332,12 @@ val copy : ?replace:bool -> ?streaming:bool ->
       chunk by chunk from the file in [orig_fs] and then written to
       the destination file in [dest_fs].
 
+      Symlinks are resolved, and the linked file is copied, not the
+      link as such.
+
       The copy does not preserve ownerships, file permissions, or
       timestamps. (The [stream_fs] object does not represent these.)
+      There is no protection against copying an object to itself.
 
       - [replace]: If set, the destination file is removed and created again
         if it already exists
@@ -340,6 +352,8 @@ val copy_into : ?replace:bool -> ?subst:(int->string) -> ?streaming:bool ->
       [dest_name] must be an existing directory, and the file or tree at
       [orig_name] is copied into it.
 
+      Symlinks are copied as symlinks.
+
       If [replace] and the destination file/directory already exists,
       it is deleted before doing the copy.
 
@@ -347,9 +361,9 @@ val copy_into : ?replace:bool -> ?subst:(int->string) -> ?streaming:bool ->
       - [streaming]: use streaming mode for reading and writing files
    *)
 
-type file_kind = [ `Regular | `Directory | `Other ]
+type file_kind = [ `Regular | `Directory | `Symlink | `Other | `None ]
 
-val iter : pre:(string -> file_kind -> unit) -> 
+val iter : pre:(string -> file_kind -> file_kind -> unit) -> 
            ?post:(string -> unit) ->
             stream_fs -> string -> unit
   (** [iter pre fs start]: Iterates over the file hierarchy at [start].
@@ -362,11 +376,18 @@ val iter : pre:(string -> file_kind -> unit) ->
       The function [post] can additionally be passed. It is only called
       for directories, but after the members.
 
+      [pre] is called as [pre rk lk] where [rk] is the file kind after
+      following symlinks and [lk] the file kind without following symlinks
+      (the link itself).
+
       Example: [iter pre fs "/foo"] would call
-      - [pre "dir" `Directory] (meaning the directory "/foo/dir")
-      - [pre "dir/file1" `File]
-      - [pre "dir/file2" `File]
+      - [pre "dir" `Directory `Directory] (meaning the directory "/foo/dir")
+      - [pre "dir/file1" `File `File]
+      - [pre "dir/file2" `File `Symlink]
       - [post "dir"]
+
+      Note: symlinks to non-existing files are reported as
+      [pre name `None `Symlink].
 
    *)
 

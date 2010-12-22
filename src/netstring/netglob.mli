@@ -217,6 +217,7 @@ val expand_glob_expr :
 val match_glob_expr :
       ?protect_period:bool ->   (* Protect leading dots; default: true *)
       ?protect_slash:bool ->    (* Protect slashes; default: true *)
+      ?encoding:Netconversion.encoding ->
       valid_glob_expr -> 
       string ->
         bool
@@ -234,6 +235,9 @@ val match_glob_expr :
    *    but only by a literal [/]
    *
    * Both options are enabled by default.
+   *
+   * - [encoding]: The encoding of the string argument. Defaults to the
+   *   encoding of the glob pattern.
    *)
 
 val split_glob_expr : valid_glob_expr -> valid_glob_expr list
@@ -393,7 +397,7 @@ val glob :
     was a file in the current directory, it would be found and 
     returned in [l].
 
-    A conversion problem: For example, assume we have a file
+    Conversions: For example, assume we have a file
     "\226\130\172uro" (EUR-uro in UTF-8). The glob
 
     {[
@@ -401,18 +405,20 @@ val glob :
        let l = glob ~fsys (`String "*")
     ]}
 
-    does not return this file because the euro sign cannot be represented
-    in ISO-8859-1. The glob
+    finds it although the euro sign cannot be represented
+    in ISO-8859-1, the default pattern encoding.
+
+    We run into a problem, however, if we want to generate the
+    euro sign even if the file is not present, and the filesystem
+    uses an encoding that does not include this sign:
 
     {[
-       let fsys = local_fsys ~encoding:`Enc_utf8()
-       let l = glob ~encoding:`Enc_iso885915 ~fsys (`String "*")
+       let fsys = local_fsys ~encoding:`Enc_iso88591()
+       let l = glob ~fsys ~encoding:`Enc_utf8 ~mode:`All_paths 
+                  (`String "\226\130\172uro")
     ]}
 
-    will find it, however, because ISO-8859-15 includes the euro sign.
-    In internationalized environments, it is strongly suggested to
-    either use the same encodings for patterns and file names, or
-    at least UTF-8 for patterns.
+    This raises an exception [Netconversion.Cannot_represent 8364].
  *)
 
 (** {b Notes for Win32:}

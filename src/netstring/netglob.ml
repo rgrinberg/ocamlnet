@@ -556,6 +556,7 @@ let period = Char.code '.'
 let slash = Char.code '/'
 
 let match_glob_expr ?(protect_period=true) ?(protect_slash=true)
+                    ?encoding
                     expr s =
   let esets = Hashtbl.create 5 in
   let get_eset set =
@@ -565,7 +566,13 @@ let match_glob_expr ?(protect_period=true) ?(protect_slash=true)
       Hashtbl.add esets set eset;
       eset in
 
-  let u = Netconversion.uarray_of_ustring expr.encoding s in
+  let u = 
+    Netconversion.uarray_of_ustring 
+      ( match encoding with
+	  | None -> expr.encoding
+	  | Some e -> e
+      )
+      s in
   let n = Array.length u in
 
   let leading_period p =
@@ -821,13 +828,11 @@ let glob1 ?base_dir
 	       need to convert it to the encoding of the pattern.
 	     *)
 	    try
-	      let file' =
+	      let pe =
 		match fsys#path_encoding with
-		  | None -> file
-		  | Some pe -> 
-		      Netconversion.convert 
-			~in_enc:pe ~out_enc:expr.encoding file in
-	      match_glob_expr ~protect_period e file' &&
+		  | None -> `Enc_iso88591 (* so no conv errors possible *)
+		  | Some pe -> pe in
+	      match_glob_expr ~protect_period ~encoding:pe e file &&
 		(not only_dirs || fsys#file_is_dir (full_path file))
 	    with
 	      | Netconversion.Cannot_represent _ -> false

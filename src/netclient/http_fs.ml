@@ -362,7 +362,9 @@ object(self)
 			    )
 		    )
 		  method close_in() =
-		    ()
+		    p # reset();
+		    while not !call_done do run() done;
+		    (* We ignore any pending error here *)
 		end
 	      ) in
 	    Netchannels.lift_in ~buffered:true (`Rec ch)
