@@ -345,7 +345,7 @@ d examples/cgi/netcgi2-plex
 f examples/cgi/netcgi2-plex/Makefile
 f examples/cgi/netcgi2-plex/README
 f examples/cgi/netcgi2-plex/netplex.ml
-f examples/cgi/netcgi2-plex/netplex.cfg
+f examples/cgi/netcgi2-plex/netplex.conf
 f examples/cgi/netcgi2-plex/add.ml
 f examples/cgi/netcgi2-plex/compile.sh
 f examples/cgi/netcgi2-plex/run.sh
@@ -371,7 +371,7 @@ f examples/nethttpd/file_engine.ml
 f examples/nethttpd/file_mt_reactor.ml
 f examples/nethttpd/file_reactor.ml
 f examples/nethttpd/proxy_engine.ml
-f examples/nethttpd/netplex.cfg
+f examples/nethttpd/netplex.conf
 f examples/nethttpd/netplex.ml
 
 d examples/rpc
@@ -402,7 +402,7 @@ f examples/rpc/finder/README
 f examples/rpc/finder/finder_service.x
 f examples/rpc/finder/finder_client.ml
 f examples/rpc/finder/finder_daemon.ml
-f examples/rpc/finder/netplex.cfg
+f examples/rpc/finder/netplex.conf
 
 d examples/rpc/matrixmult
 f examples/rpc/matrixmult/Makefile
@@ -410,7 +410,7 @@ f examples/rpc/matrixmult/Makefile.code
 f examples/rpc/matrixmult/TIMINGS
 f examples/rpc/matrixmult/runtime.png
 f examples/rpc/matrixmult/runtime.ods
-f examples/rpc/matrixmult/mm_server.cfg
+f examples/rpc/matrixmult/mm_server.conf
 f examples/rpc/matrixmult/mm_client.ml
 f examples/rpc/matrixmult/mm_controller.ml
 f examples/rpc/matrixmult/mm_proto.x
@@ -427,13 +427,13 @@ f examples/rpc/sort/sort1_client.ml
 f examples/rpc/sort/sort1_controller.ml
 f examples/rpc/sort/sort1_server.ml
 f examples/rpc/sort/sort1_worker.ml
-f examples/rpc/sort/sort1_server.cfg
+f examples/rpc/sort/sort1_server.conf
 f examples/rpc/sort/sort1_proto.x
 f examples/rpc/sort/sort2_client.ml
 f examples/rpc/sort/sort2_controller.ml
 f examples/rpc/sort/sort2_server.ml
 f examples/rpc/sort/sort2_worker.ml
-f examples/rpc/sort/sort2_server.cfg
+f examples/rpc/sort/sort2_server.conf
 f examples/rpc/sort/sort2_proto.x
 
 d examples/equeue
@@ -479,18 +479,23 @@ d examples/netplex
 f examples/netplex/Makefile
 f examples/netplex/Makefile.code
 f examples/netplex/MORE_EXAMPLES
-f examples/netplex/helper_container.cfg
+f examples/netplex/helper_container.conf
 f examples/netplex/helper_container.ml
 f examples/netplex/operation.x
 f examples/netplex/test_client.ml
 f examples/netplex/helloworld.ml
-f examples/netplex/helloworld.cfg
+f examples/netplex/helloworld.conf
 f examples/netplex/lever.ml
-f examples/netplex/lever.cfg
+f examples/netplex/lever.conf
 
 d examples/netsys
 f examples/netsys/Makefile
 f examples/netsys/sem_pingpong.ml
+
+d examples/multicore
+f examples/multicore/Makefile
+f examples/multicore/chameneos.ml
+f examples/multicore/create_join.ml
 
 d doc
 d doc/html-main
