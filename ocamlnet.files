@@ -67,6 +67,7 @@ x src/netstring/netdate.ml
 x src/netstring/netconst.ml
 f src/netstring/netconst.mlp
 f src/netstring/nethtml_scanner.mll
+f src/netstring/nethttp.mlp
 f src/netstring/netdb.mlp
 x src/netstring/netdb.ml
 f src/netstring/netaccel_c.c
