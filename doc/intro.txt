@@ -11,6 +11,7 @@ Ocamlnet consists of a number of libraries:
 - [netshm] provides shared memory for IPC purposes
 - [netsys] contains bindings for system functions
 - [smtp] and [pop] are two further client implementations
+- [netmulticore] and [netcamlbox] help parallelizing execution
 
 A number of ideas and concepts are used throughout the libraries:
 
@@ -260,6 +261,17 @@ sent to a Camlbox is only copied once, not twice.
 
 {!modules:
     Netcamlbox}
+
+{2:netmulticore The [netmulticore] library}
+
+Netmulticore is an experimental framework for managing multiple
+processes, and sending messages between them.
+
+{!modules:
+    Netmcore
+    Netmcore_camlbox
+}
+
 
 {2:netclient The [netclient] library}
 
