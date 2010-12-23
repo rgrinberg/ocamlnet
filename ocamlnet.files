@@ -331,6 +331,13 @@ f src/netcamlbox/Makefile.pre
 p src/netcamlbox/.*\.ml
 p src/netcamlbox/.*\.mli
 
+d src/netmulticore
+f src/netmulticore/META.in
+f src/netmulticore/Makefile
+f src/netmulticore/Makefile.pre
+p src/netmulticore/.*\.ml
+p src/netmulticore/.*\.mli
+
 d examples
 
 d examples/camlbox
