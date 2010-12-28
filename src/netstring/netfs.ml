@@ -295,7 +295,11 @@ let local_fs ?encoding ?root () : stream_fs =
 
       method private test_list_EDFS flags fn =
 	try
-	  let st = Unix.LargeFile.stat fn in
+	  let st = 
+	    if List.mem `Link flags then
+	      Unix.LargeFile.lstat fn
+	    else
+	      Unix.LargeFile.stat fn in
 	  let non_empty = st.Unix.LargeFile.st_size <> 0L in
 	  let kind_l =
 	    match st.Unix.LargeFile.st_kind with
