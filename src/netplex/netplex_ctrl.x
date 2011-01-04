@@ -415,6 +415,12 @@ program Sharedvar {
            does not exist, the function immediately returns NULL.
 	*/
 
+	void dump(longstring, longstring) = 6;
+	/* dump(var_name, log_level): Dump the access counter of this
+	   variable (or all variables if var_name="*"). log_level is
+	   the stringified log level
+	*/
+
     } = 1;
 } = 5;
 

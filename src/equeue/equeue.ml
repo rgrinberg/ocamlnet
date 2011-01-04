@@ -75,13 +75,15 @@ let () =
 
 
 let add_handler esys h =
-  dlogr (fun () -> "add_handler");
+  if !Debug.enable then
+    dlogr (fun () -> "add_handler");
   Queue.push (ref (Some h)) esys.new_handlers
 ;;
 
 
 let add_event esys e =
-  dlogr (fun () -> sprintf "add_event <event: %s>" (esys.string_of_event e));
+  if !Debug.enable then
+    dlogr (fun () -> sprintf "add_event <event: %s>" (esys.string_of_event e));
   Queue.push e esys.new_queue
 ;;
 
@@ -89,13 +91,15 @@ let add_event esys e =
 let run esys =
   if esys.running then
     failwith "Equeue.run: Already running";
-  dlogr (fun () -> "run <starting>");
+  if !Debug.enable then
+    dlogr (fun () -> "run <starting>");
   esys.running <- true;
   try
     if Queue.is_empty esys.queue then (
       if Queue.is_empty esys.new_queue && Queue.is_empty esys.error_queue then (
 	(* try to get new events *)
-	dlogr (fun () -> "run <invoking source>");
+	if !Debug.enable then
+	  dlogr (fun () -> "run <invoking source>");
 	esys.source esys;
       );
       (* schedule new events or events again that previously caused errors *)
@@ -104,21 +108,23 @@ let run esys =
       Queue.transfer esys.error_queue esys.queue;
     );
     while not (Queue.is_empty esys.queue) do
-      dlogr
-	(fun () ->
-	   let n = Queue.length esys.queue in
-	   let qs = 
-	     String.concat "; " 
-	       (Queue.fold
-		  (fun acc e ->
-		     esys.string_of_event e :: acc)
-		  []
-		  esys.queue) in
-	   sprintf "run <queue has %d events, 1st will be processed: %s>" n qs
-	);
+      if !Debug.enable then
+	dlogr
+	  (fun () ->
+	     let n = Queue.length esys.queue in
+	     let qs = 
+	       String.concat "; " 
+		 (Queue.fold
+		    (fun acc e ->
+		       esys.string_of_event e :: acc)
+		    []
+		    esys.queue) in
+	     sprintf "run <queue has %d events, 1st will be processed: %s>" n qs
+	  );
 
       if 2 * esys.live_handlers < Queue.length esys.handlers then (
-	dlogr (fun () -> "run <garbage collecting handlers>");
+	if !Debug.enable then
+	  dlogr (fun () -> "run <garbage collecting handlers>");
 	let handlers' = Queue.create() in
 	Queue.iter
 	  (fun h ->
@@ -135,8 +141,9 @@ let run esys =
       if l_new_handlers > 0 then (
 	Queue.transfer esys.new_handlers esys.handlers;
 	esys.live_handlers <- esys.live_handlers + l_new_handlers;
-	dlogr (fun () -> 
-		 sprintf "run <considering %d new handlers>" l_new_handlers)
+	if !Debug.enable then
+	  dlogr (fun () -> 
+		   sprintf "run <considering %d new handlers>" l_new_handlers)
       );
      
       let e = Queue.take esys.queue in
@@ -165,38 +172,43 @@ let run esys =
 			       accept := true;
 			       h := None;
 			       esys.live_handlers <- esys.live_handlers - 1;
-			       dlogr 
-				 (fun () -> 
-				    sprintf "run <got Terminate #handlers=%d>"
-				      esys.live_handlers);
+			       if !Debug.enable then
+				 dlogr 
+				   (fun () -> 
+				      sprintf "run <got Terminate #handlers=%d>"
+					esys.live_handlers);
 		       )
 		     )
 	    )
 	    esys.handlers;
-	  dlogr (fun () -> 
-		   sprintf "run <event %s: %s>" 
-		     (esys.string_of_event e) 
-		     (if !accept then "accepted" else "dropped"));
+	  if !Debug.enable then
+	    dlogr (fun () -> 
+		     sprintf "run <event %s: %s>" 
+		       (esys.string_of_event e) 
+		       (if !accept then "accepted" else "dropped"));
 	with
 	  | error ->
 	      Queue.push e esys.error_queue;
-	      dlogr (fun () -> (sprintf "run <event %s: exception %s>"
-				  (esys.string_of_event e)
-				  (Netexn.to_string error)));
+	      if !Debug.enable then
+		dlogr (fun () -> (sprintf "run <event %s: exception %s>"
+				    (esys.string_of_event e)
+				    (Netexn.to_string error)));
 	      raise error
       );
       if Queue.is_empty esys.queue then (
 	if (Queue.is_empty esys.new_queue && Queue.is_empty esys.error_queue)
 	then (
 	  (* try to get new events (or handlers!) *)
-	  dlogr (fun () -> "run <invoking source>");
+	  if !Debug.enable then
+	    dlogr (fun () -> "run <invoking source>");
 	  esys.source esys;
 	  if (not (Queue.is_empty esys.new_queue) && 
               Queue.is_empty esys.handlers && 
 	      Queue.is_empty esys.new_handlers
 	     )
 	  then (
-	    dlogr (fun () -> "run <out of handlers>");
+	    if !Debug.enable then
+	      dlogr (fun () -> "run <out of handlers>");
 	    raise Out_of_handlers
 	  )
 	    (* If there are new events there must also be (new) handlers.
@@ -205,17 +217,20 @@ let run esys =
 	);
 
 	(* schedule new events or events again that previously caused errors *)
-	dlogr (fun () -> "run <reloading queue>");
+	if !Debug.enable then
+	  dlogr (fun () -> "run <reloading queue>");
 	Queue.transfer esys.new_queue esys.queue;
 	Queue.transfer esys.error_queue esys.queue;
       )
     done;
-    dlogr (fun () -> "run <returning normally>");
+    if !Debug.enable then
+      dlogr (fun () -> "run <returning normally>");
     esys.running <- false;
   with
       any ->
-	dlogr (fun () -> (sprintf "run <returning with exception %s>"
-			    (Netexn.to_string any)));
+	if !Debug.enable then
+	  dlogr (fun () -> (sprintf "run <returning with exception %s>"
+			      (Netexn.to_string any)));
 	esys.running <- false;
 	raise any
 ;;

@@ -86,6 +86,13 @@ let x_plugin =
 			(Netplex_ctrl_aux._of_Sharedvar'V1'wait_for_value'res 
 			   r)))
 
+	  | "dump" ->
+	      let (var_name, levstr) =
+		Netplex_ctrl_aux._to_Sharedvar'V1'dump'arg arg in
+	      self # dump var_name levstr;
+	      reply
+		(Some(Netplex_ctrl_aux._of_Sharedvar'V1'dump'res ()))
+
 	  | _ ->
 	      failwith ("Netplex_sharedvar: unknown proc " ^ procname)
 
@@ -115,7 +122,9 @@ let x_plugin =
 	     ro_flag,
              ty,
 	     false,
-	     Queue.create());
+	     Queue.create(),
+	     ref 0
+	    );
 	  if own_flag then (
 	    let ovars =
 	      try Hashtbl.find owns (ctrl,ssn) with Not_found -> [] in
@@ -128,7 +137,7 @@ let x_plugin =
       method private delete_var ctrl cid var_name =
 	let ssn = cid#socket_service_name in
 	try
-	  let (_, owner, _, _, _, q) = 
+	  let (_, owner, _, _, _, q, _) = 
 	    Hashtbl.find variables (ctrl,var_name) in
 	  ( match owner with
 	      | None -> ()
@@ -156,8 +165,9 @@ let x_plugin =
       method private set_value ctrl cid var_name var_value ty =
 	let ssn = cid#socket_service_name in
 	try
-	  let (_, owner, ro, vty, _, q) = 
+	  let (_, owner, ro, vty, _, q, count) = 
 	    Hashtbl.find variables (ctrl,var_name) in
+	  incr count;
 	  ( match owner with
 	      | None -> ()
 	      | Some ssn' -> if ssn <> ssn' && ro then raise No_perm
@@ -166,7 +176,9 @@ let x_plugin =
 	  let q' = Queue.create() in
 	  Queue.transfer q q';
 	  Hashtbl.replace
-	    variables (ctrl,var_name) (var_value, owner, ro, vty, true, q);
+	    variables
+	    (ctrl,var_name)
+	    (var_value, owner, ro, vty, true, q, count);
 	  Queue.iter
 	    (fun f ->
 	       self # schedule_callback ctrl f (`shvar_ok var_value)
@@ -184,7 +196,9 @@ let x_plugin =
 
       method get_value ctrl var_name ty =
 	try
-	  let (v, _, _, vty, _, _) = Hashtbl.find variables (ctrl,var_name) in
+	  let (v, _, _, vty, _, _, count) = 
+	    Hashtbl.find variables (ctrl,var_name) in
+	  incr count;
 	  if ty <> vty then 
 	    `shvar_badtype
 	  else
@@ -195,8 +209,9 @@ let x_plugin =
 
       method private wait_for_value ctrl cid var_name ty emit =
 	try
-	  let (v, _, _, vty, is_set, q) = 
+	  let (v, _, _, vty, is_set, q, count) = 
 	    Hashtbl.find variables (ctrl,var_name) in
+	  incr count;
 	  if vty <> ty then
 	    emit `shvar_badtype
 	  else (
@@ -214,6 +229,19 @@ let x_plugin =
       method private schedule_callback ctrl f arg =
 	let g = Unixqueue.new_group ctrl#event_system in
 	Unixqueue.once ctrl#event_system g 0.0 (fun () -> f arg)
+
+      method dump var_name levstr =
+	let lev =
+	  Netlog.level_of_string levstr in
+	Hashtbl.iter
+	  (fun (_, n) (_, _, _, _, _, _, count) ->
+	     if var_name ="*" || var_name = n then (
+	       Netlog.logf lev
+		 "Netplex_sharedvar.dump: name=%s count=%d"
+		 n !count
+	     )
+	  )
+	  variables
 
     end
   )
@@ -368,6 +396,17 @@ let get_lazily =
 
 let get_enc_lazily =
   get_lazily_any set_enc_value wait_for_enc_value
+
+let dump var_name lev =
+  let levstr = Netlog.string_of_level lev in
+  match Netplex_cenv.self_obj() with
+    | `Container cont ->
+	ignore
+	  (cont # call_plugin plugin "dump"
+	     (Netplex_ctrl_aux._of_Sharedvar'V1'dump'arg 
+		(var_name,levstr))) 
+    | `Controller ctrl ->
+	x_plugin # dump var_name levstr
 
 module Make_var_type(T:Netplex_cenv.TYPE) = struct
   type t = T.t

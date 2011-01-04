@@ -126,42 +126,61 @@ module IntSet =
 
 
 class [ 't ] engine_mixin (init_state : 't engine_state) esys =
+  let notify_list = ref [] in
+  let notify_list_new = ref [] in
+  let state = ref init_state in
 object(self)
-  val mutable notify_list = []
-  val mutable notify_list_new = []
-  val mutable state = init_state
-
-  method state = state
+  method state = !state
 
   method event_system = esys
 
   method request_notification f =
-    if (not (is_active state)) then
+    if (not (is_active !state)) then
       dlog "engine_mixin warning: the method request_notification was called \
             when the engine already reached the final state";
-    notify_list_new <- f :: notify_list_new
+    notify_list_new := f :: !notify_list_new
     
   method private set_state s =
-    if is_active state then (
-      state <- s;
+    if is_active !state then (
+      state := s;
       self # notify();
     )
 
   method private notify() =
-    notify_list <- notify_list @ notify_list_new;
-    notify_list_new <- [];
-    notify_list <- (
-      List.filter
-	(fun f ->
-	   try
-	     f()
-	   with
-	     | error ->
-		 let g = Unixqueue.new_group esys in
-		 Unixqueue.once esys g 0.0 (fun () -> raise error);
-		 false
-	)
-	notify_list
+    ( match !notify_list_new with
+	| [] -> ()
+	| n -> 
+	    notify_list := !notify_list @ n;
+	    notify_list_new := [];
+    );
+    (* Optimize the case that we only have 1 element in the list. The
+       expensive part here is the assignment (calls caml_modify).
+     *)
+    ( match !notify_list with
+	| [] -> ()
+	| [ f ] ->
+	    let keep =
+	      try
+		f()
+	      with
+		| error ->
+		    Unixqueue.epsilon esys (fun () -> raise error);
+		    false in
+	    if not keep then
+	      notify_list := []
+	| _ ->
+	    notify_list := (
+	      List.filter
+		(fun f ->
+		   try
+		     f()
+		   with
+		     | error ->
+			 Unixqueue.epsilon esys (fun () -> raise error);
+			 false
+		)
+		!notify_list
+	    )
     )
 end ;;
 
@@ -198,32 +217,7 @@ let when_state ?(is_done = fun _ -> ())
 class ['a,'b] map_engine ~map_done ?map_error ?map_aborted 
               ?(propagate_working = true)
               (eng : 'a #engine) =
-object(self)
-  inherit ['b] engine_mixin (`Working 0) eng#event_system
-
-  initializer
-    state <- self # map_state eng#state;
-    if is_active eng#state then
-      eng # request_notification self#forward_notification;
-
-  method private forward_notification() =
-    (* This method is called when [eng] changes its state. We compute our
-     * mapped state, and notify our own listeners.
-     *)
-    let eng_state = eng#state in
-    let state' = self # map_state eng_state in
-    let cont =
-      match state' with
-	  (`Working _) -> true
-	| (`Done _)
-	| (`Error _)
-	| `Aborted ->     false in
-    if not cont || propagate_working then
-      self # set_state state';
-    cont
-
-
-  method private map_state eng_state =
+  let map_state eng_state =
     match eng_state with
 	(`Working _ as wrk_state) -> 
 	  wrk_state
@@ -238,7 +232,31 @@ object(self)
 	  ( match map_aborted with
 		Some f -> f ()
 	      | None   -> `Aborted
-	  )
+	  ) in
+
+object(self)
+  inherit ['b] engine_mixin (map_state eng#state) eng#event_system
+
+  initializer
+    if is_active eng#state then
+      eng # request_notification self#map_forward_notification;
+
+  method private map_forward_notification() =
+    (* This method is called when [eng] changes its state. We compute our
+     * mapped state, and notify our own listeners.
+     *)
+    let eng_state = eng#state in
+    let state' = map_state eng_state in
+    let cont =
+      match state' with
+	  (`Working _) -> true
+	| (`Done _)
+	| (`Error _)
+	| `Aborted ->     false in
+    if not cont || propagate_working then
+      self # set_state state';
+    cont
+
 
   method event_system = eng#event_system
 
@@ -281,46 +299,54 @@ let aborted_engine esys =
 
 class ['a,'b] seq_engine (eng_a : 'a #engine)
                          (make_b : 'a -> 'b #engine) =
-  let eng_a = ref (eng_a :> 'a engine) in
+  let esys = eng_a # event_system in
+  let eng_a_state = ref (eng_a # state) in
+  let eng_a = ref (Some (eng_a :> 'a engine)) in
   (* to get rid of the eng_a value when it is done *)
+
+  let eng_b = ref None in
+  let eng_b_state = ref (`Working 0) in
+
 object(self)
-
-  val mutable eng_a_state = !eng_a # state
-
-  val mutable eng_b = None
-  val mutable eng_b_state = `Working 0
-
-  inherit ['b] engine_mixin (`Working 0) !eng_a#event_system
-
+  inherit ['b] engine_mixin (`Working 0) esys 
 
   initializer
-    if is_active !eng_a#state then
-      !eng_a # request_notification self#update_a
-    else (
-      (* eng_a is already in a final state *)
-      ignore(self#update_a())
-    )
+    match !eng_a with
+      | Some e ->
+	  if is_active e#state then
+	    e # request_notification self#update_a
+	  else (
+	    (* eng_a is already in a final state *)
+	    ignore(self#update_a())
+	  )
+      | None -> assert false
 
   method private update_a() =
     (* eng_a is running, eng_b not yet existing *)
-    let s = !eng_a # state in
+    let ea =
+      match !eng_a with Some e -> e | None -> assert false in
+    let s = ea # state in
     match s with
-	`Working n ->
-	  if s <> eng_a_state then self # count();
-	  eng_a_state <- s;
+      |	`Working n ->
+	  ( match !eng_a_state with
+	      | `Working n' when n = n' -> ()
+	      | _ ->   (* i.e. s <> !eng_a_state *)
+		  self # seq_count();
+		  eng_a_state := s
+	  );
 	  true
       | `Done arg ->
 	  (* Create eng_b *)
-	  let esys = !eng_a#event_system in
-	  eng_a := aborted_engine esys;
+	  (* get rid of eng_a - otherwise mem leak: *)
+	  eng_a := None;
 	  let e = 
 	    try (make_b arg :> _ engine)
 	    with error ->
 	      const_engine (`Error error) esys in
-	  eng_b <- Some e;
+	  eng_b := Some e;
 	  let s' = e # state in
-	  eng_b_state <- s';
-	  self # count();
+	  eng_b_state := s';
+	  self # seq_count();
 	  if is_active s' then
 	    e # request_notification self#update_b
 	  else
@@ -335,12 +361,16 @@ object(self)
 
   method private update_b() =
     (* eng_a is `Done, eng_b is running *)
-    let e = match eng_b with Some e -> e | None -> assert false in
+    let e = match !eng_b with Some e -> e | None -> assert false in
     let s = e # state in
     match s with
-	`Working n ->
-	  if s <> eng_b_state then self # count();
-	  eng_b_state <- s;
+      | `Working n ->
+	  ( match !eng_b_state with
+	      | `Working n' when n=n' -> ()
+	      | _ ->
+		  self # seq_count();
+		  eng_b_state := s
+	  );
 	  true
       | `Done arg ->
 	  self # set_state s;
@@ -352,17 +382,20 @@ object(self)
 	  self # set_state s;
 	  false
 
-  method private count() =
-    match state with
-	`Working n ->
+  method private seq_count() =
+    match self#state with
+      | `Working n ->
 	  self # set_state (`Working (n+1))
       | _ ->
 	  assert false
 
   method abort() =
-    !eng_a # abort();
-    ( match eng_b with
-	  Some e -> e # abort()
+    ( match !eng_a with
+	| Some e -> e # abort()
+	| None -> ()
+    );
+    ( match !eng_b with
+	| Some e -> e # abort()
 	| None -> ()
     )
 end;;
@@ -393,7 +426,6 @@ end
 
 
 class ['a] stream_seq_engine x0 (s : ('a -> 'a #engine) Stream.t)  esys =
-  let g = Unixqueue.new_group esys in
 object(self)
   inherit ['a] engine_mixin (`Working 0) esys
 
@@ -417,12 +449,12 @@ object(self)
 	    when_state
 	      ~is_done:(fun x1 -> 
 			  x <- x1;
-			  Unixqueue.once esys g 0.0 self#next
+			  Unixqueue.epsilon esys self#next
 			    (* avoids stack overflow *)
 		       )
 	      ~is_error:(fun e -> self # set_state (`Error e))
 	      ~is_aborted:(fun () -> self # set_state `Aborted)
-	      ~is_progressing:(fun _ -> self # count())
+	      ~is_progressing:(fun _ -> self # sseq_count())
 	      e
 	  else
 	    self # set_state e#state
@@ -431,8 +463,8 @@ object(self)
     cur_e # abort();
     self # set_state `Aborted
 
-  method private count() =
-    match state with
+  method private sseq_count() =
+    match self#state with
 	`Working n ->
 	  self # set_state (`Working (n+1))
       | _ ->
@@ -465,15 +497,15 @@ object(self)
 
   initializer
     if is_active eng_a#state then
-      eng_a # request_notification self#update_a
+      eng_a # request_notification self#sy_update_a
     else
-      ignore(self#update_a());
+      ignore(self#sy_update_a());
     if is_active eng_b#state then
-      eng_b # request_notification self#update_b
+      eng_b # request_notification self#sy_update_b
     else
-      ignore(self#update_b())
+      ignore(self#sy_update_b())
 
-  method private update_a() =
+  method private sy_update_a() =
     let s = eng_a # state in
     match s with
       |	`Working n ->
@@ -490,7 +522,7 @@ object(self)
 	  abort_if_working eng_b;
 	  false
 
-  method private update_b() =
+  method private sy_update_b() =
     let s = eng_b # state in
     match s with
       | `Working n ->
@@ -510,7 +542,7 @@ object(self)
   method private transition() =
     (* Compute new state from eng_a_state and eng_b_state: *)
     let state' =
-      match state with
+      match self#state with
 	  `Working n ->
 	    ( match (eng_a_state, eng_b_state) with
 		  (`Working _, `Working _) ->
@@ -532,7 +564,7 @@ object(self)
 	    )
 	| _ ->
 	    (* The state will never change again! *)
-	    state
+	    self#state
     in
     self # set_state state'
 
@@ -546,40 +578,22 @@ let sync_engine = new sync_engine
 
 
 class ['t] epsilon_engine (target_state:'t engine_state) ues : ['t] engine =
-  let g = Unixqueue.new_group ues in
+  let aborted = ref false in
 object(self)
   inherit ['t] engine_mixin (`Working 0) ues
 
   initializer (
-    Unixqueue.once ues g 0.0
-      (fun () -> self # set_state target_state)
+    Unixqueue.epsilon ues
+      (fun () -> 
+	 if not !aborted then
+	   self # set_state target_state
+      )
   )
 
   method abort() =
-    Unixqueue.clear ues g;
+    aborted := true;
     self # set_state `Aborted
 end
-
-(* old - slightly more heavy-weight implementation: *)
-(*
-class ['t] epsilon_engine target_state ues =
-  (* Simply create a poll engine, and add a timeout event for its group.
-   * The poll engine accepts all events of that group and switches to
-   * `Done.
-   *)
-  let eng =
-    new poll_engine [] ues in
-  let g =
-    eng # group in
-  let wid =
-    Unixqueue.new_wait_id ues in
-  let () =
-    Unixqueue.add_event ues (Unixqueue.Timeout(g, Unixqueue.Wait wid)) in
-  [Unixqueue.event, 't] map_engine 
-    ~map_done:(fun _ -> target_state)
-    (eng :> Unixqueue.event engine)
-;;
- *)
 
 let epsilon_engine = new epsilon_engine
 
@@ -600,7 +614,7 @@ object(self)
 
   method restart() =
     group <- Unixqueue.new_group ues;
-    state <- (`Working 0 : Unixqueue.event engine_state);
+    self# set_state (`Working 0 : Unixqueue.event engine_state);
     (* Define the event handler: *)
     Unixqueue.add_handler ues group (fun _ _ -> self # handle_event);
     (* Add the resources: *)
@@ -636,7 +650,7 @@ object(self)
 
 
   method abort() =
-    match state with
+    match self#state with
 	`Working _ ->
 	  Unixqueue.clear ues group;
 	  self # set_state `Aborted;
@@ -724,7 +738,7 @@ object(self)
 
 
   method abort() =
-    match state with
+    match self#state with
 	`Working _ ->
 	  Unixqueue.clear ues group;
 	  self # set_state `Aborted;
@@ -784,7 +798,7 @@ object (self)
 
 
   method abort() =
-    match state with
+    match self#state with
 	`Working _ ->
 	  aborted <- true;
 	  timer_eng # abort();
@@ -839,8 +853,7 @@ object(self)
 	  ~is_aborted:(fun _ -> check())
 	  e
       else (
-	let g = Unixqueue.new_group esys in
-	Unixqueue.once esys g 0.0 check;
+	Unixqueue.epsilon esys check;
       );
       e
     and check() =
@@ -902,8 +915,7 @@ object(self)
 	  ~is_aborted:(fun _ -> check())
 	  e
       else (
-	let g = Unixqueue.new_group esys in
-	Unixqueue.once esys g 0.0 check;
+	Unixqueue.epsilon esys check;
       );
       e
 
@@ -1121,7 +1133,7 @@ object(self)
 	 (* Note: With MT, we do not know which thread calls this function.
 	  * Fortunately, add_event is thread-safe.
 	  *)
-	 if is_active state then (
+	 if is_active self#state then (
 	   Unixqueue.add_event ues (receiver_attn group);
 	   true
 	     (* Continue notifications *)
@@ -1144,7 +1156,7 @@ object(self)
 
 
   method abort() =
-    match state with
+    match self#state with
 	`Working _ ->
 	  if not in_eof && close_src then Unix.close src;
 	  in_eof <- true;
@@ -1159,8 +1171,8 @@ object(self)
   method event_system = ues
 
 
-  method private count() =
-    match state with
+  method private rcv_count() =
+    match self#state with
 	`Working n -> 
 	  self # set_state (`Working (n+1))
       | _ ->
@@ -1211,7 +1223,7 @@ object(self)
 	in_eof <- (n = 0);
 	if in_eof && close_src then Unix.close src;
 	Unixqueue.add_event ues (receiver_attn group);
-	self # count();
+	self # rcv_count();
       with
 	  Unix.Unix_error(Unix.EAGAIN,_,_)
 	| Unix.Unix_error(Unix.EWOULDBLOCK,_,_)
@@ -1226,7 +1238,7 @@ object(self)
 	    deferred_exn <- Some error;
 	    if in_eof && close_src then Unix.close src;
 	    Unixqueue.add_event ues (receiver_attn group);
-	    self # count();
+	    self # rcv_count();
 	    
 
   method private check_input_polling() =
@@ -1269,7 +1281,7 @@ object(self)
 	      if (buf_size > 0 && dst#can_output) || in_eof then
 		Unixqueue.add_event ues (receiver_attn group);
 	      self # check_input_polling();
-	      self # count();
+	      self # rcv_count();
 	    )
 	  )
 	  else if in_eof then (
@@ -1335,7 +1347,7 @@ object(self)
 	 (* Note: With MT, we do not know which thread calls this function.
 	  * Fortunately, add_event is thread-safe.
 	  *)
-	 if is_active state then (
+	 if is_active self#state then (
 	   Unixqueue.add_event ues (sender_attn group);
 	   true
 	     (* Continue notifications *)
@@ -1360,7 +1372,7 @@ object(self)
 
 
   method abort() =
-    match state with
+    match self#state with
 	`Working _ ->
 	  if not in_eof && close_src then src # close_in();
 	  in_eof <- true;
@@ -1375,8 +1387,8 @@ object(self)
   method event_system = ues
 
 
-  method private count() =
-    match state with
+  method private snd_count() =
+    match self#state with
 	`Working n -> 
 	  self # set_state (`Working (n+1))
       | _ ->
@@ -1431,7 +1443,7 @@ object(self)
 	  self # set_state (`Done());
 	)
 	else (
-	  self # count();
+	  self # snd_count();
 	  if n > 0 && not in_eof && src#can_input then
 	    Unixqueue.add_event ues (sender_attn group);
 	  (* if not src#can_input, we will be notified when input is 
@@ -1491,7 +1503,7 @@ object(self)
 		if buf_size < l then
 		  Unixqueue.add_event ues (sender_attn group);
 		self # check_output_polling();
-		self # count();
+		self # snd_count();
 	      )
 	    with
 		End_of_file ->
@@ -1499,7 +1511,7 @@ object(self)
 		  if close_src then src # close_in();
 		  in_eof <- true;
 		  self # check_output_polling();
-		  self # count();
+		  self # snd_count();
 	  )
 	)
       with
@@ -1642,7 +1654,7 @@ object (self)
     if not mplex#writing && l' > 0 then 
       self # check_for_output();
 
-    if l' > 0 then self # count();
+    if l' > 0 then self # oam_count();
     (* If l' = 0, there was no space in the buffer. No need for notification *)
 
     l'
@@ -1667,7 +1679,7 @@ object (self)
 
 
   method abort() =
-    match state with
+    match self#state with
 	`Working _ ->
 	  mplex # cancel_writing();
 	  self # shutdown `Aborted;
@@ -1676,8 +1688,8 @@ object (self)
 
   method event_system = mplex # event_system
 
-  method private count() =
-    match state with
+  method private oam_count() =
+    match self#state with
 	`Working n -> 
 	  self # set_state (`Working (n+1))
       | _ ->
@@ -1730,7 +1742,7 @@ object (self)
 			      String.blit buf n buf 0 (buf_size - n);
 			      buf_size <- buf_size - n;
 			      self # check_for_output();
-			      if n > 0 then self # count();
+			      if n > 0 then self # oam_count();
 			      (* Note: this also implies notification because
                                * [can_output] returns true
 			       *)
@@ -1860,7 +1872,7 @@ object (self)
     if not mplex#reading then 
       self # check_for_input();
 
-    if l' > 0 then self # count();
+    if l' > 0 then self # iam_count();
     (* If l' = 0, there were no data in the buffer. No need for notification *)
 
     if l' = 0 && mplex # read_eof then
@@ -1882,7 +1894,7 @@ object (self)
 
 
   method abort() =
-    match state with
+    match self#state with
 	`Working _ ->
 	  mplex # cancel_reading();
 	  self # shutdown `Aborted;
@@ -1891,8 +1903,8 @@ object (self)
 
   method event_system = mplex # event_system
 
-  method private count() =
-    match state with
+  method private iam_count() =
+    match self#state with
 	`Working n -> 
 	  self # set_state (`Working (n+1))
       | _ ->
@@ -1928,9 +1940,9 @@ object (self)
 				      (* must never overflow *)
 			      );
 			      self # check_for_input();
-			      if n > 0 then self # count()
+			      if n > 0 then self # iam_count()
 			  | Some End_of_file ->
-			      self # count()
+			      self # iam_count()
 			  | Some Cancelled ->
 			      (* Called from [abort], so ignore any data *)
 			      ()

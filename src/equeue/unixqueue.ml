@@ -120,6 +120,9 @@ let once ues =
 let weak_once ues =
   Unixqueue_util.weak_once ues
 
+let epsilon ues =
+  Unixqueue_util.epsilon ues
+
 module Debug = Unixqueue_util.Debug
 
 (*

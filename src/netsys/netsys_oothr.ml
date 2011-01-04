@@ -77,11 +77,22 @@ let stprovider : mtprovider =
   )
 
 let provider = ref stprovider
+let single_threaded = ref false  (* whether we know this for sure *)
+let st_init = ref false
 
 let serialize  mutex f arg =
-  mutex # lock();
-  let r = 
-    try f arg
-    with e -> mutex # unlock(); raise e in
-  mutex # unlock();
-  r
+  if !single_threaded then (
+    f arg
+  )
+  else (
+    if not !st_init then (
+      single_threaded := !provider # single_threaded;
+      st_init := true
+    );
+    mutex # lock();
+    let r = 
+      try f arg
+      with e -> mutex # unlock(); raise e in
+    mutex # unlock();
+    r
+  )

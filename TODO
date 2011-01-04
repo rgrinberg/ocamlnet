@@ -1,3 +1,5 @@
+OCAMLNET
+
 - Http_fs: check what happens when a file is read but the stream is
   closed before EOF - DONE
 - Http_client: Convenience still raises Http_error.
@@ -20,6 +22,13 @@
 
 - unlinkat - DONE
 - fchdir - DONE
+
+- Netchannels.lift_in: if buffered=false, automatically enable the
+  buffer the first time input_line is called
+
+- Unixqueue: define no_group (do not spend time for group management)
+
+- Option for Netfs.local_fs: enable_relative_names
 
 ***
 

@@ -409,6 +409,12 @@ val weak_once : event_system -> group -> float -> (unit -> unit) -> unit
       if it is the only remaining resource.
    *)
 
+val epsilon : event_system -> (unit -> unit) -> unit
+  (** The execution of the function is pushed onto the event queue
+      (minimal delay)
+   *)
+
+
 (** {1 Debugging} *)
 
 

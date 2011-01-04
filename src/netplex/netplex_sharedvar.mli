@@ -172,6 +172,11 @@ val get_lazily : string -> (unit -> string) -> string option
 val get_enc_lazily : string -> (unit -> encap) -> encap option
   (** Same for encapsulated values *)
 
+val dump : string -> Netlog.level -> unit
+  (** Dumps the access counter of this variable to {!Netlog}. The
+      string argument "*" dumps all variables.
+   *)
+
 module Make_var_type(T:Netplex_cenv.TYPE) : 
           Netplex_cenv.VAR_TYPE with type t = T.t
   (** Creates a module with [get] and [set] functions to access variables

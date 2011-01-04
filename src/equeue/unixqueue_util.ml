@@ -49,6 +49,18 @@ end
 
 type group = group_object
 
+let nogroup : group =
+  ( object
+      method is_terminating = false
+      method terminate() =
+	failwith "Unixqueue_util.nogroup.terminate"
+    end
+  )
+  (* nogroup: experimental special group for events that do not need
+     group management. Note that these can effectively only be
+     Immediate events because nogroup events cannot be sent to handlers
+   *)
+
 class wait_object =
 object
 end
@@ -256,7 +268,7 @@ module OpTbl =
     )
 
 
-let epsilon esys g f =
+let epsilon_int esys g f =
   (* The callback is invoked again if the previous attempt caused an error.
      We protect here against this, and suppress any action in this case.
    *)
@@ -272,9 +284,13 @@ let epsilon esys g f =
   esys#add_event e
 
 
+let epsilon esys f =
+  epsilon_int esys nogroup f
+
+
 let once_int is_weak (esys:event_system) g duration f =
   if not is_weak && duration = 0.0 then
-    epsilon esys g f
+    epsilon_int esys g f
   else (
     let id = esys#new_wait_id () in
     let op = Wait id in

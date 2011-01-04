@@ -120,3 +120,4 @@ val serialize : mutex -> ('a -> 'b) -> 'a -> 'b
   (** [serialize m f arg]: Locks [m], runs [f arg], unlocks [m], and returns
       the result.
    *)
+
