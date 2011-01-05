@@ -160,18 +160,21 @@ class pollset_event_system (pset : Netsys_pollset.pollset) =
   let mutex = mtp # create_mutex() in
 
 
-  let events_of_op_wl op =
-    try 
+  let event_of_op_wl_nf op =
       let (_,_,g,_) = OpTbl.find tmo_of_op op in (* or Not_found *)
       match op with
 	| Unixqueue_util.Wait_in fd ->
-	    [Unixqueue_util.Input_arrived(g,fd)]
+	    Unixqueue_util.Input_arrived(g,fd)
 	| Unixqueue_util.Wait_out fd ->
-	    [Unixqueue_util.Output_readiness(g,fd)]
+	    Unixqueue_util.Output_readiness(g,fd)
 	| Unixqueue_util.Wait_oob fd ->
-	    [Unixqueue_util.Out_of_band(g,fd)]
+	    Unixqueue_util.Out_of_band(g,fd)
 	| Unixqueue_util.Wait _ ->
-	    [Unixqueue_util.Timeout(g,op)]
+	    Unixqueue_util.Timeout(g,op) in
+
+  let events_of_op_wl op =
+    try 
+      [ event_of_op_wl_nf op ]
     with
       | Not_found ->
 	  (* A "ghost event", i.e. there is no handler anymore
@@ -209,6 +212,8 @@ object(self)
      *)
     assert(Lazy.force !sys == _sys);
 
+    let dbg = !Unixqueue_util.Debug.enable in
+
     let locked = ref true in   (* keep track of locking state *)
     if is_mt then
       mutex # lock();
@@ -217,7 +222,7 @@ object(self)
     let tmin = try min_key !ops_of_tmo with Not_found -> (-1.0) in
     let delta = if tmin < 0.0 then (-1.0) else max (tmin -. t0) 0.0 in
 
-    if !Unixqueue_util.Debug.enable then
+    if dbg then
       dlogr (fun () -> (
 	       sprintf "t0 = %f" t0));
     
@@ -225,15 +230,17 @@ object(self)
       (* For this test only non-weak resources count, so... *)
       !strong_ops = 0 in
 
-    let pset_events, have_eintr = 
+    let have_eintr = ref false in
+
+    let pset_events = 
       try
 	if nothing_to_do then (
-	  if !Unixqueue_util.Debug.enable then
+	  if dbg then
 	    dlogr (fun () -> "nothing_to_do");
-	  ([], false)
+	  []
 	)
 	else (
-	  if !Unixqueue_util.Debug.enable then
+	  if dbg then
 	    dlogr (fun () -> (
 		     let ops = 
 		       OpTbl.fold (fun op _ l -> op::l) tmo_of_op [] in
@@ -251,13 +258,14 @@ object(self)
 	  if is_mt then
 	    mutex # unlock();
 	  locked := false;
-	  (pset # wait delta, false)
+	  pset # wait delta
 	)
       with
 	| Unix.Unix_error(Unix.EINTR,_,_) ->
-	    if !Unixqueue_util.Debug.enable then
+	    if dbg then
 	      dlogr (fun () -> "wait signals EINTR");
-	    ([], true) 
+	    have_eintr := true;
+	    []
 	| e ->   
 	    (* Usually from [wait], but one never knows... *)
 	    if !locked && is_mt then mutex#unlock();
@@ -271,13 +279,13 @@ object(self)
     try  
       (* Catch exceptions and unlock *)
 
-      if !Unixqueue_util.Debug.enable then
+      if dbg then
 	dlogr (fun () -> (
 		 sprintf "wait returns <%d pset events>" 
 		   (List.length pset_events)));
       
       let t1 = Unix.gettimeofday() in
-      if !Unixqueue_util.Debug.enable then
+      if dbg then
 	dlogr (fun () -> (sprintf "t1 = %f" t1));
       (* t1 is the reference for determining the timeouts *)
 
@@ -285,10 +293,10 @@ object(self)
       if OpTbl.length tmo_of_op = 0 then
 	pset # dispose();
 
-      let operations = 
+      let operations = 	(* flatten_map *)
 	(* The possible operations *)
-	flatten_map
-	  (fun (fd,ev_in,ev_out) ->
+	List.fold_left
+	  (fun acc (fd,ev_in,ev_out) ->
 	     (* Note that POLLHUP and POLLERR can also mean that we
                 have data to read/write!
 	      *)
@@ -310,21 +318,16 @@ object(self)
 	       in_wr && (out_wr || out_hup || out_err) in
 	     let have_pri =
 	       in_pri && (out_pri || out_hup || out_err) in
-	     if have_input || have_output || have_pri then (
-	       let e1 = if have_pri then [Unixqueue_util.Wait_oob fd] else [] in
-	       let e2 = if have_input then [Unixqueue_util.Wait_in fd] else [] in
-	       let e3 = if have_output then [Unixqueue_util.Wait_out fd] else [] in
-	       e1 @ e2 @ e3
-	     )
-	     else
-	       []
+	     let e1 = 
+	       if have_pri then Unixqueue_util.Wait_oob fd :: acc else acc in
+	     let e2 = 
+	       if have_input then Unixqueue_util.Wait_in fd :: e1 else e1 in
+	     let e3 = 
+	       if have_output then Unixqueue_util.Wait_out fd :: e2 else e2 in
+	     e3
 	  )
+	  []
 	  pset_events in
-      let events =
-	(* The events corresponding to [operations] *)
-	flatten_map
-	  (fun op -> events_of_op_wl op)
-	  operations in
 
       let ops_timed_out =
 	ops_until t1 !ops_of_tmo in
@@ -332,40 +335,52 @@ object(self)
          a timeout value of 0.0 won't work
        *)
 
-      let timeout_events = 
-	(* Generate timeout events for all ops in [tmo_of_op] that have timed
-           out and that are not in [events]
+      let timeout_ops = 
+	(* Determine the operations in [tmo_of_op] that have timed
+           out and that are not in [operations]
 	   FIXME: [List.mem op operations] is not scalable.
 	 *)
-	flatten_map
-	  (fun (_, ops) ->
-	     let ops' =
-	       OpSet.filter (fun op -> not(list_mem_op op operations)) ops in
+	List.fold_left
+	  (fun oacc (_, ops) ->
 	     OpSet.fold
-	       (fun op acc -> 
-		  events_of_op_wl op @ acc)
-	       ops' []
+	       (fun op iacc ->
+		  if list_mem_op op operations then iacc else op::iacc) 
+	       ops 
+	       oacc
 	  )
+	  []
 	  ops_timed_out in
       
-      if !Unixqueue_util.Debug.enable then
-	dlogr(fun() -> (sprintf "delivering <%s>"
-			  (String.concat ";" 
-			     (List.map 
-				string_of_event
-				(events @ timeout_events)))));
+      if dbg then
+	dlogr
+	  (fun() -> 
+	     sprintf "delivering <%s>"
+	       (String.concat ";" 
+		  (flatten_map
+		     (fun op ->
+			List.map string_of_event (events_of_op_wl op)
+		     )
+		     (operations @ timeout_ops)
+		  )));
       
       (* deliver events *)
-      List.iter (Equeue.add_event _sys) events;
-      List.iter (Equeue.add_event _sys) timeout_events;
-      if have_eintr then (
+      let delivered = ref false in
+      let deliver op =
+	delivered := true;
+	try 
+	  let ev = event_of_op_wl_nf op in
+	  Equeue.add_event _sys ev
+	with Not_found -> () in
+      List.iter deliver operations;
+      List.iter deliver timeout_ops;
+
+      if !have_eintr then (
 	dlogr (fun () -> "delivering Signal");
 	Equeue.add_event _sys Unixqueue_util.Signal
-      )
-      else
-	if events = [] && timeout_events = [] && not nothing_to_do then (
+      ) else
+	if not !delivered && not nothing_to_do then (
           (* Ensure we always add an event to keep the event loop running: *)
-	  if !Unixqueue_util.Debug.enable then
+	  if dbg then
 	    dlogr (fun () -> "delivering Keep_alive");
 	  Equeue.add_event _sys (Unixqueue_util.Extra Keep_alive)
 	);
@@ -381,22 +396,22 @@ object(self)
          (Note that [pset] remains unchanged, because the set of watched
          resources remains unchanged.)
        *)
-      List.iter
-	(fun evlist ->
-	   List.iter
-	     (fun ev ->
-		try
-		  let op = op_of_event ev in
-		  let (tmo,_,g,is_strong) = 
-		    OpTbl.find tmo_of_op op in (* or Not_found *)
-		  self#sched_remove_wl op;
-		  let t2 = if tmo < 0.0 then tmo else t1 +. tmo in
-		  self#sched_add_wl g op tmo t2 is_strong
-		with
-		  | Not_found -> assert false
-	     )
-	     evlist)
-	[ events; timeout_events ];
+      let update_tmo oplist =
+	List.iter
+	  (fun op ->
+	     try
+	       let (tmo,t1,g,is_strong) = 
+		 OpTbl.find tmo_of_op op in (* or Not_found *)
+	       if tmo >= 0.0 then (
+		 let t2 = t1 +. tmo in
+		 self#sched_upd_tmo_wl g op tmo t2 is_strong t1
+	       )
+	     with
+	       | Not_found -> assert false
+	  )
+	  oplist in
+      update_tmo operations;
+      update_tmo timeout_ops;
 
       if is_mt then mutex # unlock();
       locked := false
@@ -418,17 +433,19 @@ object(self)
       dlogr(fun () -> (sprintf "sched_remove %s" (string_of_op op)));
       OpTbl.remove tmo_of_op op;
       if is_strong then decr strong_ops;
-      let l_ops =
-	if tmo >= 0.0 then
-	  try FloatMap.find t1 !ops_of_tmo with Not_found -> OpSet.empty
-	else OpSet.empty in
-      let l_ops' =
-	OpSet.remove op l_ops in
-      if l_ops' = OpSet.empty then
-	ops_of_tmo := FloatMap.remove t1 !ops_of_tmo
-      else
-	ops_of_tmo := FloatMap.add t1 l_ops' !ops_of_tmo;
-
+      ( try
+	  let l_ops =
+	    if tmo >= 0.0 then
+	      FloatMap.find t1 !ops_of_tmo 
+	    else raise Not_found in
+	  let l_ops' =
+	    OpSet.remove op l_ops in
+	  if l_ops' = OpSet.empty then
+	    ops_of_tmo := FloatMap.remove t1 !ops_of_tmo
+	  else
+	    ops_of_tmo := FloatMap.add t1 l_ops' !ops_of_tmo
+	with Not_found -> ()
+      );
       if Oo.id g <> nogroup_id then (
 	let old_set = Hashtbl.find ops_of_group g in
 	let new_set = OpSet.remove op old_set in
@@ -488,7 +505,34 @@ object(self)
 	  pset_set pset fd (i,o,true)
       | Wait _ ->
 	  ()
-		
+
+  method private sched_upd_tmo_wl g op tmo t1 is_strong old_t1 =
+    (* only for tmo>=0 *)
+    dlogr(fun () -> (sprintf "sched_upd_tmo %s tmo=%f t1=%f is_strong=%b"
+		       (string_of_op op) tmo t1 is_strong));
+    OpTbl.replace tmo_of_op op (tmo, t1, g, is_strong);
+
+    (* We assume old_t1 is already removed form ops_of_tmo, so the following
+       block is unnecessary:
+     *)
+    (*
+    ( try
+	let l_ops =
+	  FloatMap.find old_t1 !ops_of_tmo in
+	let l_ops' =
+	  OpSet.remove op l_ops in
+	if l_ops' = OpSet.empty then
+	  ops_of_tmo := FloatMap.remove old_t1 !ops_of_tmo
+	else
+	  ops_of_tmo := FloatMap.add old_t1 l_ops' !ops_of_tmo
+      with Not_found -> ()
+    );
+    *)
+
+    let l_ops_new =
+      try FloatMap.find t1 !ops_of_tmo with Not_found -> OpSet.empty in
+    ops_of_tmo := FloatMap.add t1 (OpSet.add op l_ops_new) !ops_of_tmo
+
   method exists_resource op =
     while_locked mutex
       (fun () -> self # exists_resource_wl op)

@@ -1,3 +1,9 @@
+2011-01-04  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Optimizations (especially async code)
+
+	* Netplex_sharedvar.dump: new function for debugging
+
 2010-12-23  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Released: Ocamlnet-3.2

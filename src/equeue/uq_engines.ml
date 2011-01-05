@@ -125,10 +125,9 @@ module IntSet =
     )
 
 
-class [ 't ] engine_mixin (init_state : 't engine_state) esys =
+class [ 't ] engine_mixin_i (state : 't engine_state ref) esys =
   let notify_list = ref [] in
   let notify_list_new = ref [] in
-  let state = ref init_state in
 object(self)
   method state = !state
 
@@ -183,6 +182,11 @@ object(self)
 	    )
     )
 end ;;
+
+
+class [ 't ] engine_mixin init_state esys =
+  ['t] engine_mixin_i (ref init_state) esys
+
 
 
 let when_state ?(is_done = fun _ -> ())
@@ -600,9 +604,10 @@ let epsilon_engine = new epsilon_engine
 
 
 class poll_engine ?(extra_match = fun _ -> false) oplist ues =
+  let state = ref (`Working 0) in
 object(self)
 
-  inherit [Unixqueue.event] engine_mixin (`Working 0) ues
+  inherit [Unixqueue.event] engine_mixin_i state ues
 
   val mutable group = Unixqueue.new_group ues
 
@@ -614,7 +619,8 @@ object(self)
 
   method restart() =
     group <- Unixqueue.new_group ues;
-    self# set_state (`Working 0 : Unixqueue.event engine_state);
+    state := (`Working 0 : Unixqueue.event engine_state);
+      (* N.B. set_state would not work here *)
     (* Define the event handler: *)
     Unixqueue.add_handler ues group (fun _ _ -> self # handle_event);
     (* Add the resources: *)
