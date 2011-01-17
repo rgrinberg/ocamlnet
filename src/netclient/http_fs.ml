@@ -178,7 +178,7 @@ and find_file_members_in_list l =
 exception Interrupt
 
 
-let is_error_response path call =
+let is_error_response ?(precondfailed = Unix.EPERM) path call =
   match call#status with
     | `Unserved -> None
     | `Successful -> None
@@ -189,6 +189,8 @@ let is_error_response path call =
 		Some(Unix.Unix_error(Unix.ENOENT, "Http_fs", path))
 	    | `Forbidden | `Unauthorized ->
 		Some(Unix.Unix_error(Unix.EACCES, "Http_fs", path))
+	    | `Precondition_failed ->
+		Some(Unix.Unix_error(precondfailed, "Http_fs", path))
 	    | _ ->
 		Some(Unix.Unix_error(Unix.EPERM, "Http_fs", path))
 	)
@@ -214,7 +216,7 @@ class http_fs
 	?tmp_prefix
 	?(path_encoding = `Enc_utf8)
         ?(enable_read_for_directories=false)
-	?(is_error_response = is_error_response)
+	(* ?(is_error_response = is_error_response) *)
 	base_url : http_stream_fs =
   let p = new Http_client.pipeline in
   let () = config_pipeline p in
@@ -247,12 +249,12 @@ class http_fs
     else
       base_url ^ npath_s
   in
-  let handle_error path call =
+  let handle_error ?precondfailed path call =
     match call#status with
       | `Unserved -> assert false
       | `Successful -> assert false
       | _ ->
-	  ( match is_error_response path call with
+	  ( match is_error_response ?precondfailed path call with
 	      | None -> 
 		  failwith "Http_fs: No response received but \
                             is_error_response does not indicate an error"
@@ -424,30 +426,34 @@ object(self)
     List.iter (fun (n,v) -> req_hdr # update_field n v) header;
     last_response_header := None;
 
-    if List.mem `Exclusive flags then
-      einval path "Https_fs.write: exclusive create not supported";
     let create_flag = List.mem `Create flags in
     let trunc_flag = List.mem `Truncate flags in
+    let excl_flag = List.mem `Exclusive flags in
 
     if not create_flag && not trunc_flag then
       einval path "Http_fs.write: you need to request either file creation \
                    or file truncation";
 
-    if not(create_flag && trunc_flag) then (
-      let exists = self # test [] path `E in
-      match create_flag, trunc_flag with
-	| false, true ->
-	    if not exists then
-	      raise(Unix.Unix_error(Unix.ENOENT,"Http_fs.write", path))
-	| true, false ->
-	    if exists then
-	      raise(Unix.Unix_error
-		      (Unix.EPERM,
-		       "Http_fs.write: cannot overwrite without truncation", 
-		       path))
-	| _ -> assert false
+    let precondfailed = ref Unix.EPERM in
+
+    if create_flag && excl_flag then (
+      req_hdr # update_field "If-None-Match" "*";
+      (* = do PUT only if the file does not exist *)
+      precondfailed := Unix.EEXIST;
+    );
+    if create_flag && not excl_flag && not trunc_flag then (
+      req_hdr # update_field "If-None-Match" "*";
+      (* = do PUT only if the file does not exist *)
+      precondfailed := Unix.EPERM;
+    );
+    if not create_flag then (
+      req_hdr # update_field "If-Match" "*";
+      (* = do PUT only if the file exists *)
+      precondfailed := Unix.ENOENT;
     );
 
+    let precondfailed = !precondfailed in
+	    
     last_response_header := None;
     if streaming || List.mem `Streaming flags then (
       (* We cannot reconnect in streaming mode :-( *)
@@ -475,9 +481,9 @@ object(self)
 	  if !eof then (
 	    (* check for errors *)
 	    last_response_header := Some(call#response_header);
-	    match is_error_response path call with
+	    match is_error_response ~precondfailed path call with
 	      | None -> ()
-	      | Some e -> handle_error path call
+	      | Some e -> handle_error ~precondfailed path call
 	  )
 	) in
       let onempty () =
@@ -509,7 +515,7 @@ object(self)
 	  with e -> Unix.unlink tmp_name; raise e
 	);
 	last_response_header := Some(call#response_header);
-	match is_error_response path call with
+	match is_error_response ~precondfailed path call with
 	  | None ->
 	      ()
 	  | Some e ->

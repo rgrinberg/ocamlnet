@@ -1,5 +1,20 @@
 OCAMLNET
 
+Fixes TODO:
+
+- Http_fs: the http_stream_fs should also define a pipeline method
+
+***
+
+GSSAPI:
+ - define GSSAPI classes
+ - wrap C impls of GSSAPI
+ - SCRAM (RFC 5802)
+ - ONCRPC + GSSAPI (RPCSEC_GSS) (RFC2203)
+
+
+***
+
 - Http_fs: check what happens when a file is read but the stream is
   closed before EOF - DONE
 - Http_client: Convenience still raises Http_error.

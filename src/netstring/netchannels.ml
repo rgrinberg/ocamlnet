@@ -941,25 +941,25 @@ object (self)
 
   method close_out() =
     if not closed then (
-      try
-	(* if !errflag is set, we know that the immediately preceding
-	   operation raised an exception, and we are now likely in the
-	   exception handler
-	 *)
-	if !errflag then
-	  Pervasives.close_out_noerr ch
-	else
-	  Pervasives.close_out ch; 
-	closed <- true; 
-	onclose()
-      with
-	| error ->
-	    Netlog.logf `Err
-	      "Netchannels: Suppressed error in close_out: %s"
-	      (Netexn.to_string error);
-	    Pervasives.close_out_noerr ch;
-	    closed <- true; 
-	    onclose()
+      ( try
+	  (* if !errflag is set, we know that the immediately preceding
+	     operation raised an exception, and we are now likely in the
+	     exception handler
+	   *)
+	  if !errflag then
+	    Pervasives.close_out_noerr ch
+	  else
+	    Pervasives.close_out ch; 
+	  closed <- true; 
+	with
+	  | error ->
+	      Netlog.logf `Err
+		"Netchannels: Suppressed error in close_out: %s"
+		(Netexn.to_string error);
+	      Pervasives.close_out_noerr ch;
+	      closed <- true; 
+      );
+      onclose()
     )
 
   method pos_out = 
@@ -1483,21 +1483,23 @@ end
 class buffered_trans_channel ?(close_mode = (`Commit : close_mode)) 
 			      (ch : out_obj_channel)
                               : trans_out_obj_channel =
-  let _transbuf = Buffer.create 50 in
+  let transbuf = ref(Buffer.create 50) in
+  let trans = ref(new output_buffer !transbuf) in
+  let reset() =
+    transbuf := Buffer.create 50;
+    trans := new output_buffer !transbuf in
 object (self)
-  val transbuf   = _transbuf
-  val trans      = new output_buffer _transbuf
   val out        = ch
   val close_mode = close_mode
 
-  method output         = trans # output
-  method really_output  = trans # really_output
-  method output_char    = trans # output_char
-  method output_string  = trans # output_string
-  method output_byte    = trans # output_byte
-  method output_buffer  = trans # output_buffer
-  method output_channel = trans # output_channel
-  method flush          = trans # flush
+  method output         = !trans # output
+  method really_output  = !trans # really_output
+  method output_char    = !trans # output_char
+  method output_string  = !trans # output_string
+  method output_byte    = !trans # output_byte
+  method output_buffer  = !trans # output_buffer
+  method output_channel = !trans # output_channel
+  method flush          = !trans # flush
 
   method close_out() =
     ( try
@@ -1511,25 +1513,27 @@ object (self)
 	      "Netchannels: Suppressed error in close_out: %s"
 	      (Netexn.to_string error);
     );
-    trans # close_out();
+    !trans # close_out();
     out # close_out()
 
 
   method pos_out =
-    out # pos_out + trans # pos_out
+    out # pos_out + !trans # pos_out
 
   method commit_work() =
     try
-      out # output_buffer transbuf;
+      (* in any way avoid that the contents of transbuf are printed twice *)
+      let b = !transbuf in
+      reset();
+      out # output_buffer b;
       out # flush();
-      Buffer.reset transbuf
     with
 	err ->
 	  self # rollback_work();   (* reset anyway *)
 	  raise err
 
   method rollback_work() =
-    Buffer.reset transbuf
+    reset()
 
 end
 ;;
@@ -1595,6 +1599,7 @@ object (self)
   val trans              = new output_channel _transch_out
   val mutable out        = ch
   val close_mode         = close_mode
+  val mutable need_clear = false
 
   initializer
     try
@@ -1614,16 +1619,17 @@ object (self)
 	  close_out _transch_out;
 	  raise err
 
-  method output         = trans # output
-  method really_output  = trans # really_output
-  method output_char    = trans # output_char
-  method output_string  = trans # output_string
-  method output_byte    = trans # output_byte
-  method output_buffer  = trans # output_buffer
-  method output_channel = trans # output_channel
-  method flush          = trans # flush
+  method output         = if need_clear then self#clear(); trans # output
+  method really_output  = if need_clear then self#clear(); trans # really_output
+  method output_char    = if need_clear then self#clear(); trans # output_char
+  method output_string  = if need_clear then self#clear(); trans # output_string
+  method output_byte    = if need_clear then self#clear(); trans # output_byte
+  method output_buffer  = if need_clear then self#clear(); trans # output_buffer
+  method output_channel = if need_clear then self#clear(); trans #output_channel
+  method flush          = if need_clear then self#clear(); trans # flush
 
   method close_out() =
+    if need_clear then self#clear(); 
     ( try
 	( match close_mode with
 	      `Commit   -> self # commit_work()
@@ -1641,9 +1647,11 @@ object (self)
 
 
   method pos_out =
+    if need_clear then self#clear(); 
     out # pos_out + trans # pos_out
 
   method commit_work() =
+    need_clear <- true;
     let len = trans # pos_out in
     trans # flush();
     Pervasives.seek_in transch_in 0;
@@ -1682,6 +1690,7 @@ object (self)
     (* Note: the old transch_in will be automatically finalized, but the
      * underlying file descriptor will not be closed in this case
      *)
+    need_clear <- false
 
 end
 ;;

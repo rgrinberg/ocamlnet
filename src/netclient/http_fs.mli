@@ -128,7 +128,7 @@ class http_fs : ?config_pipeline:(Http_client.pipeline -> unit) ->
                 ?tmp_prefix:string ->
                 ?path_encoding:Netconversion.encoding ->
                 ?enable_read_for_directories:bool ->
-                ?is_error_response:(string -> Http_client.http_call -> exn option) ->
+                (* ?is_error_response:(string -> Http_client.http_call -> exn option) -> *)
                 string -> http_stream_fs
   (** [http_fs base_url]: Accesses the HTTP file system rooted at
       [base_url].
@@ -143,7 +143,8 @@ class http_fs : ?config_pipeline:(Http_client.pipeline -> unit) ->
         The [`Skip] flag works, and is translated to a [Range] header.
       - [write]: is supported and translated to [PUT]. It is assumed
         that [PUT] truncates existing files, and creates new files.
-        The [`Exclusive] flag is not supported and will be rejected.
+        Note that errors are often first reported when the returned
+        channel is closed!
       - [size]: this works only if the server includes the [Content-length]
         header in responses to [HEAD] requests.
       - [test] and [test_list]: The tests [`N], [`E], [`D], [`F], and [`S]
@@ -178,6 +179,9 @@ class http_fs : ?config_pipeline:(Http_client.pipeline -> unit) ->
         query the server for this. The default, [`Enc_utf8], seems to be the
         de-facto standard on the web (e.g. browsers use UTF-8 when
         non-ASCII characters are entered in the address line).
+   *)
+
+(*
       - [is_error_response]: This function is invoked with the current 
         call object as soon as the response header arrives. It 
         looks at the response code, and checks whether the response
@@ -196,11 +200,11 @@ val http_fs : ?config_pipeline:(Http_client.pipeline -> unit) ->
                 ?tmp_prefix:string ->
                 ?path_encoding:Netconversion.encoding ->
                 ?enable_read_for_directories:bool ->
-                ?is_error_response:(string -> Http_client.http_call -> exn option) ->
+                (* ?is_error_response:(string -> Http_client.http_call -> exn option) -> *)
                 string -> http_stream_fs
   (** Same as normal function *)
 
-
+(*
 val is_error_response : string -> Http_client.http_call -> exn option
   (** Default implementation: The [status] [`Successful] (code in the range
       200 to 299) is considered as successful, and:
@@ -208,3 +212,4 @@ val is_error_response : string -> Http_client.http_call -> exn option
       - codes 401 and 403 are mapped to [EACCES]
       - other codes from 300 to 599 are mapped to [EPERM]
    *)
+ *)

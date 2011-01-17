@@ -1,3 +1,11 @@
+2011-01-17  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Http_fs: PUT semantics can be better controlled with the
+	  If-Match and If-None-Match headers.
+
+	* Netchannels: Fixing some close_out problems when errors
+	  occur while closing
+
 2011-01-04  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Optimizations (especially async code)

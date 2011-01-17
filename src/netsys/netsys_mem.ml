@@ -5,13 +5,13 @@ open Printf
 type memory = 
     (char,Bigarray.int8_unsigned_elt,Bigarray.c_layout) Bigarray.Array1.t
 
-external netsys_blit_memory_to_string :
+external blit_memory_to_string_unsafe :
            memory -> int -> string -> int -> int -> unit
-  = "netsys_blit_memory_to_string"
+  = "netsys_blit_memory_to_string" "noalloc"
 
-external netsys_blit_string_to_memory : 
+external blit_string_to_memory_unsafe : 
            string -> int -> memory ->  int -> int -> unit
-  = "netsys_blit_string_to_memory"
+  = "netsys_blit_string_to_memory" "noalloc"
 
 let blit_memory_to_string mem memoff s soff len =
   let memlen = Bigarray.Array1.dim mem in
@@ -20,7 +20,7 @@ let blit_memory_to_string mem memoff s soff len =
      soff < 0 || soff > slen - len 
   then
     invalid_arg "Netsys_mem.blit_memory_to_string";
-  netsys_blit_memory_to_string mem memoff s soff len
+  blit_memory_to_string_unsafe mem memoff s soff len
 
 let blit_string_to_memory s soff mem memoff len =
   let memlen = Bigarray.Array1.dim mem in
@@ -29,7 +29,7 @@ let blit_string_to_memory s soff mem memoff len =
      soff < 0 || soff > slen - len 
   then
     invalid_arg "Netsys_mem.blit_string_to_memory";
-  netsys_blit_string_to_memory s soff mem memoff len
+  blit_string_to_memory_unsafe s soff mem memoff len
 
 external memory_address : memory -> nativeint
   = "netsys_memory_address"

@@ -21,6 +21,11 @@ val blit_memory_to_string : memory -> int -> string -> int -> int -> unit
       designate a valid subbuffer of [src], or if [dstoff] and [len]
       do not designate a valid substring of [dst]. *)
 
+external blit_memory_to_string_unsafe : 
+     memory -> int -> string -> int -> int -> unit
+     =  "netsys_blit_memory_to_string" "noalloc"
+  (** Unsafe version *)
+
 val blit_string_to_memory : string -> int -> memory ->  int -> int -> unit
   (** [blit_string_to_memory src srcoff dst dstoff len] copies [len] characters
       from string [src], starting at character number [srcoff], to
@@ -29,6 +34,11 @@ val blit_string_to_memory : string -> int -> memory ->  int -> int -> unit
       Raise [Invalid_argument] if [srcoff] and [len] do not
       designate a valid substring of [src], or if [dstoff] and [len]
       do not designate a valid subbuffer of [dst]. *)
+
+external blit_string_to_memory_unsafe : 
+           string -> int -> memory ->  int -> int -> unit
+  = "netsys_blit_string_to_memory" "noalloc"
+  (** Unsafe version *)
 
 val memory_address : memory -> nativeint
   (** Returns the start address of the buffer *)
