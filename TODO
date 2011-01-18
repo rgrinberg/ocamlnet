@@ -4,6 +4,22 @@ Fixes TODO:
 
 - Http_fs: the http_stream_fs should also define a pipeline method
 
+- Idea:
+  Mimestring.create_mime_scanner: Support further options:
+   - Enable_comments / Disable_comments -> (, ) can be part of atoms
+   - Enable_qstrings / Disable_qstrings -> "" can be part of atoms
+   - Enable_domaintoken / Disable_domaintoken -> [ ] can be part of atoms
+  New optional arguments:
+    ~profile:`Null if true, comments, qstrings, domaintokens are disabled
+     except explicitly enabled
+    ~profile:`Email for traditional settgins
+  Also, there should be a new kind of token, Delimited, with
+   - Delimited(start_char, text, end_char)
+     e.g. Delimited('<', url, '>')
+  Delimited needs to be configured:
+   - Delimited_tokens(start_char, end_char, forbidden_chars)
+     e.g. Delimited_tokens('<', '>', [' '])
+
 ***
 
 GSSAPI:
