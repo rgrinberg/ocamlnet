@@ -308,6 +308,15 @@ static int at_flags_table[] = {
 
 /* Must be identical to the constants provided by the Unix module */
 #ifdef HAVE_AT
+
+/* FreeBSD does not have DSYNC/RSYNC: */
+#ifndef O_DSYNC
+#define O_DSYNC 0
+#endif
+#ifndef O_RSYNC
+#define O_RSYNC 0
+#endif
+
 static int open_flag_table[] = {
   O_RDONLY, O_WRONLY, O_RDWR, O_NONBLOCK, O_APPEND, O_CREAT, O_TRUNC, O_EXCL, 
   O_NOCTTY, O_DSYNC, O_SYNC, O_RSYNC
