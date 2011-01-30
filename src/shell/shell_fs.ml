@@ -206,7 +206,7 @@ let link_re = Netstring_pcre.regexp ".*? -> (.*)$"
 
 exception Not_absolute
 
-class shell_fs ?encoding ?(root="/") ?(dd_has_excl=false) ci : shell_stream_fs =
+class shell_fs ?encoding ?(root="/") ?(dd_has_excl=false) (ci : command_interpreter) : shell_stream_fs =
   let () =
     match encoding with
       | None -> ()
