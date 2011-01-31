@@ -606,13 +606,23 @@ external have_fadvise : unit -> bool = "netsys_have_posix_fadvise"
   (** Returns whether the OS supports the fadvise POSIX option *)
 
 type advice =
+  | POSIX_FADV_NORMAL
+  | POSIX_FADV_SEQUENTIAL
+  | POSIX_FADV_RANDOM
+  | POSIX_FADV_NOREUSE
+  | POSIX_FADV_WILLNEED
+  | POSIX_FADV_DONTNEED
   | FADV_NORMAL
   | FADV_SEQUENTIAL
   | FADV_RANDOM
   | FADV_NOREUSE
   | FADV_WILLNEED
   | FADV_DONTNEED
-
+  (** Possible advices for fadvise. The names starting with "POSIX_" and
+      the ones lacking the prefix have the same meaning. In new code,
+      the names starting with "POSIX_" should be preferred (for better
+      compaibility with other libraries).
+   *)
 
 external fadvise : Unix.file_descr -> int64 -> int64 -> advice -> unit
                  = "netsys_fadvise"

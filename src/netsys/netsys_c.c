@@ -1929,12 +1929,12 @@ CAMLprim value netsys_fadvise(value fd, value start, value len, value adv) {
 
     adv_int = 0;
     switch (Int_val(adv)) {
-    case 0: adv_int = POSIX_FADV_NORMAL; break;
-    case 1: adv_int = POSIX_FADV_SEQUENTIAL; break;
-    case 2: adv_int = POSIX_FADV_RANDOM; break;
-    case 3: adv_int = POSIX_FADV_NOREUSE; break;
-    case 4: adv_int = POSIX_FADV_WILLNEED; break;
-    case 5: adv_int = POSIX_FADV_DONTNEED; break;
+    case 0: case 6: adv_int = POSIX_FADV_NORMAL; break;
+    case 1: case 7: adv_int = POSIX_FADV_SEQUENTIAL; break;
+    case 2: case 8: adv_int = POSIX_FADV_RANDOM; break;
+    case 3: case 9: adv_int = POSIX_FADV_NOREUSE; break;
+    case 4: case 10: adv_int = POSIX_FADV_WILLNEED; break;
+    case 5: case 11: adv_int = POSIX_FADV_DONTNEED; break;
     default: invalid_argument("Netsys.fadvise");
     };
 

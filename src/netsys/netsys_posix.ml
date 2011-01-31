@@ -743,6 +743,12 @@ external fdatasync : Unix.file_descr -> unit = "netsys_fdatasync"
 
 external have_fadvise : unit -> bool = "netsys_have_posix_fadvise"
 type advice =
+  | POSIX_FADV_NORMAL
+  | POSIX_FADV_SEQUENTIAL
+  | POSIX_FADV_RANDOM
+  | POSIX_FADV_NOREUSE
+  | POSIX_FADV_WILLNEED
+  | POSIX_FADV_DONTNEED
   | FADV_NORMAL
   | FADV_SEQUENTIAL
   | FADV_RANDOM
