@@ -298,8 +298,8 @@ module ManagedClient = struct
   type conn_state =
       { c_client : Rpc_client.t;
 	c_serial : int;
-	mutable c_when_up : (up_state -> unit) list;
-	mutable c_when_fail : (exn -> unit) list;
+	c_when_up : (up_state -> unit) Queue.t;
+	c_when_fail : (exn -> unit) Queue.t;
 	mutable c_unavailable : bool;
 	mutable c_fatal_error : bool;
       }
@@ -575,11 +575,13 @@ module ManagedClient = struct
     let cstate =
       { c_client = client;
 	c_serial = serial;
-	c_when_up = [when_up];
-	c_when_fail = [when_fail];
+	c_when_up = Queue.create ();
+	c_when_fail = Queue.create ();
 	c_unavailable = false;
 	c_fatal_error = false;
       } in
+    Queue.add when_up cstate.c_when_up;
+    Queue.add when_fail cstate.c_when_fail;
     ( try
 	Rpc_client.unbound_async_call
 	  client 
@@ -595,7 +597,7 @@ module ManagedClient = struct
 	       ReliabilityCache.reset_rcache_error_counter
 		 mc.config.mclient_rcache
 		 (sockaddr_of_conn mc.conn);
-	       List.iter
+	       Queue.iter
 		 (fun f_up -> 
 		    Unixqueue.once mc.esys g 0.0 (fun () -> f_up up))
 		 cstate.c_when_up;
@@ -611,7 +613,7 @@ module ManagedClient = struct
 	       mc.estate <- `Down(next_serial mc);
 	       let error =
 		 if p_unavail then Service_unavailable else error in
-	       List.iter
+	       Queue.iter
 		 (fun f_fail -> 
 		    Unixqueue.once mc.esys g 0.0 (fun () -> f_fail error))
 		 cstate.c_when_fail;
@@ -670,8 +672,8 @@ module ManagedClient = struct
 
 	| `Connecting c ->
 	    (* We only have to arrange that when_up/when_fail is called *)
-	    c.c_when_up <- when_up :: c.c_when_up;
-	    c.c_when_fail <- when_fail :: c.c_when_fail
+	    Queue.add when_up c.c_when_up;
+	    Queue.add when_fail c.c_when_fail;
 	      
 	| `Up up ->
 	    when_up up
