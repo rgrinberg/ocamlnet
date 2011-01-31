@@ -1,5 +1,8 @@
 2011-01-31  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
+	* Rpc_proxy: if initial_ping is enabled, the calls are queued
+	  up in the right order.
+
 	* Netsys_posix: also allowing flags POSIX_FADV_* for better
 	  compatibility with extunix.
 
