@@ -219,12 +219,12 @@ object
 
   method acquire_cred :
           't . desired_name:name ->
-               time_req:[`None | `Indefinite | `This float] ->
+               time_req:[`None | `Indefinite | `This of float] ->
                desired_mechs:oid_set ->
                cred_usage:cred_usage  ->
                out:( cred:credential ->
 		     actual_mechs:oid_set ->
-		     time_rec:[ `Indefinite | `This float] ->
+		     time_rec:[ `Indefinite | `This of float] ->
 		     minor_status:minor_status ->
 		     major_status:major_status ->
 		     unit ->
@@ -236,12 +236,12 @@ object
                desired_name:name ->
                desired_mech:oid ->
                cred_usage:cred_usage ->
-               initiator_time_req:[`None | `Indefinite | `This float] ->
-               acceptor_time_req:[`None | `Indefinite | `This float] ->
+               initiator_time_req:[`None | `Indefinite | `This of float] ->
+               acceptor_time_req:[`None | `Indefinite | `This of float] ->
                out:( output_cred:credential ->
 		     actual_mechs:oid_set ->
-		     initiator_time_rec:[ `Indefinite | `This float] ->
-		     acceptor_time_rec:[ `Indefinite | `This float] ->
+		     initiator_time_rec:[ `Indefinite | `This of float] ->
+		     acceptor_time_rec:[ `Indefinite | `This of float] ->
 		     minor_status:minor_status ->
 		     major_status:major_status ->
 		     unit ->
@@ -534,12 +534,26 @@ val nt_export_name : oid
   (** an export name *)
 
 
-(** {2 OID helpers} *)
+(** {2 Encodings} *)
+
+(** There is some chance that these routines will finally be moved to
+    netstring
+ *)
 
 val oid_to_string : oid -> string
 val string_to_oid : string -> oid
   (** Convert OID's to/from curly brace notation *)
 
-val oid_to_ber : oid -> string
-val ber_to_oid : string -> oid
-  (** Convert OID's to/from ASN.1 BER format *)
+val oid_to_der : oid -> string
+val der_to_oid : string -> int ref -> oid
+  (** Convert OID's to/from DER. [der_to_oid] takes a cursor as second arg.
+   *)
+
+
+val wire_encode_token : oid -> token -> string
+val wire_decode_token : string -> int ref -> oid * token
+  (** Encode tokens as described in section 3.1 of RFC 2078 *)
+
+val encode_exported_name : oid -> string -> string
+val decode_exported_name : string -> int ref -> oid * string
+  (** Encode names as described in section 3.2 of RFC 2078 *)

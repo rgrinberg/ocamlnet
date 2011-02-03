@@ -20,6 +20,9 @@ Fixes TODO:
    - Delimited_tokens(start_char, end_char, forbidden_chars)
      e.g. Delimited_tokens('<', '>', [' '])
 
+Netstring_pcre.replace: The replacement string follows PCRE syntax
+(i.e. $& for whole match etc.)
+
 ***
 
 GSSAPI:
