@@ -68,6 +68,7 @@ are supported on which platform:
    Nethttp
    Netfs
    Netglob
+   Netauth
    Netstring_str
    Netstring_pcre
    Netmappings
@@ -399,6 +400,7 @@ other Ocamlnet libraries.
     Netsys_pollset_posix
     Netsys_pollset_win32
     Netsys_win32
+    Netsys_rng
 }
 
 {2 Index}

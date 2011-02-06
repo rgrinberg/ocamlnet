@@ -46,6 +46,7 @@ set_defaults () {
     enable_tcl=0
     enable_ssl=0
     enable_zip=0
+    enable_crypto=0
     enable_apache=0
     with_nethttpd=0
     with_rpc_auth_dh=0
@@ -72,12 +73,13 @@ ehelp_gtk2="Enable/disable parts that depend on lablgtk2"
 ehelp_tcl="Enable/disable parts that depend on tcl/tk"
 ehelp_ssl="Enable/disable parts that depend on SSL"
 ehelp_zip="Enable/disable parts that depend on camlzip"
+ehelp_crypto="Enable/disable parts that depend on cryptokit"
 ehelp_apache="Enable/disable Apache mod connector (EXPERIMENTAL)"
 whelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
 whelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
 
 # Which options exist? eoptions for enable/disable, woptions for with/without:
-eoptions="gtk gtk2 tcl ssl zip apache"
+eoptions="gtk gtk2 tcl ssl zip crypto apache"
 woptions="nethttpd rpc_auth_dh"
 
 # Packages to include anyway:
@@ -664,6 +666,23 @@ if [ $enable_zip -gt 0 ]; then
 fi
 
 ######################################################################
+# Check cryptokit
+
+with_crypto=0
+
+if [ $enable_crypto -gt 0 ]; then
+    printf "%s" "Checking for cryptokit... "
+    if ocamlfind query cryptokit >/dev/null 2>/dev/null; then
+        echo "found"
+	with_crypto=1
+    else
+        echo "not found"
+	echo "Required library cryptokit not found!"
+	exit 1
+    fi
+fi
+
+######################################################################
 # Check SecureRPC
 
 adh_reqs=""
@@ -766,11 +785,7 @@ echo
 
 pkglist="netsys netshm netstring equeue shell netgssapi rpc-generator rpc pop smtp netclient netcgi2 netplex netcgi2-plex netcamlbox netmulticore"
 
-if [ $enable_apache -gt 0 ]; then
-    pkglist="$pkglist netcgi2-apache"
-fi
-
-full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi2 netzip"
+full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi2 netzip netcgi2-apache netmech-scram"
 
 if [ $disable_core -gt 0 ]; then
     # Omit the core packages:
@@ -787,6 +802,14 @@ for opt in rpc_xti $woptions rpc_auth_local equeue_tcl equeue_gtk1 equeue_gtk2 e
 		pkglist="$pkglist $uopt"
 	fi
 done
+
+if [ $enable_apache -gt 0 ]; then
+    pkglist="$pkglist netcgi2-apache"
+fi
+
+if [ $with_crypto -gt 0 ]; then
+    pkglist="$pkglist netmech-scram"
+fi
 
 if [ $with_nethttpd -gt 0 ]; then
     # Fixup: nethttpd is already added by the for loop, but we need also
@@ -814,7 +837,7 @@ FULL_PKGLIST = $full_pkglist
 EXEC_SUFFIX = $exec_suffix
 
 # Required packages (findlib):
-REQUIRES = $requires
+REQUIRES += $requires
 
 # Additional options only for ocamlc:
 OCAMLC_OPTIONS =
