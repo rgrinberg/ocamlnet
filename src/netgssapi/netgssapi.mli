@@ -2,6 +2,11 @@
 
 (** GSS-API Definition *)
 
+(* CHECK:
+   - add functions for marshalling contexts between processes of the
+     same program
+ *)
+
 (** This is mainly a translation of RFC 2744 to Ocaml. *)
 
 (** {2 Types} *)
@@ -536,7 +541,7 @@ val nt_export_name : oid
 
 (** {2 Encodings} *)
 
-(** There is some chance that these routines will finally be moved to
+(** There is some chance that some of these routines will finally be moved to
     netstring
  *)
 
@@ -552,8 +557,92 @@ val der_to_oid : string -> int ref -> oid
 
 val wire_encode_token : oid -> token -> string
 val wire_decode_token : string -> int ref -> oid * token
-  (** Encode tokens as described in section 3.1 of RFC 2078 *)
+  (** Encode tokens as described in section 3.1 of RFC 2078. This is usually
+      only used for the initiating token.
+   *)
 
 val encode_exported_name : oid -> string -> string
 val decode_exported_name : string -> int ref -> oid * string
   (** Encode names as described in section 3.2 of RFC 2078 *)
+
+(** {2 Create tokens} *)
+
+(** Format of the tokens: see RFC 4121 *)
+
+val create_mic_token : sent_by_acceptor:bool ->
+                       acceptor_subkey:bool ->
+                       sequence_number:int64 ->
+                       get_mic:(string -> string) ->
+                       message:string ->
+                         string
+  (** Create a MIC token:
+
+      - [sent_by_acceptor]: whether this token comes from the acceptor
+      - [acceptor_subkey]: see RFC
+      - [sequence_number]: a sequence number
+      - [get_mic]: the checksum function
+        (e.g. {!Netmech_scram.Cryptosystem.get_mic})
+      - [message]: the message to be signed
+
+      The function returns the MIC token
+   *)
+
+val parse_mic_token_header : string -> (bool * bool * int64)
+  (** Returns the triple
+      ([sent_by_acceptor], [acceptor_subkey], [sequence_number]) from
+      the header of a MIC token that is passed to this function as
+      string. Fails if not parsable 
+   *)
+
+val verify_mic_token : get_mic:(string -> string) -> 
+                       message:string -> token:string -> bool
+  (** Verifies the MIC [token] with [get_mic], and returns true if the
+      verification is successful
+   *)
+
+val create_wrap_token_conf : sent_by_acceptor:bool ->
+                             acceptor_subkey:bool ->
+                             sequence_number:int64 ->
+                             get_ec:(int -> int) ->
+                             encrypt_and_sign:(string -> string) ->
+                             message:string ->
+                               string
+  (** Wraps a [message] so that it is encrypted and signed (confidential).
+
+      - [sent_by_acceptor]: whether this token comes from the acceptor
+      - [acceptor_subkey]: see RFC
+      - [sequence_number]: a sequence number
+      - [get_ec]: This function returns the "extra count" number for
+        the size of the plaintext w/o filler (e.g. use
+        {!Netmech_scram.Cryptosystem.get_ec}).
+      - [encrypt_and_sign]: the encryption function from the cryptosystem.
+        The plaintext is passed to this function, and the ciphertext with
+        the appended signature must be returned in the string.
+      - [message]: the payload message
+
+      The function returns the token wrapping the message.
+   *)
+
+val parse_wrap_token_header : 
+      string -> (bool * bool * bool * int64)
+  (** [let (sent_by_acceptor, sealed, acceptor_subkey, sequence_number) =
+      parse_wrap_token_header token]
+
+      Fails if the [token] cannot be parsed.
+   *)
+
+
+val unwrap_wrap_token_conf : decrypt_and_verify:(string -> string) ->
+                             token:string ->
+                               string
+  (** Unwraps the [token] using the decryption function
+      [decrypt_and_verify] from the cryptosystem.
+
+      The functions fails if there is a format error, or the integrity
+      check fails.
+
+      Non-confidential messages cannot be unwrapped with this function.
+   *)
+
+
+(** Token functions for non-confidential messages are still missing *)

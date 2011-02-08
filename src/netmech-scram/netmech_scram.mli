@@ -124,6 +124,11 @@ val client_emit_message : client_session -> string
 val client_recv_message : client_session -> string -> unit
   (** Receives the next message from the server *)
 
+val client_protocol_key : client_session -> string option
+  (** The 128-bit protocol key for encrypting messages. This is available 
+      as soon as the second client message is emitted.
+   *)
+
 
 (** {2 Servers} *)
 
@@ -192,6 +197,80 @@ val server_emit_message : server_session -> string
 
 val server_recv_message : server_session -> string -> unit
   (** Receives the next message from the client *)
+
+val server_protocol_key : server_session -> string option
+  (** The 128-bit protocol key for encrypting messages. This is available 
+      as soon as the second client message has been received.
+   *)
+
+
+(** {2 Confidentiality} *)
+
+type specific_keys =
+    { kc : string;
+      ke : string;
+      ki : string
+    }
+  (** The specific keys to use *)
+
+(** This module implements AES in Ciphertext Stealing mode (see RFC 3962) *)
+module AES_CTS : sig
+  val c : int
+  val m : int
+  val encrypt : string -> string -> string
+  val decrypt : string -> string -> string
+  val tests : (string * string * string) list
+  val run_tests : unit -> bool
+end
+
+
+(** This is the cryptosystem as defined in RFC 3961, so far needed here.
+    This uses [AES_CTS] as cipher, and SHA1-96 for signing.
+ *)
+module Cryptosystem : sig
+  exception Integrity_error
+
+  val derive_keys : string -> int -> specific_keys
+    (** [derive_keys protocol_key usage]: Returns the specific keys for
+	this [protocol_key] and this [usage] numbers. See RFC 4121 for
+	applicable usage numbers
+     *)
+
+  val encrypt_and_sign :  specific_keys -> string -> string
+    (** Encrypts the plaintext message and adds a signature to the
+	ciphertext.
+
+	Returns [ciphertext_with_signature].
+     *)
+
+  val decrypt_and_verify :  specific_keys -> string -> string
+    (** Decrypts the ciphertext and verifies the attached signature.
+	Returns the restored plaintext. 
+
+	For very short plaintexts (< 16 bytes) there will be some
+	padding at the end ("residue"), as returned as [ec] above.
+	We ignore this problem generally,
+	because GSS-API adds a 16-byte header to the plaintext anyway,
+	so these short messages do not occur.
+
+	If the signature is not valid, the exception [Integrity_error]
+	is raised.
+     *)
+
+  val get_ec : specific_keys -> int -> int
+    (** [let ec = get_ec e_keys n]:
+        Returns the required value for the "extra count" field of
+	RFC 4121 if the plaintext message has size [n]. Here,
+	[n] is the size of the payload message plus the token
+	header of 16 bytes, i.e. the function is always called with
+	[n >= 16].
+
+	Here, the returned [ec] value is always 0.
+     *)
+
+  val get_mic : specific_keys -> string -> string
+    (** Returns a message integrity code *)
+end
 
 
 module Debug : sig

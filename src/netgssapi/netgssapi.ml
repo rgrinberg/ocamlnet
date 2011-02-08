@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+open Printf
+
 type oid = int array
 type oid_set = oid list
 type credential = < otype : [ `Credential ] >
@@ -635,3 +637,155 @@ let decode_exported_name s cursor =
     (mech_oid, name)
   with
     | _ -> failwith "Netgssapi.decode_exported_name"
+
+
+let encode_seq_nr x =
+  let n7 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 56)
+                           0xffL) in
+  let n6 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 48)
+                           0xffL) in
+  let n5 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 40)
+                           0xffL) in
+  let n4 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 32)
+                           0xffL) in
+  let n3 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 24)
+                           0xffL) in
+  let n2 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 16)
+                           0xffL) in
+  let n1 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 8)
+                           0xffL) in
+  let n0 = Int64.to_int (Int64.logand x 0xffL) in
+  let s = String.create 8 in
+  s.[0] <- Char.chr n7;
+  s.[1] <- Char.chr n6;
+  s.[2] <- Char.chr n5;
+  s.[3] <- Char.chr n4;
+  s.[4] <- Char.chr n3;
+  s.[5] <- Char.chr n2;
+  s.[6] <- Char.chr n1;
+  s.[7] <- Char.chr n0;
+  s
+
+
+let decode_seq_nr s =
+  assert(String.length s = 8);
+  let n7 = Int64.of_int (Char.code s.[0]) in
+  let n6 = Int64.of_int (Char.code s.[1]) in
+  let n5 = Int64.of_int (Char.code s.[2]) in
+  let n4 = Int64.of_int (Char.code s.[3]) in
+  let n3 = Int64.of_int (Char.code s.[4]) in
+  let n2 = Int64.of_int (Char.code s.[5]) in
+  let n1 = Int64.of_int (Char.code s.[6]) in
+  let n0 = Int64.of_int (Char.code s.[7]) in
+  Int64.logor
+    (Int64.shift_left n7 56)
+    (Int64.logor
+       (Int64.shift_left n6 48)
+       (Int64.logor
+          (Int64.shift_left n5 40)
+          (Int64.logor
+             (Int64.shift_left n4 32)
+             (Int64.logor
+                (Int64.shift_left n3 24)
+                (Int64.logor
+                   (Int64.shift_left n2 16)
+                   (Int64.logor
+                      (Int64.shift_left n1 8)
+                      n0))))))
+
+
+
+let create_mic_token ~sent_by_acceptor ~acceptor_subkey ~sequence_number
+                     ~get_mic ~message =
+  let header =
+    sprintf
+      "\x04\x04%c\xff\xff\xff\xff\xff%s"
+      (Char.chr ( (if sent_by_acceptor then 1 else 0) lor
+		    (if acceptor_subkey then 4 else 0) ) )
+      (encode_seq_nr sequence_number) in
+  let mic =
+    get_mic (message ^ header) in
+  header ^ mic
+
+    
+let parse_mic_token_header s =
+  try
+    if String.length s < 16 then raise Not_found;
+    if s.[0] <> '\x04' || s.[1] <> '\x04' then raise Not_found;
+    if String.sub s 3 5 <> "\xff\xff\xff\xff\xff" then raise Not_found;
+    let flags = Char.code s.[2] in
+    if flags land 7 <> flags then raise Not_found;
+    let sent_by_acceptor = (flags land 1) <> 0 in
+    let acceptor_subkey = (flags land 4) <> 0 in
+    let sequence_number = decode_seq_nr (String.sub s 8 8) in
+    (sent_by_acceptor, acceptor_subkey, sequence_number)
+  with Not_found ->    failwith "Netgssapi.parse_mic_token_header"
+
+
+let verify_mic_token ~get_mic ~message ~token =
+  try
+    ignore(parse_mic_token_header token);
+    let header = String.sub token 0 16 in
+    let mic = get_mic (message ^ header) in
+    mic = (String.sub token 16 (String.length token - 16))
+  with
+    | _ -> false
+
+
+let create_wrap_token_conf ~sent_by_acceptor ~acceptor_subkey
+                           ~sequence_number ~get_ec ~encrypt_and_sign 
+			   ~message =
+  let ec = get_ec (String.length message + 16) in
+  let header =
+    sprintf
+      "\x05\x04%c\xff%c%c\000\000%s"
+      (Char.chr ( (if sent_by_acceptor then 1 else 0) lor
+		    (if acceptor_subkey then 4 else 0) lor 2 ) )
+      (Char.chr ((ec lsr 8) land 0xff))
+      (Char.chr (ec land 0xff))
+      (encode_seq_nr sequence_number) in
+  let filler =
+    String.make ec '\000' in
+  let encrypted =
+    encrypt_and_sign (message ^ filler ^ header) in
+  header ^ encrypted
+
+
+let parse_wrap_token_header s =
+  try
+    if String.length s < 16 then raise Not_found;
+    if s.[0] <> '\x05' || s.[1] <> '\x04' then raise Not_found;
+    if s.[3] <> '\xff' then raise Not_found;
+    let flags = Char.code s.[2] in
+    if flags land 7 <> flags then raise Not_found;
+    let sent_by_acceptor = (flags land 1) <> 0 in
+    let sealed = (flags land 2) <> 0 in
+    let acceptor_subkey = (flags land 4) <> 0 in
+    let sequence_number = decode_seq_nr (String.sub s 8 8) in
+    (sent_by_acceptor, sealed, acceptor_subkey, sequence_number)
+  with Not_found -> failwith "Netgssapi.parse_wrap_token_header"
+
+
+let unwrap_wrap_token_conf ~decrypt_and_verify ~token =
+  let (_, sealed, _, _) = parse_wrap_token_header token in
+  if not sealed then
+    failwith "Netgssapi.unwrap_wrap_token_conf: not sealed";
+  let ec = ((Char.code token.[4]) lsl 8) lor (Char.code token.[5]) in
+  let rrc = ((Char.code token.[6]) lsl 8) lor (Char.code token.[7]) in
+  let l_decrypt = String.length token - 16 in
+  let rrc_eff = rrc mod l_decrypt in
+  let u = String.create l_decrypt in
+  String.blit token (rrc_eff+16) u 0 (l_decrypt - rrc_eff);
+  String.blit token 16 u (l_decrypt - rrc_eff) rrc_eff;
+  let decrypted = 
+    try decrypt_and_verify u
+    with _ ->
+      failwith "Netgssapi.unwrap_wrap_token_conf: cannot decrypt" in
+  let l_decrypted = String.length decrypted in
+  if l_decrypted < ec + 16 then
+    failwith "Netgssapi.unwrap_wrap_token_conf: bad EC";
+  let h1 = String.sub token 0 16 in
+  let h2 = String.sub decrypted (l_decrypted - 16) 16 in
+  if h1 <> h2 then
+    failwith "Netgssapi.unwrap_wrap_token_conf: header integrity mismatch";
+  String.sub decrypted 0 (l_decrypted - ec - 16)

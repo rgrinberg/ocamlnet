@@ -69,6 +69,12 @@ type server_final =
       sf_extensions : (string * string) list;
     }
 
+type specific_keys =
+    { kc : string;
+      ke : string;
+      ki : string
+    }
+
 type client_session =
     { cs_profile : profile;
       mutable cs_state :
@@ -80,6 +86,7 @@ type client_session =
       mutable cs_sf : server_final option;
       mutable cs_salted_pw : string;
       mutable cs_auth_message : string;
+      mutable cs_proto_key : string option;
       cs_username : string;
       cs_password : string;
     }
@@ -98,6 +105,7 @@ type server_session =
       mutable ss_sf : server_final option;
       mutable ss_spw: string option;
       mutable ss_err : server_error option;
+      mutable ss_proto_key : string option;
       ss_authenticate : string -> (string * string * int);
     }
 
@@ -474,6 +482,14 @@ let hi str salt i =
   snd (uk i)
 
 
+let lsb128 s =
+  (* The least-significant 128 bits *)
+  let l = String.length s in
+  if l < 16 then
+    failwith "Netmech_scram.lsb128";
+  String.sub s (l-16) 16
+
+
 let create_nonce() =
   let s = String.make 16 ' ' in
   Netsys_rng.fill_random s;
@@ -496,7 +512,8 @@ let create_client_session profile username password =
     cs_auth_message = "";
     cs_salted_pw = "";
     cs_username = username;
-    cs_password = password
+    cs_password = password;
+    cs_proto_key = None;
   }
  
 
@@ -529,6 +546,10 @@ let catch_error cs f arg =
 		(Netexn.to_string error));
 	cs.cs_state <- `Error;
 	raise error
+
+
+let client_protocol_key cs =
+  cs.cs_proto_key
 
 
 let salt_password password salt iteration_count =
@@ -582,6 +603,11 @@ let client_emit_message cs =
 	     cs.cs_state <- `CF;
 	     cs.cs_auth_message <- auth_message;
 	     cs.cs_salted_pw <- salted_pw;
+	     cs.cs_proto_key <- Some ( lsb128
+					 (hmac
+					    stored_key
+					    ("GSS-API session key" ^ 
+					       client_key ^ auth_message)));
 	     let m = encode_cf_message cf in
 	     dlog (sprintf "Client state `S1 emitting message: %s" m);
 	     m
@@ -656,6 +682,7 @@ let create_server_session profile auth =
     ss_authenticate = auth;
     ss_spw = None;
     ss_err = None;
+    ss_proto_key = None;
   }
 
 
@@ -674,6 +701,9 @@ let server_finish_flag ss =
 
 let server_error_flag ss =
   ss.ss_state = `Error
+
+let server_protocol_key ss =
+  ss.ss_proto_key
 
 let catch_condition ss f arg =
   let debug e =
@@ -834,6 +864,11 @@ let server_recv_message ss message =
 	       let p = Netauth.xor_s client_key client_signature in
 	       if Some p <> cf.cf_proof then
 		 raise (Invalid_proof "bad client signature");
+	       ss.ss_proto_key <- Some ( lsb128
+					   (hmac
+					      stored_key
+					      ("GSS-API session key" ^ 
+						 client_key ^ auth_message)));
 	     with
 	       | Skip_proto -> ()
 	  ) ();
@@ -841,3 +876,232 @@ let server_recv_message ss message =
 	ss.ss_state <- `CF
     | _ ->
 	failwith "Netmech_scram.server_recv_message"
+
+
+(* Encryption for GSS-API *)
+
+module AES_CTS = struct
+  (* FIXME: avoid copying strings all the time *)
+
+  let c = 128 (* bits *)
+
+  let m = 1 (* byte *)
+
+  let encrypt key s =
+    (* AES with CTS as defined in RFC 3962, section 5. It is a bit unclear
+       why the RFC uses CTS because the upper layer already ensures that
+       s consists of a whole number of cipher blocks
+     *)
+    let l = String.length s in
+    if l <= 16 then (
+      (* Corner case: exactly one AES block of 128 bits or less *)
+      let cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.ECB
+	  ~pad:Cryptokit.Padding.length (* any padding is ok here *)
+	  key Cryptokit.Cipher.Encrypt in
+      Cryptokit.transform_string cipher s
+    )
+    else (
+      (* Cipher-text stealing, also see
+	 http://en.wikipedia.org/wiki/Ciphertext_stealing
+	 http://www.wordiq.com/definition/Ciphertext_stealing
+       *)
+      (* Cryptokit's padding feature is unusable here *)
+      let m = l mod 16 in
+      let s_padded = 
+	if m = 0 then s else s ^ String.make (16-m) '\000' in
+      let cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.CBC
+	  key Cryptokit.Cipher.Encrypt in
+      let u = Cryptokit.transform_string cipher s_padded in
+      let ulen = String.length u in
+      assert(ulen >= 32 && ulen mod 16 = 0);
+      let v = String.sub u (ulen-16) 16 in
+      String.blit u (ulen-32) u (ulen-16) 16;
+      String.blit v 0 u (ulen-32) 16;
+      String.sub u 0 l
+    )
+
+  let decrypt key s =
+    let l = String.length s in
+    if l <= 16 then (
+      if l <> 16 then
+	invalid_arg "Netmech_scram.AES256_CTS: bad length of plaintext";
+      let cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.ECB
+	  key Cryptokit.Cipher.Decrypt in
+      Cryptokit.transform_string cipher s
+	(* This string is still padded! *)
+    ) else (
+      let k_last = ((l - 1) / 16) * 16 in
+      let k_last_len = l - k_last in
+      let k_second_to_last = k_last - 16 in
+      let dn_cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.ECB
+	  key Cryptokit.Cipher.Decrypt in
+      let c_2nd_to_last = String.sub s k_second_to_last 16 in
+      let dn = 
+	Cryptokit.transform_string dn_cipher c_2nd_to_last in
+      let cn =
+	(String.sub s k_last k_last_len) ^ 
+	  (String.sub dn k_last_len (16 - k_last_len)) in
+      let u = String.create (k_last+16) in
+      String.blit s 0 u 0 k_second_to_last;
+      String.blit cn 0 u k_second_to_last 16;
+      String.blit c_2nd_to_last 0 u k_last 16;
+      let cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.CBC
+	  key Cryptokit.Cipher.Decrypt in
+      let v = Cryptokit.transform_string cipher u in
+      String.sub v 0 l
+    )
+
+  (* Test vectors from the RFC (for 128 bit AES): *)
+
+  let k_128 =
+    "\x63\x68\x69\x63\x6b\x65\x6e\x20\x74\x65\x72\x69\x79\x61\x6b\x69"
+
+  let v1_in =
+    "\x49\x20\x77\x6f\x75\x6c\x64\x20\x6c\x69\x6b\x65\x20\x74\x68\x65\x20"
+
+  let v1_out =
+    "\xc6\x35\x35\x68\xf2\xbf\x8c\xb4\xd8\xa5\x80\x36\x2d\xa7\xff\x7f\x97"
+
+  let v2_in =
+    "\x49\x20\x77\x6f\x75\x6c\x64\x20\x6c\x69\x6b\x65\x20\x74\x68\x65\x20\
+     \x47\x65\x6e\x65\x72\x61\x6c\x20\x47\x61\x75\x27\x73\x20"
+
+  let v2_out =
+    "\xfc\x00\x78\x3e\x0e\xfd\xb2\xc1\xd4\x45\xd4\xc8\xef\xf7\xed\x22\
+     \x97\x68\x72\x68\xd6\xec\xcc\xc0\xc0\x7b\x25\xe2\x5e\xcf\xe5"
+
+  let v3_in =
+    "\x49\x20\x77\x6f\x75\x6c\x64\x20\x6c\x69\x6b\x65\x20\x74\x68\x65\
+     \x20\x47\x65\x6e\x65\x72\x61\x6c\x20\x47\x61\x75\x27\x73\x20\x43"
+
+  let v3_out =
+    "\x39\x31\x25\x23\xa7\x86\x62\xd5\xbe\x7f\xcb\xcc\x98\xeb\xf5\xa8\
+     \x97\x68\x72\x68\xd6\xec\xcc\xc0\xc0\x7b\x25\xe2\x5e\xcf\xe5\x84"
+
+  let v4_in =
+    "\x49\x20\x77\x6f\x75\x6c\x64\x20\x6c\x69\x6b\x65\x20\x74\x68\x65\
+     \x20\x47\x65\x6e\x65\x72\x61\x6c\x20\x47\x61\x75\x27\x73\x20\x43\
+     \x68\x69\x63\x6b\x65\x6e\x2c\x20\x70\x6c\x65\x61\x73\x65\x2c"
+
+  let v4_out =
+    "\x97\x68\x72\x68\xd6\xec\xcc\xc0\xc0\x7b\x25\xe2\x5e\xcf\xe5\x84\
+     \xb3\xff\xfd\x94\x0c\x16\xa1\x8c\x1b\x55\x49\xd2\xf8\x38\x02\x9e\
+     \x39\x31\x25\x23\xa7\x86\x62\xd5\xbe\x7f\xcb\xcc\x98\xeb\xf5"
+
+  let v5_in =
+    "\x49\x20\x77\x6f\x75\x6c\x64\x20\x6c\x69\x6b\x65\x20\x74\x68\x65\
+     \x20\x47\x65\x6e\x65\x72\x61\x6c\x20\x47\x61\x75\x27\x73\x20\x43\
+     \x68\x69\x63\x6b\x65\x6e\x2c\x20\x70\x6c\x65\x61\x73\x65\x2c\x20"
+
+  let v5_out =
+    "\x97\x68\x72\x68\xd6\xec\xcc\xc0\xc0\x7b\x25\xe2\x5e\xcf\xe5\x84\
+     \x9d\xad\x8b\xbb\x96\xc4\xcd\xc0\x3b\xc1\x03\xe1\xa1\x94\xbb\xd8\
+     \x39\x31\x25\x23\xa7\x86\x62\xd5\xbe\x7f\xcb\xcc\x98\xeb\xf5\xa8"
+
+  let v6_in =
+    "\x49\x20\x77\x6f\x75\x6c\x64\x20\x6c\x69\x6b\x65\x20\x74\x68\x65\
+     \x20\x47\x65\x6e\x65\x72\x61\x6c\x20\x47\x61\x75\x27\x73\x20\x43\
+     \x68\x69\x63\x6b\x65\x6e\x2c\x20\x70\x6c\x65\x61\x73\x65\x2c\x20\
+     \x61\x6e\x64\x20\x77\x6f\x6e\x74\x6f\x6e\x20\x73\x6f\x75\x70\x2e"
+
+  let v6_out =
+    "\x97\x68\x72\x68\xd6\xec\xcc\xc0\xc0\x7b\x25\xe2\x5e\xcf\xe5\x84\
+     \x39\x31\x25\x23\xa7\x86\x62\xd5\xbe\x7f\xcb\xcc\x98\xeb\xf5\xa8\
+     \x48\x07\xef\xe8\x36\xee\x89\xa5\x26\x73\x0d\xbc\x2f\x7b\xc8\x40\
+     \x9d\xad\x8b\xbb\x96\xc4\xcd\xc0\x3b\xc1\x03\xe1\xa1\x94\xbb\xd8"
+
+  let tests =
+    [ k_128, v1_in, v1_out;
+      k_128, v2_in, v2_out;
+      k_128, v3_in, v3_out;
+      k_128, v4_in, v4_out;
+      k_128, v5_in, v5_out;
+      k_128, v6_in, v6_out;
+    ]
+
+  let run_tests() =
+    List.for_all
+      (fun (k, v_in, v_out) ->
+	 encrypt k v_in = v_out &&
+	  decrypt k v_out = v_in
+      )
+      tests
+end
+
+
+module Cryptosystem = struct
+  (* RFC 3961 section 5.3 *)
+
+  module C = AES_CTS
+    (* Cipher *)
+
+  module I = struct   (* Integrity *)
+    let hmac = hmac  (* hmac-sha1 *)
+    let h = 12
+  end
+
+  exception Integrity_error
+
+  let derive_keys protocol_key usage =
+    let k = 8 * String.length protocol_key in
+    if k <> 128 && k <> 256 then
+      invalid_arg "Netmech_scram.Cryptosystem.derive_keys";
+    let derive kt =
+      Netauth.derive_key_rfc3961_simplified
+	~encrypt:(C.encrypt protocol_key)
+	~random_to_key:(fun s -> s)
+	~block_size:C.c
+	~k
+	~usage
+	~key_type:kt in
+    { kc = derive `Kc;
+      ke = derive `Ke;
+      ki = derive `Ki;
+    }
+
+  let encrypt_and_sign s_keys message =
+    let conf = String.make C.c '\000' in
+    Netsys_rng.fill_random conf;
+    let l = String.length message in
+    let p = (l + C.c) mod C.m in
+    let pad = 
+      if p = 0 then "" else String.make (C.m - p) '\000' in
+    let p1 = conf ^ message ^ pad in
+    let c1 = C.encrypt s_keys.ke p1 in
+    let h1 = I.hmac s_keys.ki p1 in
+    c1 ^ String.sub h1 0 I.h
+
+  let decrypt_and_verify s_keys ciphertext =
+    let l = String.length ciphertext in
+    if l < I.h then
+      invalid_arg "Netmech_scram.Cryptosystem.decrypt_and_verify";
+    let c1 = String.sub ciphertext 0 (l - I.h) in
+    let h1 = String.sub ciphertext (l - I.h) I.h in
+    let p1 = C.decrypt s_keys.ke c1 in
+    let h1' = String.sub (I.hmac s_keys.ki p1) 0 I.h in
+    if h1 <> h1' then
+      raise Integrity_error;
+    let q = String.length p1 in
+    if q < C.c then
+      raise Integrity_error;
+    String.sub p1 C.c (q-C.c)
+      (* This includes any padding or residue from the lower layer! *)
+
+  let get_ec s_keys n =
+    if n < 16 then invalid_arg "Netmech_scram.Cryptosystem.get_ec";
+    0
+
+  let get_mic s_keys message =
+    String.sub (I.hmac s_keys.kc message) 0 I.h
+
+end
