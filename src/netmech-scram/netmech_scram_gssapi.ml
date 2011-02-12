@@ -1,9 +1,8 @@
 (* $Id$ *)
 
 (* FIXME:
-   - there should be better also a weak ht for QOP objects
-   - inquire_context: does not return `Prot_ready `Trans
-   - honour `Replay and `Sequence requests
+   - export_sec_context: the token does not include the sequence numbers,
+     and it does not include the flags
  *)
 
 open Netgssapi
@@ -35,11 +34,13 @@ type ctx =
   | Ctx_client of Netmech_scram.client_session
   | Ctx_server of Netmech_scram.server_session
 
-class scram_context ctx =
+class scram_context ctx (init_flags : ret_flag list) =
   let valid = ref true in
   let server_cb = ref "" in
   let specific_keys = ref None in
   let seq_nr = ref 0L in
+  let exp_seq_nr = ref None in
+  let flags = ref init_flags in
 object
   method otype = ( `Context : [ `Context ] )
   method valid = !valid
@@ -93,6 +94,24 @@ eprintf "k_wrap_s.ki: %S\n%!" k_wrap_s.Netmech_scram.ki;
     let n = !seq_nr in
     seq_nr := Int64.succ !seq_nr;
     n
+
+  method is_peer_seq_nr_ok n : suppl_status list =
+    match !exp_seq_nr with
+      | None ->
+	  exp_seq_nr := Some n;
+	  []
+      | Some e ->
+	  if n = e then (
+	    exp_seq_nr := Some (Int64.succ e);
+	    []
+	  ) else (
+	    if n < e then
+	      [ `Unseq_token ]
+	    else
+	      [ `Gap_token ]
+	  )
+
+  method flags = flags
 end
 
 
@@ -186,11 +205,6 @@ end
 
 let scram_mech = [| 1; 3; 6; 1; 5; 5; 14 |]
 
-let scram_ret_flags =
-  [ `Mutual_flag; (* `Replay_flag; `Sequence_flag; *) `Conf_flag; 
-    `Integ_flag
-  ]
-  (* Support for Replay and Sequence is not implemented *)
 
 
 let as_string (sm,pos,len) =
@@ -216,6 +230,9 @@ class scram_gss_api ?(client_key_ring = empty_client_key_ring)
                     ?(server_key_verifier = empty_server_key_verifier)
 		    profile
                     : gss_api =
+  let scram_ret_flags =
+    [ `Mutual_flag; `Conf_flag; `Integ_flag; `Replay_flag; `Sequence_flag ] in
+
   let credentials = CredentialBCT.create() in
   let names = NameBCT.create() in
   let contexts = ContextBCT.create() in
@@ -243,6 +260,8 @@ class scram_gss_api ?(client_key_ring = empty_client_key_ring)
     ) in
   let no_name_out = (no_name :> name) in
   let () = NameBCT.store names no_name in
+  let default_qop =
+    ( object method otype = `QOP end ) in  (* just return something *)
 object(self)
   method provider = "Netmech_scram_gssapi.scap_gss_api"
 
@@ -291,7 +310,7 @@ object(self)
 		    server_key_verifier#scram_credentials in
 		let ctx =
 		  Ctx_server sess in
-		let context = new scram_context ctx in
+		let context = new scram_context ctx scram_ret_flags in
 		(context # server_cb) := cb_data;
 		ContextBCT.store contexts context;
 		(context, sess, true)
@@ -344,10 +363,13 @@ object(self)
 		| Some d -> d in
 	    if scram_cb <> !(context # server_cb) then
 	      raise(Routine_error `Bad_bindings);
+	    let ret_flags =
+	      [`Prot_ready_flag; `Trans_flag] @ scram_ret_flags in 
+	    context # flags := ret_flags;
 	    out
 	      ~src_name ~mech_type:scram_mech ~output_context
 	      ~output_token
-	      ~ret_flags:( [`Prot_ready_flag; `Trans_flag] @ scram_ret_flags)
+	      ~ret_flags
 	      ~time_rec:`Indefinite
 	      ~delegated_cred:no_cred_out
 	      ~minor_status:0l ~major_status:(`None,`None,[]) ()
@@ -700,7 +722,7 @@ object(self)
 	  ~major_status:(`None,`No_context,[]) ()
       else (
 	(* Reject any QOP: *)
-	if qop_req <> None then
+	if qop_req <> None && qop_req <> Some default_qop then
 	  out
 	    ~msg_token:"" ~minor_status:0l
 	    ~major_status:(`None,`Bad_QOP,[]) ()
@@ -813,7 +835,8 @@ object(self)
 	      let t = String.sub interprocess_token 1 (l-1) in
 	      let sess =
 		Netmech_scram.client_import t in
-	      let context = new scram_context (Ctx_client sess) in
+	      let context = 
+		new scram_context (Ctx_client sess) scram_ret_flags in
 	      ContextBCT.store contexts context;
 	      out
 		~context:(Some (context :> context)) 
@@ -822,7 +845,8 @@ object(self)
 	      let t = String.sub interprocess_token 1 (l-1) in
 	      let sess =
 		Netmech_scram.server_import t in
-	      let context = new scram_context (Ctx_server sess) in
+	      let context = 
+		new scram_context (Ctx_server sess) scram_ret_flags in
 	      ContextBCT.store contexts context;
 	      out
 		~context:(Some (context :> context)) 
@@ -896,7 +920,7 @@ object(self)
 		  profile user pw in
 	      let ctx =
 		Ctx_client sess in
-	      let context = new scram_context ctx in
+	      let context = new scram_context ctx scram_ret_flags in
 	      (context # server_cb) := cb_data;
 	      ContextBCT.store contexts context;
 	      (context, sess, false)
@@ -954,10 +978,13 @@ object(self)
 	      )
       );
       if Netmech_scram.client_finish_flag sess then (
+	let ret_flags =
+	  [`Trans_flag; `Prot_ready_flag ] @ scram_ret_flags in
+	context # flags := ret_flags;
 	out
 	  ~actual_mech_type ~output_context:(Some (context :> context))
 	  ~output_token:""
-	  ~ret_flags:( [`Trans_flag; `Prot_ready_flag ] @ scram_ret_flags)
+	  ~ret_flags
 	  ~time_rec:`Indefinite ~minor_status:0l
 	  ~major_status:(`None,`None,[]) ()
       )
@@ -974,6 +1001,7 @@ object(self)
 	    `Prot_ready_flag :: scram_ret_flags
 	  else
 	    scram_ret_flags in
+	context # flags := ret_flags;
 	out
 	  ~actual_mech_type ~output_context:(Some (context :> context))
 	  ~output_token ~ret_flags
@@ -1034,7 +1062,7 @@ object(self)
 		Netmech_scram.client_emit_flag sess in
 	    out
 	      ~src_name ~targ_name ~lifetime_req:`Indefinite
-	      ~mech_type:scram_mech ~ctx_flags:scram_ret_flags 
+	      ~mech_type:scram_mech ~ctx_flags:!(context # flags)
 	      ~locally_initiated:true ~is_open
 	      ~minor_status:0l ~major_status:(`None, `None, []) ()
 	      
@@ -1056,7 +1084,7 @@ object(self)
 		Netmech_scram.server_emit_flag sess in
 	    out
 	      ~src_name ~targ_name ~lifetime_req:`Indefinite
-	      ~mech_type:scram_mech ~ctx_flags:scram_ret_flags 
+	      ~mech_type:scram_mech ~ctx_flags:!(context # flags)
 	      ~locally_initiated:true ~is_open
 	      ~minor_status:0l ~major_status:(`None, `None, []) ()
     else
@@ -1223,11 +1251,9 @@ object(self)
       () ->
     let context = context_retrieve context in
     let sk_opt = context # specific_keys in
-    let qop =
-      ( object method otype = `QOP end ) in  (* just return something *)
     let error code =
       out
-	~output_message:empty_msg ~conf_state:false ~qop_state:qop
+	~output_message:empty_msg ~conf_state:false ~qop_state:default_qop
 	~minor_status:0l ~major_status:(`None,code,[]) () in
     if not context#valid then
       error `No_context
@@ -1240,10 +1266,11 @@ object(self)
 	      if context#is_acceptor then k_wrap_c else k_wrap_s in
 	    ( try
 		let token = (as_string input_message) in
-		let (sent_by_acceptor, _, _, _) =
+		let (sent_by_acceptor, _, _, tok_seq_nr) =
 		  Netgssapi.parse_wrap_token_header token in
 		if sent_by_acceptor = context#is_acceptor then
 		  raise Netmech_scram.Cryptosystem.Integrity_error;
+		let flags = context#is_peer_seq_nr_ok tok_seq_nr in
 		let s =
 		  Netgssapi.unwrap_wrap_token_conf
 		    ~decrypt_and_verify:(
@@ -1254,8 +1281,8 @@ object(self)
 		out
 		  ~output_message:(`String s,0,l)
 		  ~conf_state:true
-		  ~qop_state:qop
-		  ~minor_status:0l ~major_status:(`None,`None,[]) ()
+		  ~qop_state:default_qop
+		  ~minor_status:0l ~major_status:(`None,`None,flags) ()
 	      with
 		| Netmech_scram.Cryptosystem.Integrity_error ->
 		    error `Bad_mic
@@ -1277,23 +1304,23 @@ object(self)
     fun ~context ~message ~token ~out () ->
     let context = context_retrieve context in
     let sk_opt = context # specific_keys in
-    let qop =
-      ( object method otype = `QOP end ) in  (* just return something *)
     if not context#valid then
       out
-	~qop_state:qop ~minor_status:0l
+	~qop_state:default_qop ~minor_status:0l
 	~major_status:(`None,`No_context,[]) ()
     else
       match sk_opt with
 	| None ->
 	    out
-	      ~qop_state:qop ~minor_status:0l
+	      ~qop_state:default_qop ~minor_status:0l
 	      ~major_status:(`None,`No_context,[]) ()
 	| Some (k_mic_c,k_mic_s,k_wrap_c,k_wrap_s) ->
 	    let sk_mic =
 	      if context#is_acceptor then k_mic_c else k_mic_s in
-	    let (sent_by_acceptor,_,_) =
+	    let (sent_by_acceptor,_,tok_seq_nr) =
 	      Netgssapi.parse_mic_token_header token in
+	    let flags =
+	      context#is_peer_seq_nr_ok tok_seq_nr in
 	    let ok =
 	      sent_by_acceptor <> context#is_acceptor &&
 		(Netgssapi.verify_mic_token
@@ -1302,11 +1329,11 @@ object(self)
 		   ~token) in
 	    if ok then
 	      out
-		~qop_state:qop ~minor_status:0l ~major_status:(`None,`None,[])
-		()
+		~qop_state:default_qop ~minor_status:0l
+		~major_status:(`None,`None,flags) ()
 	    else
 	      out
-		~qop_state:qop ~minor_status:0l
+		~qop_state:default_qop ~minor_status:0l
 		~major_status:(`None,`Bad_mic,[]) ()
       
   method wrap :
@@ -1333,7 +1360,7 @@ object(self)
     else
       let sk_opt = context # specific_keys in
       (* Reject any QOP: *)
-      if qop_req <> None then
+      if qop_req <> None && qop_req <> Some default_qop then
 	out
 	  ~conf_state:false ~output_message:empty_msg ~minor_status:0l
 	  ~major_status:(`None,`Bad_QOP,[]) ()

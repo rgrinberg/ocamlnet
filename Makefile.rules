@@ -35,6 +35,7 @@ INC_NETPLEX        = -I $(TOP_DIR)/src/netplex
 INC_NETCAMLBOX     = -I $(TOP_DIR)/src/netcamlbox
 INC_RPC            = -I $(TOP_DIR)/src/rpc
 INC_SHELL          = -I $(TOP_DIR)/src/shell
+INC_NETGSSAPI	   = -I $(TOP_DIR)/src/netgssapi
 
 # Standard definitions and rules
 

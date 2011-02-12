@@ -58,7 +58,9 @@ class scram_gss_api :
       names. The contexts will always return the hostbased service "@" as
       name of the principals.
 
-      This implementation does not detect replayed messages (it does not
-      store which sequence numbers it has already seen), even if requested
-      by the caller.
+      This implementation checks whether the messages are verified and
+      unwrapped in the same order than generated, and reports this via the
+      [`Unseq_token] and [`Gap_token] flags. Support for true replay
+      detection ([`Duplicate_token]) is not implemented, though.
+      Replayed tokens will also be marked as [`Unseq_token].
    *)

@@ -135,11 +135,12 @@ let () =
 
 
 
-let profile ?(return_unknown_user=false) ?(iteration_count_limit=100000) pt =
+let profile ?(return_unknown_user=false) ?(iteration_count_limit=100000) 
+	    pt =
   { ptype = pt;
     mechanism = `SHA_1;
     return_unknown_user = return_unknown_user;
-    iteration_count_limit = iteration_count_limit
+    iteration_count_limit = iteration_count_limit;
   }
 
 

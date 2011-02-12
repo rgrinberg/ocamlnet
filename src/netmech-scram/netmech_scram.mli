@@ -16,7 +16,7 @@ type mechanism = [ `SHA_1 ]
 type profile =
     { ptype : ptype;
       mechanism : mechanism;       (** Which mechanism *)
-      return_unknown_user : bool;  (** Whether servers hide the fact that the
+      return_unknown_user : bool;  (** Whether servers exhibit the fact that the
 				       user is unknown *)
       iteration_count_limit : int; (** Largest supported iteration number *)
     }
