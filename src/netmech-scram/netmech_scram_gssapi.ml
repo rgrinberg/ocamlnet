@@ -2,9 +2,12 @@
 
 (* FIXME:
    - there should be better also a weak ht for QOP objects
+   - inquire_context: does not return `Prot_ready `Trans
+   - honour `Replay and `Sequence requests
  *)
 
 open Netgssapi
+open Printf
 
 class scram_name (name_string:string) (name_type:oid) =
 object
@@ -49,26 +52,42 @@ object
       | Ctx_server _ -> true
   method specific_keys =
     match !specific_keys with
-      | Some(k_mic,k_wrap) -> Some(k_mic,k_wrap)
+      | Some(k_mic_c,k_mic_s,k_wrap_c,k_wrap_s) -> 
+	  Some(k_mic_c,k_mic_s,k_wrap_c,k_wrap_s)
       | None ->
-	  let proto_key_opt, mic_usage, wrap_usage =
-	    (* The usage numbers are defined in RFC 4121 *)
+	  let proto_key_opt =
 	    match ctx with
 	      | Ctx_client sess -> 
-		  (Netmech_scram.client_protocol_key sess, 25, 24)
+		  Netmech_scram.client_protocol_key sess
 	      | Ctx_server sess -> 
-		  (Netmech_scram.server_protocol_key sess, 23, 22) in
+		  Netmech_scram.server_protocol_key sess in
+	  (* The usage numbers are defined in RFC 4121 *)
 	  (match proto_key_opt with
 	     | None -> None
 	     | Some proto_key ->
-		 let k_mic = 
+		 let k_mic_c = 
 		   Netmech_scram.Cryptosystem.derive_keys
-		     proto_key mic_usage in
-		 let k_wrap = 
+		     proto_key 25 in
+		 let k_mic_s = 
 		   Netmech_scram.Cryptosystem.derive_keys
-		     proto_key wrap_usage in
-		 specific_keys := Some(k_mic,k_wrap);
-		 Some(k_mic,k_wrap)
+		     proto_key 23 in
+		 let k_wrap_c = 
+		   Netmech_scram.Cryptosystem.derive_keys
+		     proto_key 24 in
+		 let k_wrap_s = 
+		   Netmech_scram.Cryptosystem.derive_keys
+		     proto_key 22 in
+(*
+eprintf "protocol key: %S\n" proto_key;
+eprintf "k_mic_c.kc: %S\n" k_mic_c.Netmech_scram.kc;
+eprintf "k_mic_s.kc: %S\n" k_mic_s.Netmech_scram.kc;
+eprintf "k_wrap_c.ke: %S\n" k_wrap_c.Netmech_scram.ke;
+eprintf "k_wrap_c.ki: %S\n" k_wrap_c.Netmech_scram.ki;
+eprintf "k_wrap_s.ke: %S\n" k_wrap_s.Netmech_scram.ke;
+eprintf "k_wrap_s.ki: %S\n%!" k_wrap_s.Netmech_scram.ki;
+ *)
+		 specific_keys := Some(k_mic_c,k_mic_s,k_wrap_c,k_wrap_s);
+		 !specific_keys
 	  )
   method seq_nr = 
     let n = !seq_nr in
@@ -238,6 +257,7 @@ object(self)
                chan_bindings:channel_bindings option ->
                out:( src_name:name ->
 		     mech_type:oid ->
+		     output_context:context option ->
 		     output_token:token ->
 		     ret_flags:ret_flag list ->
 		     time_rec:[ `Indefinite | `This of float] ->
@@ -303,11 +323,14 @@ object(self)
 	   are stored inside sess
 	 *)
 	Netmech_scram.server_recv_message sess eff_input_token;
+	let output_context =
+	  Some (context :> context) in
 	let output_token =
 	  Netmech_scram.server_emit_message sess in
 	if Netmech_scram.server_error_flag sess then (
 	  out
-	    ~src_name ~mech_type:scram_mech ~output_token
+	    ~src_name ~mech_type:scram_mech ~output_context
+	    ~output_token
 	    ~ret_flags:scram_ret_flags ~time_rec:`Indefinite
 	    ~delegated_cred:no_cred_out
 	    ~minor_status:0l ~major_status:(`None,`Failure,[]) ()
@@ -322,29 +345,34 @@ object(self)
 	    if scram_cb <> !(context # server_cb) then
 	      raise(Routine_error `Bad_bindings);
 	    out
-	      ~src_name ~mech_type:scram_mech ~output_token
-	      ~ret_flags:scram_ret_flags ~time_rec:`Indefinite
+	      ~src_name ~mech_type:scram_mech ~output_context
+	      ~output_token
+	      ~ret_flags:( [`Prot_ready_flag; `Trans_flag] @ scram_ret_flags)
+	      ~time_rec:`Indefinite
 	      ~delegated_cred:no_cred_out
 	      ~minor_status:0l ~major_status:(`None,`None,[]) ()
 	  )
 	  else (
 	    out
-	      ~src_name ~mech_type:scram_mech ~output_token
+	      ~src_name ~mech_type:scram_mech ~output_context
+	      ~output_token
 	      ~ret_flags:scram_ret_flags ~time_rec:`Indefinite
-		~delegated_cred:no_cred_out
+	      ~delegated_cred:no_cred_out
 	      ~minor_status:0l ~major_status:(`None,`None,[`Continue_needed])
 	      ()
 	  )
       with
 	| Calling_error code ->
 	    out
-	      ~src_name ~mech_type:scram_mech ~output_token:""
+	      ~src_name ~mech_type:scram_mech ~output_context:None
+	      ~output_token:""
 	      ~ret_flags:scram_ret_flags ~time_rec:`Indefinite
 	      ~delegated_cred:no_cred_out
 	      ~minor_status:0l ~major_status:(code,`None,[]) ()
 	| Routine_error code ->
 	    out
-	      ~src_name ~mech_type:scram_mech ~output_token:""
+	      ~src_name ~mech_type:scram_mech ~output_context:None
+	      ~output_token:""
 	      ~ret_flags:scram_ret_flags ~time_rec:`Indefinite
 	      ~delegated_cred:no_cred_out
 	      ~minor_status:0l ~major_status:(`None,code,[]) ()
@@ -683,7 +711,9 @@ object(self)
 		out
 		  ~msg_token:"" ~minor_status:0l
 		  ~major_status:(`None,`No_context,[]) ()
-	    | Some (sk_mic, sk_wrap) ->
+	    | Some (k_mic_c,k_mic_s,k_wrap_c,k_wrap_s) ->
+		let sk_mic =
+		  if context#is_acceptor then k_mic_s else k_mic_c in
 		let sequence_number = context # seq_nr in
 		let sent_by_acceptor = context # is_acceptor in
 		let token =
@@ -824,6 +854,7 @@ object(self)
                chan_bindings:channel_bindings option ->
                input_token:token option ->
                out:( actual_mech_type:oid ->
+		     output_context:context option ->
 		     output_token:token ->
 		     ret_flags:ret_flag list ->
 		     time_rec:[ `Indefinite | `This of float ] ->
@@ -924,7 +955,8 @@ object(self)
       );
       if Netmech_scram.client_finish_flag sess then (
 	out
-	  ~actual_mech_type ~output_token:"" 
+	  ~actual_mech_type ~output_context:(Some (context :> context))
+	  ~output_token:""
 	  ~ret_flags:( [`Trans_flag; `Prot_ready_flag ] @ scram_ret_flags)
 	  ~time_rec:`Indefinite ~minor_status:0l
 	  ~major_status:(`None,`None,[]) ()
@@ -943,19 +975,22 @@ object(self)
 	  else
 	    scram_ret_flags in
 	out
-	  ~actual_mech_type ~output_token ~ret_flags
+	  ~actual_mech_type ~output_context:(Some (context :> context))
+	  ~output_token ~ret_flags
 	  ~time_rec:`Indefinite ~minor_status:0l
 	  ~major_status:(`None,`None,[`Continue_needed]) ()
       )
     with
       | Calling_error code ->
 	  out
-	  ~actual_mech_type ~output_token:"" ~ret_flags:scram_ret_flags
+	  ~actual_mech_type  ~output_context:None
+	    ~output_token:"" ~ret_flags:scram_ret_flags
 	  ~time_rec:`Indefinite ~minor_status:0l
 	  ~major_status:(code,`None,[]) ()
       | Routine_error code ->
 	  out
-	  ~actual_mech_type ~output_token:"" ~ret_flags:scram_ret_flags
+	  ~actual_mech_type ~output_context:None
+	    ~output_token:"" ~ret_flags:scram_ret_flags
 	  ~time_rec:`Indefinite ~minor_status:0l
 	  ~major_status:(`None,code,[]) ()
 
@@ -1200,7 +1235,9 @@ object(self)
       match sk_opt with
 	| None ->
 	    error `No_context
-	| Some (sk_mic, sk_wrap) ->
+	| Some (k_mic_c,k_mic_s,k_wrap_c,k_wrap_s) ->
+	    let sk_wrap =
+	      if context#is_acceptor then k_wrap_c else k_wrap_s in
 	    ( try
 		let token = (as_string input_message) in
 		let (sent_by_acceptor, _, _, _) =
@@ -1252,7 +1289,9 @@ object(self)
 	    out
 	      ~qop_state:qop ~minor_status:0l
 	      ~major_status:(`None,`No_context,[]) ()
-	| Some (sk_mic, sk_wrap) ->
+	| Some (k_mic_c,k_mic_s,k_wrap_c,k_wrap_s) ->
+	    let sk_mic =
+	      if context#is_acceptor then k_mic_c else k_mic_s in
 	    let (sent_by_acceptor,_,_) =
 	      Netgssapi.parse_mic_token_header token in
 	    let ok =
@@ -1304,7 +1343,9 @@ object(self)
 	      out
 		~conf_state:false ~output_message:empty_msg ~minor_status:0l
 		~major_status:(`None,`No_context,[]) ()
-	  | Some (sk_mic, sk_wrap) ->
+	  | Some (k_mic_c,k_mic_s,k_wrap_c,k_wrap_s) ->
+	      let sk_wrap =
+		if context#is_acceptor then k_wrap_s else k_wrap_c in
 	      let token =
 		Netgssapi.create_wrap_token_conf
 		  ~sent_by_acceptor:context#is_acceptor

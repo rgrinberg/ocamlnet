@@ -1,0 +1,322 @@
+======================================================================
+SCRAM
+======================================================================
+
+This is a walk through the sample messages exchanged between endpoints
+using GSS-API with the SCRAM-SHA1 mechanism.
+
+This example has been produced with t_gssapi.ml. Note that the
+random-number generator has been manipulated so that it no longer
+produces random numbers, just for the reproducibility of the example.
+
+
+
+1. CONTEXT ESTABLISHMENT
+
+1.1 Client calls gss_init_sec_context
+
+We assume here the client is user "gerd" with password "xyz". The salt
+shall be "16dc2b4137e71d6470fdd5f0dfff6659". The iteration count is
+4096.
+
+Client emits token:
+
+0000: 60 31 06 06 2b 06 01 05 05 0e 6e 3d 67 65 72 64     `1..+.....n=gerd
+0010: 2c 72 3d 30 30 30 31 30 32 30 33 30 34 30 35 30     ,r=0001020304050
+0020: 36 30 37 30 38 30 39 30 61 30 62 30 63 30 64 30     60708090a0b0c0d0
+0030: 65 30 66                                            e0f
+
+Comments:
+
+- The bytes 0-9 are the token prefix that is always necessary in the
+  first client token. This prefix is described in RFC 2743, section 3.1.
+  The byte 1 (0x31) is the length of the whole token - 2.
+  The byte 3 (0x06) is the length of the encoded mechanism OID, which
+  can be found in the byte range 4-9.
+
+  The mechanism OID is { 1 3 6 1 5 5 14 }.
+
+- The bytes 0xa - 0x32 contain the first line of the SCRAM authentication
+  exchange. Note that there is no GS2 prefix. The "n" parameter is the
+  user name, and "r" is the client nonce (this implementation only uses
+  nonce strings that are hex-encoded, but is not necessary).
+
+
+
+1.2 Server calls gss_accept_sec_context
+
+Server emits token:
+
+0000: 72 3d 30 30 30 31 30 32 30 33 30 34 30 35 30 36     r=00010203040506
+0010: 30 37 30 38 30 39 30 61 30 62 30 63 30 64 30 65     0708090a0b0c0d0e
+0020: 30 66 30 30 30 31 30 32 30 33 30 34 30 35 30 36     0f00010203040506
+0030: 30 37 30 38 30 39 30 61 30 62 30 63 30 64 30 65     0708090a0b0c0d0e
+0040: 30 66 2c 73 3d 4d 54 5a 6b 59 7a 4a 69 4e 44 45     0f,s=MTZkYzJiNDE
+0050: 7a 4e 32 55 33 4d 57 51 32 4e 44 63 77 5a 6d 52     zN2U3MWQ2NDcwZmR
+0060: 6b 4e 57 59 77 5a 47 5a 6d 5a 6a 59 32 4e 54 6b     kNWYwZGZmZjY2NTk
+0070: 3d 2c 69 3d 34 30 39 36                             =,i=4096
+
+Comments:
+
+- There is no token prefix as for the first token.
+
+- The first part of the "r" parameter is identical to the client nonce.
+  The whole new "r" parameter is the combination of client+server nonce.
+
+- The "s" (salt) parameter is Base-64-encoded (decoded salt: see above)
+
+- The "i" parameter is the iteration count in decimal
+
+
+
+1.3. Client calls gss_init_sec_context the second time
+
+Client emits token:
+
+0000: 63 3d 2c 72 3d 30 30 30 31 30 32 30 33 30 34 30     c=,r=00010203040
+0010: 35 30 36 30 37 30 38 30 39 30 61 30 62 30 63 30     5060708090a0b0c0
+0020: 64 30 65 30 66 30 30 30 31 30 32 30 33 30 34 30     d0e0f00010203040
+0030: 35 30 36 30 37 30 38 30 39 30 61 30 62 30 63 30     5060708090a0b0c0
+0040: 64 30 65 30 66 2c 70 3d 6a 30 4a 57 65 44 34 52     d0e0f,p=j0JWeD4R
+0050: 50 2f 70 4b 65 79 46 6f 62 51 59 73 58 65 76 6e     P/pKeyFobQYsXevn
+0060: 6a 37 6f 3d                                         j7o=
+
+Comments:
+
+- There is no token prefix as for the first token.
+
+- The "c" parameter is present but empty (we left the channel binding
+  parameter for gss_init_sec_context empty)
+
+- The "r" parameter repeats the combined nonce
+
+- The "p" parameter is the Base-64-encoded proof
+
+How do we get the proof?
+
+Salted password:
+
+0000: 32 cf af bf 92 bf 53 e6 91 aa 11 b4 7b da 92 d2     2.....S.....{...
+0010: dc 16 92 eb                                         ....
+
+Client key:
+
+0000: 5a 63 73 7e cf 32 5b d8 5b ba 1f 07 c3 6b 1f ef     Zcs~.2[.[....k..
+0010: f9 71 4a 81                                         .qJ.
+
+Stored key:
+
+0000: cb 85 92 46 3f 58 c3 08 21 0d 2a 53 2b d7 60 70     ...F?X..!.*S+.`p
+0010: e2 35 93 2d                                         .5.-
+
+Auth message:
+
+0000: 6e 3d 67 65 72 64 2c 72 3d 30 30 30 31 30 32 30     n=gerd,r=0001020
+0010: 33 30 34 30 35 30 36 30 37 30 38 30 39 30 61 30     30405060708090a0
+0020: 62 30 63 30 64 30 65 30 66 2c 72 3d 30 30 30 31     b0c0d0e0f,r=0001
+0030: 30 32 30 33 30 34 30 35 30 36 30 37 30 38 30 39     0203040506070809
+0040: 30 61 30 62 30 63 30 64 30 65 30 66 30 30 30 31     0a0b0c0d0e0f0001
+0050: 30 32 30 33 30 34 30 35 30 36 30 37 30 38 30 39     0203040506070809
+0060: 30 61 30 62 30 63 30 64 30 65 30 66 2c 73 3d 4d     0a0b0c0d0e0f,s=M
+0070: 54 5a 6b 59 7a 4a 69 4e 44 45 7a 4e 32 55 33 4d     TZkYzJiNDEzN2U3M
+0080: 57 51 32 4e 44 63 77 5a 6d 52 6b 4e 57 59 77 5a     WQ2NDcwZmRkNWYwZ
+0090: 47 5a 6d 5a 6a 59 32 4e 54 6b 3d 2c 69 3d 34 30     GZmZjY2NTk=,i=40
+00a0: 39 36 2c 63 3d 2c 72 3d 30 30 30 31 30 32 30 33     96,c=,r=00010203
+00b0: 30 34 30 35 30 36 30 37 30 38 30 39 30 61 30 62     0405060708090a0b
+00c0: 30 63 30 64 30 65 30 66 30 30 30 31 30 32 30 33     0c0d0e0f00010203
+00d0: 30 34 30 35 30 36 30 37 30 38 30 39 30 61 30 62     0405060708090a0b
+00e0: 30 63 30 64 30 65 30 66                             0c0d0e0f
+
+Client signature:
+
+0000: d5 21 25 06 f1 23 64 22 11 c1 3e 6f ae 6d 33 b2     .!%..#d"..>o.m3.
+0010: 12 96 c5 3b                                         ...;
+
+Client proof (decoded):
+
+0000: 8f 42 56 78 3e 11 3f fa 4a 7b 21 68 6d 06 2c 5d     .BVx>.?.J{!hm.,]
+0010: eb e7 8f ba                                         ....
+
+
+
+1.4 Server calls gss_accept_sec_context the second time
+
+Server emits token:
+
+0000: 76 3d 53 62 64 7a 42 51 4f 77 71 46 58 4f 2b 6b     v=SbdzBQOwqFXO+k
+0010: 53 38 52 78 59 62 71 6c 56 57 6f 63 34 3d           S8RxYbqlVWoc4=
+
+- There is no token prefix as for the first token.
+
+- The "v" is the server signature (base64-encoded)
+
+How to compute the server signature:
+
+Server key:
+
+0000: cb b8 51 71 91 b9 6a ce d5 2c ac b7 1f ab f5 d2     ..Qq..j..,......
+0010: 01 2b d0 00                                         .+..
+
+Server signature:
+
+0000: 49 b7 73 05 03 b0 a8 55 ce fa 44 bc 47 16 1b aa     I.s....U..D.G...
+0010: 55 56 a1 ce                                         UV..
+
+
+
+1.5 Client calls gss_init_sec_context the third time
+
+- no token is emitted
+
+
+
+1.6. Keys
+
+1.6.1 Protocol key:
+
+0000: 00 32 07 5b 9e 89 c1 02 64 df e1 62 61 30 ee b1     .2.[....d..ba0..
+
+1.6.2 Key kc for creating MIC on the client:
+
+0000: fa 6e 19 05 fd 01 da c0 53 9a f8 8f 91 9e 48 9b     .n......S.....H.
+
+= DK(protocol_key, x"00 00 00 19 99")
+
+1.6.3 Key kc for creating MIC on the server:
+
+0000: 1f a6 1e 45 db 39 e6 89 01 3a 62 43 7e f9 8d 00     ...E.9...:bC~...
+
+= DK(protocol_key, x"00 00 00 17 99")
+
+1.6.4 Key ke for encrypting on the client:
+
+0000: 94 b4 26 71 65 f6 19 54 50 9f b5 72 bf 8b bd 84     ..&qe..TP..r....
+
+= DK(protocol_key, x"00 00 00 18 aa")
+
+1.6.5 Key ki for the integrity of encrypted messages on the client:
+
+0000: 30 27 30 09 b8 0f df b9 48 39 79 90 4e 3b b6 72     0'0.....H9y.N;.r
+
+= DK(protocol_key, x"00 00 00 18 55")
+
+1.6.6 Key ke for encrypting on the server:
+
+0000: d4 6a 40 62 dc 53 bd 50 95 ca b3 d6 44 7b 09 90     .j@b.S.P....D{..
+
+= DK(protocol_key, x"00 00 00 16 aa")
+
+1.6.7 Key ki for the integrity of encrypted messages on the server:
+
+0000: fa 5d 87 2b 80 f1 d2 dc f5 1d 1a 18 5f 60 da 3e     .].+........_`.>
+
+= DK(protocol_key, x"00 00 00 16 55")
+
+
+2. MESSAGE INTEGRITY CODES
+
+
+2.1 Client calls gss_get_mic:
+
+We assume here a sequence number of 0. The message to be checked is
+"abcDEF".
+
+Emitted token:
+
+0000: 04 04 00 ff ff ff ff ff 00 00 00 00 00 00 00 00     ................
+0010: 84 b2 df b6 78 01 b4 77 ec 70 8c 2d                 ....x..w.p.-
+
+Comments:
+
+- Bytes 0-0xf contain the MIC token header
+- Bytes 0x10-0x1c contain
+  HMAC(kc, "abcDEF" + header)
+
+
+2.2 Server calls gss_get_mic
+
+We assume here a sequence number of 0. The message to be checked is
+"abcDEF".
+
+Emitted token:
+
+0000: 04 04 01 ff ff ff ff ff 00 00 00 00 00 00 00 00     ................
+0010: 36 88 bc cf 05 17 64 19 66 e7 3b a3                 6.....d.f.;.
+
+- Bytes 0-0xf contain the MIC token header.
+  Note that the bit is set that the acceptor is the orgininator of the
+  token.
+
+- Bytes 0x10-0x1c contain
+  HMAC(kc, "abcDEF" + header)
+
+- Here a different specific key is used than in 2.1.
+
+
+3. ENCRYPTION
+
+3.1 Client calls gss_wrap:
+
+We assume here a sequence number of 1. The message to be checked is
+"abcDEF".
+
+Emitted token:
+
+0000: 05 04 02 ff 00 00 00 00 00 00 00 00 00 00 00 01     ................
+0010: 80 e2 3a d7 e5 37 8e 7a c4 55 4c 9e d1 82 5e 89     ..:..7.z.UL...^.
+0020: d0 5e 81 2a 69 5f ce 8e 4f e4 68 ba 15 9d 5f e8     .^.*i_..O.h..._.
+0030: c0 37 19 57 ea aa c7 17 b5 24 41 4b 0b 7c 7d 97     .7.W.....$AK.|}.
+0040: a8 e4                                               ..
+
+Comments:
+
+- Bytes 0-0xf contain the wrap token header
+
+  In the flags section only the bit for confidentiality is set.
+
+- Note that the EC field in the header is 0, and it is always 0.
+  There is no need for EC because aes128-cts-hmac-sha1-96 never creates a 
+  "crypto-system residue" for messages with at least 16 bytes.
+  Also, filler="".
+
+- Bytes 0x10-0x35 contain
+  E(ke, conf + message + filler + header + pad)
+
+  (Here, conf = x"00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f". Remember
+  the RNG is badly manipulated.)
+
+  pad="" because m=1.
+
+  (Note that "filler" comes from RFC 4121 while "pad" is defined in
+  RFC 3961. Both serve the same function, but are here effectively
+  not needed.)
+
+- Bytes 0x36-0x42 contain the first 12 bytes of
+  HMAC(ki, conf + message + filler + header + pad)
+
+
+3.2 Server calls gss_wrap:
+
+We assume here a sequence number of 1. The message to be checked is
+"abcDEF".
+
+Emitted token:
+
+0000: 05 04 03 ff 00 00 00 00 00 00 00 00 00 00 00 01     ................
+0010: f8 76 19 6a 01 49 e4 ec 1b ba 57 5b 3e 9d d0 dc     .v.j.I....W[>...
+0020: 22 90 d1 2b e8 56 4c 25 ae 32 e7 2f 48 29 18 fe     "..+.VL%.2./H)..
+0030: e5 f3 82 cf c4 c2 57 98 ba 2e 8b 50 46 0b 4b 36     ......W....PF.K6
+0040: 08 b7                                               ..
+
+Comments:
+
+- Bytes 0-0xf contain the wrap token header
+
+  In the flags section the flag for confidentiality is set, and the
+  flag that the acceptor emits the token.
+
+- Bytes 0x10-0x35 contain the encrypted message as in 3.1
+  (note that a different specific key is used)
+
+- Bytes 0x36-0x42 contain the integrity code
+  (note that a different specific key is used than in 3.1)

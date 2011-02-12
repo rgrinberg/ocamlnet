@@ -489,7 +489,7 @@ let int_s i =
 let hi str salt i =
   let rec uk k =
     if k=1 then
-      let u = hmac str (salt ^ int_s i) in
+      let u = hmac str (salt ^ int_s 1) in
       let h = u in
       (u,h)
     else (
@@ -919,6 +919,7 @@ let server_recv_message ss message =
 	       let p = Netauth.xor_s client_key client_signature in
 	       if Some p <> cf.cf_proof then
 		 raise (Invalid_proof "bad client signature");
+	       ss.ss_cf <- Some cf;
 	       ss.ss_proto_key <- Some ( lsb128
 					   (hmac
 					      stored_key

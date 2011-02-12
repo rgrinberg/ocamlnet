@@ -59,5 +59,6 @@ class scram_gss_api :
       name of the principals.
 
       This implementation does not detect replayed messages (it does not
-      store which sequence numbers it has already seen).
+      store which sequence numbers it has already seen), even if requested
+      by the caller.
    *)

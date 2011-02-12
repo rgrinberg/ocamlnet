@@ -211,6 +211,7 @@ object
                chan_bindings:channel_bindings option ->
                out:( src_name:name ->
 		     mech_type:oid ->
+		     output_context:context option ->
 		     output_token:token ->
 		     ret_flags:ret_flag list ->
 		     time_rec:[ `Indefinite | `This of float] ->
@@ -220,6 +221,14 @@ object
 		     unit ->
 		     't 
 		   ) -> unit -> 't
+    (** On the first call, pass [~context:None]. If successful, the
+	function outputs a non-None [~output_context] which should be
+	passed as new [~context] in follow-up calls.
+
+	If the [output_token] is non-empty, it must be transmitted to
+	the peer - independent of the [major_status].
+     *)
+
 
   method acquire_cred :
           't . desired_name:name ->
@@ -382,6 +391,7 @@ object
                chan_bindings:channel_bindings option ->
                input_token:token option ->
                out:( actual_mech_type:oid ->
+		     output_context:context option ->
 		     output_token:token ->
 		     ret_flags:ret_flag list ->
 		     time_rec:[ `Indefinite | `This of float ] ->
@@ -390,6 +400,13 @@ object
 		     unit ->
 		     't
 		   ) -> unit -> 't
+    (** On the first call, pass [~context:None]. If successful, the
+	function outputs a non-None [~output_context] which should be
+	passed as new [~context] in follow-up calls.
+
+	If the [output_token] is non-empty, it must be transmitted to
+	the peer - independent of the [major_status].
+     *)
 
   method inquire_context :
           't . context:context ->

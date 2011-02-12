@@ -19,4 +19,4 @@ let rng = ref (default_rng())
 
 let set_rng r = rng := r
 
-let fill_random = !rng
+let fill_random s = !rng s

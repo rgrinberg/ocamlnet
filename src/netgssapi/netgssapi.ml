@@ -83,6 +83,7 @@ object
                chan_bindings:channel_bindings option ->
                out:( src_name:name ->
 		     mech_type:oid ->
+		     output_context:context option ->
 		     output_token:token ->
 		     ret_flags:ret_flag list ->
 		     time_rec:[ `Indefinite | `This of float] ->
@@ -247,6 +248,7 @@ object
                chan_bindings:channel_bindings option ->
                input_token:token option ->
                out:( actual_mech_type:oid ->
+		     output_context:context option ->
 		     output_token:token ->
 		     ret_flags:ret_flag list ->
 		     time_rec:[ `Indefinite | `This of float ] ->
