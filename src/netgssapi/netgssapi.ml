@@ -75,8 +75,9 @@ class type gss_api =
 object
   method provider : string
   method no_credential : credential
+  method no_name : name
   method accept_sec_context :
-          't . context:context ->
+          't . context:context option ->
                acceptor_cred:credential -> 
                input_token:token ->
                chan_bindings:channel_bindings option ->
@@ -84,7 +85,7 @@ object
 		     mech_type:oid ->
 		     output_token:token ->
 		     ret_flags:ret_flag list ->
-		     time_rec:float ->
+		     time_rec:[ `Indefinite | `This of float] ->
 		     delegated_cred:credential ->
 		     minor_status:minor_status ->
 		     major_status:major_status ->
@@ -145,8 +146,16 @@ object
 
   method context_time :
           't . context:context ->
-               out:( time_rec:float ->
+               out:( time_rec:[ `Indefinite | `This of float] ->
 		     minor_status:minor_status ->
+		     major_status:major_status ->
+		     unit ->
+		     't
+		   ) -> unit -> 't
+
+  method delete_sec_context :
+          't . context:context ->
+               out:( minor_status:minor_status ->
 		     major_status:major_status ->
 		     unit ->
 		     't
@@ -162,19 +171,10 @@ object
 		     't
 		   ) -> unit -> 't
 
-  method display_status :
-          't . status:[ `Major of major_status | `Minor of minor_status ] ->
+  method display_minor_status :
+          't . minor_status:minor_status ->
                mech_type: oid ->
                out:( status_strings: string list ->
-		     minor_status:minor_status ->
-		     major_status:major_status ->
-		     unit ->
-		     't
-		   ) -> unit -> 't
-
-  method duplicate_name :
-          't . src_name:name ->
-               out:( dest_name:name ->
 		     minor_status:minor_status ->
 		     major_status:major_status ->
 		     unit ->
@@ -222,7 +222,7 @@ object
 
   method import_sec_context :
           't . interprocess_token:interprocess_token ->
-               out:( context:context ->
+               out:( context:context option ->
 		     minor_status:minor_status ->
 		     major_status:major_status ->
 		     unit ->
@@ -375,6 +375,51 @@ object
 		   ) -> unit -> 't
 end
 
+let string_of_calling_error =
+  function
+    | `None -> "-"
+    | `Inaccessible_read -> "Inaccessible_read"
+    | `Inaccessible_write -> "Inaccessible_write"
+    | `Bad_structure -> "Bad_structure"
+
+let string_of_routine_error =
+  function
+    | `None -> "-"
+    | `Bad_mech -> "Bad_mech"
+    | `Bad_name -> "Bad_name"
+    | `Bad_nametype -> "Bad_nametype"
+    | `Bad_bindings -> "Bad_bindings"
+    | `Bad_status -> "Bad_status"
+    | `Bad_mic -> "Bad_mic"
+    | `No_cred -> "No_cred"
+    | `No_context -> "No_context"
+    | `Defective_token -> "Defective_token"
+    | `Defective_credential -> "Defective_credential"
+    | `Credentials_expired -> "Credentials_expired"
+    | `Context_expired -> "Context_expired"
+    | `Failure -> "Failure"
+    | `Bad_QOP -> "Bad_QOP"
+    | `Unauthorized -> "Unauthorized"
+    | `Unavailable -> "Unavailable"
+    | `Duplicate_element -> "Duplicate_element"
+    | `Name_not_mn -> "Name_not_mn"
+
+let string_of_suppl_status =
+  function
+    | `Continue_needed -> "Continue_needed"
+    | `Duplicate_token -> "Duplicate_token"
+    | `Old_token -> "Old_token"
+    | `Unseq_token -> "Unseq_token"
+    | `Gap_token -> "Gap_token"
+
+let string_of_major_status (ce,re,sl) =
+  let x = String.concat "," (List.map string_of_suppl_status sl) in
+  "<major:" ^ string_of_calling_error ce ^ 
+  ";" ^ string_of_routine_error re ^ 
+  (if x <> "" then ";" ^ x else "") ^ 
+  ">"
+
+
 let nt_hostbased_service =
   [| 1; 3; 6; 1; 5; 6; 2 |]
 
@@ -392,6 +437,14 @@ let nt_anonymous =
 
 let nt_export_name =
   [| 1; 3; 6; 1; 5; 6; 4 |]
+
+let parse_hostbased_service s =
+  try
+    let k = String.index s '@' in
+    (String.sub s 0 k, String.sub s (k+1) (String.length s - k - 1))
+  with
+    | Not_found ->
+	failwith "Netgssapi.parse_hostbased_service"
 
 (* Encodings *)
 

@@ -39,7 +39,8 @@ type server_first =
     }
 
 type client_final =
-    { cf_nonce : string;     (* anything but comma *)
+    { cf_chanbind : string;
+      cf_nonce : string;     (* anything but comma *)
       cf_extensions : (string * string) list;
       cf_proof : string option;   (* decoded *)
     }
@@ -89,6 +90,7 @@ type client_session =
       mutable cs_proto_key : string option;
       cs_username : string;
       cs_password : string;
+      mutable cs_chanbind : string;
     }
 
 
@@ -106,7 +108,7 @@ type server_session =
       mutable ss_spw: string option;
       mutable ss_err : server_error option;
       mutable ss_proto_key : string option;
-      ss_authenticate : string -> (string * string * int);
+      ss_authenticate_opt : (string -> (string * string * int)) option;
     }
 
 (* Exported: *)
@@ -315,10 +317,21 @@ let decode_s1_message s =
     | _ ->
 	raise(Invalid_encoding("decode_s1_mesage", s))
 
+
+(* About the inclusion of "c": RFC 5802 is not entirely clear about this.
+   I asked the authors of the RFC what to do. The idea is that the 
+   GSS-API flavor of SCRAM is obtained by removing the GS2 (RFC 5801)
+   part from the description in RFC 5802 for SASL. This leads to the
+   interpretation that the "c" parameter is required, and it includes the
+   channel binding string as-is, without any prefixed gs2-header.
+   (Remember that GS2 is a wrapper around GSS-API, and it can then
+   pass the right channel binding string down, i.e. a string that includes
+   the gs2-header.)
+ *)
 	
 let encode_cf_message cf =
-  (* No channel binding in GSS-API *)
-  "r=" ^ cf.cf_nonce ^ 
+  "c=" ^ Netencoding.Base64.encode cf.cf_chanbind ^ 
+  ",r=" ^ cf.cf_nonce ^ 
   ( if cf.cf_extensions <> [] then
       "," ^ 
 	String.concat "," (List.map (fun (n,v) -> n ^ "=" ^ v) cf.cf_extensions)
@@ -336,7 +349,12 @@ let decode_cf_message expect_proof s =
   match l with
     | [] ->
 	raise(Invalid_encoding("decode_cf_mesage: empty", s))
-    | ("r",nonce) :: l' ->
+    | ("c",chanbind_b64) :: ("r",nonce) :: l' ->
+	let chanbind =
+	  try Netencoding.Base64.decode chanbind_b64 
+	  with _ ->
+	    raise(Invalid_encoding("decode_cf_mesage: invalid c",
+				   s)) in
 	let p, l'' =
 	  if expect_proof then
 	    match List.rev l' with
@@ -352,7 +370,8 @@ let decode_cf_message expect_proof s =
 					 s))
 	  else
 	    None, l' in
-	{ cf_nonce = nonce;
+	{ cf_chanbind = chanbind;
+	  cf_nonce = nonce;
 	  cf_extensions = l'';
 	  cf_proof = p
 	}
@@ -514,6 +533,7 @@ let create_client_session profile username password =
     cs_username = username;
     cs_password = password;
     cs_proto_key = None;
+    cs_chanbind = "";
   }
  
 
@@ -551,6 +571,27 @@ let catch_error cs f arg =
 let client_protocol_key cs =
   cs.cs_proto_key
 
+let client_user_name cs =
+  cs.cs_username
+
+let client_configure_channel_binding cs cb =
+  ( match cs.cs_state with
+      | `Start | `C1 | `S1 -> ()
+      | _ -> failwith "Netmech_scram.client_configure_channel_binding"
+  );
+  cs.cs_chanbind <- cb
+
+let client_channel_binding cs =
+  cs.cs_chanbind
+
+let client_export cs =
+  if not (client_finish_flag cs) then
+    failwith "Netmech_scram.client_export: context not yet established";
+  Marshal.to_string cs []
+
+let client_import s =
+  ( Marshal.from_string s 0 : client_session)
+
 
 let salt_password password salt iteration_count =
   let sp = hi (saslprep password) salt iteration_count in
@@ -584,7 +625,8 @@ let client_emit_message cs =
 	     let client_key = hmac salted_pw "Client Key" in
 	     let stored_key = sha1 client_key in
 	     let cf_no_proof =
-	       encode_cf_message { cf_nonce = s1.s1_nonce;
+	       encode_cf_message { cf_chanbind = cs.cs_chanbind;
+				   cf_nonce = s1.s1_nonce;
 				   cf_extensions = [];
 				   cf_proof = None
 				 } in
@@ -595,7 +637,8 @@ let client_emit_message cs =
 	     let client_signature = hmac stored_key auth_message in
 	     let p = Netauth.xor_s client_key client_signature in
 	     let cf =
-	       { cf_nonce = s1.s1_nonce;
+	       { cf_chanbind = cs.cs_chanbind;
+		 cf_nonce = s1.s1_nonce;
 		 cf_extensions = [];
 		 cf_proof = Some p;
 	       } in
@@ -679,7 +722,7 @@ let create_server_session profile auth =
     ss_cf = None;
     ss_cf_raw = "";
     ss_sf = None;
-    ss_authenticate = auth;
+    ss_authenticate_opt = Some auth;
     ss_spw = None;
     ss_err = None;
     ss_proto_key = None;
@@ -704,6 +747,15 @@ let server_error_flag ss =
 
 let server_protocol_key ss =
   ss.ss_proto_key
+
+let server_export ss =
+  if not (server_finish_flag ss) then
+    failwith "Netmech_scram.server_export: context not yet established";
+  Marshal.to_string { ss with ss_authenticate_opt = None } []
+
+let server_import s =
+  ( Marshal.from_string s 0 : server_session)
+
 
 let catch_condition ss f arg =
   let debug e =
@@ -744,7 +796,10 @@ let server_emit_message ss =
 	    let c1 = 
 	      match ss.ss_c1 with
 		| None -> raise Skip_proto | Some c1 -> c1 in
-	    let (spw, salt, i) = ss.ss_authenticate c1.c1_username in
+	    let (spw, salt, i) = 
+	      match ss.ss_authenticate_opt with
+		| Some auth -> auth c1.c1_username
+		| None -> assert false in
 	    let s1 =
 	      { s1_nonce = c1.c1_nonce ^ create_nonce();
 		s1_salt = salt;
@@ -876,6 +931,18 @@ let server_recv_message ss message =
 	ss.ss_state <- `CF
     | _ ->
 	failwith "Netmech_scram.server_recv_message"
+
+
+let server_channel_binding ss =
+  match ss.ss_cf with
+    | None -> None
+    | Some cf -> Some(cf.cf_chanbind)
+
+
+let server_user_name ss =
+  match ss.ss_c1 with
+    | None -> None
+    | Some c1 -> Some c1.c1_username
 
 
 (* Encryption for GSS-API *)
@@ -1070,10 +1137,11 @@ module Cryptosystem = struct
     }
 
   let encrypt_and_sign s_keys message =
-    let conf = String.make C.c '\000' in
+    let c_bytes = C.c/8 in
+    let conf = String.make c_bytes '\000' in
     Netsys_rng.fill_random conf;
     let l = String.length message in
-    let p = (l + C.c) mod C.m in
+    let p = (l + c_bytes) mod C.m in
     let pad = 
       if p = 0 then "" else String.make (C.m - p) '\000' in
     let p1 = conf ^ message ^ pad in
@@ -1082,6 +1150,7 @@ module Cryptosystem = struct
     c1 ^ String.sub h1 0 I.h
 
   let decrypt_and_verify s_keys ciphertext =
+    let c_bytes = C.c/8 in
     let l = String.length ciphertext in
     if l < I.h then
       invalid_arg "Netmech_scram.Cryptosystem.decrypt_and_verify";
@@ -1092,9 +1161,9 @@ module Cryptosystem = struct
     if h1 <> h1' then
       raise Integrity_error;
     let q = String.length p1 in
-    if q < C.c then
+    if q < c_bytes then
       raise Integrity_error;
-    String.sub p1 C.c (q-C.c)
+    String.sub p1 c_bytes (q-c_bytes)
       (* This includes any padding or residue from the lower layer! *)
 
   let get_ec s_keys n =

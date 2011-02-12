@@ -106,6 +106,17 @@ val create_client_session : profile -> string -> string -> client_session
       [username], and proves its identify with the given [password].
    *)
 
+val client_configure_channel_binding : client_session -> string -> unit
+  (** Instruct the client to require a channel binding. The passed string
+      is the [c] parameter (before encoding it via Base64. The function
+      needs to be called before sending the second message to the server.
+      It fails if called too late.
+   *)
+(* SASL: The string would have to include the gs2-header. For a SASL-enabled
+   profile we would need some additional functions
+   (client_negotiate_channel_binding).
+ *)
+
 val client_emit_flag : client_session -> bool
   (** Whether [client_emit_message] can now be called *)
 
@@ -118,6 +129,9 @@ val client_finish_flag : client_session -> bool
 val client_error_flag : client_session -> bool
   (** Whether an error occurred, and the protocol cannot advance anymore *)
 
+val client_channel_binding : client_session -> string
+  (** Returns the channel binding ("" of none) *)
+
 val client_emit_message : client_session -> string
   (** Emits the next message to be sent to the server *)
 
@@ -127,6 +141,18 @@ val client_recv_message : client_session -> string -> unit
 val client_protocol_key : client_session -> string option
   (** The 128-bit protocol key for encrypting messages. This is available 
       as soon as the second client message is emitted.
+   *)
+
+val client_user_name : client_session -> string
+  (** The user name *)
+
+val client_export : client_session -> string
+val client_import : string -> client_session
+  (** Exports a client session as string, and imports the string again.
+      Only established sessions are allowed to be exported
+      (for which [client_finish_flag] is true).
+
+      The export format is just a marshalled Ocaml value.
    *)
 
 
@@ -201,6 +227,26 @@ val server_recv_message : server_session -> string -> unit
 val server_protocol_key : server_session -> string option
   (** The 128-bit protocol key for encrypting messages. This is available 
       as soon as the second client message has been received.
+   *)
+
+val server_channel_binding : server_session -> string option
+  (** Returns the channel binding requirement (the "c" parameter). It is
+      up to the application to enforce the binding. This information is 
+      available as soon as the second client message has been received
+   *)
+
+val server_user_name : server_session -> string option
+  (** The user name as transmitted from the client. This is returned here
+      even before the authentication is completed!
+   *)
+
+val server_export : server_session -> string
+val server_import : string -> server_session
+  (** Exports a server session as string, and imports the string again.
+      Only established sessions are allowed to be exported
+      (for which [server_finish_flag] is true).
+
+      The export format is just a marshalled Ocaml value.
    *)
 
 

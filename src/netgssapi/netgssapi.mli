@@ -2,12 +2,7 @@
 
 (** GSS-API Definition *)
 
-(* CHECK:
-   - add functions for marshalling contexts between processes of the
-     same program
- *)
-
-(** This is mainly a translation of RFC 2744 to Ocaml. *)
+(** This is mainly a translation of RFC 2743/2744 to Ocaml. *)
 
 (** {2 Types} *)
 
@@ -28,8 +23,6 @@ type credential = < otype : [ `Credential ] >
 	credentials back to the provider, the provider must check
 	whether the object is known, and reject any fake objects
 	created by the caller by raising [Invalid_argument].
-
-	Comparison of credentials with [=] is a meaningful operation.
      *)
 
 type context = < otype : [ `Context ]; valid : bool >
@@ -157,8 +150,9 @@ type req_flag =
     Errors should be reported using the [major_status] and [minor_status]
     codes as much as possible.
 
-    [Invalid_argument] may be raised for clear violations of call
-    requirements.
+    [Invalid_argument] may be raised for clear violations of calling
+    requirements, e.g. when an opaque object is passed to this interface
+    that was not returned by it before.
  *)
 
 (** {2 The API} *)
@@ -189,7 +183,9 @@ type req_flag =
     ]}
 
     Output values may not be defined when [major_status] indicates
-    an error.
+    an error. (But see the RFC for details; especially [init_sec_contect]
+    and [accept_sec_context] may emit tokens even when [major_status]
+    indicates an error.)
 
     The names of the parameters are taken from RFC 2744, only
     suffixes like [_handle] have been removed. When the prefixes
@@ -205,8 +201,11 @@ object
   method no_credential : credential
     (** A substitute credential for [GSS_C_NO_CREDENTIAL] *)
 
+  method no_name : name
+    (** A substitute name for [GSS_C_NO_NAME] *)
+
   method accept_sec_context :
-          't . context:context ->
+          't . context:context option ->
                acceptor_cred:credential -> 
                input_token:token ->
                chan_bindings:channel_bindings option ->
@@ -214,7 +213,7 @@ object
 		     mech_type:oid ->
 		     output_token:token ->
 		     ret_flags:ret_flag list ->
-		     time_rec:float ->
+		     time_rec:[ `Indefinite | `This of float] ->
 		     delegated_cred:credential ->
 		     minor_status:minor_status ->
 		     major_status:major_status ->
@@ -275,12 +274,23 @@ object
 
   method context_time :
           't . context:context ->
-               out:( time_rec:float ->
+               out:( time_rec:[ `Indefinite | `This of float] ->
 		     minor_status:minor_status ->
 		     major_status:major_status ->
 		     unit ->
 		     't
 		   ) -> unit -> 't
+
+  method delete_sec_context :
+          't . context:context ->
+               out:( minor_status:minor_status ->
+		     major_status:major_status ->
+		     unit ->
+		     't
+		   ) -> unit -> 't
+     (** Output tokens are not supported (this is a deprecated feature of
+	 GSSAPI)
+      *)
 
   method display_name :
           't . input_name:name ->
@@ -292,8 +302,8 @@ object
 		     't
 		   ) -> unit -> 't
 
-  method display_status :
-          't . status:[ `Major of major_status | `Minor of minor_status ] ->
+  method display_minor_status :
+          't . minor_status:minor_status ->
                mech_type: oid ->
                out:( status_strings: string list ->
 		     minor_status:minor_status ->
@@ -301,18 +311,10 @@ object
 		     unit ->
 		     't
 		   ) -> unit -> 't
-    (** Note that [display_status] decodes all status value parts in
-	one step and returns the result as [string list].
+    (** Note that [display_minor_status] decodes all status value parts in
+	one step and returns the result as [string list]. Also, this
+	method is restricted to decoding minor statuses
      *)
-
-  method duplicate_name :
-          't . src_name:name ->
-               out:( dest_name:name ->
-		     minor_status:minor_status ->
-		     major_status:major_status ->
-		     unit ->
-		     't
-		   ) -> unit -> 't
 
   method export_name : 
           't . name:name ->
@@ -355,7 +357,7 @@ object
 
   method import_sec_context :
           't . interprocess_token:interprocess_token ->
-               out:( context:context ->
+               out:( context:context option ->
 		     minor_status:minor_status ->
 		     major_status:major_status ->
 		     unit ->
@@ -515,6 +517,17 @@ object
 		   ) -> unit -> 't
 end
 
+(** {2 Utility functions} *)
+
+(** These functions convert values to strings. Useful for generating
+    log messages.
+ *)
+
+val string_of_calling_error : calling_error -> string
+val string_of_routine_error : routine_error -> string
+val string_of_suppl_status : suppl_status -> string
+val string_of_major_status : major_status -> string
+
 
 (** {2 Common OID's for name types} *)
 
@@ -538,6 +551,9 @@ val nt_anonymous : oid
 val nt_export_name : oid
   (** an export name *)
 
+val parse_hostbased_service : string -> string * string
+  (** Returns ([service,host]) for "service@host". Fails if not parseable *)
+
 
 (** {2 Encodings} *)
 
@@ -558,7 +574,7 @@ val der_to_oid : string -> int ref -> oid
 val wire_encode_token : oid -> token -> string
 val wire_decode_token : string -> int ref -> oid * token
   (** Encode tokens as described in section 3.1 of RFC 2078. This is usually
-      only used for the initiating token.
+      only done for the initiating token.
    *)
 
 val encode_exported_name : oid -> string -> string
