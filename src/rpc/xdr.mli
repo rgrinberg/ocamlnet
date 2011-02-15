@@ -93,8 +93,9 @@ open Rtypes;;
  * a type system. Then it refers to a named type in this system.
  *
  * The [X_param] constructor includes a reference to an arbitrary type
- * which must only be given while packing or unpacking values.
- * (A "lazy" type reference.)
+ * which must first be given when packing or unpacking values.
+ * (A "lazy" type reference.) Additionally, the values for parameters
+ * may be encrypted or decrypted.
  *
  * Example how to define a recursive type:
  *
@@ -304,20 +305,23 @@ val expanded_xdr_type_term : xdr_type_term_system -> xdr_type_term
                                -> xdr_type_term
 
 val are_compatible : xdr_type -> xdr_type -> bool
-(** are_compatible: currently not implemented *)
+(** [are_compatible]: currently not implemented *)
 
+val value_matches_type : xdr_value -> xdr_type -> (string*xdr_type) list -> bool
 (** Is the value properly formed with respect to this type? The third
  * argument of this function is a list of parameter instances. Note that
  * all parameters must be instantiated to compare a value with a type
  * and that the parameters instances are not allowed to have parameters
  * themselves.
+ *
+ * Encrypted parameters are not supported here.
  *)
 
-val value_matches_type : xdr_value -> xdr_type -> (string*xdr_type) list -> bool
+(** {2 Packing and unpacking} *)
 
 (** [pack_xdr_value v t p print]: Serialize v into a string conforming to
  *   the XDR standard where v matches t. In p the parameter instances are
- *   given. All parameters must be given, the parameters must not contain
+ *   given. All parameters must be given, and the parameters must not contain
  *   parameters themselves. The fourth argument, print, is a function
  *   which is evaluated for the pieces of the resultant string. You can use
  *   pack_xdr_value_as_string to get the whole string at once.
@@ -335,10 +339,43 @@ val value_matches_type : xdr_value -> xdr_type -> (string*xdr_type) list -> bool
  *   usable address space).
  *)
 
-val pack_xdr_value : xdr_value -> xdr_type -> (string*xdr_type) list ->
+(** {b Encryption:} The [encode] and [decode] functions can be used
+ * to encrypt/decrypt parameters (placeholders in the type marked with
+ * [X_param pname] for a parameter name [pname]). The [encode] argument
+ * may list for each parameter an encoding function:
+ * 
+ * {[ encode = [ pname1, encoder1; pname2, encoder2; ... ] ]}
+ * 
+ * The functions [encoder] are called with the XDR-packed parameter value,
+ * and return the encrypted value.
+ *
+ * Likewise, the [decode] argument may list for each parameter a decoding
+ * function:
+ * 
+ * {[ decode = [ pname1, decoder1; pname2, decoder2; ... ] ]}
+ *
+ * The call style of the decoder functions is a bit more complicated, though.
+ * They are called as
+ *
+ * {[ let (xdr_s, n) = decoder s pos len ]}
+ *
+ * meaning that the [decoder] starts decoding at position [pos] of string [s],
+ * and that at most [len] bytes can be decoded. It returns the decoded
+ * string [xdr_s] (which is then unpacked), and in [len] the length of the
+ * encoded substring is returned.
+ *)
+
+type encoder = string -> string
+  (** see text above *)
+type decoder = string -> int -> int -> (string * int)
+  (** see text above *)
+
+val pack_xdr_value : ?encode:(string * encoder) list ->
+                     xdr_value -> xdr_type -> (string*xdr_type) list ->
                      (string -> unit) -> unit
 val pack_xdr_value_as_string :
                      ?rm:bool ->
+                     ?encode:(string * encoder) list ->
                      xdr_value -> xdr_type -> (string*xdr_type) list ->
                        string
   (** rm: If true, four null bytes are prepended to the string for the
@@ -346,6 +383,7 @@ val pack_xdr_value_as_string :
    *)
 
 val pack_xdr_value_as_mstrings :
+       ?encode:(string * encoder) list ->
        xdr_value -> xdr_type -> (string*xdr_type) list -> 
          Xdr_mstring.mstring list
   (** The concatanated mstrings are the packed representation *)
@@ -354,13 +392,18 @@ val pack_xdr_value_as_mstrings :
 
 val unpack_xdr_value : ?pos:int -> ?len:int -> ?fast:bool -> ?prefix:bool ->
                        ?mstring_factories:Xdr_mstring.named_mstring_factories->
+                       ?decode:(string * decoder) list ->
                        string -> xdr_type -> (string * xdr_type) list ->
                        xdr_value
 val unpack_xdr_value_l : ?pos:int -> ?len:int -> ?fast:bool -> ?prefix:bool ->
                         ?mstring_factories:Xdr_mstring.named_mstring_factories->
+                         ?decode:(string * decoder) list ->
                          string -> xdr_type -> (string * xdr_type) list ->
                          (xdr_value * int)
-  (** [fast]: whether to prefer the new "fast" values (default: false)
+  (** [fast]: whether to prefer the new "fast" value representation
+   * (default: false).
+   * The [fast] flag {b must} be set to unpack for types that have been
+   * created with [ocamlrpcgen].
    *
    * [prefix]: whether it is ok that the string is longer than the message
    *   (default: false)

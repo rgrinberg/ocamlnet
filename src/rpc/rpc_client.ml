@@ -53,17 +53,18 @@ let () =
 
 
 
-module SessionInt = struct
-  type t = int
-  let compare = (Pervasives.compare : int -> int -> int)
+module SessionUint4 = struct
+  type t = uint4
+  let compare = (Pervasives.compare : uint4 -> uint4 -> int)
 end
 
 module SessionMap =
-  Map.Make(SessionInt)
+  Map.Make(SessionUint4)
 
 
 type call_state =
-    Waiting    (* call has not yet been sent *)
+  | Delayed    (* call waits for authentication protocol *)
+  | Waiting    (* call has not yet been sent *)
   | Pending    (* call has been sent, still no answer *)
   | Done       (* got answer for the call *)
 
@@ -79,42 +80,74 @@ type call_state =
  * parameter 't is later instantiated with the type of the clients, t.
  *)
 
+type reject_code =
+    [ `Fail | `Retry | `Renew | `Next ]
+
 class type ['t] pre_auth_session =
 object
-  method next_credentials : 't -> (string * string * string * string)
-  method server_rejects : server_error -> unit
-  method server_accepts : string -> string -> unit
+  method next_credentials :
+     't -> Rpc_program.t -> string -> uint4 ->
+     (string * string * string * string * Xdr.encoder option * 
+	Xdr.decoder option)
+  method server_rejects : 't -> uint4 -> server_error -> reject_code
+  method server_accepts : 't -> uint4 -> string -> string -> unit
+(*
+  method drop_xid : 't -> uint4 -> unit
+  method drop_client : 't -> unit
+ *)
+  method auth_protocol : 't pre_auth_protocol
 end
 
 
-class type ['t] pre_auth_method =
+and ['t] pre_auth_protocol =
+object
+  method state :
+         [ `Emit | `Receive of uint4 | `Done of 't pre_auth_session | `Error]
+  method emit : uint4 -> Rpc_packer.packed_value
+  method receive : Rpc_packer.packed_value -> unit
+  method auth_method : 't pre_auth_method
+end
+
+
+and ['t] pre_auth_method =
 object
   method name : string
-  method new_session : unit -> 't pre_auth_session
+  method new_session : 't -> string option -> 't pre_auth_protocol
 end
 
 
-type call =
-      { mutable prog : Rpc_program.t;
-	mutable proc : string;
-	mutable xdr_value : xdr_value;      (* the argument of the call *)
-	mutable value : packed_value;       (* the argument of the call *)
-	mutable get_result : (unit -> xdr_value) -> unit;
+type regular_call =
+    { mutable prog : Rpc_program.t;
+      mutable proc : string;
+      mutable param : xdr_value;       (* the argument of the call *)
+      mutable get_result : (unit -> xdr_value) -> unit;
+      mutable decoder : Xdr.decoder option;
+      mutable call_user_name : string option;
+    }
 
+type call_detail =
+    [ `Regular of regular_call
+    | `Auth_proto
+    ]
+
+type call =
+      { mutable detail : call_detail;
 	mutable state : call_state;
 	mutable retrans_count : int;        (* retransmission counter *)
-	mutable xid : int;
+	mutable xid : uint4;
 	mutable destination : Unix.sockaddr option;
 
 	mutable call_timeout : float;
 	mutable timeout_group : group option;
 	  (* If a timeout handler has been set, this is the corresponding group *)
 
-	mutable call_auth_session : t pre_auth_session;
-	mutable call_auth_method : t pre_auth_method;
-	  (* calls store the authentication session and the method. *)
+	mutable call_auth_proto : t pre_auth_protocol;
+	  (* calls store the authentication protocol *)
 
-	mutable batch_flag : bool
+	mutable batch_flag : bool;
+	
+	mutable request : packed_value option;
+	(* The request while the call is waiting *)
       }
 
 and t =
@@ -129,10 +162,16 @@ and t =
 	mutable est_engine : Rpc_transport.rpc_multiplex_controller Uq_engines.engine option;
 	mutable shutdown_connector : t -> Rpc_transport.rpc_multiplex_controller -> (unit->unit) -> unit;
 
+	mutable delayed_calls : (t pre_auth_protocol,call Queue.t) Hashtbl.t;
+	  (* delayed: the request cannot be sent - because the authentication
+	     protocol is not yet done
+	   *)
 	mutable waiting_calls : call Queue.t;
+	  (* waiting: the request can be sent when the connections allows it *)
 	mutable pending_calls : call SessionMap.t;
+	  (* pending: the request is sent; waiting for the reply *)
 
-	mutable next_xid : int;
+	mutable next_xid : uint4;
 	mutable used_xids : unit SessionMap.t;
 	mutable last_replier : Unix.sockaddr option;
 
@@ -144,16 +183,15 @@ and t =
 	mutable next_destination : Unix.sockaddr option;
 	mutable next_batch_flag : bool;
 	mutable max_resp_length : int option;
+	mutable user_name : string option;
 	mutable mstring_factories : Xdr_mstring.named_mstring_factories;
 
 	(* authentication: *)
-	mutable auth_methods : t pre_auth_method list;     (* methods to try *)
-	mutable current_auth_method : t pre_auth_method;
-	mutable unused_auth_sessions : t pre_auth_session list;
-	  (* The [unused_auth_sessions] are the sessions that were used for
-	   * previous calls and that can be reused. These sessions belong to
-	   * [current_auth_method].
-	   *)
+	mutable all_auth_methods : t pre_auth_method list;
+	mutable auth_methods : t pre_auth_method list;     
+	   (* remaining methods to try *)
+	mutable auth_current : (string option,t pre_auth_protocol) Hashtbl.t;
+	   (* The protocol used for this user *)
 
 	mutable exception_handler : exn -> unit;
       }
@@ -169,23 +207,39 @@ and connector =
 
 class type auth_session = [t] pre_auth_session
 class type auth_method = [t] pre_auth_method
+class type auth_protocol = [t] pre_auth_protocol
 
 
-class auth_none_session : auth_session =
+let auth_none_session p : auth_session =
 object
-  method next_credentials _ = ("AUTH_NONE", "", "AUTH_NONE", "")
-  method server_rejects _ = ()
-  method server_accepts _ _ = ()
+  method next_credentials _ _ _ _ =
+    ("AUTH_NONE", "", "AUTH_NONE", "", None, None)
+  method server_rejects _ _ _ = `Next
+  method server_accepts _ _ _ _ = ()
+  method auth_protocol = p
 end
 
 
-class auth_none =
-object
+let auth_none_proto m : auth_protocol =
+  let session = ref None in
+object(self)
+  initializer
+    session := Some(auth_none_session self)
+  method state =
+    match !session with
+      | None -> assert false
+      | Some s -> `Done s
+  method emit _ = assert false
+  method receive _ = assert false
+  method auth_method = m
+end
+
+let auth_none =
+object(self)
   method name = "AUTH_NONE"
-  method new_session () = new auth_none_session
+  method new_session _ _ =
+    auth_none_proto self
 end
-
-let auth_none = new auth_none
 
 module Debug = struct
   let enable = ref false
@@ -230,10 +284,10 @@ let connector_of_sockaddr =
 
 let set_auth_methods cl list =
   match list with
-      m :: list' ->
-	cl.current_auth_method <- m;
-	cl.auth_methods <- list';
-	cl.unused_auth_sessions <- []
+    | _ :: _ ->
+	Hashtbl.clear cl.auth_current;
+	cl.auth_methods <- list;
+	cl.all_auth_methods <- list;
     | [] ->
 	invalid_arg "Rpc_client.set_auth_methods"
 
@@ -248,6 +302,7 @@ let stop_retransmission_timer cl call =
   (*****)
 
 let pass_result cl call f =
+  (* for regular calls only! *)
 
   (* Stop the timer, if any : *)
 
@@ -261,7 +316,12 @@ let pass_result cl call f =
 
   try
     dlog cl "Calling back";
-    call.get_result f;
+    ( match call.detail with
+	| `Regular rc ->
+	    rc.get_result f;
+	| _ ->
+	    assert false
+    );
     dlog cl "Returned from callback";
   with
     | Keep_call as x ->
@@ -281,6 +341,9 @@ let pass_result cl call f =
 let pass_exception cl call x =
   (* Caution! This function does not remove [call] from the set of pending
    * calls.
+   * 
+   * For authproto messages, the exception is passed to the connected calls
+   * instead.
    *)
   if call.state <> Done then (  (* Don't call back twice *)
     try
@@ -288,25 +351,50 @@ let pass_exception cl call x =
 	(fun () ->
 	   let sx = Netexn.to_string x in
 	   "Passing exception " ^ sx);
-      pass_result cl call (fun () -> raise x)
+      ( match call.detail with
+	  | `Regular _ ->
+	      pass_result cl call (fun () -> raise x)
+	  | `Auth_proto ->
+	      stop_retransmission_timer cl call;
+	      call.state <- Done;
+	      let q =
+		try Hashtbl.find cl.delayed_calls call.call_auth_proto
+		with Not_found -> Queue.create() in
+	      Hashtbl.remove cl.delayed_calls call.call_auth_proto;
+	      Queue.iter
+		(fun d_call ->
+		   pass_result cl d_call (fun () -> raise x)
+		)
+		q
+      )
     with
-	Keep_call -> ()          (* ignore *)
+      | Keep_call -> ()          (* ignore *)
   )
 
 let pass_exception_to_all cl x =
   (* Caution! This function does not erase the set of pending calls.  *)
   dlog cl "Passing exception to all";
 
+  let ht = Hashtbl.create 17 in
   let fn_list = ref [] in
   let add_fn xid call =
-    if not (List.mem_assoc xid !fn_list) then
-      fn_list := (xid,call) :: !fn_list
+    if not (Hashtbl.mem ht xid) then (
+      Hashtbl.add ht xid ();
+      fn_list := call :: !fn_list
+    )
   in
 
   SessionMap.iter (fun xid call -> add_fn xid call)  cl.pending_calls;
   Queue.iter      (fun call -> add_fn call.xid call) cl.waiting_calls;
+  Hashtbl.iter
+    (fun auth_proto q ->
+       Queue.iter
+	 (fun call -> add_fn call.xid call)
+	 q
+    )
+    cl.delayed_calls;
 
-  List.iter (fun (xid,call) -> pass_exception cl call x) !fn_list
+  List.iter (fun call -> pass_exception cl call x) !fn_list
 
   (*****)
 
@@ -321,6 +409,7 @@ let close ?error ?(ondown=fun()->()) cl =
     cl.pending_calls <- SessionMap.empty;
     cl.used_xids <- SessionMap.empty;
     Queue.clear cl.waiting_calls;
+    Hashtbl.clear cl.delayed_calls;
     match cl.trans with
       | None -> 
 	  ondown()
@@ -342,13 +431,19 @@ let check_for_output = (* "forward declaration" *)
 
   (*****)
 
-let find_or_make_auth_session cl =
-  match cl.unused_auth_sessions with
-      [] ->
-	cl.current_auth_method # new_session()
-    | s :: other ->
-	cl.unused_auth_sessions <- other;
-	s
+let find_or_make_auth_protocol cl user_opt =
+  try
+    Hashtbl.find cl.auth_current user_opt
+  with
+    | Not_found ->
+	let current_auth_method = 
+	  match cl.auth_methods with
+	    | hd :: _ -> hd
+	    | [] -> auth_none in
+	let p = 
+	  current_auth_method # new_session cl user_opt in
+	Hashtbl.add cl.auth_current user_opt p;
+	p
 ;;
 
   (*****)
@@ -358,48 +453,12 @@ let rec next_xid cl =
     next_xid cl
   else (
     let xid = cl.next_xid in
-    cl.next_xid <- xid + 1;
+    (* xid is uint4, so we increment as int64: *)
+    let xid64 = Rtypes.int64_of_uint4 xid in
+    let xid64' = Int64.logand (Int64.succ xid64) 0xffff_ffff_L in
+    cl.next_xid <- Rtypes.uint4_of_int64 xid64';
     xid
   )
-
-
-let add_call_again cl call =
-  (* Add a call again to the queue of waiting calls. The call is authenticated
-   * again.
-   *)
-
-  if not cl.ready then
-    raise Client_is_down;
-
-  let s = call.call_auth_session in
-
-  let (cred_flav, cred_data, verf_flav, verf_data) = s # next_credentials cl in
-
-  let xid = next_xid cl in
-  (* Get new xid. Reusing the old xid seems to be too risky - there are
-     servers that cache requests by xid's
-   *)
-
-  let value =
-    Rpc_packer.pack_call
-      call.prog
-      (uint4_of_int xid)
-      call.proc
-      cred_flav cred_data verf_flav verf_data
-      call.xdr_value
-  in
-
-  call.xid <- xid;
-  call.value <- value;           (* the credentials may have changed *)
-  call.state <- Waiting;
-  call.retrans_count <- cl.max_retransmissions;
-  call.timeout_group <- None;
-
-  Queue.add call cl.waiting_calls;
-  cl.used_xids <- SessionMap.add xid () cl.used_xids;
-
-  !check_for_output cl
-;;
 
   (*****)
 
@@ -411,20 +470,80 @@ let remove_pending_call cl call =
 
   (*****)
 
+let continue_call cl call =
+  (* Called when the authentication protocol finishes, and [call] can now
+     be added to the [waiting] queue.
+
+     Also called for retransmitted regular requests.
+   *)
+  let authsess =
+    match call.call_auth_proto # state with
+      | `Done authsess -> authsess
+      | _ -> assert false in
+  let rc =
+    match call.detail with
+      | `Regular rc -> rc
+      | _ -> assert false in
+  
+  call.state <- Waiting;
+
+  let (cred_flav, cred_data, verf_flav, verf_data, enc_opt, dec_opt) =
+    authsess # next_credentials 
+      cl rc.prog rc.proc call.xid in
+  rc.decoder <- dec_opt;
+  let request =
+    Rpc_packer.pack_call
+      ?encoder:enc_opt
+      rc.prog
+      call.xid
+      rc.proc
+      cred_flav cred_data verf_flav verf_data
+      rc.param in
+  call.request <- Some request;
+
+  Queue.add call cl.waiting_calls
+
+
+(* FIXME: Retransmissions are not yet perfect. We allow here that calls time
+   out while the request is still in the Waiting queue (especially TCP
+   connect timeouts). If we retransmit with a new encryption key, we will
+   send the same request twice ( and severs might not like this).
+
+   Better: do not modify [call] in place, but create a copy.
+
+   Also, it may happen that we get a response to attempt #1 while we already
+   dropped it and pushed attempt #2 to Waiting. Now, the response #1 may
+   turn out to use a different encryption key, and we cannot decode it.
+
+   Better: the pending table should map xid to a list of possible calls.
+   (Still to check how we find then the right one...)
+ *)
+
 let retransmit cl call =
   if call.state = Pending || call.state = Waiting then begin
     if call.retrans_count > 0 then begin
       dlog cl "Retransmitting";
+      let old_state = call.state in
       (* Make the 'call' waiting again *)
-      Queue.add call cl.waiting_calls;
+      ( match call.detail with
+	  | `Regular _ -> continue_call cl call
+	  | `Auth_proto -> Queue.add call cl.waiting_calls
+      );
       cl.used_xids <- SessionMap.add call.xid () cl.used_xids;
       (* Decrease the retransmission counter *)
       call.retrans_count <- call.retrans_count - 1;
+      (* Ensure the call keeps its state: *)
+      call.state <- old_state;
       (* Check state of reources: *)
       !check_for_output cl
       (* Note: The [call] remains in state [Pending] (if it is already). 
        * This prevents the [call]
        * from being added to [cl.pending_calls] again.
+       *
+       * If the [call] is encrypted, it is possible that the client only
+       * accepts the response to the second trial, and rejects a late
+       * response for the first request, because the encryption code
+       * may have changed in the meantime.
        *)
     end
     else begin
@@ -436,7 +555,9 @@ let retransmit cl call =
          pass_exception will set call.state to Done.
        *)
       pass_exception cl call Message_timeout;
-      (* Note: The call_auth_session is dropped. *)
+      (* FIXME: do something with the delayed calls if [call] is 
+	 an authproto message
+       *)
       (* If we still try to connect the TCP socket, shut the client
          completely down:
        *)
@@ -480,7 +601,42 @@ let set_timeout cl call =
   )
 
 
-let unbound_async_call_r cl prog procname param receiver =
+let auth_proto_emit cl authproto =
+  (* Emit an authproto message *)
+  let xid = next_xid cl in
+
+  let request = authproto # emit xid in
+
+  (* THINK: maybe we want to set the call_timeout and the retrans_count
+     separately for authproto messages (instead of just taking over the
+     values for the regular call)
+   *)
+  let call =
+    { detail = `Auth_proto;
+      state = Waiting;
+      retrans_count = cl.next_max_retransmissions;
+      xid = xid;
+      destination = cl.next_destination;
+      call_timeout = cl.next_timeout;
+      timeout_group = None;
+      call_auth_proto = authproto;
+      batch_flag = false;
+      request = Some request;
+    } in
+  
+  Queue.add call cl.waiting_calls;
+  cl.used_xids <- SessionMap.add call.xid () cl.used_xids;
+  
+  (* For TCP and timeout > 0.0 set the timeout handler immediately, so the
+     timeout includes connecting
+   *)
+  if cl.prot = Rpc.Tcp && call.call_timeout > 0.0
+  then
+    set_timeout cl call
+
+
+let unbound_async_call_r cl prog procname param receiver authsess_opt =
+  (* authsess_opt: if passed, this session is used *)
   if not cl.ready then
     raise Client_is_down;
   if cl.progs <> [] then (
@@ -499,39 +655,95 @@ let unbound_async_call_r cl prog procname param receiver =
   if cl.next_batch_flag && Xdr.xdr_type_term out_type <> X_void then
     failwith ("Rpc_client.unbound_async_call: Cannot call in batch mode: " ^
 		procname);
-  
-  let s = find_or_make_auth_session cl in
 
-  let (cred_flav, cred_data, verf_flav, verf_data) = s # next_credentials cl in
-
-  let value =
-    Rpc_packer.pack_call
-      prog
-      (uint4_of_int cl.next_xid)
-      procname
-      cred_flav cred_data verf_flav verf_data
-      param
-  in
-
-  let new_call =
+  let rc =
     { prog = prog;
       proc = procname;
-      xdr_value = param;
-      value = value;
+      param = param;
       get_result = receiver;
-      state = Waiting;
-      retrans_count = cl.next_max_retransmissions;
-      xid = next_xid cl;
-      destination = cl.next_destination;
-      call_timeout = cl.next_timeout;
-      timeout_group = None;
-      call_auth_session = s;
-      call_auth_method = cl.current_auth_method;
-      batch_flag = cl.next_batch_flag
-    }
+      decoder = None;
+      call_user_name = cl.user_name;
+    } in
+
+  let eff_authsess_opt, eff_authproto =
+    match authsess_opt with
+      | None ->
+	  let authproto = find_or_make_auth_protocol cl cl.user_name in
+	  ( match authproto#state with
+	      | `Done authsess ->
+		  (Some authsess, authproto)
+	      | _ ->
+		  (None, authproto)
+	  )
+      | Some authsess ->
+	  (Some authsess, authsess#auth_protocol) in
+
+  let new_call =
+    match eff_authsess_opt with
+      | Some authsess ->
+	  let xid = next_xid cl in
+	  let (cred_flav, cred_data, verf_flav, verf_data, enc_opt, dec_opt) =
+	    authsess # next_credentials 
+	      cl prog procname xid in
+	  rc.decoder <- dec_opt;
+	  let request =
+	    Rpc_packer.pack_call
+	      ?encoder:enc_opt
+	      prog
+	      xid
+	      procname
+	      cred_flav cred_data verf_flav verf_data
+	      param in
+	  let call =
+	    { detail = `Regular rc;
+	      state = Waiting;
+	      retrans_count = cl.next_max_retransmissions;
+	      xid = xid;
+	      destination = cl.next_destination;
+	      call_timeout = cl.next_timeout;
+	      timeout_group = None;
+	      call_auth_proto = eff_authproto;
+	      batch_flag = cl.next_batch_flag;
+	      request = Some request;
+	    } in
+	  Queue.add call cl.waiting_calls;
+	  call
+	  
+      | None ->
+	  ( match eff_authproto#state with
+	      | `Done _ -> 
+		  assert false
+
+	      | `Error ->
+		  assert false
+
+	      | ap_state ->
+		  (* Authentication not yet ready. *)
+		  if ap_state = `Emit then
+		    auth_proto_emit cl eff_authproto;
+
+		  let xid = next_xid cl in
+		  let call =
+		    { detail = `Regular rc;
+		      state = Delayed;
+		      retrans_count = cl.next_max_retransmissions;
+		      xid = xid;
+		      destination = cl.next_destination;
+		      call_timeout = cl.next_timeout;
+		      timeout_group = None;
+		      call_auth_proto = eff_authproto;
+		      batch_flag = cl.next_batch_flag;
+		      request = None;
+		    } in
+		  let q =
+		    try Hashtbl.find cl.delayed_calls eff_authproto
+		    with Not_found -> Queue.create() in
+		  Queue.add call q;
+		  Hashtbl.replace cl.delayed_calls eff_authproto q;
+		  call
+	  )
   in
 
-  Queue.add new_call cl.waiting_calls;
   cl.used_xids <- SessionMap.add new_call.xid () cl.used_xids;
   cl.next_timeout <- cl.timeout;
   cl.next_max_retransmissions <- cl.max_retransmissions;
@@ -541,9 +753,10 @@ let unbound_async_call_r cl prog procname param receiver =
   (* For TCP and timeout > 0.0 set the timeout handler immediately, so the
      timeout includes connecting
    *)
-  if cl.prot = Rpc.Tcp && new_call.call_timeout > 0.0 then
+  if cl.prot = Rpc.Tcp && new_call.state = Waiting && 
+     new_call.call_timeout > 0.0
+  then
     set_timeout cl new_call;
-
 
   !check_for_output cl;
 
@@ -551,7 +764,7 @@ let unbound_async_call_r cl prog procname param receiver =
 
 
 let unbound_async_call cl prog procname param receiver =
-  ignore(unbound_async_call_r cl prog procname param receiver)
+  ignore(unbound_async_call_r cl prog procname param receiver None)
 
 
   (*****)
@@ -563,6 +776,149 @@ type 'a threeway =
   | Error of exn
 
 
+let call_auth_session call =
+  match call.call_auth_proto # state with
+    | `Done s -> s
+    | _ -> assert false  
+
+
+let string_of_reject_code =
+  function
+    | `Fail -> "Fail"
+    | `Retry -> "Retry"
+    | `Renew -> "Renew"
+    | `Next -> "Next"
+
+
+let process_regular_incoming_message cl message peer sock call rc =
+  (* Exceptions in the following block are forwarded to the callback
+   * function
+   *)
+  let auth_sess = call_auth_session call in
+  let result_opt =
+    try
+      ( match Rpc_packer.peek_auth_error message with
+	  | None ->
+	      let (xid,verf_flavour,verf_data,response) =
+		Rpc_packer.unpack_reply 
+		  ~mstring_factories:cl.mstring_factories
+		  ?decoder:rc.decoder
+		  rc.prog rc.proc message
+		  (* may raise an exception *)
+              in
+	      auth_sess # server_accepts cl call.xid verf_flavour verf_data;
+	      Value response
+
+	  | Some auth_problem ->
+	      let code = 
+		auth_sess # server_rejects cl call.xid auth_problem in
+	      dlogr_ptrace cl
+		(fun () ->
+		   sprintf
+		     "RPC <-- (sock=%s,peer=%s,xid=%Ld) Auth error %s - reaction: %s"
+		     (Rpc_transport.string_of_sockaddr sock)
+		     (Rpc_transport.string_of_sockaddr peer)
+		     (Rtypes.int64_of_uint4 call.xid)
+		     (Rpc.string_of_server_error auth_problem)
+		     (string_of_reject_code code)
+		);
+	      ( match code with
+		  | `Fail ->
+		      remove_pending_call cl call;
+		      Error(Rpc.Rpc_server auth_problem)
+		  | `Retry ->
+		      remove_pending_call cl call;
+		      ignore(
+			unbound_async_call_r 
+			  cl rc.prog rc.proc rc.param rc.get_result
+		          (Some auth_sess));
+		      Novalue
+		  | `Renew ->
+		      (* FIXME: When we send several requests in sequence,
+			 we may get here several `Renew codes. That should
+			 be merged to a single renewal.
+		       *)
+		      Hashtbl.remove cl.auth_current rc.call_user_name;
+		      unbound_async_call 
+			cl rc.prog rc.proc rc.param rc.get_result;
+		      Novalue
+		  | `Next ->
+		      let m = call.call_auth_proto # auth_method in
+		      ( match cl.auth_methods with
+			  | m0 :: _ :: _ when m0 = m ->
+			      cl.auth_methods <- List.tl cl.auth_methods;
+			      Hashtbl.remove 
+				cl.auth_current rc.call_user_name;
+			      (* FIXME: see `Renew *)
+			  | _ ->
+			      raise(Rpc.Rpc_server Auth_too_weak)
+		      );
+		      unbound_async_call 
+			cl rc.prog rc.proc rc.param rc.get_result;
+		      Novalue
+	      )
+      )
+    with
+	error ->
+	  (* The call_auth_session is simply dropped. *)
+	  (* Forward the exception [error] to the caller: *)
+	  Error error
+  in
+
+  match result_opt with
+    | Novalue ->
+	(* There is no result yet *)
+	()
+
+    | Value result ->
+	
+        (* pass result to the user *)
+	
+	( try
+	    dlogr_ptrace cl
+	      (fun () ->
+		 sprintf
+		   "RPC <-- (sock=%s,peer=%s,xid=%Ld) %s"
+		   (Rpc_transport.string_of_sockaddr sock)
+		   (Rpc_transport.string_of_sockaddr peer)
+		   (Rtypes.int64_of_uint4 call.xid)
+		   (Rpc_util.string_of_response
+		      !Debug.ptrace_verbosity
+		      rc.prog
+		      rc.proc
+		      result
+		   )
+	      );
+	    let f = (fun () -> result) in
+	    pass_result cl call f;      (* may raise Keep_call *)
+	    (* Side effect: Changes the state of [call] to [Done] *)
+	    remove_pending_call cl call;
+	  with
+	      Keep_call ->
+		call.state <- Pending
+	)
+
+    | Error error ->
+	( try
+	    dlogr_ptrace cl
+	      (fun () ->
+		 sprintf
+		   "RPC <-- (sock=%s,peer=%s,xid=%Ld) Error %s"
+		   (Rpc_transport.string_of_sockaddr sock)
+		   (Rpc_transport.string_of_sockaddr peer)
+		   (Rtypes.int64_of_uint4 call.xid)
+		   (Netexn.to_string error)
+	      );
+	    let f = (fun () -> raise error) in
+	    pass_result cl call f;      (* may raise Keep_call *)
+	    (* Side effect: Changes the state of [call] to [Done] *)
+	    remove_pending_call cl call;
+	  with
+	      Keep_call ->
+		call.state <- Pending
+	)
+
+
 let process_incoming_message cl message peer =
 
   let sock = 
@@ -570,158 +926,79 @@ let process_incoming_message cl message peer =
       | None -> `Implied
       | Some t -> t#getsockname in
 
-    (* Got a 'message' for which the corresponding 'call' must be searched: *)
+  (* Got a 'message' for which the corresponding 'call' must be searched: *)
 
-    let xid =
-      try
-	int_of_uint4 (Rpc_packer.peek_xid message)
-      with
-	_ -> raise Message_not_processable
-	    (* TODO: shut down the connection. This is a serious error *)
-    in
+  let xid = Rpc_packer.peek_xid message in
 
-    let call =
-      try
-	SessionMap.find xid cl.pending_calls
-      with
+  let call =
+    try
+      SessionMap.find xid cl.pending_calls
+    with
 	Not_found ->
 	  (* Strange: Got a message with a session ID that is not pending.
 	   * We assume that this is an answer of a very old message that
 	   * has been completely timed out.
 	   *)
 	  raise Message_not_processable
-    in
-    assert(call.state = Pending);
+  in
+  assert(call.state = Pending);
+  
+  match call.detail with
+    | `Auth_proto ->
+	( match call.call_auth_proto#state with
+	    | `Receive expected_xid when expected_xid = xid ->
+		remove_pending_call cl call;
 
-    (* Exceptions in the following block are forwarded to the callback
-     * function
-     *)
+		let err_opt =
+		  try
+		    call.call_auth_proto#receive message; None
+		  with error -> Some error in
 
-    let result_opt = try
-      begin match Rpc_packer.peek_auth_error message with
-	( Some Auth_rejected_cred
-	| Some Auth_rejected_verf
-	| Some Auth_bad_cred
-	| Some Auth_bad_verf) as erropt ->
-	    (* Automatic retry with the same auth_session *)
-	    let error = match erropt with Some x -> x | _ -> assert false in
-	    call.call_auth_session # server_rejects error;
-              (* may raise an exception *)
-	    remove_pending_call cl call;
-	    dlogr_ptrace cl
-	      (fun () ->
-		 sprintf
-		   "RPC <-- (sock=%s,peer=%s,xid=%d) Auth error, will repeat: %s"
-		   (Rpc_transport.string_of_sockaddr sock)
-		   (Rpc_transport.string_of_sockaddr peer)
-		   xid
-		   (Rpc.string_of_server_error error)
-	      );
-	    add_call_again cl call;
-	    Novalue                (* don't pass a value back to the caller *)
-	| Some Auth_too_weak ->
-	    (* Automatic retry with next auth_method *)
-	    if call.call_auth_method = cl.current_auth_method then begin
-	      (* Switch to next best authentication method *)
-	      match cl.auth_methods with
-		  a :: other ->
-		    cl.auth_methods <- other;
-		    cl.current_auth_method <- a;
-		    cl.unused_auth_sessions <- []    (* drop all old sessions *)
-		| [] ->
-		    (* No further authentication method. Keep the
-		     * current method, but raise Auth_too_weak
-		     *)
-		    raise (Rpc_server Auth_too_weak)
-	    end;
-	    (* else: in the meantime the method has already been
-	     * switched
-	     *)
-	    remove_pending_call cl call;
-	    dlogr_ptrace cl
-	      (fun () ->
-		 sprintf
-		   "RPC <-- (sock=%s,peer=%s,xid=%d) Auth_too_weak, will repeat"
-		   (Rpc_transport.string_of_sockaddr sock)
-		   (Rpc_transport.string_of_sockaddr peer)
-		   xid
-	      );
-	    unbound_async_call 
-	      cl call.prog call.proc call.xdr_value call.get_result;
-	    Novalue                (* don't pass a value back to the caller *)
-	| _ ->
-	    let (xid,verf_flavour,verf_data,response) =
-	      Rpc_packer.unpack_reply 
-		~mstring_factories:cl.mstring_factories
-		call.prog call.proc message
-		(* may raise an exception *)
-            in
-	    call.call_auth_session # server_accepts verf_flavour verf_data;
-	    Value response
-      end
-    with
-	error ->
-	  (* The call_auth_session is simply dropped. *)
-	  (* Forward the exception [error] to the caller: *)
-	  Error error
-    in
+		( match call.call_auth_proto#state with
+		    | `Emit ->
+			(* Emit the next message of the protocol: *)
+			assert(err_opt = None);
+			auth_proto_emit cl call.call_auth_proto
+		    | `Done authsess ->
+			(* We are done - so activate all delayed messages *)
+			assert(err_opt = None);
+			let q =
+			  try Hashtbl.find cl.delayed_calls call.call_auth_proto
+			  with Not_found -> Queue.create() in
+			Hashtbl.remove cl.delayed_calls call.call_auth_proto;
+			Queue.iter
+			  (fun d_call ->
+			     continue_call cl d_call
+			  )
+			  q
+		    | `Receive _ ->
+			assert false
+		    | `Error ->
+			(* Failed authentication! *)
+			let err =
+			  match err_opt with
+			    | None -> Failure "Failed authentication"
+			    | Some err -> err in
+			let q =
+			  try Hashtbl.find cl.delayed_calls call.call_auth_proto
+			  with Not_found -> Queue.create() in
+			Hashtbl.remove cl.delayed_calls call.call_auth_proto;
+			Queue.iter
+			  (fun d_call ->
+			     pass_exception cl d_call err
+			  )
+			  q
+		)
 
-    match result_opt with
-      | Novalue ->
-	  (* There is no result yet *)
-	  ()
+	    | _ ->
+		(* Unexpected messages. We just drop these - assuming these
+		   are duplicates
+		 *)
+		raise Message_not_processable
+	)
 
-      | Value result ->
-
-          (* pass result to the user *)
-
-	  ( try
-	      dlogr_ptrace cl
-		(fun () ->
-		   sprintf
-		     "RPC <-- (sock=%s,peer=%s,xid=%d) %s"
-		     (Rpc_transport.string_of_sockaddr sock)
-		     (Rpc_transport.string_of_sockaddr peer)
-		     xid
-		     (Rpc_util.string_of_response
-			!Debug.ptrace_verbosity
-			call.prog
-			call.proc
-			result
-		     )
-		);
-	      let f = (fun () -> result) in
-	      pass_result cl call f;      (* may raise Keep_call *)
-	      (* Side effect: Changes the state of [call] to [Done] *)
-	      remove_pending_call cl call;
-	      cl.unused_auth_sessions <-
-	        call.call_auth_session ::cl.unused_auth_sessions;
-	    with
-		Keep_call ->
-		  call.state <- Pending
-	  )
-
-      | Error error ->
-	  ( try
-	      dlogr_ptrace cl
-		(fun () ->
-		   sprintf
-		     "RPC <-- (sock=%s,peer=%s,xid=%d) Error %s"
-		     (Rpc_transport.string_of_sockaddr sock)
-		     (Rpc_transport.string_of_sockaddr peer)
-		     xid
-		     (Netexn.to_string error)
-		);
-	      let f = (fun () -> raise error) in
-	      pass_result cl call f;      (* may raise Keep_call *)
-	      (* Side effect: Changes the state of [call] to [Done] *)
-	      remove_pending_call cl call;
-	      cl.unused_auth_sessions <-
-	        call.call_auth_session ::cl.unused_auth_sessions;
-	    with
-		Keep_call ->
-		  call.state <- Pending
-	  )
+    | `Regular rc ->
+	process_regular_incoming_message cl message peer sock call rc
 
 
 let drop_response cl message peer =
@@ -729,11 +1006,7 @@ let drop_response cl message peer =
     match cl.trans with
       | None -> `Implied
       | Some t -> t#getsockname in
-  let xid =
-    try
-      int_of_uint4 (Rpc_packer.peek_xid message)
-    with
-	_ -> raise Message_not_processable in
+  let xid = Rpc_packer.peek_xid message in
   let call =
     try
       SessionMap.find xid cl.pending_calls
@@ -755,8 +1028,6 @@ let drop_response cl message peer =
     pass_result cl call f;      (* may raise Keep_call *)
     (* Side effect: Changes the state of [call] to [Done] *)
     remove_pending_call cl call;
-    cl.unused_auth_sessions <-
-      call.call_auth_session :: cl.unused_auth_sessions;
   with
       Keep_call ->
 	call.state <- Pending
@@ -871,6 +1142,7 @@ and next_outgoing_message' cl trans =
 	      | None -> trans#getpeername in
 	  ( match call.state with
 	      | Done -> assert false
+	      | Delayed -> assert false
 	      | Waiting ->
 		  cl.pending_calls <-
 		    SessionMap.add call.xid call cl.pending_calls;
@@ -879,15 +1151,19 @@ and next_outgoing_message' cl trans =
 		  dlogr_ptrace cl
 		    (fun () ->
 		       sprintf
-			 "RPC --> (sock=%s,peer=%s,xid=%d) %s"
+			 "RPC --> (sock=%s,peer=%s,xid=%Ld) %s"
 			 (Rpc_transport.string_of_sockaddr trans#getsockname)
 			 (Rpc_transport.string_of_sockaddr dest)
-			 call.xid
-			 (Rpc_util.string_of_request
-			    !Debug.ptrace_verbosity
-			    call.prog
-			    call.proc
-			    call.xdr_value
+			 (Rtypes.int64_of_uint4 call.xid)
+			 (match call.detail with
+			    | `Regular rc ->
+				Rpc_util.string_of_request
+				  !Debug.ptrace_verbosity
+				  rc.prog
+				  rc.proc
+				  rc.param
+			    | `Auth_proto ->
+				"<authprot>"
 			 )
 		    )
 	      | Pending ->
@@ -901,12 +1177,22 @@ and next_outgoing_message' cl trans =
 	  set_timeout cl call;
 
 	  (* Send the message: *)
+	  let m =
+	    match call.request with
+	      | None -> assert false
+	      | Some m -> m in
+
+	  (* If this is a regular message, we can now drop the request buffer *)
+	  ( match call.detail with
+	      | `Regular _ -> call.request <- None
+	      | _ -> ()
+	  );
 
 	  dlog cl "start_writing";
 	  trans # start_writing
 	    ~when_done:(fun r ->
 			  handle_outgoing_message cl call r)
-	    call.value
+	    m
 	    dest
 
 	);
@@ -1020,7 +1306,7 @@ type mode2 =
 
 class unbound_async_call cl prog name v =
   let emit = ref (fun _ -> assert false) in
-  let call = unbound_async_call_r cl prog name v (fun gr -> !emit gr) in
+  let call = unbound_async_call_r cl prog name v (fun gr -> !emit gr) None in
 object(self)
   inherit [ Xdr.xdr_value ] Uq_engines.engine_mixin (`Working 0) cl.esys
 
@@ -1104,6 +1390,7 @@ let rec internal_create initial_xid
       shutdown_connector = shutdown;
       waiting_calls = Queue.create();
       pending_calls = SessionMap.empty;
+      delayed_calls = Hashtbl.create 27;
       used_xids = SessionMap.empty;
       next_xid = initial_xid;
       next_destination = None;
@@ -1111,14 +1398,15 @@ let rec internal_create initial_xid
       next_max_retransmissions = 0;
       next_batch_flag = false;
       max_resp_length = None;
+      user_name = None;
       mstring_factories = Hashtbl.create 1;
       last_replier = None;
       timeout = (-1.0);
       max_retransmissions = 0;
       exception_handler = (fun _ -> ());
+      all_auth_methods = [ ];
       auth_methods = [ ];
-      current_auth_method = auth_none;
-      unused_auth_sessions = [];
+      auth_current = Hashtbl.create 3;
       nolog = false;
     }
   in
@@ -1135,7 +1423,7 @@ let rec internal_create initial_xid
     let pm_prog = Rpc_portmapper_aux.program_PMAP'V2 in
     let pm_client = 
       internal_create
-	0
+	(Rtypes.uint4_of_int 0)
 	shutdown_connector
 	(Some pm_prog)
 	(`Socket(Rpc.Udp, Inet(host, pm_port), default_socket_config))
@@ -1351,12 +1639,14 @@ let create2 ?program_number ?version_number ?(initial_xid=0)
             mode prog0 esys =
   
   let prog = Rpc_program.update ?program_number ?version_number prog0 in
-  let cl = internal_create initial_xid shutdown (Some prog) mode esys in
+  let cl = 
+    internal_create
+      (Rtypes.uint4_of_int initial_xid) shutdown (Some prog) mode esys in
   cl
 
 let unbound_create ?(initial_xid=0) ?(shutdown = shutdown_connector) 
                    mode esys =
-  internal_create initial_xid shutdown None mode esys
+  internal_create (Rtypes.uint4_of_int initial_xid) shutdown None mode esys
 
 
 let bind cl prog =
@@ -1396,6 +1686,9 @@ let set_max_response_length cl n =
 
 let set_mstring_factories cl fac =
   cl.mstring_factories <- fac
+
+let set_user_name cl n =
+  cl.user_name <- n
 
 let gen_shutdown cl is_running run ondown =
   if cl.ready then (

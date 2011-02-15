@@ -46,6 +46,8 @@ type server_error =
   | Auth_too_weak                            (* rejected call  *)
   | Auth_invalid_resp                        (* rejected call  *)
   | Auth_failed                              (* rejected call  *)
+  | RPCSEC_GSS_credproblem                   (** rejected call  *)
+  | RPCSEC_GSS_ctxproblem                    (** rejected call  *)
 ;;
 
 
@@ -81,6 +83,10 @@ let string_of_server_error =
 	"Auth_invalid_resp"
     | Auth_failed ->
 	"Auth_failed"
+    | RPCSEC_GSS_credproblem ->
+	"RPCSEC_GSS_credproblem"
+    | RPCSEC_GSS_ctxproblem ->
+	"RPCSEC_GSS_ctxproblem"
 
 
 exception Rpc_server of server_error;;

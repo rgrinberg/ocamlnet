@@ -972,6 +972,9 @@ let are_compatible (s1:xdr_type) (s2:xdr_type) : bool =
    loop over the value doing everything. Whoever understands that.
  *)
 
+type encoder = string -> string
+type decoder = string -> int -> int -> (string * int)
+
 
 let ( ++ ) x y =
   (* pre: x >= 0 && y >= 0 *)
@@ -984,6 +987,7 @@ let pack_size
       (v:xdr_value)
       (t:xdr_type0)
       (get_param:string->xdr_type)
+      (get_encoder:string->encoder option)
     : int =
 
   (* returned size does not include mstrings! *)
@@ -1069,7 +1073,11 @@ let pack_size
 	  0
       | T_param n ->
 	  let t' = get_param n in
-	  get_size v (snd t')
+	  let enc_opt = get_encoder n in
+	  if enc_opt = None then
+	    get_size v (snd t')
+	  else
+	    0
       | T_rec (n, t') ->
 	  get_size v t'
       | T_refer (n, t') ->
@@ -1128,15 +1136,18 @@ let pack_size
   get_size v t
 
 
-let pack_mstring 
+let rec pack_mstring 
       (v:xdr_value)
       (t:xdr_type0)
       (get_param:string->xdr_type)
+      (get_encoder:string->encoder option)
     : Xdr_mstring.mstring list =
+  (* The recursion over pack_mstring is only used for encoded parameters *)
 
-  let size = pack_size v t get_param in
+  let size = pack_size v t get_param get_encoder in
   (* all sanity checks are done here! Also, [size] does not include the
-     size for mstrings (only the length field, and padding)
+     size for mstrings (only the length field, and padding), and it does
+     not include encoded parameters
    *)
 
   let buf = String.create size in
@@ -1284,7 +1295,23 @@ let pack_mstring
 	  ()
       | T_param n ->
 	  let t' = get_param n in
-	  pack v (snd t')
+	  let enc_opt = get_encoder n in
+	  ( match enc_opt with
+	      | None -> pack v (snd t')
+	      | Some enc ->
+		  save_buf();
+		  let l = 
+		    pack_mstring v (snd t')
+		      (fun _ -> assert false) (fun _ -> assert false) in
+		  let d =
+		    Xdr_mstring.concat_mstrings l in
+		  let e =
+		    enc d in
+		  let x =
+		    Xdr_mstring.string_based_mstrings # create_from_string
+		      e 0 (String.length e) false in
+		  result := x :: !result
+	  )
       | T_rec (n, t') ->
 	  pack v t'
       | T_refer (n, t') ->
@@ -1513,7 +1540,7 @@ let value_matches_type
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
     try
-      ignore(pack_size v t (fun n -> List.assoc n p));
+      ignore(pack_size v t (fun n -> List.assoc n p) (fun _ -> None));
       true
     with
       _ ->      (* we assume here that no other errors can occur *)
@@ -1528,6 +1555,7 @@ let value_matches_type
 (**********************************************************************)
 
 let pack_xdr_value
+    ?(encode = [])
     (v:xdr_value)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -1541,7 +1569,9 @@ let pack_xdr_value
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
     try
       let mstrings = 
-	pack_mstring v t (fun n -> List.assoc n p) in
+	pack_mstring v t
+	  (fun n -> List.assoc n p) 
+	  (fun n -> try Some(List.assoc n encode) with Not_found -> None) in
       List.iter
 	(fun ms ->
 	   let (s,p) = ms#as_string in
@@ -1560,6 +1590,7 @@ let pack_xdr_value
 
 let pack_xdr_value_as_string
     ?(rm = false)
+    ?(encode = [])
     (v:xdr_value)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -1569,7 +1600,9 @@ let pack_xdr_value_as_string
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
     try
       let mstrings0 = 
-	pack_mstring v t (fun n -> List.assoc n p) in
+	pack_mstring v t 
+	  (fun n -> List.assoc n p) 
+	  (fun n -> try Some(List.assoc n encode) with Not_found -> None) in
       let rm_prefix =
 	if rm then
 	  let s = "\000\000\000\000" in
@@ -1589,6 +1622,7 @@ let pack_xdr_value_as_string
 ;;
 
 let pack_xdr_value_as_mstrings
+    ?(encode = [])
     (v:xdr_value)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -1597,7 +1631,9 @@ let pack_xdr_value_as_mstrings
   if StringSet.for_all (fun n -> List.mem_assoc n p) t.params &&
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
     try
-      pack_mstring v t (fun n -> List.assoc n p)
+      pack_mstring v t 
+	(fun n -> List.assoc n p)
+	(fun n -> try Some(List.assoc n encode) with Not_found -> None)
     with
       any ->
 	(* DEBUG *)
@@ -1666,7 +1702,7 @@ let read_string str k k_end n =
 
 let empty_mf = Hashtbl.create 1
 
-let unpack_term
+let rec unpack_term
     ?(pos = 0)
     ?len
     ?(fast = false)
@@ -1675,7 +1711,12 @@ let unpack_term
     (str:string)
     (t:xdr_type0)
     (get_param:string->xdr_type)
+    (get_decoder:string->decoder option)
   : xdr_value * int =
+
+  (* The recursion over unpack_term is only used for decoding encrypted
+     parameters
+   *)
 
   let len =
     match len with
@@ -1831,7 +1872,20 @@ let unpack_term
 	XV_void
     | T_param p ->
 	let t' = get_param p in
-	unpack (snd t')
+	let dec_opt = get_decoder p in
+	( match dec_opt with
+	    | None -> unpack (snd t')
+	    | Some decoder ->
+		let (dec_s, n) = decoder str k0 (k_end - k0) in
+		k := !k + n;
+		assert( !k <= k_end );
+		let (v, p) = 
+		  unpack_term
+		    ~fast ~mstring_factories dec_s (snd t')
+		    (fun _ -> assert false)
+		    (fun _ -> None) in
+		v
+	)
     | T_rec (_, t')
     | T_refer (_, t') ->
 	unpack t'
@@ -1907,7 +1961,7 @@ let unpack_term
 
 
 let unpack_xdr_value
-    ?pos ?len ?fast ?prefix ?mstring_factories
+    ?pos ?len ?fast ?prefix ?mstring_factories ?(decode=[])
     (str:string)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -1918,7 +1972,10 @@ let unpack_xdr_value
 
     fst(unpack_term 
 	  ?pos ?len ?fast ?prefix ?mstring_factories
-	  str t (fun n -> List.assoc n p))
+	  str t
+	  (fun n -> List.assoc n p)
+	  (fun n -> try Some(List.assoc n decode) with Not_found -> None)
+       )
 
   else
     failwith "Xdr.unpack_xdr_value"
@@ -1926,7 +1983,7 @@ let unpack_xdr_value
 
 
 let unpack_xdr_value_l
-    ?pos ?len ?fast ?prefix ?mstring_factories
+    ?pos ?len ?fast ?prefix ?mstring_factories ?(decode=[])
     (str:string)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -1937,7 +1994,9 @@ let unpack_xdr_value_l
 
     unpack_term
       ?pos ?len ?fast ?prefix ?mstring_factories 
-      str t (fun n -> List.assoc n p)
+      str t
+      (fun n -> List.assoc n p)
+      (fun n -> try Some(List.assoc n decode) with Not_found -> None)
 
   else
     failwith "Xdr.unpack_xdr_value"

@@ -28,6 +28,7 @@ type packed_value
 (* General packing and unpacking of messages: *)
 
 val pack_call :
+      ?encoder:encoder ->
       Rpc_program.t ->    (* which program *)
       uint4 ->            (* session number "xid" *)
       string ->           (* procedure name *)
@@ -38,9 +39,18 @@ val pack_call :
       xdr_value ->        (* the parameter of the procedure call *)
       packed_value        (* the call in XDR representation *)
 
+val pack_call_gssapi_header :
+      Rpc_program.t ->    (* which program *)
+      uint4 ->            (* session number "xid" *)
+      string ->           (* procedure name *)
+      string ->           (* flavour of credentials (authentication method) *)
+      string ->           (* data of credentials *)
+        packed_value
+  (* for GSS-API - the call header up to the credentials *)
 
 val unpack_call :
       ?mstring_factories:Xdr_mstring.named_mstring_factories ->
+      ?decoder:decoder ->
       Rpc_program.t ->    (* which program to match *)
       string ->           (* which procedure *)
       packed_value ->     (* the call in XDR representation *)
@@ -86,8 +96,15 @@ val unpack_call_frame_l :
    * frame
    *)
 
+val extract_call_gssapi_header :
+      packed_value -> int
+  (* returns the length of the prefix of the message so that the prefix
+     includes the header until (and including) the credentials
+   *)
+
 val unpack_call_body :
       ?mstring_factories:Xdr_mstring.named_mstring_factories ->
+      ?decoder:decoder ->
       Rpc_program.t ->    (* which program to match *)
       string ->           (* which procedure *)
       packed_value ->     (* the (complete) call in XDR representation *)
@@ -110,6 +127,7 @@ val unpack_call_body :
 
 
 val pack_successful_reply :
+      ?encoder:encoder ->
       Rpc_program.t ->    (* which program *)
       string ->           (* which procedure *)
       uint4 ->            (* xid *)
@@ -134,6 +152,7 @@ val pack_rejecting_reply :
 
 val unpack_reply :
       ?mstring_factories:Xdr_mstring.named_mstring_factories ->
+      ?decoder:decoder ->
       Rpc_program.t ->    (* which program *)
       string ->           (* which procedure *)
       packed_value ->     (* the reply in XDR representation *)

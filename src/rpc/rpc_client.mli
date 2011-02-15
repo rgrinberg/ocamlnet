@@ -332,6 +332,11 @@ val set_batch_call : t -> unit
       This setting only affects the next call.
    *)
 
+val set_user_name : t -> string option -> unit
+  (** Sets the user name, or [None] (the default user name). This is only
+      meaningful for authentication.
+   *)
+
 val set_max_response_length : t -> int -> unit
   (** Sets the maximum length of responses. By default, there is only the
       implicit maximum of [Sys.max_string_length].
@@ -463,24 +468,56 @@ val trigger_shutdown : t -> (unit -> unit) -> unit
    *)
 
 
+type reject_code =
+    [ `Fail | `Retry | `Renew | `Next ]
+  (** Reaction on authentication problems:
+      - [`Fail]: Stop here, and report to user
+      - [`Retry]: Just try again with current session
+      - [`Renew]: Drop the current session, and get a new session from
+        the current [auth_method]
+      - [`Next]: Try the next authentication method
+   *)
+  
+
 class type auth_session =
 object
   method next_credentials : t ->
-                            (string * string * string * string)
-         (** Returns (cred_flavour, cred_data, verifier_flavor, verifier_date)
+                            Rpc_program.t ->
+                            string ->
+                            uint4 ->
+                            (string * string * string * string *
+			       Xdr.encoder option *
+			       Xdr.decoder option
+			    )
+         (** Called with [client prog proc seqnr].
+	     Returns [(cred_flavour, cred_data, verifier_flavor, verifier_data,
+	     enc_opt, dec_opt)].
+	     
+	     Changed in Ocamlnet-3.3: Additional arguments [prog], [proc],
+	     [xid]. New return values [enc_opt] and [dec_opt].
 	  *)
-  method server_rejects : server_error -> unit
+  method server_rejects : t -> uint4 -> server_error -> reject_code
          (** Called if the server rejects the credentials or the verifier
-	  * (Auth_xxx). This method may
-	  * raise an exception to indicate that authentication has finally
-	  * failed.
+	  * (Auth_xxx). This method indicates how to react on errors.
+	  * 
+	  * Changed in Ocamlnet-3.3: Additional arg [xid]. New return value.
 	  *)
-  method server_accepts : string -> string -> unit
+  method server_accepts : t -> uint4 -> string -> string -> unit
          (** Called if the server accepts the credentials. The two strings
-	  * are the returned verifier_flavor and verifier_data.
+	  * are the returned [verifier_flavor] and [verifier_data].
 	  * This method may raise [Rpc_server Rpc_invalid_resp] to indicate
 	  * that the returned verifier is wrong.
+	  * 
+	  * Changed in Ocamlnet-3.3: Additional arg [xid]
 	  *)
+(*
+  method drop_xid : t -> uint4 -> unit
+    (** Called when the client drops this xid *)
+  method drop_client : t -> unit
+    (** Called when the client is closed *)
+ *)
+  method auth_protocol : auth_protocol
+    (** Return the corresponding protocol *)
 end
   (** An [auth_session] object is normally created for every client instance.
    * It contains the current state of authentication. The methods are only
@@ -491,12 +528,63 @@ end
    *)
 
 
-class type auth_method =
+and auth_protocol =
+object
+  method state : [ `Emit | `Receive of uint4 | `Done of auth_session | `Error]
+    (** The state of the authentication protocol:
+	- [`Emit]: The client needs to emit another token
+	- [`Receive xid]: The client waits for another token (with
+	  session identifier [xid])
+	- [`Done session]: The protocol is finished and [session] can
+	  be used for authenticating
+	- [`Error]: Something went wrong.
+     *)
+
+  method emit : uint4 -> Rpc_packer.packed_value
+    (** Emits a token for this [xid]. The returned packed value
+	should have been created with {!Rpc_packer.pack_value}. It is 
+	possible that [emit] is called several times with different
+	xid values. In this case, the returned packed value should
+	be identical except that the new xid is included in the message.
+
+	After emission, the state must change to [`Receive].
+     *)
+
+  method receive : Rpc_packer.packed_value -> unit
+    (** Receive a token for the [xid] announced in [state]. The passed
+	packed value is the full RPC message. The message may also contain
+	a server error - which may be processed by the protocol, or which
+	may cause the reaction that [receive] raises an {!Rpc.Rpc_server}
+	exception.
+
+	After [receive], the state can change to [`Emit], [`Done] or
+	[`Error]. The latter is obligatory when [receive] raises an
+	exception. It is also possible not to raise an exception but
+	silently switch to [`Error].
+
+	Design limitation: there is right now no way to indicate that the
+	next authentication method should be used instead.
+     *)
+
+  method auth_method : auth_method
+
+end
+  (** An authentication protocol is used for creating an authentication
+      session.
+   *)
+
+
+and auth_method =
 object
   method name : string
          (** The name of this method, used for errors etc. *)
-  method new_session : unit -> auth_session
-         (** Begin a new session *)
+  method new_session : t -> string option -> auth_protocol
+         (** Request a new session. The 2nd argument is the user name, or [None]
+	     if the default is to be used (whatever this is). Some
+	     authenticators only support [None].
+
+	     Changed in Ocamlnet-3.3: different signature.
+	  *)
 end
   (** An [auth_method] object represents a method of authentication. Such an
    * object can be shared by several clients.
@@ -511,6 +599,10 @@ val set_auth_methods : t -> auth_method list -> unit
   (** Set the authentication methods for this client. The passed methods
    * are tried in turn until a method is accepted by the server.
    * The default is [ auth_none ]
+   *
+   * When the methods are set for an active client, the ongoing calls
+   * are continued with the old method. First new calls are ensured to
+   * use the new list.
    *)
 
 (** This module type is what the generated "clnt" module assumes about the

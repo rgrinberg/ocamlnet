@@ -37,19 +37,19 @@ type state =
 let max_uint4_as_int64 =
   Int64.of_string "0xffffffff";;
 
-class client_auth_session identity : Rpc_client.auth_session =
-let (uid, gid, gids, hostname) =
-  match identity with
-      `Effective_user -> (Unix.geteuid(), Unix.getegid(), Unix.getgroups(),
-			  Unix.gethostname())
-    | `Real_user      -> (Unix.getuid(),  Unix.getgid(),  Unix.getgroups(),
-			  Unix.gethostname())
-    | `This_user(u,g,gs,h) -> (u,g,gs,h) in
+let client_auth_session identity proto : Rpc_client.auth_session =
+  let (uid, gid, gids, hostname) =
+    match identity with
+	`Effective_user -> (Unix.geteuid(), Unix.getegid(), Unix.getgroups(),
+			    Unix.gethostname())
+      | `Real_user      -> (Unix.getuid(),  Unix.getgid(),  Unix.getgroups(),
+			    Unix.gethostname())
+      | `This_user(u,g,gs,h) -> (u,g,gs,h) in
 object
   val mutable state = Init
 
 
-  method next_credentials _ =
+  method next_credentials _ _ _ _ =
     match state with
 	Init
       | Auth_sys_sent             (* handle this case for robustness *)
@@ -72,24 +72,25 @@ object
 	  let creds = pack_xdr_value_as_string
 			xdr_value val_auth_params_type [] in
 	  state <- Auth_sys_sent;
-	  ("AUTH_SYS", creds, "AUTH_NONE", "")
+	  ("AUTH_SYS", creds, "AUTH_NONE", "", None, None)
       | Auth_accepted creds ->
 	  (* Send AUTH_SHORT credentials: *)
 	  state <- Auth_short_sent;
-	  ("AUTH_SHORT", creds, "AUTH_NONE", "")
+	  ("AUTH_SHORT", creds, "AUTH_NONE", "", None, None)
 
-  method server_rejects err =
+  method server_rejects _ _ err =
     match state with
 	Auth_sys_sent ->
 	  state <- Init;
 	  raise (Rpc_server err)
       | Auth_short_sent ->
 	  (* Retry: *)
-	  state <- Init
+	  state <- Init;
+	  `Retry
       | _ ->
 	  assert false
 
-  method server_accepts flav data =
+  method server_accepts _ _ flav data =
     match state with
 	Auth_sys_sent
       | Auth_short_sent ->
@@ -99,18 +100,40 @@ object
 	  )
       | _ ->
 	  assert false
+
+  method auth_protocol = proto
 end
 
 
-class client_auth_method ?(identity = `Real_user) () : Rpc_client.auth_method =
-let _ = (identity : identity) in
-object
+let client_auth_proto identity m : Rpc_client.auth_protocol =
+  let session = ref None in
+object(self)
+  initializer
+    session := Some(client_auth_session identity self)
+  method state =
+    match !session with
+      | None -> assert false
+      | Some s -> `Done s
+  method emit _ = assert false
+  method receive _ = assert false
+  method auth_method = m
+end
+
+
+
+let client_auth_method ?(identity = `Real_user) () : Rpc_client.auth_method =
+  let _ = (identity : identity) in
+object(self)
   method name = "AUTH_SYS"
-  method new_session() = new client_auth_session identity
+  method new_session _ user_opt = 
+    let user =
+      match user_opt with
+	| None -> identity
+	| Some u ->
+	    (* FIXME *) failwith "Rpc_auth_sys: only default user possible" in
+    client_auth_proto user self
 end
 
-
-let client_auth_method = new client_auth_method
 
 
 type user_name_format =

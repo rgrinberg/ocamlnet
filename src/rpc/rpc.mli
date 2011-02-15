@@ -31,6 +31,8 @@ type server_error =
   | Auth_too_weak                            (** rejected call  *)
   | Auth_invalid_resp                        (** rejected call  *)
   | Auth_failed                              (** rejected call  *)
+  | RPCSEC_GSS_credproblem                   (** rejected call  *)
+  | RPCSEC_GSS_ctxproblem                    (** rejected call  *)
 ;;
 
 val string_of_server_error : server_error -> string

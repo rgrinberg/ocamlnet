@@ -31,6 +31,7 @@ let rpc_ts_unvalidated =
 				    "AUTH_SHORT",    int4_of_int 2;
 				    "AUTH_DH",       int4_of_int 3;
 				       (* also known as AUTH_DES *)
+				    "RPCSEC_GSS",    int4_of_int 6;
 				  ];
 
     "opaque_auth",         X_struct [ "flavor", X_type "auth_flavor";
@@ -60,6 +61,8 @@ let rpc_ts_unvalidated =
 				    "AUTH_TOOWEAK",       int4_of_int 5;
 				    "AUTH_INVALIDRESP",   int4_of_int 6;
 				    "AUTH_FAILED",        int4_of_int 7;
+				    "RPCSEC_GSS_CREDPROBLEM", int4_of_int 13;
+				    "RPCSEC_GSS_CTXPROBLEM",  int4_of_int 14;
 				  ];
 
     "call_body",           X_struct [ "rpcvers", X_uint;
@@ -77,6 +80,13 @@ let rpc_ts_unvalidated =
 				      "cred",    X_type "opaque_auth";
 				      "verf",    X_type "opaque_auth";
 				      	(* "param",   X_param "in" *) ];
+
+    "call_body_frame_up_to_cred", 
+                           X_struct [ "rpcvers", X_uint;
+				      "prog",    X_uint;
+				      "vers",    X_uint;
+				      "proc",    X_uint;
+				      "cred",    X_type "opaque_auth" ];
 
     "accepted_reply",      X_struct [ "verf",    X_type "opaque_auth";
 				      "reply_data",
@@ -119,6 +129,16 @@ let rpc_ts_unvalidated =
 					    (* "REPLY", X_type "reply_body"*) ],
 					 None) ];
 
+    "rpc_msg_call_frame_up_to_cred",
+                           X_struct [ "xid",  X_uint;
+				      "body",
+				      X_union_over_enum
+					((X_type "msg_type"),
+					 [ "CALL",  
+					     X_type "call_body_frame_up_to_cred"
+					 ],
+					 None) ];
+
     "rpc_msg_call_body",   X_param "in";
 
   ]
@@ -140,6 +160,11 @@ let rpc_msg_call_frame =
         expanded_xdr_type rpc_ts (X_type "rpc_msg_call_frame")
     )
 
+let rpc_msg_call_frame_up_to_cred =
+    ( let rpc_ts = validate_xdr_type_system rpc_ts_unvalidated in
+        expanded_xdr_type rpc_ts (X_type "rpc_msg_call_frame_up_to_cred")
+    )
+
 let rpc_msg_call_body =
     ( let rpc_ts = validate_xdr_type_system rpc_ts_unvalidated in
         expanded_xdr_type rpc_ts (X_type "rpc_msg_call_body")
@@ -155,7 +180,7 @@ type packed_value =
 
 (****)
 
-let pack_call prog xid proc flav_cred data_cred flav_verf data_verf
+let pack_call ?encoder prog xid proc flav_cred data_cred flav_verf data_verf
               proc_parm =
 
   let prog_nr = Rpc_program.program_number prog in
@@ -188,6 +213,48 @@ let pack_call prog xid proc flav_cred data_cred flav_verf data_verf
             )
        |]) in
 
+  let encode =
+    match encoder with
+      | None -> []
+      | Some e -> [ "in", e ] in
+
+  PV_ms
+    (pack_xdr_value_as_mstrings
+       ~encode
+       message_v            (* the value to pack *)
+       message_t            (* the message type... *)
+       [ "in", in_t;        (* ...instantiated with input type...*)
+	 "out", out_t ]     (* ...and output type *)
+    )
+
+
+let pack_call_gssapi_header prog xid proc flav_cred data_cred =
+
+  let prog_nr = Rpc_program.program_number prog in
+  let vers_nr = Rpc_program.version_number prog in
+  let proc_nr, in_t, out_t = Rpc_program.signature prog proc in
+
+  let message_t = rpc_msg_call_frame_up_to_cred in
+
+  let message_v =                            (* value of the message *)
+    (XV_struct_fast
+       [| (* xid *)  XV_uint xid;
+	  (* body *) XV_union_over_enum_fast
+	  ( (* CALL *)
+	    0,
+	    XV_struct_fast
+	      [| (* rpcvers *) XV_uint (uint4_of_int 2);
+		 (* prog *)    XV_uint prog_nr;
+		 (* vers *)    XV_uint vers_nr;
+		 (* proc *)    XV_uint proc_nr;
+		 (* cred *)    XV_struct_fast
+			         [| (* flavor *) XV_enum flav_cred;
+				    (* Body *)   XV_opaque data_cred
+				 |];
+	      |]
+            )
+       |]) in
+
   PV_ms
     (pack_xdr_value_as_mstrings
        message_v            (* the value to pack *)
@@ -195,6 +262,7 @@ let pack_call prog xid proc flav_cred data_cred flav_verf data_verf
        [ "in", in_t;        (* ...instantiated with input type...*)
 	 "out", out_t ]     (* ...and output type *)
     )
+
 
 (****)
 
@@ -207,7 +275,7 @@ let unpack_call_frame_l  pv =
 	  unpack_xdr_value_l
 	    ~fast:true ~prefix:true octets message_t []
       | PV_ms mstrings ->
-	  (* There is no faster method than this right now: *)
+	  (* FIXME: There is no faster method than this right now: *)
 	  let octets = Xdr_mstring.concat_mstrings mstrings in
 	  unpack_xdr_value_l
 	    ~fast:true ~prefix:true octets message_t []
@@ -257,7 +325,7 @@ let unpack_call_frame octets =
 
 (****)
 
-let unpack_call_body ?mstring_factories prog proc pv pos =
+let unpack_call_body ?mstring_factories ?decoder prog proc pv pos =
   let proc_nr, in_t, out_t = Rpc_program.signature prog proc in
 
   let message_t = rpc_msg_call_body in
@@ -268,11 +336,17 @@ let unpack_call_body ?mstring_factories prog proc pv pos =
       | PV_ms mstrings -> Xdr_mstring.concat_mstrings mstrings
   in
 
+  let decode =
+    match decoder with
+      | None -> []
+      | Some d -> [ "in", d ] in
+
   let message_v =                            (* unpack the value *)
     unpack_xdr_value
       ~pos
       ~fast:true
       ?mstring_factories
+      ~decode
       octets                                 (* XDR encoded value *)
       message_t                              (* generic type *)
       [ "in", in_t ]                         (* instance for "in" *)
@@ -284,13 +358,33 @@ let unpack_call_body ?mstring_factories prog proc pv pos =
 
 (****)
 
-let unpack_call ?mstring_factories prog proc pv =
+let extract_call_gssapi_header pv =
+  let octets = 
+    match pv with
+      | PV s -> s
+      | PV_ms mstrings -> (* FIXME *)
+	  Xdr_mstring.concat_mstrings mstrings in
+  (* The first 7 words have constant length. The 8th word contains the
+     length of the rest (the data part of cred)
+   *)
+  if String.length octets < 32 then
+    failwith "Rpc_packer.extract_call_gssapi_header: too short";
+  let n =
+    Rtypes.int_of_uint4 (Rtypes.read_uint4 octets 28) in
+  let m = if n land 3 = 0 then n else n+4-(n land 3) in
+  32 + m
+
+
+(****)
+
+let unpack_call ?mstring_factories ?decoder prog proc pv =
   (* compatibility *)
   let (xid, prog_nr, vers_nr, proc_nr,
        flav_cred, data_cred,
        flav_verf, data_verf,
        len) = unpack_call_frame_l pv in
-  let proc_parm = unpack_call_body ?mstring_factories prog proc pv len in
+  let proc_parm = 
+    unpack_call_body ?mstring_factories ?decoder prog proc pv len in
   (xid, prog_nr, vers_nr, proc_nr,
    flav_cred, data_cred,
    flav_verf, data_verf,
@@ -298,7 +392,8 @@ let unpack_call ?mstring_factories prog proc pv =
 
 (****)
 
-let pack_successful_reply prog proc xid flav_verf data_verf return_value =
+let pack_successful_reply ?encoder
+       prog proc xid flav_verf data_verf return_value =
 
   let proc_nr, in_t, out_t = Rpc_program.signature prog proc in
 
@@ -323,8 +418,14 @@ let pack_successful_reply prog proc xid flav_verf data_verf return_value =
 		  |] ))
        |] ) in
 
+  let encode =
+    match encoder with
+      | None -> []
+      | Some e -> [ "out", e ] in
+
   PV_ms
     (pack_xdr_value_as_mstrings
+       ~encode
        message_v            (* the value to pack *)
        message_t            (* the message type... *)
        [ "in", in_t;        (* ...instantiated with input type...*)
@@ -397,6 +498,8 @@ let pack_rejecting_reply xid condition =
                             XV_enum_fast 5 (* AUTH_INVALIDRESP *)
     | Auth_failed        -> (* AUTH_ERROR *) 1,
                             XV_enum_fast 6 (* AUTH_FAILED *)
+    | RPCSEC_GSS_credproblem ->  1, XV_enum_fast 13
+    | RPCSEC_GSS_ctxproblem ->   1, XV_enum_fast 14
   in
 
 (*
@@ -426,7 +529,7 @@ let pack_rejecting_reply xid condition =
 
 (****)
 
-let unpack_reply ?mstring_factories prog proc pv =
+let unpack_reply ?mstring_factories ?decoder prog proc pv =
 
   let proc_nr, in_t, out_t = Rpc_program.signature prog proc in
 
@@ -438,10 +541,16 @@ let unpack_reply ?mstring_factories prog proc pv =
       | PV_ms mstrings -> Xdr_mstring.concat_mstrings mstrings
   in
 
+  let decode =
+    match decoder with
+      | None -> []
+      | Some d -> [ "out", d ] in
+
   let message_v =                            (* unpack the value *)
     unpack_xdr_value
       ~fast:true
       ?mstring_factories
+      ~decode
       octets                                 (* XDR encoded value *)
       message_t                              (* generic type *)
       [ "in", in_t;                          (* instance for "in" *)
@@ -517,6 +626,10 @@ let unpack_reply ?mstring_factories prog proc pv =
 			  raise (Rpc_server Auth_invalid_resp)
 		      | XV_enum_fast 6 ->
 			  raise (Rpc_server Auth_failed)
+		      | XV_enum_fast 13 ->
+			  raise (Rpc_server RPCSEC_GSS_credproblem)
+		      | XV_enum_fast 14 ->
+			  raise (Rpc_server RPCSEC_GSS_ctxproblem)
 		  end
 	  end
     with
@@ -626,6 +739,8 @@ let peek_auth_error pv =
 	| "\000\000\000\005" -> Some Auth_too_weak
 	| "\000\000\000\006" -> Some Auth_invalid_resp
 	| "\000\000\000\007" -> Some Auth_failed
+	| "\000\000\000\013" -> Some RPCSEC_GSS_credproblem
+	| "\000\000\000\014" -> Some RPCSEC_GSS_ctxproblem
 	| _                  -> None
   )
 ;;
