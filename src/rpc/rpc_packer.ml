@@ -356,6 +356,16 @@ let unpack_call_body ?mstring_factories ?decoder prog proc pv pos =
 ;;
 
 
+let unpack_call_body_raw pv pos =
+  let octets =
+    match pv with
+	PV octets -> octets
+      | PV_ms mstrings -> Xdr_mstring.concat_mstrings mstrings
+  in
+
+  String.sub octets pos (String.length octets - pos)
+
+
 (****)
 
 let extract_call_gssapi_header pv =
@@ -431,6 +441,43 @@ let pack_successful_reply ?encoder
        [ "in", in_t;        (* ...instantiated with input type...*)
 	 "out", out_t ]     (* ...and output type *)
     )
+
+(****)
+
+let t_void = validate_xdr_type X_void
+
+let pack_successful_reply_raw
+       xid flav_verf data_verf return_data =
+
+  let message_t = rpc_msg in      (* type of generic message *)
+
+  let message_v =                            (* value of the message *)
+    (XV_struct_fast
+       [| (* xid *)  XV_uint xid;
+	  (* body *) XV_union_over_enum_fast
+	  ( (* REPLY *)
+	    1,
+	    XV_union_over_enum_fast
+	      ( (* MSG_ACCEPTED *)
+		0,
+		XV_struct_fast
+		  [| (* verf *)
+		       XV_struct_fast [| (* flavor *) XV_enum flav_verf;
+	 		                 (* body *)   XV_opaque data_verf |];
+		     (* reply_data *)
+		       XV_union_over_enum_fast
+			 ( (* SUCCESS *) 0, XV_void)
+		  |] ))
+       |] ) in
+
+  PV_ms
+    (pack_xdr_value_as_mstrings
+       message_v            (* the value to pack *)
+       message_t            (* the message type... *)
+       [ "out", t_void ]    (* ...and output type *)
+     @ return_data
+    )
+
 (****)
 
 let pack_accepting_reply xid flav_verf data_verf condition =
@@ -771,3 +818,10 @@ let mstrings_of_packed_value pv =
     | PV_ms mstrings -> 
 	mstrings
 ;;
+
+let prefix_of_packed_value pv n =
+  match pv with
+    | PV octets ->
+	String.sub octets 0 n
+    | PV_ms ms ->
+	Xdr_mstring.prefix_mstrings ms n

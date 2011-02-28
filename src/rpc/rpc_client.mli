@@ -489,7 +489,7 @@ object
 			       Xdr.encoder option *
 			       Xdr.decoder option
 			    )
-         (** Called with [client prog proc seqnr].
+         (** Called with [client prog proc xid].
 	     Returns [(cred_flavour, cred_data, verifier_flavor, verifier_data,
 	     enc_opt, dec_opt)].
 	     
@@ -583,7 +583,13 @@ object
 	     if the default is to be used (whatever this is). Some
 	     authenticators only support [None].
 
-	     Changed in Ocamlnet-3.3: different signature.
+	     It is allowed that the returned [auth_protocol] object is already
+	     in state [`Done], i.e. that actually no protocol is run.
+
+	     Changed in Ocamlnet-3.3: different signature. The user name is
+	     now an argument, and the method returns [auth_protocol] instead
+	     of [auth_session]. There can now be a separate session for
+	     each user (plus for the default user [None]).
 	  *)
 end
   (** An [auth_method] object represents a method of authentication. Such an

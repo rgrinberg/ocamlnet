@@ -11,7 +11,7 @@ if [ "X$1" = "X-ssl" ]; then
 fi
 
 # Start the test server:
-./protoserver $ssl $proto >protosettings 
+./protoserver $SERVER_ARGS $ssl $proto >protosettings 
 
 # Read the settings:
 tcp_port=0

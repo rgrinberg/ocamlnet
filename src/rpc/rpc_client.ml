@@ -862,6 +862,7 @@ let process_regular_incoming_message cl message peer sock call rc =
 	error ->
 	  (* The call_auth_session is simply dropped. *)
 	  (* Forward the exception [error] to the caller: *)
+	  remove_pending_call cl call;
 	  Error error
   in
 

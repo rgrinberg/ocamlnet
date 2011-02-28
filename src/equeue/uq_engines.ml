@@ -2154,7 +2154,7 @@ object(self)
       failwith "#start_writing: already shutting down";
     if wrote_eof then
       failwith "#start_writing: already past EOF";
-    if not alive then
+   if not alive then
       failwith "#start_writing: inactive connection";
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_out fd, -1.0);
@@ -2928,6 +2928,12 @@ type sockspec =
   | inetspec
   ]
 ;;
+
+
+let sockspec_of_sockaddr st =
+  function
+    | Unix.ADDR_INET(ip,port) -> `Sock_inet(st, ip, port)
+    | Unix.ADDR_UNIX path -> `Sock_unix(st, path)
 
 
 type connect_address =

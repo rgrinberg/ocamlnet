@@ -53,9 +53,10 @@ type rule =
     ]
 
 type auth_result =
-    Auth_positive of (string * string * string)
-      (* (username, returned_verifier_flavour, returned_verifier_data) *)
+    Auth_positive of
+      (string * string * string * Xdr.encoder option * Xdr.decoder option)
   | Auth_negative of Rpc.server_error
+  | Auth_reply of (Xdr_mstring.mstring list * string * string)
 
 
 type auth_peeker =
@@ -63,6 +64,21 @@ type auth_peeker =
     | `Peek_descriptor of Unix.file_descr -> string option
     | `Peek_multiplexer of Rpc_transport.rpc_multiplex_controller -> string option
     ]
+
+
+class type auth_details =
+object
+  method server_addr : Unix.sockaddr option
+  method client_addr : Unix.sockaddr option
+  method program : uint4
+  method version : uint4
+  method procedure : uint4
+  method xid : uint4
+  method credential : string * string
+  method verifier : string * string
+  method frame_len : int
+  method message : Rpc_packer.packed_value
+end
 
 
 class type ['t] pre_auth_method =
@@ -76,12 +92,7 @@ object
   method authenticate :
     't ->
     connection_id ->
-    Unix.sockaddr option ->
-    Unix.sockaddr option ->
-    string ->
-    string ->
-    string ->
-    string ->
+    auth_details ->
     (auth_result -> unit) ->
       unit
 
@@ -210,6 +221,7 @@ and session =
 	auth_user : string;
 	auth_ret_flav : string;
 	auth_ret_data : string;
+	encoder : Xdr.encoder option;
       }
 
 and connector =
@@ -243,7 +255,8 @@ object
   method name = "AUTH_NONE"
   method flavors = [ "AUTH_NONE" ]
   method peek = `None
-  method authenticate _ _ _ _ _ _ _ _ f = f(Auth_positive("","AUTH_NONE",""))
+  method authenticate _ _ _ f = 
+    f(Auth_positive("","AUTH_NONE","",None,None))
 end
 
 let auth_none = new auth_none
@@ -253,7 +266,8 @@ object
   method name = "AUTH_TOO_WEAK"
   method flavors = []
   method peek = `None
-  method authenticate _ _ _ _ _ _ _ _ f = f(Auth_negative Auth_too_weak)
+  method authenticate _ _ _ f = 
+    f(Auth_negative Auth_too_weak)
 end
 
 let auth_too_weak = new auth_too_weak
@@ -267,7 +281,8 @@ object
       (fun mplex ->
 	 mplex # peer_user_name
       )
-  method authenticate _ _ _ _ _ _ _ _ f = f(Auth_negative Auth_too_weak)
+  method authenticate _ _ _ f = 
+    f(Auth_negative Auth_too_weak)
 end
 
 let auth_transport = new auth_transport
@@ -407,7 +422,8 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 
   let make_immediate_answer xid procname result f_ptrace_result =
     srv.get_last_proc <- 
-      (fun () -> if procname = "" then "Error" else "Response " ^ procname);
+      (fun () -> 
+	 if procname = "" then "Unavailable" else "Response " ^ procname);
     { server = conn;
       prog = None;
       sess_conn_id = if srv.prot = Rpc.Tcp then conn.conn_id
@@ -423,6 +439,7 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
       auth_user = "";
       auth_ret_flav = "AUTH_NONE";
       auth_ret_data = "";
+      encoder = None;
       ptrace_result = (if !Debug.enable_ptrace then f_ptrace_result() else "")
     }
   in
@@ -534,8 +551,8 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 	       match conn.peeked_user with
 		 | Some uid ->
 		     (conn.peeked_method,
-		      (fun _ _ _ _ _ _ _ _ cb ->
-			 cb (Auth_positive(uid, "AUTH_NONE", "")))
+		      (fun _ _ _ cb ->
+			 cb (Auth_positive(uid, "AUTH_NONE", "", None, None)))
 		     )
 		 | None ->
 		     ( let m =
@@ -545,14 +562,28 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 		     )
 	     in
 
+	     let auth_details =
+	       ( object
+		   method server_addr = sockaddr_opt
+		   method client_addr = peeraddr_opt
+		   method program = prog_nr
+		   method version = vers_nr
+		   method procedure = proc_nr
+		   method xid = xid
+		   method credential = (flav_cred, data_cred)
+		   method verifier = (flav_verf, data_verf)
+		   method frame_len = frame_len
+		   method message = message
+		 end
+	       ) in
+
 	     (* The [authenticate] method will call the passed function
 	      * when the authentication is done. This may be at any time
 	      * in the future.
 	      *)
 	     authenticate
-	       srv sess_conn_id sockaddr_opt peeraddr_opt
-	       flav_cred data_cred flav_verf data_verf
-	       (function Auth_positive(user,ret_flav,ret_data) ->
+	       srv sess_conn_id auth_details
+	       (function Auth_positive(user,ret_flav,ret_data,enc_opt,dec_opt) ->
 		  (* user: the username (method-dependent)
 		   * ret_flav: flavour of verifier to return
 		   * ret_data: data of verifier to return
@@ -592,6 +623,7 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 		       let param =
 			 Rpc_packer.unpack_call_body
 			   ~mstring_factories:srv.mstring_factories
+			   ?decoder:dec_opt
 			   prog procname message frame_len in
 
 		       srv.get_last_proc <-
@@ -622,9 +654,11 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 			     let result_value =
 			       p.sync_proc param
 			     in
-			     let reply = Rpc_packer.pack_successful_reply
-					   prog p.sync_name xid
-					   ret_flav ret_data result_value in
+			     let reply = 
+			       Rpc_packer.pack_successful_reply
+				 ?encoder:enc_opt
+				 prog p.sync_name xid
+				 ret_flav ret_data result_value in
 			     let answer = make_immediate_answer
 			       xid procname reply 
 			       (fun () ->
@@ -657,6 +691,7 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 				 auth_ret_flav = ret_flav;
 				 auth_ret_data = ret_data;
 				 ptrace_result = "";  (* not yet known *)
+				 encoder = enc_opt;
 			       } in
 			     conn.next_call_id <- conn.next_call_id + 1;
 			     p.async_invoke this_session param
@@ -664,6 +699,16 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 		    )
 		  | Auth_negative code ->
 		      protect (fun () -> raise(Rpc_server code))
+		  | Auth_reply (data, ret_flav, ret_data) ->
+		      let reply = 
+			Rpc_packer.pack_successful_reply_raw
+			  xid ret_flav ret_data data in
+		      let answer = 
+			make_immediate_answer
+			  xid "" reply 
+			  (fun () -> "") in
+		      schedule_answer answer
+		      
 	       )
 	 | Reject_procedure reason ->
 	     srv.get_last_proc <-
@@ -1651,6 +1696,7 @@ let reply a_session result_value =
 	| Some p -> p in
 
     let reply = Rpc_packer.pack_successful_reply
+        ?encoder:a_session.encoder
 	prog a_session.procname a_session.client_id
         a_session.auth_ret_flav a_session.auth_ret_data
         result_value

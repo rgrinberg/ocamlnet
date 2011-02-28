@@ -260,6 +260,9 @@ x src/rpc/rpc_portmapper_aux.ml
 x src/rpc/rpc_portmapper_aux.mli
 x src/rpc/rpc_portmapper_clnt.ml
 x src/rpc/rpc_portmapper_clnt.mli
+f src/rpc/rpc_auth_gssapi.x
+x src/rpc/rpc_auth_gssapi_aux.ml
+x src/rpc/rpc_auth_gssapi_aux.mli
 p src/rpc/.*\.ml
 p src/rpc/.*\.mli
 p src/rpc/.*\.txt

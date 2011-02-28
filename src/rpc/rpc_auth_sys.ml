@@ -154,9 +154,9 @@ object
   method flavors = [ "AUTH_SYS" ]              (* We don't reply AUTH_SHORT! *)
   method peek = `None
   method authenticate
-           srv cnid sockname peername cred_flav cred_data verf_flav verf_data
-	   pass =
+           srv cnid details pass =
     (* Unpack cred_data: *)
+    let cred_flavor, cred_data = details # credential in
     let xdr = Xdr.unpack_xdr_value cred_data val_auth_params_type [] in
     match xdr with
 	XV_struct
@@ -171,7 +171,7 @@ object
 		       (function XV_uint g -> g | _ -> assert false)
 		       xdr_gids in
 	  if lookup_hostname then begin
-	    match peername with
+	    match details#client_addr with
 	      | Some (Unix.ADDR_INET(a,p)) ->
 		  begin try
 		    let entry = Unix.gethostbyname hostname in
@@ -186,7 +186,7 @@ object
 		  ()
 	  end;
 	  if require_privileged_port then begin
-	    match peername with
+	    match details#client_addr with
 	      | Some(Unix.ADDR_INET(a,p)) ->
 		  if p >= 1024 then raise(Rpc_server Auth_bad_cred)
 	      | _ ->
@@ -220,7 +220,7 @@ object
 		    (Array.map (fun u ->  Rtypes.logical_int32_of_uint4 u) gids)
 		    hostname
 	  in
-	  pass (Rpc_server.Auth_positive(username, "AUTH_NONE", ""))
+	  pass (Rpc_server.Auth_positive(username, "AUTH_NONE", "",None,None))
 
       | _ ->
 	  assert false

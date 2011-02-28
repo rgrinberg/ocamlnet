@@ -396,15 +396,42 @@ val stop_connection : t -> connection_id -> unit
 (************************* authentication **************************)
 
 type auth_result =
-    Auth_positive of (string * string * string)
-      (* (username, returned_verifier_flavour, returned_verifier_data) *)
+    Auth_positive of (string * string * string * 
+			Xdr.encoder option * Xdr.decoder option)
+      (** Successful authentication:
+          [(username, returned_verifier_flavour, returned_verifier_data, 
+	    enc_opt, dec_opt
+	  )]
+       *)
   | Auth_negative of Rpc.server_error
+      (** Failed authentication *)
+  | Auth_reply of (Xdr_mstring.mstring list * string * string)
+      (** The authentication method generates the positive response
+	  of this RPC call:
+	  [(data, verf_flavor, verf_data)]
+	  (new in Ocamlnet-3.3)
+       *)
 
 type auth_peeker =
     [ `None
     | `Peek_descriptor of Unix.file_descr -> string option
     | `Peek_multiplexer of Rpc_transport.rpc_multiplex_controller -> string option
     ]
+
+class type auth_details =
+object
+  method server_addr : Unix.sockaddr option
+  method client_addr : Unix.sockaddr option
+  method program : uint4
+  method version : uint4
+  method procedure : uint4
+  method xid : uint4
+  method credential : string * string
+  method verifier : string * string
+  method frame_len : int
+  method message : Rpc_packer.packed_value
+end
+
 
 class type auth_method =
 object
@@ -426,20 +453,20 @@ object
   method authenticate :
            t ->
 	   connection_id ->
-	   Unix.sockaddr option ->          (* address of serving socket *)
-	   Unix.sockaddr option ->          (* address of calling socket *)
-	   string ->                        (* flavor of credentials *)
-	   string ->                        (* data of credentials *)
-	   string ->                        (* flavor of verifier *)
-	   string ->                        (* data of verifier *)
+           auth_details ->
 	   (auth_result -> unit) ->
 	     unit
-    (** This method is called when a remote call has arrived. Its task is
+    (** [authenticate srv conn_id details f]:
+     *	This method is called when a remote call has arrived. Its task is
      * to determine the client user and pass the user name (and the verifier)
      * back. If the user cannot be authenticated, the call must be rejected.
      * When the method has done the authentication, it calls the passed
-     * function with the [auth_result]. This function can be called
+     * function [f] with the [auth_result]. This function can be called
      * immediately or asynchronously.
+     *
+     * Changed in Ocamlnet-3.3: the arguments [program], [version],
+     * [procedure], and [xid] are new. Added new [auth_result] of
+     * [Auth_reply].
      *)
 end
 

@@ -45,7 +45,7 @@ object
 	       None
       )
 
-  method authenticate _ _ _ _ _ _ _ _ _ = ()
+  method authenticate _ _ _ _ = ()
 
 end
 

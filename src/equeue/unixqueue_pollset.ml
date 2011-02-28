@@ -407,7 +407,11 @@ object(self)
 		 self#sched_upd_tmo_wl g op tmo t2 is_strong t1
 	       )
 	     with
-	       | Not_found -> assert false
+	       | Not_found -> ()
+		   (* It is possible that resources were removed while
+		      we were waiting for events. This can lead to
+		      [Not_found] here. We just ignore this.
+		    *)
 	  )
 	  oplist in
       update_tmo operations;

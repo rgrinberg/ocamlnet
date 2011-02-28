@@ -63,7 +63,7 @@ let domainname() =
 ;;
 
 
-class client_auth_session getdeviation ttl key_lifetime ksconn srv_netname
+class client_auth_session proto getdeviation ttl key_lifetime ksconn srv_netname
   : Rpc_client.auth_session =
 object
   val mutable state = Init
@@ -85,7 +85,9 @@ object
   val authdh_server_verf_type =
     Xdr.validate_xdr_type A.xdrt_authdh_server_verf
 
-  method next_credentials client =
+  method auth_protocol = proto
+
+  method next_credentials client prog proc xid =
     (* Do we need to resynchronize? *)
     if state = Resynchronize then begin
       match Rpc_client.get_peer_name client with
@@ -164,7 +166,10 @@ object
 	  ("AUTH_DH", Xdr.pack_xdr_value_as_string
 	                xdr_cred authdh_cred_type [],
 	   "AUTH_DH", Xdr.pack_xdr_value_as_string
-	                xdr_verf authdh_fullname_verf_type [])
+	                xdr_verf authdh_fullname_verf_type [],
+	   None,
+	   None
+	  )
 
 	  (* Note: IMHO, it is wrong that the verifier is not a discriminated
 	   * union like the credential. RFC 2695 is very clear about that.
@@ -202,22 +207,29 @@ object
 	  ("AUTH_DH", Xdr.pack_xdr_value_as_string
 	                xdr_cred authdh_cred_type [],
 	   "AUTH_DH", Xdr.pack_xdr_value_as_string
-	                xdr_verf authdh_nickname_verf_type [])
+	                xdr_verf authdh_nickname_verf_type [],
+	   None, None
+	  )
 
-  method server_rejects err =
-    n_failures <- n_failures + 1;
-    if n_failures >= 3 then raise (Rpc_server err);
-    match state with
-	Auth_fullname_sent(_,_,_,_)
-      | Auth_nickname_sent(_,_,_,_) ->
-	  if err = Auth_rejected_verf then
-	    state <- Resynchronize
-	  else
-	    state <- Init;
-      | _ ->
-	  assert false
+  method server_rejects clnt xid err =
+    if err = Auth_too_weak then
+      `Next
+    else (
+      n_failures <- n_failures + 1;
+      if n_failures >= 3 then raise (Rpc_server err);
+      match state with
+	  Auth_fullname_sent(_,_,_,_)
+	| Auth_nickname_sent(_,_,_,_) ->
+	    if err = Auth_rejected_verf then
+	      state <- Resynchronize
+	    else
+	      state <- Init;
+	    `Retry
+	| _ ->
+	    assert false
+    )
 
-  method server_accepts flav data =
+  method server_accepts clnt xid flav data =
     let check_verifier key kt secs usecs =
       if flav <> "AUTH_DH" then raise(Rpc_server Auth_invalid_resp);
       let xdr = Xdr.unpack_xdr_value ~fast:true data authdh_server_verf_type [] in
@@ -267,10 +279,31 @@ class client_auth_method ?(ttl = 60)
 			 ?keyserv
                          srv_netname
   : Rpc_client.auth_method =
-object
+object(self)
   method name = "AUTH_DH"
-  method new_session() =
-    new client_auth_session getdeviation ttl key_lifetime keyserv srv_netname
+  method new_session clnt user_opt =
+    if user_opt <> None then
+      failwith "Rpc_auth_dh: cannot set user name freely";
+    let s_opt = ref None in
+    ( object(iself)
+	initializer
+	let s =
+	  new client_auth_session
+	    (iself : Rpc_client.auth_protocol)
+	    getdeviation ttl key_lifetime keyserv srv_netname in
+	s_opt := Some s
+
+	method state = 
+	  match !s_opt with
+	    | None -> assert false
+	    | Some s -> `Done s
+	method emit _ = assert false
+	method receive _ = assert false
+	method auth_method = (self : #Rpc_client.auth_method :> 
+				Rpc_client.auth_method)
+      end
+    )
+    
 end
 
 
@@ -420,8 +453,11 @@ object(self)
   method peek = `None
 
   method authenticate
-           srv cnid sockname peername cred_flav cred_data verf_flav verf_data
-	   pass =
+           srv cnid details pass =
+
+    let cred_flav, cred_data = details # credential in
+    let verf_flav, verf_data = details # verifier in
+    let peername = details # client_addr in
 
     let protect username f =
       (* If there are more than 10 failures in the current period of 10 seconds,
@@ -485,7 +521,7 @@ object(self)
 	  (A._of_authdh_server_verf verf) authdh_server_verf_type [] in
       pass(Rpc_server.Auth_positive(s.sess_user,
 				    "AUTH_DH",
-				    ret_data))
+				    ret_data,None,None))
     in
 
     let now = Unix.gettimeofday() in

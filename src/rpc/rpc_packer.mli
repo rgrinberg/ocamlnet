@@ -116,6 +116,8 @@ val unpack_call_body :
    * position of the body.
    *)
 
+val unpack_call_body_raw :
+      packed_value -> int -> string
 
 (* More specific messages: *)
 
@@ -135,6 +137,13 @@ val pack_successful_reply :
       string ->           (* data of verifier *)
       xdr_value ->        (* the return value *)
       packed_value        (* the reply in XDR representation *)
+
+val pack_successful_reply_raw :
+      uint4 ->            (* xid *)
+      string ->           (* flavour of verifier *)
+      string ->           (* data of verifier *)
+      Xdr_mstring.mstring list -> (* raw return data *)
+      packed_value
 
 val pack_accepting_reply :
       uint4 ->            (* xid *)
@@ -197,6 +206,9 @@ val packed_value_of_string : string -> packed_value
 
 val mstrings_of_packed_value : packed_value -> Xdr_mstring.mstring list
 val packed_value_of_mstrings : Xdr_mstring.mstring list -> packed_value 
+
+val prefix_of_packed_value : packed_value -> int -> string
+  (** The first n bytes of the packed value *)
 
 (* Currently, the packer works internally with the "mstring list"
    representation, and hence mstrings_of_packed_value is fast.
