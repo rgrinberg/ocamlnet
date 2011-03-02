@@ -540,8 +540,9 @@ object
 	- [`Error]: Something went wrong.
      *)
 
-  method emit : uint4 -> Rpc_packer.packed_value
-    (** Emits a token for this [xid]. The returned packed value
+  method emit : uint4 -> uint4 -> uint4 -> Rpc_packer.packed_value
+    (** Emits a token for this [xid], [prog_nr] and [vers_nr]. 
+	The returned packed value
 	should have been created with {!Rpc_packer.pack_value}. It is 
 	possible that [emit] is called several times with different
 	xid values. In this case, the returned packed value should

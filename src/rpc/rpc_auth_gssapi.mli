@@ -28,13 +28,46 @@ val server_auth_method :
 
       Options:
       - [require_privacy]: Whether the messages must be
-        encrypted
+        encrypted. If not enabled, the server also accepts non-encrypted
+        messages that are authenticated via GSS-API.
       - [require_integrity]: Whether integrity checksums must be
-        included
+        included. If not enabled, the server also accepts non-signed
+        messages that are authenticated via GSS-API.
       - [shared_context]: Whether this method maintains only one
         security context for all server endpoints. By default,
         each endpoint has a security context of its own.
-      - [acceptor_cred]: Overrides the credentials of the server.
+      - [acceptor_cred]: Overrides the credentials of the server. By
+        default, it is left to [gss_api] which credential is
+        assumed.
       - [user_name_format]: Defaults to [`Exported_name_text].
    *)
 
+type support_level =
+    [ `Required | `If_possible | `None ]
+
+type user_name_interpretation =
+    [ `Exported_name
+    | `Exported_name_text
+    | `Import of oid
+    ]
+
+val client_auth_method :
+      ?privacy:support_level ->
+      ?integrity:support_level ->
+      ?user_name_interpretation:user_name_interpretation ->
+      gss_api -> Rpc_client.auth_method
+  (** Creates an authentication method from a GSS-API interface.
+
+      Options:
+      - [privacy]: Selects whether messages are encrypted. If [`Required],
+        the authentication method fails if the GSS-API does not support
+        encryption, and it enables encryption if GSS-API supports it.
+        If [`If_possible] encryption is enabled if GSS-API supports it
+        (the default). If [`None], the messages are not encrypted.
+      - [integrity]: Selects whether messages are signed. If [`Required],
+        the authentication method fails if the GSS-API does not support
+        integrity protection, and it enables this feature if GSS-API supports
+        it. If [`If_possible] integrity protection is enabled if GSS-API
+        supports it (the default). If [`None], the messages are not signed.
+      - [user_name_format]: Defaults to [`Exported_name_text].
+   *)

@@ -381,6 +381,8 @@ let errname =
     | Auth_too_weak            -> "Auth_too_weak"
     | Auth_invalid_resp        -> "Auth_invalid_resp"
     | Auth_failed              -> "Auth_failed"
+    | RPCSEC_GSS_ctxproblem    -> "RPCSEC_GSS_ctxproblem"
+    | RPCSEC_GSS_credproblem   -> "RPCSEC_GSS_credproblem"
 
   (*****)
 

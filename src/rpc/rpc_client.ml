@@ -103,7 +103,7 @@ and ['t] pre_auth_protocol =
 object
   method state :
          [ `Emit | `Receive of uint4 | `Done of 't pre_auth_session | `Error]
-  method emit : uint4 -> Rpc_packer.packed_value
+  method emit : uint4 -> uint4 -> uint4 -> Rpc_packer.packed_value
   method receive : Rpc_packer.packed_value -> unit
   method auth_method : 't pre_auth_method
 end
@@ -127,7 +127,7 @@ type regular_call =
 
 type call_detail =
     [ `Regular of regular_call
-    | `Auth_proto
+    | `Auth_proto of Rpc_program.t
     ]
 
 type call =
@@ -229,7 +229,7 @@ object(self)
     match !session with
       | None -> assert false
       | Some s -> `Done s
-  method emit _ = assert false
+  method emit _ _ _ = assert false
   method receive _ = assert false
   method auth_method = m
 end
@@ -354,7 +354,7 @@ let pass_exception cl call x =
       ( match call.detail with
 	  | `Regular _ ->
 	      pass_result cl call (fun () -> raise x)
-	  | `Auth_proto ->
+	  | `Auth_proto prog ->
 	      stop_retransmission_timer cl call;
 	      call.state <- Done;
 	      let q =
@@ -527,7 +527,7 @@ let retransmit cl call =
       (* Make the 'call' waiting again *)
       ( match call.detail with
 	  | `Regular _ -> continue_call cl call
-	  | `Auth_proto -> Queue.add call cl.waiting_calls
+	  | `Auth_proto _ -> Queue.add call cl.waiting_calls
       );
       cl.used_xids <- SessionMap.add call.xid () cl.used_xids;
       (* Decrease the retransmission counter *)
@@ -601,18 +601,20 @@ let set_timeout cl call =
   )
 
 
-let auth_proto_emit cl authproto =
+let auth_proto_emit cl prog authproto =
   (* Emit an authproto message *)
   let xid = next_xid cl in
+  let prog_nr = Rpc_program.program_number prog in
+  let vers_nr = Rpc_program.version_number prog in
 
-  let request = authproto # emit xid in
+  let request = authproto # emit xid prog_nr vers_nr in
 
   (* THINK: maybe we want to set the call_timeout and the retrans_count
      separately for authproto messages (instead of just taking over the
      values for the regular call)
    *)
   let call =
-    { detail = `Auth_proto;
+    { detail = `Auth_proto prog;
       state = Waiting;
       retrans_count = cl.next_max_retransmissions;
       xid = xid;
@@ -720,7 +722,7 @@ let unbound_async_call_r cl prog procname param receiver authsess_opt =
 	      | ap_state ->
 		  (* Authentication not yet ready. *)
 		  if ap_state = `Emit then
-		    auth_proto_emit cl eff_authproto;
+		    auth_proto_emit cl rc.prog eff_authproto;
 
 		  let xid = next_xid cl in
 		  let call =
@@ -945,7 +947,7 @@ let process_incoming_message cl message peer =
   assert(call.state = Pending);
   
   match call.detail with
-    | `Auth_proto ->
+    | `Auth_proto prog ->
 	( match call.call_auth_proto#state with
 	    | `Receive expected_xid when expected_xid = xid ->
 		remove_pending_call cl call;
@@ -955,11 +957,17 @@ let process_incoming_message cl message peer =
 		    call.call_auth_proto#receive message; None
 		  with error -> Some error in
 
-		( match call.call_auth_proto#state with
+		let err_opt' =
+		  match call.call_auth_proto#state with
 		    | `Emit ->
 			(* Emit the next message of the protocol: *)
 			assert(err_opt = None);
-			auth_proto_emit cl call.call_auth_proto
+			( try
+			    auth_proto_emit cl prog call.call_auth_proto;
+			    None
+			  with
+			    | error -> Some error
+			)
 		    | `Done authsess ->
 			(* We are done - so activate all delayed messages *)
 			assert(err_opt = None);
@@ -971,15 +979,18 @@ let process_incoming_message cl message peer =
 			  (fun d_call ->
 			     continue_call cl d_call
 			  )
-			  q
+			  q;
+			None
 		    | `Receive _ ->
 			assert false
 		    | `Error ->
+			assert(err_opt <> None);
+			err_opt  in
+
+		( match err_opt' with
+		    | None -> ()
+		    | Some err ->
 			(* Failed authentication! *)
-			let err =
-			  match err_opt with
-			    | None -> Failure "Failed authentication"
-			    | Some err -> err in
 			let q =
 			  try Hashtbl.find cl.delayed_calls call.call_auth_proto
 			  with Not_found -> Queue.create() in
@@ -1163,7 +1174,7 @@ and next_outgoing_message' cl trans =
 				  rc.prog
 				  rc.proc
 				  rc.param
-			    | `Auth_proto ->
+			    | `Auth_proto _ ->
 				"<authprot>"
 			 )
 		    )

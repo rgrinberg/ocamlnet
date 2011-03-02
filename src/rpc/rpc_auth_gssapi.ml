@@ -10,6 +10,15 @@ open Netgssapi
 open Rpc_auth_gssapi_aux
 open Printf
 
+type support_level =
+    [ `Required | `If_possible | `None ]
+
+type user_name_interpretation =
+    [ `Exported_name
+    | `Exported_name_text
+    | `Import of oid
+    ]
+
 type rpc_context =
     { context : context;
       mutable ctx_continue : bool;
@@ -63,7 +72,7 @@ let integrity_encoder (gss_api : Netgssapi.gss_api)
     Rtypes.uint4_as_string cred1.seq_num ^ s in
   let mic =
     gss_api # get_mic
-      ~context:ctx.context
+      ~context:ctx
       ~qop_req:None
       ~message:(`String data, 0, String.length data)
       ~out:(fun ~msg_token ~minor_status ~major_status () ->
@@ -94,7 +103,7 @@ let integrity_decoder (gss_api : Netgssapi.gss_api)
     let data =
       integ.databody_integ in
     gss_api # verify_mic
-      ~context:ctx.context
+      ~context:ctx
       ~message:(`String data, 0, String.length data)
       ~token:integ.checksum
       ~out:(fun ~qop_state ~minor_status ~major_status () ->
@@ -120,7 +129,7 @@ let privacy_encoder (gss_api : Netgssapi.gss_api)
   let data =
     Rtypes.uint4_as_string cred1.seq_num ^ s in
   gss_api # wrap
-    ~context:ctx.context
+    ~context:ctx
     ~conf_req:true
     ~qop_req:None
     ~input_message:(`String data, 0, String.length data)
@@ -155,7 +164,7 @@ let privacy_decoder (gss_api : Netgssapi.gss_api)
     let data =
       priv.databody_priv in
     gss_api # unwrap
-      ~context:ctx.context
+      ~context:ctx
       ~input_message:(`String data, 0, String.length data)
       ~output_message_preferred_type:`String
       ~out:(fun ~output_message ~conf_state ~qop_state ~minor_status 
@@ -555,9 +564,11 @@ let server_auth_method
 		failwith "Rpc_auth_gssapi: unexpected integrity-proctected \
                           message";
 	      let encoder =
-		integrity_encoder gss_api ctx cred1 rpc_gss_integ_data in
+		integrity_encoder 
+		  gss_api ctx.context cred1 rpc_gss_integ_data in
 	      let decoder =
-		integrity_decoder gss_api ctx cred1 rpc_gss_integ_data in
+		integrity_decoder 
+		  gss_api ctx.context cred1 rpc_gss_integ_data in
 	      self#auth_data_result
 		ctx cred1.seq_num (Some encoder) (Some decoder)
 
@@ -566,9 +577,9 @@ let server_auth_method
 		failwith "Rpc_auth_gssapi: unexpected privacy-proctected \
                           message";
 	      let encoder =
-		privacy_encoder gss_api ctx cred1 rpc_gss_priv_data in
+		privacy_encoder gss_api ctx.context cred1 rpc_gss_priv_data in
 	      let decoder =
-		privacy_decoder gss_api ctx cred1 rpc_gss_priv_data in
+		privacy_decoder gss_api ctx.context cred1 rpc_gss_priv_data in
 	      self # auth_data_result
 		ctx cred1.seq_num (Some encoder) (Some decoder)
 
@@ -631,3 +642,415 @@ let server_auth_method
   )
 
     
+let client_auth_method 
+      ?(privacy=`If_possible)
+      ?(integrity=`If_possible)
+      ?(user_name_interpretation = `Exported_name_text)
+      (gss_api : gss_api) : Rpc_client.auth_method =
+
+  let default_initiator_cred() =
+    gss_api # acquire_cred
+      ~desired_name:gss_api#no_name
+      ~time_req:`None
+      ~desired_mechs:[]
+      ~cred_usage:`Initiate
+      ~out:(
+	fun ~cred ~actual_mechs ~time_rec ~minor_status ~major_status() ->
+	  let (c_err, r_err, flags) = major_status in
+	  if c_err <> `None || r_err <> `None then
+	    failwith("Rpc_auth_gssapi: Cannot acquire default creds: " ^ 
+		       string_of_major_status major_status);
+	  cred
+      )
+      () in
+
+  let rpc_gss_cred_t =
+    Xdr.validate_xdr_type
+      Rpc_auth_gssapi_aux.xdrt_rpc_gss_cred_t in
+
+  let rpc_gss_integ_data =
+    Xdr.validate_xdr_type
+      Rpc_auth_gssapi_aux.xdrt_rpc_gss_integ_data in
+
+  let rpc_gss_priv_data =
+    Xdr.validate_xdr_type
+      Rpc_auth_gssapi_aux.xdrt_rpc_gss_priv_data in
+
+  let ts =
+    [ "init_arg", Rpc_auth_gssapi_aux.xdrt_rpc_gss_init_arg;
+      "init_res", Rpc_auth_gssapi_aux.xdrt_rpc_gss_init_res
+    ] in
+
+  let ts_val =
+    Xdr.validate_xdr_type_system ts in
+
+  let session (m:Rpc_client.auth_method)
+              (p:Rpc_client.auth_protocol)
+              ctx service handle cur_seq_num
+        : Rpc_client.auth_session =
+    let seq_num_of_xid = Hashtbl.create 15 in
+    ( object(self)
+	method next_credentials client prog proc xid =
+	  (* N.B. Exceptions raised here probably abort the client,
+	     and fall through to the event loop
+	   *)
+
+	  let cred1 =
+	    { gss_proc = `rpcsec_gss_data;
+	      seq_num = !cur_seq_num;
+	      service = service;
+	      handle = handle
+	    } in
+	  let cred1_xdr = _of_rpc_gss_cred_t (`_1 cred1) in
+	  let cred1_s =
+	    Xdr.pack_xdr_value_as_string
+	      cred1_xdr rpc_gss_cred_t [] in
+	  
+	  let h_pv =
+	    Rpc_packer.pack_call_gssapi_header
+	      prog xid proc "RPCSEC_GSS" cred1_s in
+	  let h =
+	    Rpc_packer.string_of_packed_value h_pv in
+	  let mic =
+	    gss_api # get_mic
+	      ~context:ctx
+	      ~qop_req:None
+	      ~message:(`String h, 0, String.length h)
+	      ~out:(fun ~msg_token ~minor_status ~major_status () ->
+		      let (c_err, r_err, flags) = major_status in
+		      if c_err <> `None || r_err <> `None then
+			failwith("Rpc_auth_gssapi: \
+                          Cannot obtain MIC: " ^ 
+				   string_of_major_status major_status);
+		      msg_token
+		   )
+	      () in
+
+	  (* Save seq_num: *)
+	  Hashtbl.replace seq_num_of_xid xid !cur_seq_num;
+
+	  (* Increment cur_seq_num: *)
+	  cur_seq_num := 
+	    Rtypes.uint4_of_int64(
+	      Int64.logand
+		(Int64.succ (Rtypes.int64_of_uint4 !cur_seq_num))
+		0xFFFF_FFFFL
+	    );
+
+	  let enc_opt, dec_opt =
+	    match service with
+	      | `rpc_gss_svc_none ->
+		  None, None
+		    
+	      | `rpc_gss_svc_integrity ->
+		  let encoder =
+		    integrity_encoder gss_api ctx cred1 rpc_gss_integ_data in
+		  let decoder =
+		    integrity_decoder gss_api ctx cred1 rpc_gss_integ_data in
+		  (Some encoder), (Some decoder)
+
+	      | `rpc_gss_svc_privacy ->
+		  let encoder =
+		    privacy_encoder gss_api ctx cred1 rpc_gss_priv_data in
+		  let decoder =
+		    privacy_decoder gss_api ctx cred1 rpc_gss_priv_data in
+		  (Some encoder), (Some decoder) in
+
+	  ("RPCSEC_GSS", cred1_s,
+	   "RPCSEC_GSS", mic,
+	   enc_opt, dec_opt
+	  )
+
+	method server_rejects client xid code =
+	  Hashtbl.remove seq_num_of_xid xid;
+	  match code with
+	    | Rpc.RPCSEC_GSS_credproblem | Rpc.RPCSEC_GSS_ctxproblem ->
+		`Renew
+	    | Rpc.Auth_too_weak ->
+		`Next
+	    | _ ->
+		`Fail
+
+	method server_accepts client xid verf_flav verf_data =
+	  if verf_flav <> "RPCSEC_GSS" then
+	    raise(Rpc.Rpc_server Rpc.Auth_invalid_resp);
+	  let seq =
+	    try Hashtbl.find seq_num_of_xid xid
+	    with Not_found -> 
+	      raise(Rpc.Rpc_server Rpc.Auth_invalid_resp) in
+	  let seq_s =
+	    Rtypes.uint4_as_string seq in
+	  Hashtbl.remove seq_num_of_xid xid;
+	  gss_api # verify_mic
+	    ~context:ctx
+	    ~message:(`String seq_s, 0, String.length seq_s)
+	    ~token:verf_data
+	    ~out:(fun ~qop_state ~minor_status ~major_status () ->
+		    let (c_err, r_err, flags) = major_status in
+		    if c_err <> `None || r_err <> `None then
+		      raise(Rpc.Rpc_server Rpc.Auth_invalid_resp);
+		 )
+	    ()
+
+	method auth_protocol = p
+
+      end
+    ) in
+
+  let protocol (m:Rpc_client.auth_method) client cred
+       : Rpc_client.auth_protocol =
+    let first = ref true in
+    let state = ref `Emit in
+    let ctx = ref None in
+    let input_token = ref "" in
+    let handle = ref "" in
+    let init_prog = ref None in
+    let init_service = ref None in
+
+    let get_context() =
+      match !ctx with Some c -> c | None -> assert false in
+
+    (* CHECK: what happens with exceptions thrown here? *)
+
+    ( object(self)
+	method state = !state
+
+	method emit xid prog_nr vers_nr =
+	  assert(!state = `Emit);
+	  try
+	    let prog =
+	      match !init_prog with
+		| None ->
+		    let p =
+		      Rpc_program.create
+			prog_nr
+			vers_nr
+			ts_val
+			[ "init", 
+			  ((Rtypes.uint4_of_int 0), 
+			   Xdr.X_type "init_arg", Xdr.X_type "init_res");
+			] in
+		    init_prog := Some p;
+		    p
+		| Some p -> p in
+	    let req_flags =
+	      ( if integrity=`If_possible || integrity=`Required then
+		  [ `Integ_flag ]
+		else
+		  []
+	      ) @
+		( if privacy=`If_possible || privacy=`Required then
+		    [ `Conf_flag ]
+		  else
+		    []
+		) in
+	    let (output_token, cont_needed, have_priv, have_integ) =
+	      gss_api # init_sec_context
+		~initiator_cred:cred
+		~context:!ctx
+		~target_name:gss_api#no_name 
+		~mech_type:[||]
+		~req_flags
+		~time_rec:None
+		~chan_bindings:None
+		~input_token:(if !first then None else Some !input_token)
+		~out:(fun ~actual_mech_type ~output_context ~output_token 
+			~ret_flags ~time_rec ~minor_status ~major_status
+			() ->
+			  let (c_err, r_err, flags) = major_status in
+			  if c_err <> `None || r_err <> `None then
+			    failwith("Rpc_auth_gssapi: Cannot init sec ctx: " ^ 
+				       string_of_major_status major_status);
+			  ctx := output_context;
+			  (output_token, 
+			   List.mem `Continue_needed flags,
+			   List.mem `Conf_flag ret_flags,
+			   List.mem `Integ_flag ret_flags
+			  )
+		     )
+		() in
+	    let service_i =
+	      match integrity with
+		| `Required ->
+		    if not have_integ && not have_priv then
+		      failwith "Rpc_auth_gssapi: Integrity is not available";
+		    `rpc_gss_svc_integrity
+		| `If_possible ->
+		    if have_integ then
+		      `rpc_gss_svc_integrity
+		    else
+		      `rpc_gss_svc_none
+		| `None ->
+		    `rpc_gss_svc_none in
+	    let service =
+	      match privacy with
+		| `Required ->
+		    if not have_priv then
+		      failwith "Rpc_auth_gssapi: Privacy is not available";
+		    `rpc_gss_svc_privacy
+		| `If_possible ->
+		    if have_priv then
+		      `rpc_gss_svc_privacy
+		    else
+		      service_i
+		| `None ->
+		    service_i in
+	    init_service := Some service;
+	    let cred1 =
+	      `_1 { gss_proc = ( if !first then `rpcsec_gss_init
+				 else `rpcsec_gss_continue_init );
+		    seq_num = Rtypes.uint4_of_int 0;  (* FIXME *)
+		    service = service;
+		    handle = !handle
+		  } in
+	    let cred1_xdr = _of_rpc_gss_cred_t cred1 in
+	    let cred1_s =
+	      Xdr.pack_xdr_value_as_string
+		cred1_xdr rpc_gss_cred_t [] in
+	    let pv =
+	      Rpc_packer.pack_call
+		prog xid "init"
+		"RPCSEC_GSS" cred1_s
+		"AUTH_NONE" ""
+		(Xdr.XV_opaque !handle) in
+	    first := false;
+	    state := `Receive xid;
+	    pv
+	  with error ->
+	    Netlog.logf `Err
+	      "Rpc_auth_gssapi: Error during message preparation: %s"
+	      (Netexn.to_string error);
+	    state := `Error;
+	    raise error
+
+
+	method receive pv =
+	  try
+	    let prog =
+	      match !init_prog with
+		| None -> assert false
+		| Some p -> p in
+	    let (xid, flav_name, flav_data, result_xdr) =
+	      Rpc_packer.unpack_reply prog "init" pv in
+	    assert( !state = `Receive xid );
+	    
+	    let res = _to_rpc_gss_init_res result_xdr in
+	    let cont_needed =
+	      res.res_major = gss_s_continue_needed in
+	    
+	    if not cont_needed && res.res_major <> gss_s_complete then
+	      failwith
+		(sprintf "Rpc_auth_gssapi: Got GSS-API error code %Ld"
+		   (Rtypes.int64_of_uint4 res.res_major));
+	    
+	    if cont_needed then (
+	      if flav_name <> "AUTH_NONE" || flav_data <> "" then
+		failwith "Rpc_auth_gssapi: bad verifier";
+	    )
+	    else (
+	      if flav_name <> "RPCSEC_GSS" then
+		failwith "Rpc_auth_gssapi: bad verifier";
+	      let window_s =
+		Rtypes.uint4_as_string res.res_seq_window in
+	      gss_api # verify_mic
+		~context:(get_context())
+		~message:(`String window_s, 0, String.length window_s)
+		~token:flav_data
+		~out:(fun ~qop_state ~minor_status ~major_status () ->
+			let (c_err, r_err, flags) = major_status in
+			if c_err <> `None || r_err <> `None then
+			  failwith("Rpc_auth_gssapi: \
+                                  Cannot verify MIC: " ^ 
+				     string_of_major_status major_status);
+			()
+		     )
+		()
+	    );
+	    
+	    handle := res.res_handle;	  
+	    input_token := res.res_token;
+	    
+	    if cont_needed then
+	      state := `Emit
+	    else
+	      let c = get_context () in
+	      let service =
+		match !init_service with Some s -> s | None -> assert false in
+	      let cs = ref (Rtypes.uint4_of_int 0) in
+	      let s = 
+		session 
+		  m (self :> Rpc_client.auth_protocol) c service !handle cs in
+	      state := `Done s
+	  with error ->
+	    Netlog.logf `Err
+	      "Rpc_auth_gssapi: Error during message verification: %s"
+	      (Netexn.to_string error);
+	    state := `Error;
+	    raise error
+
+	method auth_method = m
+
+      end
+    ) in
+
+  ( object(self)
+      method name = "RPCSEC_GSS"
+
+      method new_session client user_opt =
+	let cred =
+	  match user_opt with
+	    | None ->
+		default_initiator_cred()
+	    | Some user ->
+		let (input_name, input_name_type) =
+		  match user_name_interpretation with
+		    | `Exported_name ->
+			(user, nt_export_name)
+		    | `Exported_name_text ->
+			let l = String.length user in
+			( try
+			    let k = String.index user '}' in
+			    let oid = string_to_oid (String.sub user 0 (k+1)) in
+			    let n = String.sub user (k+1) (l-k-1) in
+			    (n, oid)
+			  with _ ->
+			    failwith
+			      ("Rpc_auth_gssapi: cannot parse user name")
+			)
+		    | `Import input_name_type ->
+			(user, input_name_type) in
+		let name =
+		  gss_api # import_name
+		    ~input_name
+		    ~input_name_type
+		    ~out:(fun ~output_name ~minor_status ~major_status
+			    () ->
+			      let (c_err, r_err, flags) = major_status in
+			      if c_err <> `None || r_err <> `None then
+				failwith
+				  ("Rpc_auth_gssapi: Cannot import name: "
+				   ^ string_of_major_status major_status);
+			      output_name
+			 )
+		    () in
+		gss_api # acquire_cred
+		  ~desired_name:name
+		  ~time_req:`None
+		  ~desired_mechs:[]
+		  ~cred_usage:`Initiate
+		  ~out:(
+		    fun ~cred ~actual_mechs ~time_rec ~minor_status
+		      ~major_status
+		      () ->
+			let (c_err, r_err, flags) = major_status in
+			if c_err <> `None || r_err <> `None then
+			  failwith
+			    ("Rpc_auth_gssapi: Cannot acquire default creds: " 
+			     ^ string_of_major_status major_status);
+			cred
+		  )
+		  () in
+	protocol (self :> Rpc_client.auth_method) client cred
+
+    end
+  )
