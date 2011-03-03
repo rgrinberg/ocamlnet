@@ -208,12 +208,15 @@ This library implements OncRPC (alias SunRPC).
    Rpc_portmapper_aux
    Rpc_portmapper_clnt
    Rpc_transport
-   Rpc_packer}
+   Rpc_packer
+   Rpc_auth_gssapi
+}
 
 {3:rpc_intro Guides}
 
 - {!module:Rpc_intro}: Introduction
 - {!module:Rpc_mapping_ref}: RPC Language Mapping Reference
+- {!module:Rpc_intro_gss}: Securing RPC with the GSS-API
 
 {3:rpc_blog External articles}
 
@@ -252,6 +255,22 @@ This library allows you to tunnel RPC through SSL/TLS.
 
 {!modules:
     Rpc_ssl}
+
+
+{2:netgssapi The [netgssapi] library with the GSS-API framework}
+
+{!modules:
+    Netgssapi}
+
+{2:security Security mechanisms}
+
+{3:netmech_scram The [netmech-scram] library for SCRAM}
+
+Implements SCRAM (RFC 5802). Right now only for GSS-API.
+
+{!modules:
+    Netmech_scram
+    Netmech_scram_gssapi}
 
 
 {2:netcamlbox The [netcamlbox] library}

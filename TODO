@@ -26,10 +26,14 @@ Netstring_pcre.replace: The replacement string follows PCRE syntax
 ***
 
 GSSAPI:
- - define GSSAPI classes
+ - define GSSAPI classes - DONE
  - wrap C impls of GSSAPI
- - SCRAM (RFC 5802)
- - ONCRPC + GSSAPI (RPCSEC_GSS) (RFC2203)
+ - SCRAM (RFC 5802) - DONE
+ - ONCRPC + GSSAPI (RPCSEC_GSS) (RFC2203) - DONE
+   Fix Rpc_auth_gssapi: canonicalize names before exporting
+ - Add Rpc_server.is_dummy
+ - Add Rpc_proxy: user_name config
+ - Avoid string copying
 
 
 ***

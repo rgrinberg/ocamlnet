@@ -14,7 +14,7 @@ type user_name_format =
         in RFC 2078, section 3.2). This format can only be read back by
         the [gss_api] object generating the name.
       - [`Prefixed_name]: the display name in a text format
-        "{<oid>}<namestring>".
+        "[{<oid>}<namestring>]".
       - [`Plain_name]: the string part of the display name
    *)
 

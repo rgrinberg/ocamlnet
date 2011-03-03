@@ -14,7 +14,7 @@ DOBJECTS = rtypes.mli xdr_mstring.mli xdr.mli rpc.mli \
            rpc_simple_client.mli rpc_portmapper_clnt.mli rpc_portmapper.mli \
            rpc_server.mli rpc_auth_sys.mli rpc_auth_gssapi.mli \
 	   rpc_proxy.mli \
-	   rpc_intro.txt rpc_mapping_ref.txt
+	   rpc_intro.txt rpc_mapping_ref.txt rpc_intro_gss.txt
 
 # rpc_packer.ml is full of incomplete matchings, but this is ok:
 OCAMLC_OPTIONS_FOR_rpc_packer.ml = -w p

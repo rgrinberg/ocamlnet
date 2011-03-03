@@ -2,6 +2,7 @@
 
 (* TODO:
    - Develop ideas how to avoid that strings are copied that frequently 
+   - canonicalize names before export
  *)
 
 open Netgssapi
