@@ -369,8 +369,8 @@ let dest_xv_union_over_enum_fast v =
   match v with XV_union_over_enum_fast x -> x | _ -> raise Dest_failure;;
 
 
-let fail_map_xv_enum_fast () =
-  failwith "Xdr.map_xv_enum_fast" ;;
+let fail_map_xv_enum_fast k =
+  failwith ("Xdr.map_xv_enum_fast [" ^ string_of_int k ^ "]") ;;
 
 let map_xv_enum_fast0 t v =
   match t.term with
@@ -381,28 +381,28 @@ let map_xv_enum_fast0 t v =
 		if k >= 0 && k < m then
 		  snd(Array.unsafe_get l k)
 		else
-		  fail_map_xv_enum_fast()
+		  fail_map_xv_enum_fast 1
 	    | XV_enum name ->
 		let k = ref 0 in
 		while !k < m && (fst l.( !k ) <> name) do
 		  incr k
 		done;
 		if !k >= m then
-		  fail_map_xv_enum_fast();
+		  fail_map_xv_enum_fast 2;
 		snd(l.( !k ))
 	    | _ ->
-		fail_map_xv_enum_fast()
+		fail_map_xv_enum_fast 3
 	)
     | _ ->
-	fail_map_xv_enum_fast()
+	fail_map_xv_enum_fast 4
 
 let map_xv_enum_fast (_,t) v =
   map_xv_enum_fast0 t v
 
 
 
-let fail_map_xv_struct_fast () =
-  failwith "Xdr.map_xv_struct_fast" ;;
+let fail_map_xv_struct_fast k =
+  failwith ("Xdr.map_xv_struct_fast [" ^ string_of_int k ^ "]") ;;
 
 let map_xv_struct_fast0 t v =
   match t.term with
@@ -414,26 +414,26 @@ let map_xv_struct_fast0 t v =
 		if k = m then
 		  x
 		else
-		  fail_map_xv_struct_fast()
+		  fail_map_xv_struct_fast 1
 	    | XV_struct l ->
 		( try
 		    Array.map
 		      (fun (name,y) -> List.assoc name l)
 		      decl
 		  with
-		      Not_found -> fail_map_xv_struct_fast()
+		      Not_found -> fail_map_xv_struct_fast 2
 		)
 	    | _ ->
-		fail_map_xv_struct_fast()
+		fail_map_xv_struct_fast 3
 	)
     | _ ->
-	fail_map_xv_struct_fast()
+	fail_map_xv_struct_fast 4
 
 let map_xv_struct_fast (_,t) v =
   map_xv_struct_fast0 t v
 
-let fail_map_xv_union_over_enum_fast () =
-  failwith "Xdr.map_xv_struct_fast" ;;
+let fail_map_xv_union_over_enum_fast k =
+  failwith ("Xdr.map_xv_union_over_enum_fast [" ^ string_of_int k ^ "]") ;;
 
 let map_xv_union_over_enum_fast0 t v =
   match t.term with
@@ -445,20 +445,20 @@ let map_xv_union_over_enum_fast0 t v =
 		if k >= 0 && k < m then
 		  (k, (snd e.(k)), x)
 		else
-		  fail_map_xv_union_over_enum_fast()
+		  fail_map_xv_union_over_enum_fast 1
 	    | XV_union_over_enum(name, x) ->
 		let k = ref 0 in
 		while !k < m && fst(e.( !k )) <> name do
 		  incr k
 		done;
 		if !k >= m then
-		  fail_map_xv_union_over_enum_fast();
+		  fail_map_xv_union_over_enum_fast 2;
 		(!k, (snd e.(!k)), x)
 	    | _ ->
-		fail_map_xv_union_over_enum_fast()
+		fail_map_xv_union_over_enum_fast 3;
 	)
     | _ ->
-	fail_map_xv_union_over_enum_fast()
+	fail_map_xv_union_over_enum_fast 4
 
 let map_xv_union_over_enum_fast (_,t) v =
   map_xv_union_over_enum_fast0 t v
@@ -740,6 +740,13 @@ let rec validate_xdr_type (t:xdr_type_term) : xdr_type =
   | Propagate s ->
       failwith ("Xdr.validate_xdr_type: " ^ s)
 ;;
+
+
+let params (t:xdr_type) =
+  StringSet.fold
+    (fun p acc -> p :: acc)
+    (fst t).params
+    []
 
 
 let rec expand_X_type (s:xdr_type_system) (t:xdr_type_term) : xdr_type0 =
@@ -1580,11 +1587,9 @@ let pack_xdr_value
 	mstrings
     with
       any ->
-	(* DEBUG *)
-	(* prerr_endline (Netexn.to_string any); *)
-      	failwith "Xdr.pack_xdr_value"
+      	failwith ("Xdr.pack_xdr_value [1]: " ^ Netexn.to_string any)
   else
-    failwith "Xdr.pack_xdr_value"
+    failwith "Xdr.pack_xdr_value [2]"
 ;;
 
 
@@ -1613,10 +1618,7 @@ let pack_xdr_value_as_string
       Xdr_mstring.concat_mstrings mstrings
     with
       any ->
-	(* DEBUG *)
-	(* prerr_endline (Netexn.to_string any); *)
-	(* Printexc.print_backtrace stderr; *)
-      	failwith "Xdr.pack_xdr_value_as_string [1]"
+      	failwith ("Xdr.pack_xdr_value_as_string [1]: " ^ Netexn.to_string any)
   else
     failwith "Xdr.pack_xdr_value_as_string [2]"
 ;;
@@ -1636,9 +1638,7 @@ let pack_xdr_value_as_mstrings
 	(fun n -> try Some(List.assoc n encode) with Not_found -> None)
     with
       any ->
-	(* DEBUG *)
-	(* prerr_endline (Netexn.to_string any); *)
-      	failwith "Xdr.pack_xdr_value_as_mstrings [1]"
+      	failwith ("Xdr.pack_xdr_value_as_mstrings [1]: " ^ Netexn.to_string any)
   else
     failwith "Xdr.pack_xdr_value_as_mstrings [2]"
 ;;

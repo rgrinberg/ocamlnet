@@ -411,6 +411,8 @@ type auth_result =
 	  [(data, verf_flavor, verf_data)]
 	  (new in Ocamlnet-3.3)
        *)
+  | Auth_drop
+      (** Authentication demands to drop the message *)
 
 type auth_peeker =
     [ `None

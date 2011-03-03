@@ -1057,9 +1057,7 @@ object(self)
 	      new scram_name "@" nt_hostbased_service in
 	    NameBCT.store names targ_name;
 	    let targ_name = (targ_name :> name) in
-	    let is_open =
-	      Netmech_scram.client_recv_flag sess ||
-		Netmech_scram.client_emit_flag sess in
+	    let is_open = Netmech_scram.client_finish_flag sess in
 	    out
 	      ~src_name ~targ_name ~lifetime_req:`Indefinite
 	      ~mech_type:scram_mech ~ctx_flags:!(context # flags)
@@ -1079,9 +1077,7 @@ object(self)
 	      new scram_name "@" nt_hostbased_service in
 	    NameBCT.store names targ_name;
 	    let targ_name = (targ_name :> name) in
-	    let is_open =
-	      Netmech_scram.server_recv_flag sess ||
-		Netmech_scram.server_emit_flag sess in
+	    let is_open = Netmech_scram.server_finish_flag sess in
 	    out
 	      ~src_name ~targ_name ~lifetime_req:`Indefinite
 	      ~mech_type:scram_mech ~ctx_flags:!(context # flags)

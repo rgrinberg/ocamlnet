@@ -77,5 +77,8 @@ program PROTO {
 	longstring auth_dh(void) = 13;
 	/* Returns the user as identified by AUTH_DH */
 
+	longstring auth_scram(void) = 14;
+	/* Returns the user as identified by RPCSEC_GSS with SCRAM */
+
     } = 1;
 } = 0x33333333;

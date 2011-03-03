@@ -712,6 +712,7 @@ let unbound_async_call_r cl prog procname param receiver authsess_opt =
 	  call
 	  
       | None ->
+	  dlog cl "starting authentication protocol";
 	  ( match eff_authproto#state with
 	      | `Done _ -> 
 		  assert false
@@ -721,8 +722,10 @@ let unbound_async_call_r cl prog procname param receiver authsess_opt =
 
 	      | ap_state ->
 		  (* Authentication not yet ready. *)
-		  if ap_state = `Emit then
+		  if ap_state = `Emit then (
+		    dlog cl "emitting new authentication token";
 		    auth_proto_emit cl rc.prog eff_authproto;
+		  );
 
 		  let xid = next_xid cl in
 		  let call =
@@ -797,6 +800,12 @@ let process_regular_incoming_message cl message peer sock call rc =
    * function
    *)
   let auth_sess = call_auth_session call in
+  dlogr cl
+    (fun () ->
+       sprintf "process_regular_incoming_message auth_meth=%s have_decoder=%B"
+	 auth_sess#auth_protocol#auth_method#name
+	 (rc.decoder <> None)
+    );
   let result_opt =
     try
       ( match Rpc_packer.peek_auth_error message with
@@ -948,12 +957,14 @@ let process_incoming_message cl message peer =
   
   match call.detail with
     | `Auth_proto prog ->
+	dlog cl "continuing authentication protocol";
 	( match call.call_auth_proto#state with
 	    | `Receive expected_xid when expected_xid = xid ->
 		remove_pending_call cl call;
 
 		let err_opt =
 		  try
+		    dlog cl "receiving authentication token";
 		    call.call_auth_proto#receive message; None
 		  with error -> Some error in
 
@@ -971,6 +982,7 @@ let process_incoming_message cl message peer =
 		    | `Done authsess ->
 			(* We are done - so activate all delayed messages *)
 			assert(err_opt = None);
+			dlog cl "authentication protocol is done";
 			let q =
 			  try Hashtbl.find cl.delayed_calls call.call_auth_proto
 			  with Not_found -> Queue.create() in
@@ -988,7 +1000,8 @@ let process_incoming_message cl message peer =
 			err_opt  in
 
 		( match err_opt' with
-		    | None -> ()
+		    | None ->
+			!check_for_output cl
 		    | Some err ->
 			(* Failed authentication! *)
 			let q =

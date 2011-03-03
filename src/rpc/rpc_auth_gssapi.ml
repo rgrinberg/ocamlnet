@@ -2,8 +2,6 @@
 
 (* TODO:
    - Develop ideas how to avoid that strings are copied that frequently 
-   - error handling
-   - sequence numbers
  *)
 
 open Netgssapi
@@ -13,11 +11,12 @@ open Printf
 type support_level =
     [ `Required | `If_possible | `None ]
 
-type user_name_interpretation =
-    [ `Exported_name
-    | `Exported_name_text
-    | `Import of oid
-    ]
+type window =
+    { window : string;
+      mutable window_length : int64;
+      mutable window_offset : int;
+      mutable window_last : int64;
+    }
 
 type rpc_context =
     { context : context;
@@ -30,13 +29,29 @@ type rpc_context =
         (* whether integrity-protected msgs are ok *)
       mutable ctx_svc_privacy : bool;
         (* whether privacy-protected msgs are ok *)
+
+      ctx_window : window option;
     }
 
 type user_name_format =
     [ `Exported_name
-    | `Exported_name_text
-    | `Exported_name_no_oid
+    | `Prefixed_name
+    | `Plain_name
     ]
+
+type user_name_interpretation =
+    [ `Exported_name
+    | `Prefixed_name
+    | `Plain_name of oid
+    ]
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Rpc_auth_gssapi" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Rpc_auth_gssapi" Debug.enable
+
 
 let as_string (sm,pos,len) =
   (* FIXME: also in netmech_scram_gssapi *)
@@ -68,6 +83,7 @@ let split_rpc_gss_data_t s =
 
 let integrity_encoder (gss_api : Netgssapi.gss_api)
                       ctx cred1 rpc_gss_integ_data s =
+  dlog "integrity_encoder";
   let data =
     Rtypes.uint4_as_string cred1.seq_num ^ s in
   let mic =
@@ -81,6 +97,9 @@ let integrity_encoder (gss_api : Netgssapi.gss_api)
 		failwith("Rpc_auth_gssapi: \
                           Cannot obtain MIC: " ^ 
 			   string_of_major_status major_status);
+	      (* FIXME: The RFC demands that no response is sent if a
+		 get_mic problem occurs in the server
+	       *)
 	      msg_token
 	   )
       () in
@@ -94,14 +113,18 @@ let integrity_encoder (gss_api : Netgssapi.gss_api)
 
 let integrity_decoder (gss_api : Netgssapi.gss_api)
                       ctx cred1 rpc_gss_integ_data s pos len =
+  dlog "integrity_decoder";
   try
-    let xdr_val =
-      Xdr.unpack_xdr_value
-	~pos ~len ~fast:true s rpc_gss_integ_data [] in
+    let xdr_val, xdr_len =
+      Xdr.unpack_xdr_value_l
+	~pos ~len ~fast:true s rpc_gss_integ_data ~prefix:true [] in
     let integ =
       _to_rpc_gss_integ_data xdr_val in
     let data =
       integ.databody_integ in
+    (* In the server, any integrity problem should be mapped
+       to GARBAGE. We get this by raising Xdr_format exceptions here.
+     *)
     gss_api # verify_mic
       ~context:ctx
       ~message:(`String data, 0, String.length data)
@@ -109,23 +132,29 @@ let integrity_decoder (gss_api : Netgssapi.gss_api)
       ~out:(fun ~qop_state ~minor_status ~major_status () ->
 	      let (c_err, r_err, flags) = major_status in
 	      if c_err <> `None || r_err <> `None then
-		failwith("Rpc_auth_gssapi: \
+		raise(Xdr.Xdr_format(
+			"Rpc_auth_gssapi: \
                           Cannot verify MIC: " ^ 
-			   string_of_major_status major_status);
+			  string_of_major_status major_status));
 	   )
       ();
     let (seq, args) =
       split_rpc_gss_data_t data in
     if seq <> cred1.seq_num then
-      failwith "Rpc_auth_gssapi: bad sequence number";
-    (args, String.length args)
+      raise(Xdr.Xdr_format "Rpc_auth_gssapi: bad sequence number");
+    dlog "integrity_decoder returns normally";
+    (args, xdr_len)
   with
-    | _ ->
-	failwith "Rpc_auth_gssapi: cannot decode integrity-proctected message"
+    | Xdr.Xdr_format _ as e ->
+	raise e
+    | e ->
+	raise(Xdr.Xdr_format
+		"Rpc_auth_gssapi: cannot decode integrity-proctected message")
 
 
 let privacy_encoder (gss_api : Netgssapi.gss_api)
                      ctx cred1 rpc_gss_priv_data s =
+  dlog "privacy_encoder";
   let data =
     Rtypes.uint4_as_string cred1.seq_num ^ s in
   gss_api # wrap
@@ -135,6 +164,9 @@ let privacy_encoder (gss_api : Netgssapi.gss_api)
     ~input_message:(`String data, 0, String.length data)
     ~output_message_preferred_type:`String
     ~out:(fun ~conf_state ~output_message ~minor_status ~major_status () ->
+	    (* FIXME: The RFC demands that no response is sent if a
+	       wrap problem occurs in the server
+	     *)
 	    let (c_err, r_err, flags) = major_status in
 	    if c_err <> `None || r_err <> `None then
 	      failwith("Rpc_auth_gssapi: \
@@ -155,14 +187,18 @@ let privacy_encoder (gss_api : Netgssapi.gss_api)
 
 let privacy_decoder (gss_api : Netgssapi.gss_api)
                      ctx cred1 rpc_gss_priv_data s pos len =
+  dlog "privacy_decoder";
   try
-    let xdr_val =
-      Xdr.unpack_xdr_value
-	~pos ~len ~fast:true s rpc_gss_priv_data [] in
+    let xdr_val, xdr_len =
+      Xdr.unpack_xdr_value_l
+	~pos ~len ~fast:true ~prefix:true s rpc_gss_priv_data [] in
     let priv =
       _to_rpc_gss_priv_data xdr_val in
     let data =
       priv.databody_priv in
+    (* In the server, any integrity problem should be mapped
+       to GARBAGE. We get this by raising Xdr_format exceptions here.
+     *)
     gss_api # unwrap
       ~context:ctx
       ~input_message:(`String data, 0, String.length data)
@@ -172,23 +208,109 @@ let privacy_decoder (gss_api : Netgssapi.gss_api)
 	      () ->
 		let (c_err, r_err, flags) = major_status in
 		if c_err <> `None || r_err <> `None then
-		  failwith("Rpc_auth_gssapi: \
+		  raise(Xdr.Xdr_format
+			  ("Rpc_auth_gssapi: \
                             Cannot unwrap message: " ^ 
-			     string_of_major_status major_status);
+			     string_of_major_status major_status));
 		if not conf_state then
-		  failwith 
-		    "Rpc_auth_gssapi: no privacy-ensuring unwrapping possible";
+		  raise
+		    (Xdr.Xdr_format
+		       "Rpc_auth_gssapi: no privacy-ensuring unwrapping \
+                        possible");
 		let m = as_string output_message in
 		let (seq, args) =
 		  split_rpc_gss_data_t m in
 		if seq <> cred1.seq_num then
-		  failwith "Rpc_auth_gssapi: bad sequence number";
-		(args, String.length args)
+		  raise(Xdr.Xdr_format "Rpc_auth_gssapi: bad sequence number");
+		dlog "privacy_decoder returns normally";
+		(args, xdr_len)
 	   )
       ()
   with
-    | _ ->
-	failwith "Rpc_auth_gssapi: cannot decode privacy-proctected message"
+    | Xdr.Xdr_format _ as e ->
+	raise e
+    | e ->
+	raise(Xdr.Xdr_format
+		"Rpc_auth_gssapi: cannot decode privacy-proctected message")
+
+
+let init_window n =
+  let n' = ((n-1) / 8) + 1 in
+  { window = String.make n' '\000';
+    window_length = 0L;
+    window_offset = 0;
+    window_last = 0L;
+  }
+
+
+let check_seq_num w seq_num =
+  (* The interpretation is as follows:
+     - The window starts at window_last - window_length + 1
+     - The window ends at window_last
+     - The string window is seen as a bit string
+     - The first bit of the window is mapped to the bit window_offset
+       in window
+
+     returns true if the seq num is ok
+   *)
+  let l = String.length w.window * 8 in
+  let lL = Int64.of_int l in
+  let seq_numL = Rtypes.int64_of_uint4 seq_num in
+  if w.window_length = 0L then (
+    (* initialization. Assume ctx.ctx_window is filled with zeros *)
+    if seq_numL >= lL then
+      w.window_length <- lL
+    else
+      w.window_length <- Int64.succ seq_numL;
+    w.window_offset <- 0;
+    w.window_last <- seq_numL;
+    let n2 = Int64.to_int w.window_length - 1 in
+    let k = n2 lsr 3 in
+    let j = n2 land 7 in
+    let c = Char.code w.window.[k] in
+    let c' =  c lor (1 lsl j) in
+    w.window.[k] <- Char.chr c';
+    true
+  )
+  else
+    if seq_numL > w.window_last then (
+      (* all ok, just advance the window *)
+      while seq_numL > w.window_last do
+	let next = Int64.succ w.window_last in
+	if w.window_length < lL then
+	  w.window_length <- Int64.succ w.window_length
+	else
+	  w.window_offset <- (succ w.window_offset) mod l;
+	let n2 = 
+	  (w.window_offset + Int64.to_int w.window_length - 1) mod l in
+	let k = n2 lsr 3 in
+	let j = n2 land 7 in
+	let c = Char.code w.window.[k] in
+	let c' = 
+	  if seq_numL = next then
+	    c lor (1 lsl j) 
+	else
+	  c land (lnot (1 lsl j)) in
+	w.window.[k] <- Char.chr c';
+	w.window_last <- next
+      done;
+      true
+    ) else
+      let before_start =
+	Int64.sub w.window_last w.window_length in
+      seq_numL > before_start && (
+	let n1 = Int64.to_int (Int64.pred (Int64.sub seq_numL before_start)) in
+	let n2 = (w.window_offset + n1) mod l in
+	let k = n2 lsr 3 in
+	let j = n2 land 7 in
+	let c = Char.code w.window.[k] in
+	let ok = (c land (1 lsl j)) = 0 in
+	if ok then (
+	  let c' = c lor (1 lsl j) in
+	  w.window.[k] <- Char.chr c';
+	);
+	ok
+      )
 
 
 let server_auth_method 
@@ -196,8 +318,9 @@ let server_auth_method
       ?(require_integrity=false)
       ?(shared_context=false)
       ?acceptor_cred
-      ?(user_name_format = `Exported_name_no_oid)
-      (gss_api : gss_api) : Rpc_server.auth_method =
+      ?(user_name_format = `Prefixed_name)
+      ?seq_number_window
+      (gss_api : gss_api) mech : Rpc_server.auth_method =
 
   let acceptor_cred =
     match acceptor_cred with
@@ -205,7 +328,7 @@ let server_auth_method
 	  gss_api # acquire_cred
 	    ~desired_name:gss_api#no_name
 	    ~time_req:`None
-	    ~desired_mechs:[]
+	    ~desired_mechs:[mech]
 	    ~cred_usage:`Accept
 	    ~out:(
 	      fun ~cred ~actual_mechs ~time_rec ~minor_status ~major_status() ->
@@ -258,15 +381,20 @@ let server_auth_method
       method peek = `None
 
       method authenticate srv conn_id (details:Rpc_server.auth_details) auth =
+	dlog "authenticate";
 	(* First decode the rpc_gss_cred_t structure in the header: *)
 	try
 	  let (_, cred_data) = details # credential in
 	  let xdr_val =
-	    Xdr.unpack_xdr_value
-	      ~fast:true
-	      cred_data
-	      rpc_gss_cred_t
-	      [] in
+	    try
+	      Xdr.unpack_xdr_value
+		~fast:true
+		cred_data
+		rpc_gss_cred_t
+		[] 
+	    with _ ->
+	      (* Bad credential *)
+	      raise(Rpc.Rpc_server Rpc.Auth_bad_cred) in
 	  let cred =
 	    _to_rpc_gss_cred_t xdr_val in
 	  match cred with
@@ -284,14 +412,16 @@ let server_auth_method
 			self # auth_data srv conn_id details cred1
 		in
 		let () = auth r in
+		dlog "authenticate returns normally";
 		()
 	with
+	  | Rpc.Rpc_server code ->
+	      auth(Rpc_server.Auth_negative code)
 	  | error ->
 	      Netlog.logf `Err
 		"Failed RPC authentication (GSS-API): %s"
 		(Netexn.to_string error);
 	      auth(Rpc_server.Auth_negative Rpc.Auth_failed)
-		(* FIXME: better error codes *)
 
       method private get_token details =
 	let body_data =
@@ -319,12 +449,9 @@ let server_auth_method
 	  failwith
 	    "Rpc_auth_gssapi: Integrity requested but unavailable";
 
-	ctx.ctx_svc_none <- 
-	  not require_privacy && not require_integrity;
-	ctx.ctx_svc_integrity <-
-	  not require_privacy && require_integrity;
-	ctx.ctx_svc_privacy <-
-	  require_privacy;
+	ctx.ctx_svc_none      <- not require_privacy && not require_integrity;
+	ctx.ctx_svc_integrity <- not require_privacy && have_integrity;
+	ctx.ctx_svc_privacy   <- have_privacy;
 
 
       method private verify_context ctx conn_id =
@@ -358,35 +485,38 @@ let server_auth_method
 		      src_name
 	       )
 	  () in
-	gss_api # export_name
-	  ~name
-	  ~out:(fun ~exported_name ~minor_status ~major_status () ->
-		  let (c_err, r_err, flags) = major_status in
-		  if c_err <> `None || r_err <> `None then
-		    failwith("Rpc_auth_gssapi: Cannot export name: " 
-			     ^ string_of_major_status major_status);
-		  let k = ref 0 in
-		  let (oid,name_str) =
-		    try Netgssapi.decode_exported_name exported_name k
-		    with _ -> assert false in
-		  assert(!k = String.length exported_name);
-		  (* Failed assertion -> The GSS-API object returns an
-		     invalid export name
-		   *)
-		  match user_name_format with
-		    | `Exported_name -> exported_name
-		    | `Exported_name_text ->
-			let oid_s =
-			  Netgssapi.oid_to_string oid in
-			oid_s ^ name_str
-		    | `Exported_name_no_oid ->
-			name_str
-	       )
-	  ()
+	if user_name_format = `Exported_name then
+	  gss_api # export_name
+	    ~name
+	    ~out:(fun ~exported_name ~minor_status ~major_status () ->
+		    let (c_err, r_err, flags) = major_status in
+		    if c_err <> `None || r_err <> `None then
+		      failwith("Rpc_auth_gssapi: Cannot export name: " 
+			       ^ string_of_major_status major_status);
+		    exported_name
+		 )
+	    ()
+	else (
+	  gss_api # display_name
+	    ~input_name:name
+	    ~out:(fun ~output_name ~output_name_type ~minor_status ~major_status
+		    () ->
+		      match user_name_format with
+			| `Exported_name -> assert false
+			| `Prefixed_name ->
+			    let oid_s =
+			      Netgssapi.oid_to_string output_name_type in
+			    oid_s ^ output_name
+			| `Plain_name ->
+			    output_name
+		 )
+	    ()
+	)
 
 
 
       method private auth_init srv conn_id details cred1 =
+	dlog "auth_init";
 	let (verf_flav, verf_data) = details # verifier in
 	if cred1.handle <> "" then
 	  failwith "Context handle is not empty";
@@ -424,6 +554,10 @@ let server_auth_method
 		    ctx_svc_none = false;
 		    ctx_svc_integrity = false;
 		    ctx_svc_privacy = false;
+		    ctx_window = ( match seq_number_window with
+				     | None -> None
+				     | Some n -> Some(init_window n)
+				 );
 		  } in
 		if not cont then
 		  self#fixup_svc_flags ctx ret_flags;
@@ -435,7 +569,12 @@ let server_auth_method
 		      then gss_s_continue_needed
 		      else gss_s_complete;
 		    res_minor = zero;
-		    res_seq_window = zero; (* FIXME *)
+		    res_seq_window = ( match seq_number_window with
+					 | None ->
+					     maxseq
+					 | Some n -> 
+					     Rtypes.uint4_of_int n
+				     );
 		    res_token = output_token
 		  } in
 		self # auth_init_result ctx reply
@@ -444,6 +583,7 @@ let server_auth_method
 
 
       method private auth_cont_init srv conn_id details cred1 =
+	dlog "auth_cont_init";
 	let (verf_flav, verf_data) = details # verifier in
 	if verf_flav <> "AUTH_NONE" then
 	  failwith "Bad verifier (1)";
@@ -492,6 +632,7 @@ let server_auth_method
 	  ()
 
       method private auth_init_result ctx reply =
+	dlog "auth_init_result";
 	let xdr_val =
 	  Rpc_auth_gssapi_aux._of_rpc_gss_init_res reply in
 	let m =
@@ -521,6 +662,7 @@ let server_auth_method
 	Rpc_server.Auth_reply(m, verf_flav, verf_data)
 
       method private auth_data srv conn_id details cred1 =
+	dlog "auth_data";
 	(* Get context: *)
 	let h = cred1.handle in
 	let ctx =
@@ -544,47 +686,69 @@ let server_auth_method
 	  ~out:(fun ~qop_state ~minor_status ~major_status () ->
 		  let (c_err, r_err, flags) = major_status in
 		  if c_err <> `None || r_err <> `None then
+		    raise(Rpc.Rpc_server Rpc.RPCSEC_GSS_credproblem)
+		      (* demanded by the RFC *)
+(*
 		    failwith("Rpc_auth_gssapi: \
                                   Cannot verify MIC: " ^ 
 			       string_of_major_status major_status);
+ *)
 	       )
 	  ();
 
+	(* FIXME: we should also check here whether the credentials'
+	   lifetime is over, and if so, report RPCSEC_GSS_ctxproblem.
+	   We cannot delay this until encoding/decoding because the
+	   exception handling would not work by then. So it must
+	   happen now. I have no idea how to do so, though.
+	 *)
+
 	(* Check sequence number *)
-	(* TODO *)
+	if Rtypes.gt_uint4 cred1.seq_num maxseq then
+	  raise(Rpc.Rpc_server Rpc.RPCSEC_GSS_ctxproblem);
 
-	match cred1.service with
-	  | `rpc_gss_svc_none ->
-	      if not ctx.ctx_svc_none then
-		failwith "Rpc_auth_gssapi: unexpected unprotected message";
-	      self#auth_data_result ctx cred1.seq_num None None;
+	let drop =
+	  match ctx.ctx_window with
+	    | None -> false
+	    | Some w ->
+		not (check_seq_num w cred1.seq_num) in
 
-	  | `rpc_gss_svc_integrity ->
-	      if not ctx.ctx_svc_integrity then
-		failwith "Rpc_auth_gssapi: unexpected integrity-proctected \
+	if drop then
+	  Rpc_server.Auth_drop
+	else
+	  match cred1.service with
+	    | `rpc_gss_svc_none ->
+		if not ctx.ctx_svc_none then
+		  failwith "Rpc_auth_gssapi: unexpected unprotected message";
+		self#auth_data_result ctx cred1.seq_num None None;
+		
+	    | `rpc_gss_svc_integrity ->
+		if not ctx.ctx_svc_integrity then
+		  failwith "Rpc_auth_gssapi: unexpected integrity-proctected \
                           message";
-	      let encoder =
-		integrity_encoder 
-		  gss_api ctx.context cred1 rpc_gss_integ_data in
-	      let decoder =
-		integrity_decoder 
-		  gss_api ctx.context cred1 rpc_gss_integ_data in
-	      self#auth_data_result
-		ctx cred1.seq_num (Some encoder) (Some decoder)
-
-	  | `rpc_gss_svc_privacy ->
-	      if not ctx.ctx_svc_privacy then
-		failwith "Rpc_auth_gssapi: unexpected privacy-proctected \
+		let encoder =
+		  integrity_encoder 
+		    gss_api ctx.context cred1 rpc_gss_integ_data in
+		let decoder =
+		  integrity_decoder 
+		    gss_api ctx.context cred1 rpc_gss_integ_data in
+		self#auth_data_result
+		  ctx cred1.seq_num (Some encoder) (Some decoder)
+		  
+	    | `rpc_gss_svc_privacy ->
+		if not ctx.ctx_svc_privacy then
+		  failwith "Rpc_auth_gssapi: unexpected privacy-proctected \
                           message";
-	      let encoder =
-		privacy_encoder gss_api ctx.context cred1 rpc_gss_priv_data in
-	      let decoder =
-		privacy_decoder gss_api ctx.context cred1 rpc_gss_priv_data in
-	      self # auth_data_result
-		ctx cred1.seq_num (Some encoder) (Some decoder)
-
+		let encoder =
+		  privacy_encoder gss_api ctx.context cred1 rpc_gss_priv_data in
+		let decoder =
+		  privacy_decoder gss_api ctx.context cred1 rpc_gss_priv_data in
+		self # auth_data_result
+		  ctx cred1.seq_num (Some encoder) (Some decoder)
+		  
 	      
       method private auth_data_result ctx seq enc_opt dec_opt =
+	dlog "auth_data_result";
 	let seq_s =
 	  Rtypes.uint4_as_string seq in
 	let mic =
@@ -595,9 +759,12 @@ let server_auth_method
 	    ~out:(fun ~msg_token ~minor_status ~major_status () ->
 		    let (c_err, r_err, flags) = major_status in
 		    if c_err <> `None || r_err <> `None then
+		      raise(Rpc.Rpc_server Rpc.RPCSEC_GSS_ctxproblem);
+(*
 		      failwith("Rpc_auth_gssapi: \
                                   Cannot compute MIC: " ^ 
 				 string_of_major_status major_status);
+ *)
 		    msg_token
 		 )
 	    () in
@@ -607,6 +774,7 @@ let server_auth_method
 	)
 
       method private auth_destroy srv conn_id details cred1 =
+	dlog "auth_destroy";
 	let r =
 	  self # auth_data srv conn_id details cred1 in
 	match r with
@@ -645,14 +813,14 @@ let server_auth_method
 let client_auth_method 
       ?(privacy=`If_possible)
       ?(integrity=`If_possible)
-      ?(user_name_interpretation = `Exported_name_text)
-      (gss_api : gss_api) : Rpc_client.auth_method =
+      ?(user_name_interpretation = `Prefixed_name)
+      (gss_api : gss_api) mech : Rpc_client.auth_method =
 
   let default_initiator_cred() =
     gss_api # acquire_cred
       ~desired_name:gss_api#no_name
       ~time_req:`None
-      ~desired_mechs:[]
+      ~desired_mechs:[mech]
       ~cred_usage:`Initiate
       ~out:(
 	fun ~cred ~actual_mechs ~time_rec ~minor_status ~major_status() ->
@@ -676,14 +844,6 @@ let client_auth_method
     Xdr.validate_xdr_type
       Rpc_auth_gssapi_aux.xdrt_rpc_gss_priv_data in
 
-  let ts =
-    [ "init_arg", Rpc_auth_gssapi_aux.xdrt_rpc_gss_init_arg;
-      "init_res", Rpc_auth_gssapi_aux.xdrt_rpc_gss_init_res
-    ] in
-
-  let ts_val =
-    Xdr.validate_xdr_type_system ts in
-
   let session (m:Rpc_client.auth_method)
               (p:Rpc_client.auth_protocol)
               ctx service handle cur_seq_num
@@ -694,6 +854,12 @@ let client_auth_method
 	  (* N.B. Exceptions raised here probably abort the client,
 	     and fall through to the event loop
 	   *)
+
+	  dlogr
+	    (fun () ->
+	       sprintf "next_credentials proc=%s xid=%Ld"
+		 proc (Rtypes.int64_of_uint4 xid)
+	    );
 
 	  let cred1 =
 	    { gss_proc = `rpcsec_gss_data;
@@ -756,12 +922,22 @@ let client_auth_method
 		    privacy_decoder gss_api ctx cred1 rpc_gss_priv_data in
 		  (Some encoder), (Some decoder) in
 
+	  dlogr
+	    (fun () ->
+	       sprintf "next_credentials returns normally"
+	    );
+
 	  ("RPCSEC_GSS", cred1_s,
 	   "RPCSEC_GSS", mic,
 	   enc_opt, dec_opt
 	  )
 
 	method server_rejects client xid code =
+	  dlogr
+	    (fun () ->
+	       sprintf "server_rejects xid=%Ld"
+		 (Rtypes.int64_of_uint4 xid)
+	    );
 	  Hashtbl.remove seq_num_of_xid xid;
 	  match code with
 	    | Rpc.RPCSEC_GSS_credproblem | Rpc.RPCSEC_GSS_ctxproblem ->
@@ -772,6 +948,11 @@ let client_auth_method
 		`Fail
 
 	method server_accepts client xid verf_flav verf_data =
+	  dlogr
+	    (fun () ->
+	       sprintf "server_accepts xid=%Ld"
+		 (Rtypes.int64_of_uint4 xid)
+	    );
 	  if verf_flav <> "RPCSEC_GSS" then
 	    raise(Rpc.Rpc_server Rpc.Auth_invalid_resp);
 	  let seq =
@@ -790,7 +971,8 @@ let client_auth_method
 		    if c_err <> `None || r_err <> `None then
 		      raise(Rpc.Rpc_server Rpc.Auth_invalid_resp);
 		 )
-	    ()
+	    ();
+	  dlog "server_accepts returns normally"
 
 	method auth_protocol = p
 
@@ -817,6 +999,13 @@ let client_auth_method
 
 	method emit xid prog_nr vers_nr =
 	  assert(!state = `Emit);
+	  dlogr
+	    (fun () ->
+	       sprintf "emit prog_nr=%Ld vers_nr=%Ld xid=%Ld"
+		 (Rtypes.int64_of_uint4 prog_nr)
+		 (Rtypes.int64_of_uint4 vers_nr)
+		 (Rtypes.int64_of_uint4 xid)
+	    );
 	  try
 	    let prog =
 	      match !init_prog with
@@ -825,10 +1014,12 @@ let client_auth_method
 		      Rpc_program.create
 			prog_nr
 			vers_nr
-			ts_val
+			(Xdr.validate_xdr_type_system [])
 			[ "init", 
-			  ((Rtypes.uint4_of_int 0), 
-			   Xdr.X_type "init_arg", Xdr.X_type "init_res");
+			  (  (Rtypes.uint4_of_int 0), 
+			     Rpc_auth_gssapi_aux.xdrt_rpc_gss_init_arg,
+			     Rpc_auth_gssapi_aux.xdrt_rpc_gss_init_res
+			  );
 			] in
 		    init_prog := Some p;
 		    p
@@ -912,9 +1103,10 @@ let client_auth_method
 		prog xid "init"
 		"RPCSEC_GSS" cred1_s
 		"AUTH_NONE" ""
-		(Xdr.XV_opaque !handle) in
+		(Xdr.XV_struct_fast [| Xdr.XV_opaque output_token |] ) in
 	    first := false;
 	    state := `Receive xid;
+	    dlog "emit returns normally";
 	    pv
 	  with error ->
 	    Netlog.logf `Err
@@ -926,6 +1118,7 @@ let client_auth_method
 
 	method receive pv =
 	  try
+	    dlog "receive";
 	    let prog =
 	      match !init_prog with
 		| None -> assert false
@@ -933,6 +1126,12 @@ let client_auth_method
 	    let (xid, flav_name, flav_data, result_xdr) =
 	      Rpc_packer.unpack_reply prog "init" pv in
 	    assert( !state = `Receive xid );
+
+	    dlogr
+	      (fun () ->
+		 sprintf "receive xid=%Ld"
+		   (Rtypes.int64_of_uint4 xid)
+	      );
 	    
 	    let res = _to_rpc_gss_init_res result_xdr in
 	    let cont_needed =
@@ -980,7 +1179,8 @@ let client_auth_method
 	      let s = 
 		session 
 		  m (self :> Rpc_client.auth_protocol) c service !handle cs in
-	      state := `Done s
+	      state := `Done s;
+	      dlog "receive returns normally";
 	  with error ->
 	    Netlog.logf `Err
 	      "Rpc_auth_gssapi: Error during message verification: %s"
@@ -997,6 +1197,14 @@ let client_auth_method
       method name = "RPCSEC_GSS"
 
       method new_session client user_opt =
+	dlogr
+	  (fun () ->
+	     sprintf "new_session user=%s"
+	       (match user_opt with
+		  | None -> "-" | Some u -> u
+	       )
+	  );
+
 	let cred =
 	  match user_opt with
 	    | None ->
@@ -1006,7 +1214,7 @@ let client_auth_method
 		  match user_name_interpretation with
 		    | `Exported_name ->
 			(user, nt_export_name)
-		    | `Exported_name_text ->
+		    | `Prefixed_name ->
 			let l = String.length user in
 			( try
 			    let k = String.index user '}' in
@@ -1017,7 +1225,7 @@ let client_auth_method
 			    failwith
 			      ("Rpc_auth_gssapi: cannot parse user name")
 			)
-		    | `Import input_name_type ->
+		    | `Plain_name input_name_type ->
 			(user, input_name_type) in
 		let name =
 		  gss_api # import_name
@@ -1036,7 +1244,7 @@ let client_auth_method
 		gss_api # acquire_cred
 		  ~desired_name:name
 		  ~time_req:`None
-		  ~desired_mechs:[]
+		  ~desired_mechs:[mech]
 		  ~cred_usage:`Initiate
 		  ~out:(
 		    fun ~cred ~actual_mechs ~time_rec ~minor_status

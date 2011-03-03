@@ -13,12 +13,13 @@ open Rpc_common
 (* declaration of the RPC message type system: *)
 
 let auth_flavor_of_pos =
-  (* map XV_enum_fast-style positions to names *)
+  (* map XV_enum_fast-style _positions_ to names *)
   function
       0 -> "AUTH_NONE"
     | 1 -> "AUTH_SYS"
     | 2 -> "AUTH_SHORT"
     | 3 -> "AUTH_DH"
+    | 4 (* sic *) -> "RPCSEC_GSS"
     | _ -> assert false
 ;;
 
@@ -27,7 +28,6 @@ let rpc_ts_unvalidated =
   [ "auth_flavor",         X_enum [ "AUTH_NONE",     int4_of_int 0;
 				       (* also known as AUTH_NULL *)
 				    "AUTH_SYS",      int4_of_int 1;
-				       (* also known as AUTH_SYS *)
 				    "AUTH_SHORT",    int4_of_int 2;
 				    "AUTH_DH",       int4_of_int 3;
 				       (* also known as AUTH_DES *)
@@ -474,7 +474,8 @@ let pack_successful_reply_raw
     (pack_xdr_value_as_mstrings
        message_v            (* the value to pack *)
        message_t            (* the message type... *)
-       [ "out", t_void ]    (* ...and output type *)
+       [ "in", t_void;      (* dummy *)
+	 "out", t_void ]    (* ...and output type *)
      @ return_data
     )
 

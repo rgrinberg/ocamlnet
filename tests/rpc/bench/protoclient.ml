@@ -361,6 +361,46 @@ let register_auth_dh () =
 
 
 (**********************************************************************)
+(* GSS-API with SCRAM *)
+
+let register_auth_gssapi_scram () =
+  let client_key_ring =
+    ( object
+	method password_of_user_name user =
+	  match user with
+	    | "guest" -> "guest_password"
+	    | _ -> raise Not_found
+
+	method default_user_name = None
+      end
+    ) in
+
+  let gss_api =
+    new Netmech_scram_gssapi.scram_gss_api
+      ~client_key_ring
+      (Netmech_scram.profile `GSSAPI) in
+
+  let auth_meth =
+    Rpc_auth_gssapi.client_auth_method
+      ~privacy:`Required
+      (* ~privacy:`None ~integrity:`Required *)
+      ~user_name_interpretation:(`Plain_name Netgssapi.nt_user_name)
+      gss_api Netmech_scram_gssapi.scram_mech  in
+
+  let test_filter client =
+    Rpc_client.set_auth_methods client [auth_meth];
+    Rpc_client.set_user_name client (Some "guest");
+    let r = C.auth_scram client () in
+    printf "(user=%s) " r;
+    Rpc_client.shut_down client;
+    r = "guest" in
+
+  register_test_triple "auth_gssapi_scram" test_filter
+;;
+
+
+
+(**********************************************************************)
 
 let main() =
   (* Register tests: *)
@@ -378,6 +418,7 @@ let main() =
     register_auth_sys();
     register_auth_local();
     register_auth_dh();
+    register_auth_gssapi_scram();
   in    
 
   (* Parse command line: *)

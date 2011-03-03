@@ -285,6 +285,9 @@ exception Xdr_format_message_too_long of xdr_value
 val validate_xdr_type : xdr_type_term -> xdr_type
 val validate_xdr_type_system : xdr_type_term_system -> xdr_type_system
 
+val params : xdr_type -> string list
+  (** return the [X_param] parameters contained in the type *)
+
 (** Get the unvalidated version back:
  *
  * - Note that [X_type] constructions are always resolved
@@ -361,8 +364,8 @@ val value_matches_type : xdr_value -> xdr_type -> (string*xdr_type) list -> bool
  *
  * meaning that the [decoder] starts decoding at position [pos] of string [s],
  * and that at most [len] bytes can be decoded. It returns the decoded
- * string [xdr_s] (which is then unpacked), and in [len] the length of the
- * encoded substring is returned.
+ * string [xdr_s] (which is then unpacked), and in [n] the number of
+ * consumed input bytes is returned.
  *)
 
 type encoder = string -> string

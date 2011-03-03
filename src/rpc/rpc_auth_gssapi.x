@@ -80,5 +80,5 @@ const zero = 0;
 
 /* Maximum sequence number value */
 
-#define MAXSEQ 0x80000000
+const MAXSEQ = 0x80000000;
 

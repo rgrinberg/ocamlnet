@@ -6,15 +6,16 @@ open Netgssapi
 
 type user_name_format =
     [ `Exported_name
-    | `Exported_name_text
-    | `Exported_name_no_oid
+    | `Prefixed_name
+    | `Plain_name
     ]
   (** What to return as user name:
       - [`Exported_name]: the exported name in binary format (as described
-        in RFC 2078, section 3.2)
-      - [`Exported_name_text]: the exported name in a text format
+        in RFC 2078, section 3.2). This format can only be read back by
+        the [gss_api] object generating the name.
+      - [`Prefixed_name]: the display name in a text format
         "{<oid>}<namestring>".
-      - [`Exported_name_no_oid]: the string part of the exported name
+      - [`Plain_name]: the string part of the display name
    *)
 
 val server_auth_method : 
@@ -23,8 +24,10 @@ val server_auth_method :
       ?shared_context:bool ->
       ?acceptor_cred:credential ->
       ?user_name_format:user_name_format ->
-      gss_api -> Rpc_server.auth_method
+      ?seq_number_window:int ->
+      gss_api -> oid -> Rpc_server.auth_method
   (** Creates an authentication method from a GSS-API interface.
+      The OID selects the desired authentication method.
 
       Options:
       - [require_privacy]: Whether the messages must be
@@ -34,12 +37,18 @@ val server_auth_method :
         included. If not enabled, the server also accepts non-signed
         messages that are authenticated via GSS-API.
       - [shared_context]: Whether this method maintains only one
-        security context for all server endpoints. By default,
-        each endpoint has a security context of its own.
+        security context for all connections. By default,
+        each connection has a security context of its own. For UDP,
+        this option needs to be set, because each UDP request is
+        considered as creating a new connection.
       - [acceptor_cred]: Overrides the credentials of the server. By
         default, it is left to [gss_api] which credential is
         assumed.
-      - [user_name_format]: Defaults to [`Exported_name_text].
+      - [user_name_format]: Defaults to [`Prefixed_name].
+      - [seq_number_window]: If set, the server checks for replayed
+        requests. The integer is the length of the check window (see
+        RFC 2203 section 5.3.3.1). If omitted, no such checks are
+        performed (the default). 
    *)
 
 type support_level =
@@ -47,16 +56,17 @@ type support_level =
 
 type user_name_interpretation =
     [ `Exported_name
-    | `Exported_name_text
-    | `Import of oid
+    | `Prefixed_name
+    | `Plain_name of oid
     ]
 
 val client_auth_method :
       ?privacy:support_level ->
       ?integrity:support_level ->
       ?user_name_interpretation:user_name_interpretation ->
-      gss_api -> Rpc_client.auth_method
+      gss_api -> oid -> Rpc_client.auth_method
   (** Creates an authentication method from a GSS-API interface.
+      The OID selects the desired authentication method.
 
       Options:
       - [privacy]: Selects whether messages are encrypted. If [`Required],
@@ -69,5 +79,9 @@ val client_auth_method :
         integrity protection, and it enables this feature if GSS-API supports
         it. If [`If_possible] integrity protection is enabled if GSS-API
         supports it (the default). If [`None], the messages are not signed.
-      - [user_name_format]: Defaults to [`Exported_name_text].
+      - [user_name_format]: Defaults to [`Prefixed_name].
    *)
+
+module Debug : sig
+  val enable : bool ref
+end

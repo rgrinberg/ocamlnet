@@ -29,8 +29,32 @@ let catch_error f reply =
 
 
 let auth_methods =
+  let server_key_verifier =
+    ( object
+	method scram_credentials user =
+	  match user with
+	    | "guest" ->
+		let icount = 4096 in
+		let salt = Netmech_scram.create_salt() in
+		let spw = 
+		  Netmech_scram.salt_password "guest_password" salt icount in
+		(spw, salt, icount)
+	    | _ ->
+		raise Not_found
+      end
+    ) in
+  let gss_api =
+    new Netmech_scram_gssapi.scram_gss_api
+      ~server_key_verifier
+      (Netmech_scram.profile `GSSAPI) in
+  let gss_auth_meth =
+    Rpc_auth_gssapi.server_auth_method
+      ~shared_context:true  (* for UDP *)
+      ~user_name_format:`Plain_name
+      gss_api Netmech_scram_gssapi.scram_mech in
   [ Rpc_auth_sys.server_auth_method ~require_privileged_port:false ();
     Rpc_auth_dh.server_auth_method ();
+    gss_auth_meth;
     Rpc_server.auth_none;
   ]
 ;;
@@ -160,12 +184,17 @@ let proc_install_dropping_filter_with_limit session () =
 let proc_auth_sys session() =
   catch_error
     (fun reply ->
-       let username = Rpc_server.get_user session in
-       let (uid,gid,gids,_) = Rpc_auth_sys.parse_user_name username in
-       if uid = 50 && gid = 51 && gids = [|52;53|] then
-	 reply()
-       else
-	 Rpc_server.reply_error session Rpc.Auth_rejected_cred
+       let m = Rpc_server.get_auth_method session in
+       if m#name <> "AUTH_SYS" then
+	 Rpc_server.reply_error session Rpc.Auth_failed
+       else (
+	 let username = Rpc_server.get_user session in
+	 let (uid,gid,gids,_) = Rpc_auth_sys.parse_user_name username in
+	 if uid = 50 && gid = 51 && gids = [|52;53|] then
+	   reply()
+	 else
+	   Rpc_server.reply_error session Rpc.Auth_rejected_cred
+       )
     )
 ;;
 
@@ -187,18 +216,46 @@ let proc_auth_local session() =
   let srv = Rpc_server.get_server session in
   catch_error
     (fun reply ->
-       let username = Rpc_server.get_user session in
-       Rpc_server.set_auth_methods srv auth_methods;
-       reply username;
+       let m = Rpc_server.get_auth_method session in
+       if m#name <> "AUTH_LOCAL" then
+	 Rpc_server.reply_error session Rpc.Auth_failed
+       else (
+	 let username = Rpc_server.get_user session in
+	 Rpc_server.set_auth_methods srv auth_methods;
+	 reply username;
+       )
     )
 ;;
 
 
 let proc_auth_dh session user =
+  let srv = Rpc_server.get_server session in
   catch_error
     (fun reply ->
-       let username = Rpc_server.get_user session in
-       reply username;
+       let m = Rpc_server.get_auth_method session in
+       if m#name <> "AUTH_DH" then
+	 Rpc_server.reply_error session Rpc.Auth_failed
+       else (
+	 let username = Rpc_server.get_user session in
+	 Rpc_server.set_auth_methods srv auth_methods;
+	 reply username;
+       )
+    )
+;;
+
+
+let proc_auth_scram session () =
+  let srv = Rpc_server.get_server session in
+  catch_error
+    (fun reply ->
+       let m = Rpc_server.get_auth_method session in
+       if m#name <> "RPCSEC_GSS" then
+	 Rpc_server.reply_error session Rpc.Auth_failed
+       else (
+	 let username = Rpc_server.get_user session in
+	 Rpc_server.set_auth_methods srv auth_methods;
+	 reply username;
+       )
     )
 ;;
 
@@ -221,6 +278,7 @@ let install_server esys proto mode =
     ~proc_enable_auth_local
     ~proc_auth_local
     ~proc_auth_dh
+    ~proc_auth_scram
     srv;
   Rpc_server.set_auth_methods srv auth_methods;
 
