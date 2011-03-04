@@ -947,6 +947,92 @@ let server_user_name ss =
     | Some c1 -> Some c1.c1_username
 
 
+let transform_mstrings (trafo:Cryptokit.transform) ms_list =
+  (* Like Cryptokit's transform_string, but for "mstring list" *)
+  let blen = 256 in
+  let s = String.create blen in
+
+  let rec loop in_list out_list =
+    match in_list with
+      | ms :: in_list' ->
+	  let ms_len = ms#length in
+	  ( match ms#preferred with
+	      | `String ->
+		  let (s,start) = ms#as_string in
+		  trafo#put_substring s start ms_len;
+		  if trafo#available_output > 0 then
+		    let o = trafo#get_string in
+		    let ms' = Xdr_mstring.string_to_mstring o in
+		    loop in_list' (ms' :: out_list)
+		  else
+		    loop in_list' out_list
+	      | `Memory ->
+		  let (m,start) = ms#as_memory in
+		  let k = ref 0 in
+		  let ol = ref out_list in
+		  while !k < ms_len do
+		    let n = min blen (ms_len - !k) in
+		    Netsys_mem.blit_memory_to_string
+		      m (start + !k) s 0 n;
+		    trafo#put_substring s 0 n;
+		    k := !k + n;
+		    if trafo#available_output > 0 then (
+		      let o = trafo#get_string in
+		      let ms' = Xdr_mstring.string_to_mstring o in
+		      ol := ms' :: !ol;
+		    )
+		  done;
+		  loop in_list' !ol
+	  )
+      | [] ->
+	  trafo # finish;
+	  let out_list' =
+	    if trafo#available_output > 0 then
+	      let o = trafo#get_string in
+	      let ms' = Xdr_mstring.string_to_mstring o in
+	      ms' :: out_list
+	    else
+	      out_list in
+	  List.rev out_list' in
+  loop ms_list []
+
+
+let hash_mstrings (hash:Cryptokit.hash) ms_list =
+  (* Like Cryptokit's hash_string, but for "mstring list" *)
+  let blen = 1024 in
+  let s = String.create blen in
+
+  let rec loop in_list =
+    match in_list with
+      | ms :: in_list' ->
+	  let ms_len = ms#length in
+	  ( match ms#preferred with
+	      | `String ->
+		  let (s,start) = ms#as_string in
+		  hash#add_substring s start ms_len;
+		  loop in_list'
+	      | `Memory ->
+		  let (m,start) = ms#as_memory in
+		  let k = ref 0 in
+		  while !k < ms_len do
+		    let n = min blen (ms_len - !k) in
+		    Netsys_mem.blit_memory_to_string
+		      m (start + !k) s 0 n;
+		    hash#add_substring s 0 n;
+		    k := !k + n;
+		  done;
+		  loop in_list'
+	  )
+      | [] ->
+	  hash#result in
+  loop ms_list
+  
+
+let hmac_sha1_mstrings key ms_list =
+  let h = Cryptokit.MAC.hmac_sha1 key in
+  hash_mstrings h ms_list
+
+
 (* Encryption for GSS-API *)
 
 module AES_CTS = struct
@@ -993,6 +1079,42 @@ module AES_CTS = struct
       String.sub u 0 l
     )
 
+  let encrypt_mstrings key ms_list =
+    (* Exactly the same, but we get input as "mstring list" and return output
+       in the same way
+     *)
+    let l = Xdr_mstring.length_mstrings ms_list in
+    if l <= 16 then (
+      let cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.ECB
+	  ~pad:Cryptokit.Padding.length (* any padding is ok here *)
+	  key Cryptokit.Cipher.Encrypt in
+      transform_mstrings cipher ms_list
+    )
+    else (
+      let m = l mod 16 in
+      let ms_padded =
+	if m=0 then ms_list else
+	  ms_list @ 
+	    [ Xdr_mstring.string_to_mstring (String.make (16-m) '\000') ] in
+      let cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.CBC
+	  key Cryptokit.Cipher.Encrypt in
+      let u = transform_mstrings cipher ms_padded in
+      let ulen = Xdr_mstring.length_mstrings u in
+      assert(ulen >= 32 && ulen mod 16 = 0);
+
+      let u0 = Xdr_mstring.shared_sub_mstrings u 0 (ulen-32) in
+      let u1 = Xdr_mstring.shared_sub_mstrings u (ulen-32) 16 in
+      let u2 = Xdr_mstring.shared_sub_mstrings u (ulen-16) 16 in
+
+      let u' = u0 @ u2 @ u1 in
+      Xdr_mstring.shared_sub_mstrings u' 0 l
+    )
+    
+
   let decrypt key s =
     let l = String.length s in
     if l <= 16 then (
@@ -1028,6 +1150,47 @@ module AES_CTS = struct
 	  key Cryptokit.Cipher.Decrypt in
       let v = Cryptokit.transform_string cipher u in
       String.sub v 0 l
+    )
+
+
+  let decrypt_mstrings key ms_list =
+    let l = Xdr_mstring.length_mstrings ms_list in
+    if l <= 16 then (
+      if l <> 16 then
+	invalid_arg "Netmech_scram.AES256_CTS: bad length of plaintext";
+      let cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.ECB
+	  key Cryptokit.Cipher.Decrypt in
+      transform_mstrings cipher ms_list
+	(* This string is still padded! *)
+    ) else (
+      let k_last = ((l - 1) / 16) * 16 in
+      let k_last_len = l - k_last in
+      let k_second_to_last = k_last - 16 in
+      let dn_cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.ECB
+	  key Cryptokit.Cipher.Decrypt in
+      let c_2nd_to_last = 
+	Xdr_mstring.shared_sub_mstrings ms_list k_second_to_last 16 in
+      let dn = 
+	transform_mstrings dn_cipher c_2nd_to_last in
+      let cn0 =
+	Xdr_mstring.shared_sub_mstrings ms_list k_last k_last_len in
+      let cn1 =
+	Xdr_mstring.shared_sub_mstrings dn k_last_len (16-k_last_len) in
+      let cn = cn0 @ cn1 in
+      let s0 =
+	Xdr_mstring.shared_sub_mstrings ms_list 0 k_second_to_last in
+      let u =
+	s0 @ cn @ c_2nd_to_last in
+      let cipher =
+	Cryptokit.Cipher.aes
+	  ~mode:Cryptokit.Cipher.CBC
+	  key Cryptokit.Cipher.Decrypt in
+      let v = transform_mstrings cipher u in
+      Xdr_mstring.shared_sub_mstrings v 0 l
     )
 
   (* Test vectors from the RFC (for 128 bit AES): *)
@@ -1105,6 +1268,24 @@ module AES_CTS = struct
 	  decrypt k v_out = v_in
       )
       tests
+
+  let run_mtests() =
+    let j = ref 1 in
+    List.for_all
+      (fun (k, v_in, v_out) ->
+	 prerr_endline("Test: " ^ string_of_int !j);
+	 let v_in_ms = Xdr_mstring.string_to_mstring v_in in
+	 let v_out_ms = Xdr_mstring.string_to_mstring v_out in
+	 let e = 
+	   Xdr_mstring.concat_mstrings (encrypt_mstrings k [v_in_ms]) in
+	 prerr_endline "  enc ok";
+	 let d =
+	   Xdr_mstring.concat_mstrings (decrypt_mstrings k [v_out_ms]) in
+	 prerr_endline "  dec ok";
+	 incr j;
+	 e = v_out && d = v_in
+      )
+      tests
 end
 
 
@@ -1116,6 +1297,7 @@ module Cryptosystem = struct
 
   module I = struct   (* Integrity *)
     let hmac = hmac  (* hmac-sha1 *)
+    let hmac_mstrings = hmac_sha1_mstrings
     let h = 12
   end
 
@@ -1151,6 +1333,21 @@ module Cryptosystem = struct
     let h1 = I.hmac s_keys.ki p1 in
     c1 ^ String.sub h1 0 I.h
 
+  let encrypt_and_sign_mstrings s_keys message =
+    let c_bytes = C.c/8 in
+    let conf = String.make c_bytes '\000' in
+    Netsys_rng.fill_random conf;
+    let l = Xdr_mstring.length_mstrings message in
+    let p = (l + c_bytes) mod C.m in
+    let pad = 
+      if p = 0 then "" else String.make (C.m - p) '\000' in
+    let p1 =
+      ( ( Xdr_mstring.string_to_mstring conf ) :: message ) @
+	[ Xdr_mstring.string_to_mstring pad ] in
+    let c1 = C.encrypt_mstrings s_keys.ke p1 in
+    let h1 = I.hmac_mstrings s_keys.ki p1 in
+    c1 @ [ Xdr_mstring.string_to_mstring(String.sub h1 0 I.h) ]
+
   let decrypt_and_verify s_keys ciphertext =
     let c_bytes = C.c/8 in
     let l = String.length ciphertext in
@@ -1168,11 +1365,34 @@ module Cryptosystem = struct
     String.sub p1 c_bytes (q-c_bytes)
       (* This includes any padding or residue from the lower layer! *)
 
+
+  let decrypt_and_verify_mstrings s_keys ciphertext =
+    let c_bytes = C.c/8 in
+    let l = Xdr_mstring.length_mstrings ciphertext in
+    if l < I.h then
+      invalid_arg "Netmech_scram.Cryptosystem.decrypt_and_verify";
+    let c1 = Xdr_mstring.shared_sub_mstrings ciphertext 0 (l - I.h) in
+    let h1 = 
+      Xdr_mstring.concat_mstrings
+	(Xdr_mstring.shared_sub_mstrings ciphertext (l - I.h) I.h) in
+    let p1 = C.decrypt_mstrings s_keys.ke c1 in
+    let h1' = String.sub (I.hmac_mstrings s_keys.ki p1) 0 I.h in
+    if h1 <> h1' then
+      raise Integrity_error;
+    let q = Xdr_mstring.length_mstrings p1 in
+    if q < c_bytes then
+      raise Integrity_error;
+    Xdr_mstring.shared_sub_mstrings p1 c_bytes (q-c_bytes)
+      (* This includes any padding or residue from the lower layer! *)
+
   let get_ec s_keys n =
     if n < 16 then invalid_arg "Netmech_scram.Cryptosystem.get_ec";
     0
 
   let get_mic s_keys message =
     String.sub (I.hmac s_keys.kc message) 0 I.h
+
+  let get_mic_mstrings s_keys message =
+    String.sub (I.hmac_mstrings s_keys.kc message) 0 I.h
 
 end

@@ -264,9 +264,14 @@ module AES_CTS : sig
   val c : int
   val m : int
   val encrypt : string -> string -> string
+  val encrypt_mstrings : 
+    string -> Xdr_mstring.mstring list -> Xdr_mstring.mstring list
   val decrypt : string -> string -> string
+  val decrypt_mstrings : 
+    string -> Xdr_mstring.mstring list -> Xdr_mstring.mstring list
   val tests : (string * string * string) list
   val run_tests : unit -> bool
+  val run_mtests : unit -> bool
 end
 
 
@@ -289,6 +294,10 @@ module Cryptosystem : sig
 	Returns [ciphertext_with_signature].
      *)
 
+  val encrypt_and_sign_mstrings : 
+         specific_keys -> Xdr_mstring.mstring list -> Xdr_mstring.mstring list
+    (** Same, but with data representation as [mstring list] *)
+
   val decrypt_and_verify :  specific_keys -> string -> string
     (** Decrypts the ciphertext and verifies the attached signature.
 	Returns the restored plaintext. 
@@ -303,6 +312,10 @@ module Cryptosystem : sig
 	is raised.
      *)
 
+  val decrypt_and_verify_mstrings :
+         specific_keys -> Xdr_mstring.mstring list -> Xdr_mstring.mstring list
+    (** Same, but with data representation as [mstring list] *)
+
   val get_ec : specific_keys -> int -> int
     (** [let ec = get_ec e_keys n]:
         Returns the required value for the "extra count" field of
@@ -316,6 +329,10 @@ module Cryptosystem : sig
 
   val get_mic : specific_keys -> string -> string
     (** Returns a message integrity code *)
+
+  val get_mic_mstrings :
+         specific_keys -> Xdr_mstring.mstring list -> string
+    (** Same, but with data representation as [mstring list] *)
 end
 
 

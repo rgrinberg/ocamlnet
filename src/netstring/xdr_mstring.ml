@@ -246,7 +246,8 @@ let shared_sub_mstrings l sub_pos sub_len =
 	  if cond1 && cond2 && len > 0 then (
 	    let ms' =
 	      if pos < sub_pos then
-		shared_sub_mstring ms (sub_pos - pos) (pos' - sub_pos)
+		let q = min (pos' - sub_pos) sub_len in
+		shared_sub_mstring ms (sub_pos - pos) q
 	      else
 		if pos' > sub_pos' then
 		  shared_sub_mstring ms 0 (sub_pos' - pos)
