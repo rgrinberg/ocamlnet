@@ -8,7 +8,7 @@ OBJECTS  = netconst.cmo netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
 	   netaddress.cmo \
 	   netmime.cmo netsendmail.cmo nethttp.cmo \
 	   netpagebuffer.cmo netfs.cmo netglob_lex.cmo netglob.cmo \
-	   netauth.cmo
+	   netauth.cmo netnumber.cmo rtypes.cmo xdr_mstring.cmo xdr.cmo 
 
 PKGNAME  = netstring
 
@@ -36,7 +36,7 @@ INSTALL_EXTRA_CMO = netmappings_iso netmappings_jp netmappings_kr \
 INSTALL_EXTRA_CMX = netmappings_iso netmappings_jp netmappings_kr \
                     netmappings_other netmappings_min \
 		    netconversion \
-		    netbuffer
+		    netbuffer netnumber rtypes xdr
 INSTALL_EXTRA = $(INSTALL_EXTRA_CMO:=.cmo) \
 		$(INSTALL_EXTRA_CMX:=.cmx) $(INSTALL_EXTRA_CMX:=.p.cmx) \
 		$(INSTALL_EXTRA_CMX:=.o) $(INSTALL_EXTRA_CMX:=.p.o) \
@@ -49,6 +49,7 @@ DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netaccel_link.mli nethtml.mli netstring_str.mli netstring_pcre.mli \
 	netmappings.mli netaux.mli nethttp.mli netpagebuffer.mli \
 	netfs.mli netglob.mli netauth.mli \
+        netnumber.mli rtypes.mli xdr_mstring.mli xdr.mli \
 	netchannels_tut.txt netmime_tut.txt netsendmail_tut.txt \
 	netulex_tut.txt neturl_tut.txt
 
@@ -144,10 +145,23 @@ netconst.ml: netconst.mlp
 netconst.cmo: netconst.cmi
 netconst.cmx: netconst.cmi
 
+# netnumber:
+NETNUMBER_DEFS = -DWORDSIZE_$(WORD_SIZE) -DHOST_IS_$(ENDIANESS) \
+                 -DUSE_NETSYS_XDR
+
+netnumber.ml: netnumber.mlp
+	$(CAMLP4)  pa_o.cmo pa_op.cmo pr_o.cmo \
+	    -parser Camlp4MacroParser $(NETNUMBER_DEFS) \
+	    -impl netnumber.mlp > netnumber.ml || rm -f netnumber.ml
+
+OCAMLOPT_OPTIONS_FOR_netnumber.ml = -inline 10
+OCAMLOPT_OPTIONS_FOR_xdr.ml = -inline 5
+
+
 include $(TOP_DIR)/Makefile.rules
 
 CLEAN_LIST += tools_done netdb_done netdb.ml netdate.ml $(PMAP:.pmap=.ml)
-CLEAN_LIST += netconst.ml
+CLEAN_LIST += netconst.ml netnumber.ml
 
 clean::
 	test ! -d mappings || rm -f $(PMAP)
