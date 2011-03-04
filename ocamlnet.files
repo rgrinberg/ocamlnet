@@ -71,6 +71,8 @@ f src/netstring/nethttp.mlp
 f src/netstring/netdb.mlp
 x src/netstring/netdb.ml
 f src/netstring/netaccel_c.c
+f src/netstring/netnumber.mlp
+x src/netstring/netnumber.ml
 # The pattern:
 p src/netstring/.*\.ml
 p src/netstring/.*\.mli

@@ -2,7 +2,7 @@ TOP_DIR=../..
 
 PRE = 1
 PKGNAME = rpc-generator
-GENERATE = rtypes.ml rtypes.mli parser.ml META
+GENERATE = parser.ml META
 PACKLIST = rpcgen-packlist
 INSTALL_EXTRA = rpcgen-packlist
 INSTOTHER = install-rpcgen
@@ -12,12 +12,6 @@ OCAMLDEP_OPTIONS = -syntax camlp4o -package camlp4.macro
 include $(TOP_DIR)/Makefile.rules
 
 CLEAN_LIST += ocamlrpcgen$(EXEC_SUFFIX) parser.mli
-
-rtypes.ml: ../rpc/rtypes.ml
-	cp ../rpc/rtypes.ml .
-
-rtypes.mli: ../rpc/rtypes.mli
-	cp ../rpc/rtypes.mli .
 
 .PHONY: install-rpcgen
 install-rpcgen:

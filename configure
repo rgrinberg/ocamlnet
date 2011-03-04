@@ -391,7 +391,6 @@ if [ "$net_db_dir_set" -eq 0 ]; then
     net_db_dir_set=1
 fi
 
-
 ######################################################################
 # Does ocamlopt support multi-threading?
 
@@ -414,7 +413,7 @@ fi
 echo "$mt_type $mt_comment"
 
 ######################################################################
-# Check word size
+# Check word size at al
 
 printf "%s" "Checking word size... "
 cat <<_EOF_ >tmp/t.ml
@@ -422,6 +421,38 @@ print_endline(string_of_int(Sys.word_size))
 _EOF_
 word_size="$(ocaml tmp/t.ml)"
 echo "$word_size bit"
+
+printf "%s" "Checking endianess... "
+cat <<_EOF_ >tmp/tend.c
+#include "caml/mlvalues.h"
+value check(value d) {
+  union {
+    int i;
+    char s[4];
+  } u;
+  u.i = 0x0001010101;
+  return (u.s[0] == 0 ? Val_true : Val_false);
+}
+_EOF_
+
+cat <<_EOF_ >tmp/t.ml
+external check : unit -> bool = "check";;
+
+let () =
+  exit (if check() then 0 else 1)
+_EOF_
+
+( cd tmp
+  ocamlc -custom -o t tend.c t.ml
+) || exit
+
+if tmp/t; then
+    echo "big"
+    endianess="BIG_ENDIAN"
+else
+    echo "little"
+    endianess="LITTLE_ENDIAN"
+fi
 
 ######################################################################
 
@@ -860,6 +891,9 @@ MT_TYPE = $mt_type
 
 # word size:
 WORD_SIZE = $word_size
+
+# endianess
+ENDIANESS = $endianess
 
 # gprof:
 HAVE_GPROF = $have_gprof

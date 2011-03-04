@@ -96,7 +96,7 @@ let integrity_encoder (gss_api : Netgssapi.gss_api)
 		   *)
 		  Netlog.logf `Err
 		    "Rpc_auth_gssapi: Cannot obtain MIC: %s"
-		    string_of_major_status major_status;
+		    (string_of_major_status major_status);
 		  raise Rpc_server.Late_drop
 		)
 		else
@@ -192,7 +192,7 @@ let privacy_encoder (gss_api : Netgssapi.gss_api)
 		     wrap problem occurs in the server
 		   *)
 		  Netlog.log `Err s;
-		  raise Late_drop
+		  raise Rpc_server.Late_drop
 	 )
     ()
 

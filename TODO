@@ -20,8 +20,19 @@ Fixes TODO:
    - Delimited_tokens(start_char, end_char, forbidden_chars)
      e.g. Delimited_tokens('<', '>', [' '])
 
+  Even better idea:
+   - highly configurable scanner Netscan
+
 Netstring_pcre.replace: The replacement string follows PCRE syntax
 (i.e. $& for whole match etc.)
+
+Netnumber (in netstring):
+ - defines all the numeric Rtypes
+ - plus comparisons
+ - plus add, sub
+ - submodule BE (big endian)
+ - submodule LE (little endian)
+
 
 ***
 
@@ -30,9 +41,9 @@ GSSAPI:
  - wrap C impls of GSSAPI
  - SCRAM (RFC 5802) - DONE
  - ONCRPC + GSSAPI (RPCSEC_GSS) (RFC2203) - DONE
-   Fix Rpc_auth_gssapi: canonicalize names before exporting
- - Add Rpc_server.is_dummy
- - Add Rpc_proxy: user_name config
+   Fix Rpc_auth_gssapi: canonicalize names before exporting - DONE
+ - Add Rpc_server.is_dummy - DONE
+ - Add Rpc_proxy: user_name config - DONE
  - Avoid string copying
 
 
@@ -101,6 +112,7 @@ GSSAPI:
   * new iml Uq_engines.direct_socket_connector
   * Http_client
   * Telnet_client
+  * raise Host_not_found if lookups fail!
 
 $ find src -name "*.ml" | xargs grep gethostbyname
 src/nethttpd/nethttpd_services.ml:	      let h = Unix.gethostbyname host in
@@ -360,9 +372,10 @@ Implementation improvements after Ocamlnet 3.0
 - Netclient: engine interface for HTTP
 
 - access to good random number generator on all platforms
-  (for cryptogrpahy)
+  (for cryptogrpahy) - DONE
 
-- CHECK: GSSAPI, krb5 for rpc
+- GSSAPI - DONE
+- krb5 for rpc
 
 - netplex component for monitoring:
    - ping RPC services, but also support for plugging in other protocols
@@ -416,6 +429,8 @@ Further ideas
 - netconversion: support UTF-8 byte order marks
 
 - netconversion: support for character case
+
+- netconversion: support for Unicode db (implement normalization forms)
 
 - netbuffer: more search functions. Substring search. Maybe even globbing
 
@@ -518,7 +533,7 @@ Further ideas
 
 - support for CPS transformations
 
-- pluggable filesystem classes
+- pluggable filesystem classes - DONE
 
 - async local file I/O
 
@@ -540,5 +555,5 @@ Bugs Tidalwave:
 
 Http_client.pipeline:
 	- aggressive caching does not work properly. Sometimes descriptors
-	  are closed in the wrong moment.
-	  Sched: 2.3
+	  are closed in the wrong moment. - DONE
+
