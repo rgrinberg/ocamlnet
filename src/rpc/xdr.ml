@@ -484,6 +484,8 @@ let () =
 	   assert false
     )
 
+exception Xdr_failure of string
+
 
 (**********************************************************************)
 (* check if XDR types are well-formed                                 *)
@@ -983,10 +985,14 @@ type encoder = string -> string
 type decoder = string -> int -> int -> (string * int)
 
 
+let overflow() =
+  raise(Xdr_failure "overflow in ++")
+
+
 let ( ++ ) x y =
   (* pre: x >= 0 && y >= 0 *)
   let s = x + y in
-  if s < 0 then raise Not_found;  (* overflow *)
+  if s < 0 then raise overflow();
   s
 
 
@@ -1049,7 +1055,7 @@ let pack_size
 		Not_found ->
 		  match default with
 		      Some d -> d
-		    | None   -> raise Not_found
+		    | None   -> raise (Xdr_failure "T_union_over_int")
 	  in
 	  4 ++ get_size x t'
       | T_union_over_uint (u,default) ->
@@ -1061,7 +1067,7 @@ let pack_size
 		Not_found ->
 		  match default with
 		      Some d -> d
-		    | None   -> raise Not_found
+		    | None   -> raise (Xdr_failure "T_union_over_uint")
 	  in
 	  4 ++ get_size x t'
       | T_union_over_enum (et,u,default) ->
@@ -1072,7 +1078,7 @@ let pack_size
 	      | None     ->
 		  ( match default with
 			Some d -> d
-		      | None -> raise Not_found
+		      | None -> raise (Xdr_failure "T_union_over_enum")
 		  )
 	  in
 	  4 ++ get_size x t'
@@ -1103,7 +1109,7 @@ let pack_size
 	    !s
 	  )
 	  else
-	    raise Not_found
+	    raise (Xdr_failure "array is longer than allowed")
       | XV_array_of_string_fast x ->
 	  ( match t'.term with
 	      | T_string sn ->
@@ -1115,7 +1121,8 @@ let pack_size
 		      x;
 		    !sum
 		  )
-		  else raise Not_found
+		  else 
+		    raise (Xdr_failure "array is longer than allowed")
 	      | _ -> 
 		  raise Dest_failure
 	  )
@@ -1137,7 +1144,8 @@ let pack_size
       )
     end
     else
-      raise Not_found
+      raise 
+	(Xdr_failure "string is longer than allowed")
 
   in
   get_size v t
@@ -1265,7 +1273,7 @@ let rec pack_mstring
 		Not_found ->
 		  match default with
 		      Some d -> d
-		    | None   -> raise Not_found
+		    | None   -> raise (Xdr_failure "T_union_over_int")
 	  in
 	  Rtypes.write_int4_unsafe buf !buf_pos i;
 	  buf_pos := !buf_pos + 4;
@@ -1279,7 +1287,7 @@ let rec pack_mstring
 		Not_found ->
 		  match default with
 		      Some d -> d
-		    | None   -> raise Not_found
+		    | None   -> raise (Xdr_failure "T_union_over_uint")
 	  in
 	  Rtypes.write_uint4_unsafe buf !buf_pos i;
 	  buf_pos := !buf_pos + 4;
@@ -1292,7 +1300,7 @@ let rec pack_mstring
 	      | None     ->
 		  ( match default with
 			Some d -> d
-		      | None -> raise Not_found
+		      | None -> raise (Xdr_failure "T_union_over_enum")
 		  )
 	  in
 	  Rtypes.write_int4_unsafe buf !buf_pos (int4_of_int32 i);
@@ -1586,10 +1594,16 @@ let pack_xdr_value
 	)
 	mstrings
     with
-      any ->
-      	failwith ("Xdr.pack_xdr_value [1]: " ^ Netexn.to_string any)
+      | Dest_failure ->
+	  raise(Xdr_failure "Xdr.pack_xdr_value [2]: XDR type mismatch")
+      | Rtypes.Cannot_represent _ ->
+	  raise(Xdr_failure "Xdr.pack_xdr_value [3]: integer not representable")
+      | Rtypes.Out_of_range ->
+	  raise(Xdr_failure "Xdr.pack_xdr_value [4]: index out of range")
+      | Failure s ->
+	  raise(Xdr_failure ("Xdr.pack_xdr_value [5]: " ^ s))
   else
-    failwith "Xdr.pack_xdr_value [2]"
+    raise(Xdr_failure "Xdr.pack_xdr_value [1]")
 ;;
 
 
@@ -1617,10 +1631,19 @@ let pack_xdr_value_as_string
       let mstrings = rm_prefix @ mstrings0 in
       Xdr_mstring.concat_mstrings mstrings
     with
-      any ->
-      	failwith ("Xdr.pack_xdr_value_as_string [1]: " ^ Netexn.to_string any)
+      | Dest_failure ->
+	  raise(Xdr_failure
+		  "Xdr.pack_xdr_value_as_string [2]: XDR type mismatch")
+      | Rtypes.Cannot_represent _ ->
+	  raise(Xdr_failure
+		  "Xdr.pack_xdr_value_as_string [3]: integer not representable")
+      | Rtypes.Out_of_range ->
+	  raise(Xdr_failure
+		  "Xdr.pack_xdr_value_as_string [4]: index out of range")
+      | Failure s ->
+	  raise(Xdr_failure ("Xdr.pack_xdr_value_as_string [5]: " ^ s))
   else
-    failwith "Xdr.pack_xdr_value_as_string [2]"
+    raise(Xdr_failure "Xdr.pack_xdr_value_as_string [1]")
 ;;
 
 let pack_xdr_value_as_mstrings
@@ -1637,10 +1660,20 @@ let pack_xdr_value_as_mstrings
 	(fun n -> List.assoc n p)
 	(fun n -> try Some(List.assoc n encode) with Not_found -> None)
     with
-      any ->
-      	failwith ("Xdr.pack_xdr_value_as_mstrings [1]: " ^ Netexn.to_string any)
+      | Dest_failure ->
+	  raise(Xdr_failure
+		  "Xdr.pack_xdr_value_as_mstring [2]: XDR type mismatch")
+      | Rtypes.Cannot_represent _ ->
+	  raise
+	    (Xdr_failure
+	       "Xdr.pack_xdr_value_as_mstring [3]: integer not representable")
+      | Rtypes.Out_of_range ->
+	  raise(Xdr_failure
+		  "Xdr.pack_xdr_value_as_mstring [4]: index out of range")
+      | Failure s ->
+	  raise(Xdr_failure ("Xdr.pack_xdr_value_as_mstring [5]: " ^ s))
   else
-    failwith "Xdr.pack_xdr_value_as_mstrings [2]"
+    raise(Xdr_failure "Xdr.pack_xdr_value_as_mstring [1]")
 ;;
 
 (* "let rec" prevents that these functions are inlined. This is wanted here,

@@ -280,6 +280,7 @@ module ManagedClient = struct
 	mclient_msg_timeout_is_fatal : bool;
 	mclient_exception_handler : (exn -> unit) option;
 	mclient_auth_methods : Rpc_client.auth_method list;
+	mclient_user_name : string option;
 	mclient_initial_ping : bool;
 	mclient_max_response_length : int option;
 	mclient_mstring_factories : Xdr_mstring.named_mstring_factories option;
@@ -347,7 +348,8 @@ module ManagedClient = struct
 	?(msg_timeout_is_fatal = false)
 	?exception_handler
 	?(auth_methods = [])
-	?(initial_ping = false)
+        ?(user_name = None)
+ 	?(initial_ping = false)
 	?max_response_length
 	?mstring_factories
 	() =
@@ -364,6 +366,7 @@ module ManagedClient = struct
 	mclient_msg_timeout_is_fatal = msg_timeout_is_fatal;
 	mclient_exception_handler = exception_handler;
 	mclient_auth_methods = auth_methods;
+	mclient_user_name = user_name;
 	mclient_initial_ping = initial_ping;
 	mclient_max_response_length = max_response_length;
 	mclient_mstring_factories = mstring_factories;
@@ -660,6 +663,7 @@ module ManagedClient = struct
 	    );
 	    if mc.config.mclient_auth_methods <> [] then
 	      Rpc_client.set_auth_methods client mc.config.mclient_auth_methods;
+	    Rpc_client.set_user_name client mc.config.mclient_user_name;
 	    if mc.config.mclient_initial_ping then
 	      do_initial_ping mc client serial when_up when_fail
 	    else (

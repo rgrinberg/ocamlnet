@@ -1,10 +1,5 @@
 (* $Id$ *)
 
-(* TODO:
-   - Develop ideas how to avoid that strings are copied that frequently 
-   - canonicalize names before export
- *)
-
 open Netgssapi
 open Rpc_auth_gssapi_aux
 open Printf
@@ -83,7 +78,7 @@ let split_rpc_gss_data_t s =
 
 
 let integrity_encoder (gss_api : Netgssapi.gss_api)
-                      ctx cred1 rpc_gss_integ_data s =
+                      ctx is_server cred1 rpc_gss_integ_data s =
   dlog "integrity_encoder";
   let data =
     Rtypes.uint4_as_string cred1.seq_num ^ s in
@@ -94,13 +89,21 @@ let integrity_encoder (gss_api : Netgssapi.gss_api)
       ~message:(`String data, 0, String.length data)
       ~out:(fun ~msg_token ~minor_status ~major_status () ->
 	      let (c_err, r_err, flags) = major_status in
-	      if c_err <> `None || r_err <> `None then
-		failwith("Rpc_auth_gssapi: \
+	      if c_err <> `None || r_err <> `None then (
+		if is_server then (
+		  (* The RFC demands that no response is sent if a
+		     get_mic problem occurs in the server
+		   *)
+		  Netlog.logf `Err
+		    "Rpc_auth_gssapi: Cannot obtain MIC: %s"
+		    string_of_major_status major_status;
+		  raise Rpc_server.Late_drop
+		)
+		else
+		  failwith("Rpc_auth_gssapi: \
                           Cannot obtain MIC: " ^ 
-			   string_of_major_status major_status);
-	      (* FIXME: The RFC demands that no response is sent if a
-		 get_mic problem occurs in the server
-	       *)
+			     string_of_major_status major_status);
+	      );
 	      msg_token
 	   )
       () in
@@ -113,7 +116,7 @@ let integrity_encoder (gss_api : Netgssapi.gss_api)
 
 
 let integrity_decoder (gss_api : Netgssapi.gss_api)
-                      ctx cred1 rpc_gss_integ_data s pos len =
+                      ctx is_server cred1 rpc_gss_integ_data s pos len =
   dlog "integrity_decoder";
   try
     let xdr_val, xdr_len =
@@ -154,7 +157,7 @@ let integrity_decoder (gss_api : Netgssapi.gss_api)
 
 
 let privacy_encoder (gss_api : Netgssapi.gss_api)
-                     ctx cred1 rpc_gss_priv_data s =
+                     ctx is_server cred1 rpc_gss_priv_data s =
   dlog "privacy_encoder";
   let data =
     Rtypes.uint4_as_string cred1.seq_num ^ s in
@@ -165,29 +168,36 @@ let privacy_encoder (gss_api : Netgssapi.gss_api)
     ~input_message:(`String data, 0, String.length data)
     ~output_message_preferred_type:`String
     ~out:(fun ~conf_state ~output_message ~minor_status ~major_status () ->
-	    (* FIXME: The RFC demands that no response is sent if a
-	       wrap problem occurs in the server
-	     *)
-	    let (c_err, r_err, flags) = major_status in
-	    if c_err <> `None || r_err <> `None then
-	      failwith("Rpc_auth_gssapi: \
+	    try
+	      let (c_err, r_err, flags) = major_status in
+	      if c_err <> `None || r_err <> `None then (
+		failwith("Rpc_auth_gssapi: \
                           Cannot wrap message: " ^ 
-			 string_of_major_status major_status);
-	    if not conf_state then
-	      failwith "Rpc_auth_gssapi: no privacy-ensuring wrapping possible";
-	    let m = as_string output_message in
-	    (* FIXME: it would be better if the result value of an encoder
-	       was an mstring
-	     *)
-	    let priv =
-	      { databody_priv = m } in
-	    let xdr_val = Rpc_auth_gssapi_aux._of_rpc_gss_priv_data priv in
-	    Xdr.pack_xdr_value_as_string xdr_val rpc_gss_priv_data []
+			   string_of_major_status major_status);
+	      );
+	      if not conf_state then
+		failwith
+		  "Rpc_auth_gssapi: no privacy-ensuring wrapping possible";
+	      let m = as_string output_message in
+	      (* FIXME: it would be better if the result value of an encoder
+		 was an mstring
+	       *)
+	      let priv =
+		{ databody_priv = m } in
+	      let xdr_val = Rpc_auth_gssapi_aux._of_rpc_gss_priv_data priv in
+	      Xdr.pack_xdr_value_as_string xdr_val rpc_gss_priv_data []
+	    with
+	      | (Failure s | Xdr.Xdr_failure s) when is_server ->
+		  (* The RFC demands that no response is sent if a
+		     wrap problem occurs in the server
+		   *)
+		  Netlog.log `Err s;
+		  raise Late_drop
 	 )
     ()
 
 let privacy_decoder (gss_api : Netgssapi.gss_api)
-                     ctx cred1 rpc_gss_priv_data s pos len =
+                     ctx is_server cred1 rpc_gss_priv_data s pos len =
   dlog "privacy_decoder";
   try
     let xdr_val, xdr_len =
@@ -400,7 +410,6 @@ let server_auth_method
 	    _to_rpc_gss_cred_t xdr_val in
 	  match cred with
 	    | `_1 cred1 ->
-		(* FIXME: Unless rpc_gss_data, check that the procedure is 0 *)
 		let r =
 		  match cred1.gss_proc with
 		    | `rpcsec_gss_init ->
@@ -484,6 +493,9 @@ let server_auth_method
 			failwith("Rpc_auth_gssapi: get_user: context is not \
                                fully established");
 		      src_name
+			(* this is guaranteed to be a mechanism name (MN),
+			   so it is already canonicalized
+			 *)
 	       )
 	  () in
 	if user_name_format = `Exported_name then
@@ -519,6 +531,8 @@ let server_auth_method
       method private auth_init srv conn_id details cred1 =
 	dlog "auth_init";
 	let (verf_flav, verf_data) = details # verifier in
+	if details#procedure <> Rtypes.uint4_of_int 0 then
+	  failwith "For context initialization the RPC procedure must be 0";
 	if cred1.handle <> "" then
 	  failwith "Context handle is not empty";
 	if verf_flav <> "AUTH_NONE" then
@@ -586,6 +600,8 @@ let server_auth_method
       method private auth_cont_init srv conn_id details cred1 =
 	dlog "auth_cont_init";
 	let (verf_flav, verf_data) = details # verifier in
+	if details#procedure <> Rtypes.uint4_of_int 0 then
+	  failwith "For context initialization the RPC procedure must be 0";
 	if verf_flav <> "AUTH_NONE" then
 	  failwith "Bad verifier (1)";
 	if verf_data <> "" then
@@ -625,7 +641,12 @@ let server_auth_method
 		      then gss_s_continue_needed
 		      else gss_s_complete;
 		    res_minor = zero;
-		    res_seq_window = zero; (* FIXME *)
+		    res_seq_window = ( match seq_number_window with
+					 | None ->
+					     maxseq
+					 | Some n -> 
+					     Rtypes.uint4_of_int n
+				     );
 		    res_token = output_token
 		  } in
 		self # auth_init_result ctx reply
@@ -729,10 +750,10 @@ let server_auth_method
                           message";
 		let encoder =
 		  integrity_encoder 
-		    gss_api ctx.context cred1 rpc_gss_integ_data in
+		    gss_api ctx.context true cred1 rpc_gss_integ_data in
 		let decoder =
 		  integrity_decoder 
-		    gss_api ctx.context cred1 rpc_gss_integ_data in
+		    gss_api ctx.context true cred1 rpc_gss_integ_data in
 		self#auth_data_result
 		  ctx cred1.seq_num (Some encoder) (Some decoder)
 		  
@@ -741,9 +762,11 @@ let server_auth_method
 		  failwith "Rpc_auth_gssapi: unexpected privacy-proctected \
                           message";
 		let encoder =
-		  privacy_encoder gss_api ctx.context cred1 rpc_gss_priv_data in
+		  privacy_encoder
+		    gss_api ctx.context true cred1 rpc_gss_priv_data in
 		let decoder =
-		  privacy_decoder gss_api ctx.context cred1 rpc_gss_priv_data in
+		  privacy_decoder gss_api ctx.context true
+		    cred1 rpc_gss_priv_data in
 		self # auth_data_result
 		  ctx cred1.seq_num (Some encoder) (Some decoder)
 		  
@@ -776,6 +799,8 @@ let server_auth_method
 
       method private auth_destroy srv conn_id details cred1 =
 	dlog "auth_destroy";
+	if details#procedure <> Rtypes.uint4_of_int 0 then
+	  failwith "For context destruction the RPC procedure must be 0";
 	let r =
 	  self # auth_data srv conn_id details cred1 in
 	match r with
@@ -911,16 +936,18 @@ let client_auth_method
 		    
 	      | `rpc_gss_svc_integrity ->
 		  let encoder =
-		    integrity_encoder gss_api ctx cred1 rpc_gss_integ_data in
+		    integrity_encoder 
+		      gss_api ctx false cred1 rpc_gss_integ_data in
 		  let decoder =
-		    integrity_decoder gss_api ctx cred1 rpc_gss_integ_data in
+		    integrity_decoder 
+		      gss_api ctx false cred1 rpc_gss_integ_data in
 		  (Some encoder), (Some decoder)
 
 	      | `rpc_gss_svc_privacy ->
 		  let encoder =
-		    privacy_encoder gss_api ctx cred1 rpc_gss_priv_data in
+		    privacy_encoder gss_api ctx false cred1 rpc_gss_priv_data in
 		  let decoder =
-		    privacy_decoder gss_api ctx cred1 rpc_gss_priv_data in
+		    privacy_decoder gss_api ctx false cred1 rpc_gss_priv_data in
 		  (Some encoder), (Some decoder) in
 
 	  dlogr

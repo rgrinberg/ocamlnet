@@ -68,6 +68,11 @@ val rpc_factory :
     *       ()
     * ]}
     *
+    * The [setup] function is also called once before a new connection is
+    * accepted to get a list of programs and procedures. The [Rpc_server.t]
+    * is a special one in this case, and one can test for it with the
+    * {!Rpc_server.is_dummy} function.
+    *
     * @param socket_config An optional function computing the socket
     * configuration. By default, [Rpc_server.default_socket_config] is used.
     * Special socket configuration would, for example, allow SSL.

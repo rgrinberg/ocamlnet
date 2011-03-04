@@ -277,6 +277,9 @@ exception Xdr_format of string
 exception Xdr_format_message_too_long of xdr_value
   (** The message is too long and cannot be packed into a string *)
 
+exception Xdr_failure of string
+  (** Usually a problem during packing *)
+
 (** You must use these two functions to obtain validated types and
  * type systems. They fail with "validate_xdr_type" resp.
  * "validate_xdr_type_system" if the parameters are incorrect.
@@ -366,6 +369,8 @@ val value_matches_type : xdr_value -> xdr_type -> (string*xdr_type) list -> bool
  * and that at most [len] bytes can be decoded. It returns the decoded
  * string [xdr_s] (which is then unpacked), and in [n] the number of
  * consumed input bytes is returned.
+ *
+ * Exceptions raised in encoders or decoders fall through unmodified.
  *)
 
 type encoder = string -> string
@@ -382,14 +387,21 @@ val pack_xdr_value_as_string :
                      xdr_value -> xdr_type -> (string*xdr_type) list ->
                        string
   (** rm: If true, four null bytes are prepended to the string for the
-   *     record mark
+        record mark
+
+      Changed in Ocamlnet-3.3: these functions raise [Xdr_failure] in
+      case of errors.
    *)
 
 val pack_xdr_value_as_mstrings :
        ?encode:(string * encoder) list ->
        xdr_value -> xdr_type -> (string*xdr_type) list -> 
          Xdr_mstring.mstring list
-  (** The concatanated mstrings are the packed representation *)
+  (** The concatanated mstrings are the packed representation
+
+      Changed in Ocamlnet-3.3: this function raises [Xdr_failure] in
+      case of errors.
+ *)
 
 
 
@@ -418,4 +430,7 @@ val unpack_xdr_value_l : ?pos:int -> ?len:int -> ?fast:bool -> ?prefix:bool ->
    *
    * The variant [unpack_xdr_value_l] returns not only the decoded value,
    * but also the actual length in bytes.
+   *
+   * The exceptions [Xdr_format] and [Xdr_format_message_too_long] may
+   * be raised.
    *)

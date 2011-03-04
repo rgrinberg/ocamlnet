@@ -67,6 +67,8 @@ type auth_peeker =
     ]
 
 
+exception Late_drop
+
 class type auth_details =
 object
   method server_addr : Unix.sockaddr option
@@ -151,6 +153,7 @@ let uint4_max m =
 
 type t =
       { mutable main_socket_name : Rpc_transport.sockaddr;
+	mutable dummy : bool;
 	mutable service : (Rpc_program.t * binding Uint4Map.t) 
 	                    Uint4Map.t Uint4Map.t;
 	        (* Program nr/version nr/procedure nr *)
@@ -504,6 +507,9 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 		 (fun () -> "Error " ^ errname condition) in
 	       schedule_answer answer
 	    )
+      | Late_drop ->
+	  Netlog.logf `Err
+	    "Dropping response message"
       | Abort(_,_) as x ->
 	  raise x
       | any ->
@@ -658,6 +664,9 @@ let process_incoming_message srv conn sockaddr_lz peeraddr message reaction =
 			     let result_value =
 			       p.sync_proc param
 			     in
+			     (* Exceptions raised by the encoder are
+				handled by [protect]
+			      *)
 			     let reply = 
 			       Rpc_packer.pack_successful_reply
 				 ?encoder:enc_opt
@@ -1015,6 +1024,7 @@ let create2_srv prot esys =
   Hashtbl.add mf "*" Xdr_mstring.string_based_mstrings;
   
   { main_socket_name = `Implied;
+    dummy = false;
     service = Uint4Map.empty;
     portmapped = None;
     esys = esys;
@@ -1369,8 +1379,13 @@ let create2 mode esys =
     | `Socket(prot,conn,config) ->
 	create2_socket_server ~config prot conn esys
     | `Dummy prot ->
-	create2_srv prot esys
+	let srv = create2_srv prot esys in
+	srv.dummy <- true;
+	srv
 ;;
+
+
+let is_dummy srv = srv.dummy
 
 
 let bind ?program_number ?version_number prog0 procs srv =
@@ -1692,51 +1707,6 @@ let get_last_proc_info srv = srv.get_last_proc()
 
   (*****)
 
-let reply a_session result_value =
-  let conn = a_session.server in
-  let srv = conn.whole_server in
-
-  dlogr srv
-    (fun () ->
-       sprintf "reply xid=%Ld have_encoder=%B"
-	 (Rtypes.int64_of_uint4 a_session.client_id)
-	 (a_session.encoder <> None)
-    );
-  
-  if conn.trans = None then raise Connection_lost;
-  
-  let prog =
-    match a_session.prog with
-      | None -> assert false
-      | Some p -> p in
-
-  let reply = Rpc_packer.pack_successful_reply
-    ?encoder:a_session.encoder
-	prog a_session.procname a_session.client_id
-    a_session.auth_ret_flav a_session.auth_ret_data
-    result_value
-  in
-  
-  let reply_session =
-    { a_session with
-	parameter = XV_void;
-	result = reply;
-	ptrace_result = (if !Debug.enable_ptrace then
-	  		   Rpc_util.string_of_response
-			     !Debug.ptrace_verbosity
-			     prog
-			       a_session.procname
-			     result_value
-			 else ""
-			)
-    }
-  in
-  
-  Queue.add reply_session conn.replies;
-  
-  next_outgoing_message srv conn
-    
-
 let reply_error a_session condition =
     let conn = a_session.server in
     let srv = conn.whole_server in
@@ -1774,6 +1744,63 @@ let reply_error a_session condition =
 
     next_outgoing_message srv conn
 
+
+let reply a_session result_value =
+  let conn = a_session.server in
+  let srv = conn.whole_server in
+
+  dlogr srv
+    (fun () ->
+       sprintf "reply xid=%Ld have_encoder=%B"
+	 (Rtypes.int64_of_uint4 a_session.client_id)
+	 (a_session.encoder <> None)
+    );
+  
+  if conn.trans = None then raise Connection_lost;
+  
+  let prog =
+    match a_session.prog with
+      | None -> assert false
+      | Some p -> p in
+
+  let f =
+    try
+      let reply = Rpc_packer.pack_successful_reply
+	?encoder:a_session.encoder
+	prog a_session.procname a_session.client_id
+	a_session.auth_ret_flav a_session.auth_ret_data
+	result_value
+      in
+  
+      let reply_session =
+	{ a_session with
+	    parameter = XV_void;
+	    result = reply;
+	    ptrace_result = (if !Debug.enable_ptrace then
+	  		       Rpc_util.string_of_response
+				 !Debug.ptrace_verbosity
+				 prog
+			       a_session.procname
+				 result_value
+			     else ""
+			    )
+	}
+      in
+      (fun () ->
+	 Queue.add reply_session conn.replies;
+	 next_outgoing_message srv conn
+      )
+    with (* exceptions raised by the encoder *)
+      | Late_drop ->
+	  Netlog.logf `Err
+	    "Dropping response message";
+	  (fun () -> ())
+      | Rpc_server condition ->
+	  reply_error a_session condition;
+	  (fun () -> ())
+  in
+  f()
+    
 
 let set_exception_handler srv eh =
   srv.exception_handler <- eh

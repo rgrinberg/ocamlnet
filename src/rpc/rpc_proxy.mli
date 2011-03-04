@@ -249,6 +249,8 @@ module ManagedClient : sig
 	  (** Whether to call {!Rpc_client.set_exception_handler} *)
 	mclient_auth_methods : Rpc_client.auth_method list;
 	  (** Set these authentication methods in the client *)
+	mclient_user_name : string option;
+	  (** The user name for authentication, None = default user *)
 	mclient_initial_ping : bool;
 	  (** Whether to call procedure 0 of the first program after
               connection establishment (see comments above)
@@ -274,6 +276,7 @@ module ManagedClient : sig
                               ?msg_timeout_is_fatal:bool ->
                               ?exception_handler:(exn -> unit) ->
                               ?auth_methods:Rpc_client.auth_method list ->
+                              ?user_name:string option ->
                               ?initial_ping:bool ->
                               ?max_response_length:int ->
                               ?mstring_factories:Xdr_mstring.
@@ -289,6 +292,7 @@ module ManagedClient : sig
          - [msg_timeout_is_fatal]: false
          - [exception_handler]: None
          - [auth_methods]: empty list
+         - [user_name]: None
          - [initial_ping]: false
          - [max_response_length]: None
          - [mstring_factories]: None

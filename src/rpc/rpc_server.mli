@@ -271,6 +271,10 @@ val get_srv_event_system : t -> Unixqueue.unix_event_system
 val get_last_proc_info : t -> string
   (** Get a debug string describing the last invoked procedure *)
 
+val is_dummy : t -> bool
+  (** Whether this is a server in [`Dummy] mode. These servers cannot be
+      used for communication
+   *)
 
 type rule =
     [ `Deny
@@ -402,6 +406,9 @@ type auth_result =
           [(username, returned_verifier_flavour, returned_verifier_data, 
 	    enc_opt, dec_opt
 	  )]
+
+	  Encoders and decoders are allowed to raise the exceptions
+	  {!Rpc_server.Late_drop} and {!Rpc.Rpc_server}.
        *)
   | Auth_negative of Rpc.server_error
       (** Failed authentication *)
@@ -413,6 +420,12 @@ type auth_result =
        *)
   | Auth_drop
       (** Authentication demands to drop the message *)
+
+
+exception Late_drop
+  (** This can be raised in encryption/decryption functions to prevent
+      that a response is sent.
+   *)
 
 type auth_peeker =
     [ `None
