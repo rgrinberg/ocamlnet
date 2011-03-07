@@ -1,3 +1,26 @@
+2011-03-07  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Netnumber: better successor of Rtypes, with both big-endian
+	  and little-endian support. Rtypes is still available as
+	  legacy module
+
+	* Xdr, Xdr_mstring, Rtypes: have been moved to the "netstring"
+	  library part
+
+	* Adding support for GSS-API: The generic interface is defined in
+	  Netgssapi. ONC-RPC support can be found in Rpc_auth_gssapi.
+	  The authentication framework of ONC-RPC had to be slightly
+	  extended.
+
+	* Adding the SCRAM authentication method. Also includes an
+	  encapsulation as GSS-API method.
+
+	* Rpc_client: one can now set the user identifier (also for Rpc_proxy)
+
+	* Rpc_server: added is_dummy
+
+	* Netsys_rng: secure random numbers on all platforms
+	
 2011-01-31  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Rpc_proxy: if initial_ping is enabled, the calls are queued

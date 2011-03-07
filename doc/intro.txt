@@ -72,7 +72,12 @@ are supported on which platform:
    Netstring_str
    Netstring_pcre
    Netmappings
-   Netaux}
+   Netaux
+   Netnumber
+   Rtypes
+   Xdr
+   Xdr_mstring
+}
 
 {3:netstring_intro Guides}
 
@@ -195,8 +200,6 @@ build web servers, and with [rpc] to build RPC servers.
 This library implements OncRPC (alias SunRPC).
 
 {!modules:
-   Rtypes
-   Xdr
    Rpc
    Rpc_program
    Rpc_client
