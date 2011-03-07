@@ -37,8 +37,32 @@ type document =
 
 
 (** We also need a type that declares how to handle the various tags.
- * This is called a "simplified DTD", as it is derived from SGML DTDs,
- * but simplified to the extent used in the HTML definition.
+    This is called a "simplified DTD", as it is derived from SGML DTDs,
+    but simplified to the extent used in the HTML definition.
+
+    The HTML specification (http://www.w3.org/TR/1999/REC-html401-19991224)
+    is the reference for the HTML DTD. You can see there that
+    most HTML elements are either an inline element, a block element, or
+    both ("flow" element). The grammar of HTML is described in terms of
+    these classes. For instance, a [P] tag (paragraph) is a block element and
+    contains block elements whereas [B] (bold) is an inline element and
+    contains inline elements. From this follows that you cannot put a [P]
+    inside a [B]: [<B><P>something</P></B>] is illegal.
+
+    The parser needs this information to resolve such input, i.e. do
+    something with bad HTML. As HTML allows tag minimization (many end tags
+    can be omitted), the parser can read this as: [<B></B><P>something</P>]
+    (and the [</B>] in the input is ignored).
+    
+    If all start and all end tags are written out, changing the
+    simplified_dtd does not make any difference.
+
+    There is no normative text that says how to read bad HTML. Because of
+    this, it is - to a large degree - an interpretation of HTML what you put
+    into [simplified_dtd]. We provide two versions:
+    - [html40_dtd]: tries to be close to the official spec
+    - [relaxed_html40_dtd]: tries to be close to what common web browsers
+      implement
  *)
 
 (* Now follows the type definition of simplified DTDs. *)
