@@ -206,7 +206,7 @@ end
 let scram_mech = [| 1; 3; 6; 1; 5; 5; 14 |]
 
 
-
+(*
 let as_string (sm,pos,len) =
   match sm with
     | `String s ->
@@ -218,9 +218,11 @@ let as_string (sm,pos,len) =
 	let s = String.create len in
 	Netsys_mem.blit_memory_to_string m pos s 0 len;
 	s
+ *)
 
-
+(*
 let empty_msg = (`String "",0,0)
+ *)
 
 exception Calling_error of calling_error
 exception Routine_error of routine_error
@@ -743,8 +745,9 @@ object(self)
 		    ~sent_by_acceptor
 		    ~acceptor_subkey:false
 		    ~sequence_number
-		    ~get_mic:(Netmech_scram.Cryptosystem.get_mic sk_mic)
-		    ~message:(as_string message) in
+		    ~get_mic:(
+		      Netmech_scram.Cryptosystem.get_mic_mstrings sk_mic)
+		    ~message in
 		out
 		  ~msg_token:token ~minor_status:0l
 		  ~major_status:(`None,`None,[])
@@ -1249,7 +1252,7 @@ object(self)
     let sk_opt = context # specific_keys in
     let error code =
       out
-	~output_message:empty_msg ~conf_state:false ~qop_state:default_qop
+	~output_message:[] ~conf_state:false ~qop_state:default_qop
 	~minor_status:0l ~major_status:(`None,code,[]) () in
     if not context#valid then
       error `No_context
@@ -1261,21 +1264,19 @@ object(self)
 	    let sk_wrap =
 	      if context#is_acceptor then k_wrap_c else k_wrap_s in
 	    ( try
-		let token = (as_string input_message) in
 		let (sent_by_acceptor, _, _, tok_seq_nr) =
-		  Netgssapi.parse_wrap_token_header token in
+		  Netgssapi.parse_wrap_token_header input_message in
 		if sent_by_acceptor = context#is_acceptor then
 		  raise Netmech_scram.Cryptosystem.Integrity_error;
 		let flags = context#is_peer_seq_nr_ok tok_seq_nr in
 		let s =
 		  Netgssapi.unwrap_wrap_token_conf
 		    ~decrypt_and_verify:(
-		      Netmech_scram.Cryptosystem.decrypt_and_verify
+		      Netmech_scram.Cryptosystem.decrypt_and_verify_mstrings
 			sk_wrap)
-		    ~token in
-		let l = String.length s in
+		    ~token:input_message in
 		out
-		  ~output_message:(`String s,0,l)
+		  ~output_message:s
 		  ~conf_state:true
 		  ~qop_state:default_qop
 		  ~minor_status:0l ~major_status:(`None,`None,flags) ()
@@ -1320,8 +1321,8 @@ object(self)
 	    let ok =
 	      sent_by_acceptor <> context#is_acceptor &&
 		(Netgssapi.verify_mic_token
-		   ~get_mic:(Netmech_scram.Cryptosystem.get_mic sk_mic)
-		   ~message:(as_string message) 
+		   ~get_mic:(Netmech_scram.Cryptosystem.get_mic_mstrings sk_mic)
+		   ~message
 		   ~token) in
 	    if ok then
 	      out
@@ -1351,20 +1352,20 @@ object(self)
     let context = context_retrieve context in
     if not context#valid then
       out
-	~conf_state:false ~output_message:empty_msg ~minor_status:0l
+	~conf_state:false ~output_message:[] ~minor_status:0l
 	~major_status:(`None,`No_context,[]) ()
     else
       let sk_opt = context # specific_keys in
       (* Reject any QOP: *)
       if qop_req <> None && qop_req <> Some default_qop then
 	out
-	  ~conf_state:false ~output_message:empty_msg ~minor_status:0l
+	  ~conf_state:false ~output_message:[] ~minor_status:0l
 	  ~major_status:(`None,`Bad_QOP,[]) ()
       else (
 	match sk_opt with
 	  | None ->
 	      out
-		~conf_state:false ~output_message:empty_msg ~minor_status:0l
+		~conf_state:false ~output_message:[] ~minor_status:0l
 		~major_status:(`None,`No_context,[]) ()
 	  | Some (k_mic_c,k_mic_s,k_wrap_c,k_wrap_s) ->
 	      let sk_wrap =
@@ -1377,12 +1378,12 @@ object(self)
 		  ~get_ec:(
 		    Netmech_scram.Cryptosystem.get_ec sk_wrap)
 		  ~encrypt_and_sign:(
-		    Netmech_scram.Cryptosystem.encrypt_and_sign sk_wrap)
-		  ~message:(as_string input_message) in
-	      let token_l = String.length token in
+		    Netmech_scram.Cryptosystem.encrypt_and_sign_mstrings
+		      sk_wrap)
+		  ~message:input_message in
 	      out
 		~conf_state:true 
-		~output_message:(`String token,0,token_l)
+		~output_message:token
 		~minor_status:0l
 		~major_status:(`None,`None,[])
 		()

@@ -26,12 +26,13 @@ Fixes TODO:
 Netstring_pcre.replace: The replacement string follows PCRE syntax
 (i.e. $& for whole match etc.)
 
-Netnumber (in netstring):
- - defines all the numeric Rtypes
- - plus comparisons
- - plus add, sub
- - submodule BE (big endian)
- - submodule LE (little endian)
+Netnumber (in netstring): - DONE
+ - defines all the numeric Rtypes - DONE
+ - plus comparisons - DONE
+ - submodule BE (big endian) - DONE
+ - submodule LE (little endian) - DONE
+
+Netnumber plus add, sub
 
 
 ***
@@ -44,7 +45,7 @@ GSSAPI:
    Fix Rpc_auth_gssapi: canonicalize names before exporting - DONE
  - Add Rpc_server.is_dummy - DONE
  - Add Rpc_proxy: user_name config - DONE
- - Avoid string copying
+ - Avoid string copying - DONE
 
 
 ***

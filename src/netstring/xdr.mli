@@ -373,7 +373,7 @@ val value_matches_type : xdr_value -> xdr_type -> (string*xdr_type) list -> bool
  * Exceptions raised in encoders or decoders fall through unmodified.
  *)
 
-type encoder = string -> string
+type encoder = Xdr_mstring.mstring list -> Xdr_mstring.mstring list
   (** see text above *)
 type decoder = string -> int -> int -> (string * int)
   (** see text above *)
@@ -433,4 +433,12 @@ val unpack_xdr_value_l : ?pos:int -> ?len:int -> ?fast:bool -> ?prefix:bool ->
    *
    * The exceptions [Xdr_format] and [Xdr_format_message_too_long] may
    * be raised.
+   *)
+
+(**/**)
+
+(* Low-level *)
+val get_string_decoration_size : int -> Rtypes.uint4 -> int
+  (* Returns the size of the "string decoration", i.e. the size of the
+     header (always 4 bytes) plus the size of the padding.
    *)

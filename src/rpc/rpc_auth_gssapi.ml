@@ -49,44 +49,29 @@ let dlog = Netlog.Debug.mk_dlog "Rpc_auth_gssapi" Debug.enable
 let dlogr = Netlog.Debug.mk_dlogr "Rpc_auth_gssapi" Debug.enable
 
 
-let as_string (sm,pos,len) =
-  (* FIXME: also in netmech_scram_gssapi *)
-  match sm with
-    | `String s ->
-        if pos=0 && len=String.length s then
-          s
-        else
-          String.sub s pos len
-    | `Memory m -> 
-        let s = String.create len in
-        Netsys_mem.blit_memory_to_string m pos s 0 len;
-        s
-
-
-let mk_mstring s =
-  Xdr_mstring.string_based_mstrings # create_from_string
-    s 0 (String.length s) false
-
-
-let split_rpc_gss_data_t s =
-  if String.length s < 4 then
+let split_rpc_gss_data_t ms =
+  let ms_len =  Xdr_mstring.length_mstrings ms in
+  if ms_len < 4 then
     failwith "Rpc_auth_gssapi.split_rpc_gss_data_t";
-  let seq_s = String.sub s 0 4 in
-  let rest_s = String.sub s 4 (String.length s - 4) in
+  let seq_s = Xdr_mstring.prefix_mstrings ms 4 in
+  let rest_s = Xdr_mstring.shared_sub_mstrings ms 4 (ms_len - 4) in
   let seq = Rtypes.read_uint4 seq_s 0 in
   (seq, rest_s)
 
+
+let omax = Rtypes.mk_uint4 ('\255', '\255', '\255', '\255')
 
 let integrity_encoder (gss_api : Netgssapi.gss_api)
                       ctx is_server cred1 rpc_gss_integ_data s =
   dlog "integrity_encoder";
   let data =
-    Rtypes.uint4_as_string cred1.seq_num ^ s in
+    Xdr_mstring.string_to_mstring 
+      (Rtypes.uint4_as_string cred1.seq_num) ::  s in
   let mic =
     gss_api # get_mic
       ~context:ctx
       ~qop_req:None
-      ~message:(`String data, 0, String.length data)
+      ~message:data
       ~out:(fun ~msg_token ~minor_status ~major_status () ->
 	      let (c_err, r_err, flags) = major_status in
 	      if c_err <> `None || r_err <> `None then (
@@ -107,12 +92,41 @@ let integrity_encoder (gss_api : Netgssapi.gss_api)
 	      msg_token
 	   )
       () in
+  (* The commented out code block performs two superflous string copies.
+     We avoid this by doing the XDR-ing manually.
+   *)
+(*
   let integ =
-    { databody_integ = data;
+    { databody_integ = (Xdr_mstring.concat_mstrings data);
       checksum = mic;
     } in
   let xdr_val = Rpc_auth_gssapi_aux._of_rpc_gss_integ_data integ in
   Xdr.pack_xdr_value_as_string xdr_val rpc_gss_integ_data []
+ *)
+  let data_len = Xdr_mstring.length_mstrings data in
+  let data_decolen = Xdr.get_string_decoration_size data_len omax in
+  let data_hdr = Rtypes.uint4_as_string (Rtypes.uint4_of_int data_len) in
+  let data_padlen = data_decolen - 4 in
+  let data_pad = String.make data_padlen '\000' in
+  
+  let mic_len = String.length mic in
+  let mic_decolen =  Xdr.get_string_decoration_size mic_len omax in
+  let mic_hdr = Rtypes.uint4_as_string (Rtypes.uint4_of_int mic_len) in
+  let mic_padlen = mic_decolen - 4 in
+  let mic_pad = String.make mic_padlen '\000' in
+
+  [ Xdr_mstring.string_to_mstring data_hdr ] @
+  data @
+  [ Xdr_mstring.string_to_mstring (data_pad ^ 
+				     mic_hdr ^ mic ^ mic_pad)
+  ]
+
+    
+
+let ms_factories = Hashtbl.create 3
+
+let () =
+  Hashtbl.add ms_factories "*" Xdr_mstring.string_based_mstrings
 
 
 let integrity_decoder (gss_api : Netgssapi.gss_api)
@@ -121,7 +135,9 @@ let integrity_decoder (gss_api : Netgssapi.gss_api)
   try
     let xdr_val, xdr_len =
       Xdr.unpack_xdr_value_l
-	~pos ~len ~fast:true s rpc_gss_integ_data ~prefix:true [] in
+	~pos ~len ~fast:true s rpc_gss_integ_data ~prefix:true
+	~mstring_factories:ms_factories
+	[] in
     let integ =
       _to_rpc_gss_integ_data xdr_val in
     let data =
@@ -131,7 +147,7 @@ let integrity_decoder (gss_api : Netgssapi.gss_api)
      *)
     gss_api # verify_mic
       ~context:ctx
-      ~message:(`String data, 0, String.length data)
+      ~message:[data]
       ~token:integ.checksum
       ~out:(fun ~qop_state ~minor_status ~major_status () ->
 	      let (c_err, r_err, flags) = major_status in
@@ -143,11 +159,14 @@ let integrity_decoder (gss_api : Netgssapi.gss_api)
 	   )
       ();
     let (seq, args) =
-      split_rpc_gss_data_t data in
+      split_rpc_gss_data_t [data] in
     if seq <> cred1.seq_num then
       raise(Xdr.Xdr_format "Rpc_auth_gssapi: bad sequence number");
     dlog "integrity_decoder returns normally";
-    (args, xdr_len)
+    (Xdr_mstring.concat_mstrings args, xdr_len)
+      (* This "concat" is hard to avoid. We are still decoding strings,
+	 not mstrings.
+       *)
   with
     | Xdr.Xdr_format _ as e ->
 	raise e
@@ -160,12 +179,13 @@ let privacy_encoder (gss_api : Netgssapi.gss_api)
                      ctx is_server cred1 rpc_gss_priv_data s =
   dlog "privacy_encoder";
   let data =
-    Rtypes.uint4_as_string cred1.seq_num ^ s in
+    Xdr_mstring.string_to_mstring 
+      (Rtypes.uint4_as_string cred1.seq_num) ::  s in
   gss_api # wrap
     ~context:ctx
     ~conf_req:true
     ~qop_req:None
-    ~input_message:(`String data, 0, String.length data)
+    ~input_message:data
     ~output_message_preferred_type:`String
     ~out:(fun ~conf_state ~output_message ~minor_status ~major_status () ->
 	    try
@@ -178,14 +198,24 @@ let privacy_encoder (gss_api : Netgssapi.gss_api)
 	      if not conf_state then
 		failwith
 		  "Rpc_auth_gssapi: no privacy-ensuring wrapping possible";
-	      let m = as_string output_message in
-	      (* FIXME: it would be better if the result value of an encoder
-		 was an mstring
-	       *)
+  (* The commented out code block performs two superflous string copies.
+     We avoid this by doing the XDR-ing manually.
+   *)
+	      let priv_len = Xdr_mstring.length_mstrings output_message in
+	      let priv_decolen = Xdr.get_string_decoration_size priv_len omax in
+	      let priv_hdr = 
+		Rtypes.uint4_as_string (Rtypes.uint4_of_int priv_len) in
+	      let priv_padlen = priv_decolen - 4 in
+	      let priv_pad = String.make priv_padlen '\000' in
+	      [ Xdr_mstring.string_to_mstring priv_hdr ] @
+		output_message @
+		[ Xdr_mstring.string_to_mstring priv_pad ]
+(*
 	      let priv =
-		{ databody_priv = m } in
+		{ databody_priv = output_message } in
 	      let xdr_val = Rpc_auth_gssapi_aux._of_rpc_gss_priv_data priv in
-	      Xdr.pack_xdr_value_as_string xdr_val rpc_gss_priv_data []
+	      Xdr.pack_xdr_value_as_mstring xdr_val rpc_gss_priv_data []
+ *)
 	    with
 	      | (Failure s | Xdr.Xdr_failure s) when is_server ->
 		  (* The RFC demands that no response is sent if a
@@ -202,7 +232,9 @@ let privacy_decoder (gss_api : Netgssapi.gss_api)
   try
     let xdr_val, xdr_len =
       Xdr.unpack_xdr_value_l
-	~pos ~len ~fast:true ~prefix:true s rpc_gss_priv_data [] in
+	~pos ~len ~fast:true ~prefix:true s rpc_gss_priv_data 
+	~mstring_factories:ms_factories
+	[] in
     let priv =
       _to_rpc_gss_priv_data xdr_val in
     let data =
@@ -212,7 +244,7 @@ let privacy_decoder (gss_api : Netgssapi.gss_api)
      *)
     gss_api # unwrap
       ~context:ctx
-      ~input_message:(`String data, 0, String.length data)
+      ~input_message:[data]
       ~output_message_preferred_type:`String
       ~out:(fun ~output_message ~conf_state ~qop_state ~minor_status 
 	      ~major_status
@@ -228,13 +260,12 @@ let privacy_decoder (gss_api : Netgssapi.gss_api)
 		    (Xdr.Xdr_format
 		       "Rpc_auth_gssapi: no privacy-ensuring unwrapping \
                         possible");
-		let m = as_string output_message in
 		let (seq, args) =
-		  split_rpc_gss_data_t m in
+		  split_rpc_gss_data_t output_message in
 		if seq <> cred1.seq_num then
 		  raise(Xdr.Xdr_format "Rpc_auth_gssapi: bad sequence number");
 		dlog "privacy_decoder returns normally";
-		(args, xdr_len)
+		(Xdr_mstring.concat_mstrings args, xdr_len)
 	   )
       ()
   with
@@ -670,7 +701,7 @@ let server_auth_method
 	      gss_api # get_mic
 		~context:ctx.context
 		~qop_req:None
-		~message:(`String window_s, 0, String.length window_s)
+		~message:[Xdr_mstring.string_to_mstring window_s]
 		~out:(fun ~msg_token ~minor_status ~major_status () ->
 			let (c_err, r_err, flags) = major_status in
 			if c_err <> `None || r_err <> `None then
@@ -703,7 +734,7 @@ let server_auth_method
 	
 	gss_api # verify_mic
 	  ~context:ctx.context
-	  ~message:(`String s, 0, String.length s)
+	  ~message:[Xdr_mstring.string_to_mstring s]
 	  ~token:verf_data
 	  ~out:(fun ~qop_state ~minor_status ~major_status () ->
 		  let (c_err, r_err, flags) = major_status in
@@ -779,7 +810,7 @@ let server_auth_method
 	  gss_api # get_mic
 	    ~context:ctx.context
 	    ~qop_req:None
-	    ~message:(`String seq_s, 0, String.length seq_s)
+	    ~message:[Xdr_mstring.string_to_mstring seq_s]
 	    ~out:(fun ~msg_token ~minor_status ~major_status () ->
 		    let (c_err, r_err, flags) = major_status in
 		    if c_err <> `None || r_err <> `None then
@@ -825,11 +856,11 @@ let server_auth_method
 	      (* Create response: *)
 	      let encoded_emptiness =
 		match enc_opt with
-		  | None -> ""
-		  | Some enc -> enc "" in
+		  | None -> []
+		  | Some enc -> enc [] in
 
 	      (* Respond: *)
-	      Rpc_server.Auth_reply([mk_mstring encoded_emptiness], flav, mic)
+	      Rpc_server.Auth_reply(encoded_emptiness, flav, mic)
 	  | _ ->
 	      r
     end
@@ -907,7 +938,7 @@ let client_auth_method
 	    gss_api # get_mic
 	      ~context:ctx
 	      ~qop_req:None
-	      ~message:(`String h, 0, String.length h)
+	      ~message:[Xdr_mstring.string_to_mstring h]
 	      ~out:(fun ~msg_token ~minor_status ~major_status () ->
 		      let (c_err, r_err, flags) = major_status in
 		      if c_err <> `None || r_err <> `None then
@@ -992,7 +1023,7 @@ let client_auth_method
 	  Hashtbl.remove seq_num_of_xid xid;
 	  gss_api # verify_mic
 	    ~context:ctx
-	    ~message:(`String seq_s, 0, String.length seq_s)
+	    ~message:[Xdr_mstring.string_to_mstring seq_s]
 	    ~token:verf_data
 	    ~out:(fun ~qop_state ~minor_status ~major_status () ->
 		    let (c_err, r_err, flags) = major_status in
@@ -1181,7 +1212,7 @@ let client_auth_method
 		Rtypes.uint4_as_string res.res_seq_window in
 	      gss_api # verify_mic
 		~context:(get_context())
-		~message:(`String window_s, 0, String.length window_s)
+		~message:[Xdr_mstring.string_to_mstring window_s]
 		~token:flav_data
 		~out:(fun ~qop_state ~minor_status ~major_status () ->
 			let (c_err, r_err, flags) = major_status in

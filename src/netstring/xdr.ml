@@ -981,7 +981,7 @@ let are_compatible (s1:xdr_type) (s2:xdr_type) : bool =
    loop over the value doing everything. Whoever understands that.
  *)
 
-type encoder = string -> string
+type encoder = Xdr_mstring.mstring list -> Xdr_mstring.mstring list
 type decoder = string -> int -> int -> (string * int)
 
 
@@ -994,6 +994,21 @@ let ( ++ ) x y =
   let s = x + y in
   if s < 0 then overflow();
   s
+
+
+let get_string_decoration_size x_len n =
+  (* header field plus padding *)
+  let x_len_u = uint4_of_int x_len in
+  let x_len_mod_4 = x_len land 3 in
+  if Rtypes.le_uint4 x_len_u n then begin
+    (if x_len_mod_4 = 0
+     then 4 
+     else 8 - x_len_mod_4
+    )
+  end
+  else
+    raise 
+      (Xdr_failure "string is longer than allowed")
 
 
 let pack_size
@@ -1132,20 +1147,6 @@ let pack_size
   and get_string_size x n =
     let x_len = String.length x in
     x_len + get_string_decoration_size x_len n
-
-  and get_string_decoration_size x_len n =
-    (* header field plus padding *)
-    let x_len_u = uint4_of_int x_len in
-    let x_len_mod_4 = x_len land 3 in
-    if Rtypes.le_uint4 x_len_u n then begin
-      (if x_len_mod_4 = 0
-       then 4 
-       else 8 - x_len_mod_4
-      )
-    end
-    else
-      raise 
-	(Xdr_failure "string is longer than allowed")
 
   in
   get_size v t
@@ -1318,14 +1319,9 @@ let rec pack_mstring
 		  let l = 
 		    pack_mstring v (snd t')
 		      (fun _ -> assert false) (fun _ -> assert false) in
-		  let d =
-		    Xdr_mstring.concat_mstrings l in
 		  let e =
-		    enc d in
-		  let x =
-		    Xdr_mstring.string_based_mstrings # create_from_string
-		      e 0 (String.length e) false in
-		  result := x :: !result
+		    enc l in
+		  result := List.rev e @ !result
 	  )
       | T_rec (n, t') ->
 	  pack v t'

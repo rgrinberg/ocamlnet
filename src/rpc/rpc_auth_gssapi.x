@@ -63,12 +63,12 @@ struct rpc_gss_init_res {
 
 
 struct rpc_gss_integ_data {
-    opaque databody_integ<>;
+    _managed string databody_integ<>;
     opaque checksum<>;
 };
 
 struct rpc_gss_priv_data {
-    opaque databody_priv<>;
+    _managed string databody_priv<>;
 };
 
 

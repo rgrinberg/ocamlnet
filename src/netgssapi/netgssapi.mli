@@ -119,15 +119,9 @@ type cred_usage = [ `Initiate |`Accept | `Both ]
 type qop = < otype : [ `QOP ] >
     (** Quality-of-proctection parameters are mechanism-specific *)
 
-type message_buffer =
-    [ `String of string
-    | `Memory of Netsys_mem.memory
-    ]
-    (** Messages can be passed in as [string] or bigarray of char *)
-
 type message =
-    (message_buffer * int * int)
-    (** [(buf, pos, len)] in the usual meaning *)
+    Xdr_mstring.mstring list
+    (** Messages are represented as lists of [mstring] *)
 
 type ret_flag =
     [ `Deleg_flag | `Mutual_flag | `Replay_flag | `Sequence_flag 
@@ -605,8 +599,8 @@ val decode_exported_name : string -> int ref -> oid * string
 val create_mic_token : sent_by_acceptor:bool ->
                        acceptor_subkey:bool ->
                        sequence_number:int64 ->
-                       get_mic:(string -> string) ->
-                       message:string ->
+                       get_mic:(message -> string) ->
+                       message:message ->
                          string
   (** Create a MIC token:
 
@@ -627,8 +621,8 @@ val parse_mic_token_header : string -> (bool * bool * int64)
       string. Fails if not parsable 
    *)
 
-val verify_mic_token : get_mic:(string -> string) -> 
-                       message:string -> token:string -> bool
+val verify_mic_token : get_mic:(message -> string) -> 
+                       message:message -> token:string -> bool
   (** Verifies the MIC [token] with [get_mic], and returns true if the
       verification is successful
    *)
@@ -637,9 +631,9 @@ val create_wrap_token_conf : sent_by_acceptor:bool ->
                              acceptor_subkey:bool ->
                              sequence_number:int64 ->
                              get_ec:(int -> int) ->
-                             encrypt_and_sign:(string -> string) ->
-                             message:string ->
-                               string
+                             encrypt_and_sign:(message -> message) ->
+                             message:message ->
+                               message
   (** Wraps a [message] so that it is encrypted and signed (confidential).
 
       - [sent_by_acceptor]: whether this token comes from the acceptor
@@ -657,7 +651,7 @@ val create_wrap_token_conf : sent_by_acceptor:bool ->
    *)
 
 val parse_wrap_token_header : 
-      string -> (bool * bool * bool * int64)
+      message -> (bool * bool * bool * int64)
   (** [let (sent_by_acceptor, sealed, acceptor_subkey, sequence_number) =
       parse_wrap_token_header token]
 
@@ -665,9 +659,9 @@ val parse_wrap_token_header :
    *)
 
 
-val unwrap_wrap_token_conf : decrypt_and_verify:(string -> string) ->
-                             token:string ->
-                               string
+val unwrap_wrap_token_conf : decrypt_and_verify:(message -> message) ->
+                             token:message ->
+                               message
   (** Unwraps the [token] using the decryption function
       [decrypt_and_verify] from the cryptosystem.
 

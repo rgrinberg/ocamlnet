@@ -177,7 +177,7 @@ let mic1 =
   c # get_mic
     ~context:c_ctx
     ~qop_req:None
-    ~message:(`String msg, 0, String.length msg)
+    ~message:[Xdr_mstring.string_to_mstring  msg]
     ~out:(fun ~msg_token ~minor_status ~major_status () ->
 	    let (ce,re,flags) = major_status in
 	    if ce <> `None || re <> `None then
@@ -190,7 +190,7 @@ let mic1 =
 let() =
   s # verify_mic
     ~context:s_ctx
-    ~message:(`String msg, 0, String.length msg)
+    ~message:[Xdr_mstring.string_to_mstring  msg]
     ~token:mic1
     ~out:(fun ~qop_state ~minor_status ~major_status () ->
 	    let (ce,re,flags) = major_status in
@@ -206,7 +206,7 @@ let mic2 =
   s # get_mic
     ~context:s_ctx
     ~qop_req:None
-    ~message:(`String msg, 0, String.length msg)
+    ~message:[Xdr_mstring.string_to_mstring  msg]
     ~out:(fun ~msg_token ~minor_status ~major_status () ->
 	    let (ce,re,flags) = major_status in
 	    if ce <> `None || re <> `None then
@@ -219,7 +219,7 @@ let mic2 =
 let() =
   c # verify_mic
     ~context:c_ctx
-    ~message:(`String msg, 0, String.length msg)
+    ~message:[Xdr_mstring.string_to_mstring  msg]
     ~token:mic2
     ~out:(fun ~qop_state ~minor_status ~major_status () ->
 	    let (ce,re,flags) = major_status in
@@ -231,24 +231,12 @@ let() =
 
 (* Wrap a message on the client and unwrap it on the server: *)
 
-let as_string (sm,pos,len) =
-  match sm with
-    | `String s ->
-	if pos=0 && len=String.length s then
-	  s
-	else
-	  String.sub s pos len
-    | `Memory m -> 
-	let s = String.create len in
-	Netsys_mem.blit_memory_to_string m pos s 0 len;
-	s
-
 let enc_msg1 =
   c # wrap
     ~context:c_ctx
     ~conf_req:true
     ~qop_req:None
-    ~input_message:(`String msg, 0, String.length msg)
+    ~input_message:[Xdr_mstring.string_to_mstring  msg]
     ~output_message_preferred_type:`String
     ~out:(fun ~conf_state ~output_message ~minor_status ~major_status () ->
 	    let (ce,re,flags) = major_status in
@@ -275,7 +263,7 @@ let dec_msg1 =
     ()
 
 let () =
-  if msg <> as_string dec_msg1 then
+  if msg <> Xdr_mstring.concat_mstrings dec_msg1 then
     failwith "dec_msg1: cannot decode"
 
 (* Wrap a message on the server and unwrap it on the client: *)
@@ -285,7 +273,7 @@ let enc_msg2 =
     ~context:s_ctx
     ~conf_req:true
     ~qop_req:None
-    ~input_message:(`String msg, 0, String.length msg)
+    ~input_message:[Xdr_mstring.string_to_mstring  msg]
     ~output_message_preferred_type:`String
     ~out:(fun ~conf_state ~output_message ~minor_status ~major_status () ->
 	    let (ce,re,flags) = major_status in
@@ -312,7 +300,7 @@ let dec_msg2 =
     ()
 
 let () =
-  if msg <> as_string dec_msg2 then
+  if msg <> Xdr_mstring.concat_mstrings dec_msg2 then
     failwith "dec_msg2: cannot decode"
 
 (* helpers... *)

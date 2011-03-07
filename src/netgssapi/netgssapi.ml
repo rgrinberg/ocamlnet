@@ -55,12 +55,7 @@ type address =
 type channel_bindings = address * address * string
 type cred_usage = [ `Initiate |`Accept | `Both ]
 type qop = < otype : [ `QOP ] >
-type message_buffer =
-    [ `String of string
-    | `Memory of Netsys_mem.memory
-    ]
-type message =
-    (message_buffer * int * int)
+type message = Xdr_mstring.mstring list
 type ret_flag =
     [ `Deleg_flag | `Mutual_flag | `Replay_flag | `Sequence_flag 
     | `Conf_flag | `Integ_flag | `Anon_flag | `Prot_ready_flag
@@ -759,7 +754,7 @@ let create_mic_token ~sent_by_acceptor ~acceptor_subkey ~sequence_number
 		    (if acceptor_subkey then 4 else 0) ) )
       (encode_seq_nr sequence_number) in
   let mic =
-    get_mic (message ^ header) in
+    get_mic (message @ [Xdr_mstring.string_to_mstring header] ) in
   header ^ mic
 
     
@@ -781,7 +776,7 @@ let verify_mic_token ~get_mic ~message ~token =
   try
     ignore(parse_mic_token_header token);
     let header = String.sub token 0 16 in
-    let mic = get_mic (message ^ header) in
+    let mic = get_mic (message @ [Xdr_mstring.string_to_mstring header]) in
     mic = (String.sub token 16 (String.length token - 16))
   with
     | _ -> false
@@ -790,7 +785,7 @@ let verify_mic_token ~get_mic ~message ~token =
 let create_wrap_token_conf ~sent_by_acceptor ~acceptor_subkey
                            ~sequence_number ~get_ec ~encrypt_and_sign 
 			   ~message =
-  let ec = get_ec (String.length message + 16) in
+  let ec = get_ec (Xdr_mstring.length_mstrings message + 16) in
   let header =
     sprintf
       "\x05\x04%c\xff%c%c\000\000%s"
@@ -802,13 +797,19 @@ let create_wrap_token_conf ~sent_by_acceptor ~acceptor_subkey
   let filler =
     String.make ec '\000' in
   let encrypted =
-    encrypt_and_sign (message ^ filler ^ header) in
-  header ^ encrypted
+    encrypt_and_sign (message @ 
+			[ Xdr_mstring.string_to_mstring
+			    (filler ^ header) 
+			]
+		     ) in
+  Xdr_mstring.string_to_mstring header :: encrypted
 
 
-let parse_wrap_token_header s =
+let parse_wrap_token_header m =
   try
-    if String.length s < 16 then raise Not_found;
+    let l = Xdr_mstring.length_mstrings m in
+    if l < 16 then raise Not_found;
+    let s = Xdr_mstring.prefix_mstrings m 16 in
     if s.[0] <> '\x05' || s.[1] <> '\x04' then raise Not_found;
     if s.[3] <> '\xff' then raise Not_found;
     let flags = Char.code s.[2] in
@@ -825,22 +826,34 @@ let unwrap_wrap_token_conf ~decrypt_and_verify ~token =
   let (_, sealed, _, _) = parse_wrap_token_header token in
   if not sealed then
     failwith "Netgssapi.unwrap_wrap_token_conf: not sealed";
-  let ec = ((Char.code token.[4]) lsl 8) lor (Char.code token.[5]) in
-  let rrc = ((Char.code token.[6]) lsl 8) lor (Char.code token.[7]) in
-  let l_decrypt = String.length token - 16 in
+  let s = Xdr_mstring.prefix_mstrings token 16 in
+  let ec = ((Char.code s.[4]) lsl 8) lor (Char.code s.[5]) in
+  let rrc = ((Char.code s.[6]) lsl 8) lor (Char.code s.[7]) in
+  let l_decrypt = Xdr_mstring.length_mstrings token - 16 in
   let rrc_eff = rrc mod l_decrypt in
+  let u =
+    if rrc = 0 then
+      Xdr_mstring.shared_sub_mstrings token 16 l_decrypt
+    else (
+      Xdr_mstring.shared_sub_mstrings token (rrc_eff+16) (l_decrypt - rrc_eff)
+      @ Xdr_mstring.shared_sub_mstrings token 16 rrc_eff
+    ) in
+(*
   let u = String.create l_decrypt in
   String.blit token (rrc_eff+16) u 0 (l_decrypt - rrc_eff);
   String.blit token 16 u (l_decrypt - rrc_eff) rrc_eff;
+ *)
   let decrypted = 
     try decrypt_and_verify u
     with _ ->
       failwith "Netgssapi.unwrap_wrap_token_conf: cannot decrypt" in
-  let l_decrypted = String.length decrypted in
+  let l_decrypted = Xdr_mstring.length_mstrings decrypted in
   if l_decrypted < ec + 16 then
     failwith "Netgssapi.unwrap_wrap_token_conf: bad EC";
-  let h1 = String.sub token 0 16 in
-  let h2 = String.sub decrypted (l_decrypted - 16) 16 in
+  let h1 = Xdr_mstring.prefix_mstrings token 16 in
+  let h2 = 
+    Xdr_mstring.concat_mstrings
+      (Xdr_mstring.shared_sub_mstrings decrypted (l_decrypted - 16) 16) in
   if h1 <> h2 then
     failwith "Netgssapi.unwrap_wrap_token_conf: header integrity mismatch";
-  String.sub decrypted 0 (l_decrypted - ec - 16)
+  Xdr_mstring.shared_sub_mstrings decrypted 0 (l_decrypted - ec - 16)
