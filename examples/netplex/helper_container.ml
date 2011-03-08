@@ -65,7 +65,7 @@ let set_up_timer() =
     (Netplex_cenv.create_timer
        (fun _ ->
 	  let v = Netplex_semaphore.get "worker.operation_count" in
-	  printf "operation count: %Ld\n%!" v;
+	  Netlog.logf `Info "operation count: %Ld" v;
 	  true
        )
        60.0)
