@@ -59,12 +59,12 @@
  * Note that nothing is said about the character set/encoding of URLs.
  * Some protocols and standards prefer UTF-8 as fundamental encoding
  * and apply the [%]-encoding on top of it; i.e. the byte sequence
- * representing a character in UTF-8 is [%]-encoded. 
+ * representing a character in UTF-8 is [%]-encoded.
  *
  * {b Standards Compliance}
  *
  * This module implements RFC 1738 and RFC 1808. There is also a newer
- * RFC, 2396, updating the former RFCs, but this module is not fully 
+ * RFC, 2396, updating the former RFCs, but this module is not fully
  * compatible with RFC 2396. The following (minor) problems may occur:
  *
  * - The module escapes more characters than needed. All characters that
@@ -89,8 +89,8 @@ exception Malformed_URL
  *)
 
 val extract_url_scheme : string -> string
-  (** Returns the URL scheme from the string representation of an URL. 
-   * E.g. [extract_url_scheme "http://host/path" = "http"]. 
+  (** Returns the URL scheme from the string representation of an URL.
+   * E.g. [extract_url_scheme "http://host/path" = "http"].
    * The scheme name is always converted to lowercase characters.
    * Raises [Malformed_URL] if the scheme name is not found.
    *)
@@ -124,7 +124,7 @@ type url_syntax =
  *
  * The function [url_is_valid] is applied when a fresh URL is created
  * and must return [true]. This function allows it to add an arbitrary
- * validity criterion to [url_syntax]. (Note that the URL passed to 
+ * validity criterion to [url_syntax]. (Note that the URL passed to
  * this function is not fully working; you can safely assume that the
  * accessor functions [url_scheme] etc. can be applied to it.)
  *
@@ -192,7 +192,7 @@ val common_url_syntax : (string, url_syntax) Hashtbl.t
    * - ["file"]: scheme, host?, path
    * - ["ftp"]: scheme, user?, password?, host, port?, path?, param?
    *   Note: param is not checked.
-   * - ["http"], ["https"]: 
+   * - ["http"], ["https"]:
    *   scheme, user?, password?, host, port?, path?, query?
    * - ["mailto"]: scheme, other, query? (RFC 2368)
    * - ["pop"], ["pops"]: scheme, user?, user_param?, password?, host, port?
@@ -204,14 +204,14 @@ val common_url_syntax : (string, url_syntax) Hashtbl.t
    *   relative URLs as described in the RFC. When analysing this kind of URL,
    *   it is recommended to re-parse it with "param" enabled.
    * - ["news"]: scheme, other (RFC 1738)
-   * - ["nntp"], ["nntps"]: scheme, host, port?, path (with two components) 
+   * - ["nntp"], ["nntps"]: scheme, host, port?, path (with two components)
    *   (RFC 1738)
    * - ["data"]: scheme, other (RFC 2397). "other" is not further decomposed.
    * - ["ipp"], ["ipps"]: scheme, host, port? , path?, query? (RFC 3510)
    * - ["cid"], ["mid"]: Content/message identifiers: scheme, other
    *
    * Notes:
-   * - These syntax descriptions can be weakened for partial/relative URLs 
+   * - These syntax descriptions can be weakened for partial/relative URLs
    *   by changing the required parts to optional parts: See the function
    *   [partial_url_syntax].
    * - None of the descriptions allows fragments. These can be enabled by
@@ -246,14 +246,14 @@ val make_url :
       url_syntax ->
       url
   (** Creates a URL from components:
-   * 
+   *
    * - The components [scheme] and [host] are simple strings to which the
    *   [%]-encoding is not applicable.
    * - The component [port] is a simple number. Of course, the [%]-encoding
    *   is not applicable, too.
    * - The components [user], [password], [query], [fragment], and [other]
    *   are strings which may contain [%]-encoded characters. By default,
-   *   you can pass any string for these components, and problematic characters 
+   *   you can pass any string for these components, and problematic characters
    *   are automatically encoded. If you set [encoded:true], the passed
    *   strings must already be encoded, but the function checks whether
    *   the encoding is syntactically correct.
@@ -269,7 +269,7 @@ val make_url :
    *   See below for the respresentation of these components.
    *
    * The strings representing the components do not
-   * contain the characters separating the components from each other. 
+   * contain the characters separating the components from each other.
    *
    * The created URL must conform to the [url_syntax], i.e.:
    * - The URL must only contain components which are recognized by the
@@ -280,21 +280,21 @@ val make_url :
    *
    * The path of a URL is represented as a list of ['/']-separated path
    * components. i.e.
-   * 
-   * [ [ s1; s2; ...; sN ] ]  represents the path  
+   *
+   * [ [ s1; s2; ...; sN ] ]  represents the path
    *                        [s1 ^ "/" ^ s2 ^ "/" ^ ... ^ "/" ^ sN]
    *
    * As special cases:
    * -  [[]]                   is the non-existing path
    * -  [[ "" ]]               is ["/"]
    * -  [[ "";"" ]]            is illegal
-   * 
+   *
    * Except of [s1] and [sN], the path components must not be empty strings.
    *
    * To avoid ambiguities, it is illegal to create URLs with both relative
    * paths ([s1 <> ""]) and host components.
    *
-   * Parameters of URLs ([param] and [user_param]) are components 
+   * Parameters of URLs ([param] and [user_param]) are components
    * beginning with [';']. The list
    * of parameters is represented as list of strings where the strings
    * contain the value following [';'].
@@ -316,7 +316,7 @@ val modify_url :
       ?other:string ->
       url ->
       url
-  (** Modifies the passed components and returns the modified URL. 
+  (** Modifies the passed components and returns the modified URL.
    * The modfied URL shares unmodified components with the original
    * URL.
    *)
@@ -342,7 +342,7 @@ val remove_from_url :
    *)
 
 val default_url :
-      ?encoded:bool -> 
+      ?encoded:bool ->
       ?scheme:string ->
       ?user:string ->
       ?user_param:string list ->
@@ -391,9 +391,9 @@ val url_of_string : url_syntax -> string -> url
 val string_of_url : url -> string
   (** Returns the URL as string *)
 
-val parse_url : 
+val parse_url :
       ?schemes:(string, url_syntax) Hashtbl.t ->
-      ?base_syntax:url_syntax -> 
+      ?base_syntax:url_syntax ->
       ?accept_8bits:bool ->
       ?enable_fragment:bool ->
       string -> url
@@ -494,7 +494,7 @@ val norm_path : string list -> string list
    *
    *           means: "a/." = "a/"}
    * {- [norm_path ["a"; "b"; "."] = ["a"; "b"; ""]]
-   * 
+   *
    *           means: "a/b/." = "a/b/"}
    * {- [norm_path ["a"; "."; "b"; "."] = ["a"; "b"; ""]]
    *
@@ -544,10 +544,12 @@ val apply_relative_url : url -> url -> url
    *)
 
 val ensure_absolute_url : ?base:url -> url -> url
-  (** If the anonymous URL is absolute, it is just returned as result of 
-   * this function. If the URL is relative, it is tried to make it 
-   * absolute by resolving it relative to [base]. If there is no [base],
-   * this will fail, and the function raises [Malformed_URL].
+  (** If the anonymous URL is absolute, it is just returned as result of
+   * this function. If the URL is relative, it is tried to make it
+   * absolute by resolving it relative to [base]. If there is no [base]
+   * or if the the base URL does not allow the parts that would be added
+   * (e.g. if the anonymous URL possesses a fragment and [base] does not
+   * allow that), this will fail, and the function raises [Malformed_URL].
    *)
 
 val file_url_of_local_path : ?getcwd:(unit -> string) -> string -> url
@@ -557,24 +559,24 @@ val file_url_of_local_path : ?getcwd:(unit -> string) -> string -> url
    *
    * Note that no character set conversions are performed.
    *
-   * Win32: The input path name may use forward or backward slashes. 
+   * Win32: The input path name may use forward or backward slashes.
    * Absolute paths with drive letters and UNC paths are recognised.
    * Relative paths with drive letters, however, are not recognised
    * (e.g. ["c:file"]), as it is not possible to access the drive-specific
    * working directory from the O'Caml runtime.
    *
-   * Cygwin: The input path name may use forward or backward slashes. 
+   * Cygwin: The input path name may use forward or backward slashes.
    * Absolute paths with drive letters and UNC paths are recognised.
    * The former are translated to ["/cygdrive"] names.
    *
-   * @param getcwd The function returns the path taken as current working 
+   * @param getcwd The function returns the path taken as current working
    *   directory. Note that for
    *   Win32 this must be either an absolute name with drive letter,
    *   or an UNC path. Default: [Sys.getcwd]
    *)
 
 val local_path_of_file_url : url -> string
-  (** Extracts the path from an absolute file URL, and returns a 
+  (** Extracts the path from an absolute file URL, and returns a
    * correct path name.
    *
    * If the URL is not a file URL, or is not absolute, the function will
@@ -629,7 +631,7 @@ val data_contents : url -> XXX
  *   --> [ ""; "a"; "b"; "" ]          (* sic! *)
  * url_path ~encoded:true u;;
  *   --> [ ""; "a"; "%62"; "" ]
- * let v = make_url 
+ * let v = make_url
  *   ~path:[ ".."; "c" ]
  *   ~fragment:"near-the-#-character"
  *   { (partial_url_syntax http) with url_enable_fragment = Url_part_allowed };;
