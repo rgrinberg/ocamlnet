@@ -1,0 +1,5 @@
+(* $Id$ *)
+
+(** Semaphores *)
+
+XXX

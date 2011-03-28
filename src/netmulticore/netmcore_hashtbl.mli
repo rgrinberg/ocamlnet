@@ -1,0 +1,5 @@
+(* $Id$ *)
+
+(** Shared hashtables *)
+
+XXX
