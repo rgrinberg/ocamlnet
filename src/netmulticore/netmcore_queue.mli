@@ -2,4 +2,4 @@
 
 (** Shared queues *)
 
-XXX
+(* XXX *)

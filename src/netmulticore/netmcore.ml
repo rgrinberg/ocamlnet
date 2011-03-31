@@ -147,7 +147,7 @@ module Create_prealloc_shm_lever =
   Netplex_cenv.Make_lever
     (struct
        type s = string * int * int (* Oo.id of the container *)
-       type r = res_id
+       type r = res_id * string
      end
     )
 
@@ -175,7 +175,7 @@ type levers =
       deliver : process_id * Netplex_encap.encap option -> unit;
       get_result : process_id -> Netplex_encap.encap option option option;
       manage_resource : manage_resource_repr * int -> res_id;
-      create_prealloc_shm : string * int * int -> res_id;
+      create_prealloc_shm : string * int * int -> (res_id * string);
       get_resource : res_id * int -> trans_resource_repr option;
       release : res_id * int -> unit;
     }
@@ -353,7 +353,9 @@ let create_prealloc_shm prefix size exec =
   dlogr (fun () -> sprintf "create_prealloc_shm %s" name);
   let post_start _ =
     Netsys_mem.memory_unmap_file mem in
-  manage_resource (`Posix_shm_preallocated(name, mem)) post_start exec
+  let res_id =
+    manage_resource (`Posix_shm_preallocated(name, mem)) post_start exec in
+  (res_id, name)
 
 
 let master_create_prealloc_shm ctrl (prefix,size,cid) =
@@ -718,6 +720,7 @@ let get_file res_id =
 let get_shm res_id =
   match (get_resource res_id)#repr with
     | `Posix_shm name -> name
+    | `Posix_shm_preallocated(name,_) -> name
     | _ ->
 	failwith "Netmcore.get_shm: the resource is not a shm object"
 
@@ -728,16 +731,14 @@ let get_sem res_id =
 	failwith "Netmcore.get_sem: the resource is not a semaphore"
   
 let create_preallocated_shm prefix size =
-  let res_id =
-    match self_exec() with
-      | Some (`Container cid) ->
-	  let lev = get_levers() in
-	  lev.create_prealloc_shm (prefix,size,cid)
-      | Some exec ->
-	  create_prealloc_shm prefix size exec
-      | None ->
-	  failwith "Netmcore.create_preallocated_shm: unknown context" in
-  res_id
+  match self_exec() with
+    | Some (`Container cid) ->
+	let lev = get_levers() in
+	lev.create_prealloc_shm (prefix,size,cid)
+    | Some exec ->
+	create_prealloc_shm prefix size exec
+    | None ->
+	failwith "Netmcore.create_preallocated_shm: unknown context"
     
 let self_process_id() =
   match !self_pid with

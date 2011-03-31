@@ -221,15 +221,20 @@ val get_shm : res_id -> string
     and opened with {!Netsys_posix.shm_open}. 
  *)
 
-val create_preallocated_shm : string -> int -> res_id
+val create_preallocated_shm : string -> int -> (res_id * string)
   (** [create_preallocated_shm prefix size]: Creates a new preallocated
       shm object with a unique name based on [prefix], and a length of
       [size] bytes. The object is created and mapped into the master
       process, and will be available to any newly started process when
       the resource ID is inherited to the process.
 
-      Note that the process calling this function cannot map this
-      object into its own address space. Nevertheless, the calling
+      Returns [(res_id,shm_name)] where [res_id] identifies the new
+      resource, and [shm_name] is the name of the POSIX shared memory
+      object.
+
+      Note that the process calling this function cannot look up this
+      resource (using [get_shm] or [get_resource]) because the shm
+      block cannot be mapped at the right address. Nevertheless, the calling
       process counts as a user of the object, and needs to release
       the object.
    *)

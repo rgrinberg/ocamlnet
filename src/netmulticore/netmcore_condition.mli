@@ -2,4 +2,4 @@
 
 (** Condition variables *)
 
-XXX
+(* XXX *)

@@ -43,6 +43,7 @@ val alloc_mem : Netmcore.res_id -> int -> Netsys_mem.memory
       space in the pool.
    *)
 
+(*
 val realloc_mem : 
       Netmcore.res_id -> Netsys_mem.memory -> int -> Netsys_mem.memory
   (** Changes the size of the allocated block. It may be possible that
@@ -52,6 +53,10 @@ val realloc_mem :
       Raises [Out_of_pool_memory] if there is not enough contiguous
       space in the pool.
    *)
+ *)
+
+val size_mem : Netmcore.res_id -> Netsys_mem.memory -> int
+  (** Returns the size of this block, or raises [Not_found] *)
 
 val free_mem : Netmcore.res_id -> Netsys_mem.memory -> unit
   (** Frees this allocated block *)

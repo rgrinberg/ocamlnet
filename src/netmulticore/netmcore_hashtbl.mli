@@ -2,4 +2,4 @@
 
 (** Shared hashtables *)
 
-XXX
+(* XXX *)

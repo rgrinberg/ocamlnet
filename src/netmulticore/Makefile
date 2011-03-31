@@ -1,7 +1,7 @@
 TOP_DIR=../..
 
 PKGNAME  = netmulticore
-OBJECTS  = netmcore.cmo netmcore_camlbox.cmo
+OBJECTS  = netmcore.cmo netmcore_camlbox.cmo netmcore_util.cmo
 DOBJECTS = netmcore.mli netmcore_camlbox.mli
 
 INCLUDES += $(INC_EQUEUE) $(INC_RPC) $(INC_NETSTRING) $(INC_NETSYS) \

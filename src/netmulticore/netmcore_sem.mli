@@ -2,4 +2,4 @@
 
 (** Semaphores *)
 
-XXX
+(* XXX *)

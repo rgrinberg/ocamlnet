@@ -2,4 +2,4 @@
 
 (** Mutexes *)
 
-XXX
+(* XXX *)
