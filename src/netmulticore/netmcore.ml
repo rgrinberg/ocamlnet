@@ -24,12 +24,17 @@ type compute_resource_type =
     | `Posix_sem | `Fork_point | `Join_point
     ]
 
+type inherit_request =
+    [ `Resources of res_id list
+    | `All
+    ]
+
 type compute_resource_repr =
     [ `File of string
     | `Posix_shm of string
     | `Posix_shm_preallocated of string * Netsys_mem.memory
     | `Posix_sem of string
-    | `Fork_point of (res_id list * Netplex_encap.encap -> process_id)
+    | `Fork_point of (inherit_request * Netplex_encap.encap -> process_id)
     | `Join_point of (process_id -> Netplex_encap.encap option)
     ]
 
@@ -108,7 +113,7 @@ type process_info =
 module Start_lever =
   Netplex_cenv.Make_lever
     (struct 
-       type s = res_id * res_id list * Netplex_encap.encap 
+       type s = res_id * inherit_request * Netplex_encap.encap 
        type r = process_id option
      end
     )
@@ -146,7 +151,7 @@ module Manage_resource_lever =
 module Create_prealloc_shm_lever =
   Netplex_cenv.Make_lever
     (struct
-       type s = string * int * int (* Oo.id of the container *)
+       type s = string * int * bool * int (* Oo.id of the container *)
        type r = res_id * string
      end
     )
@@ -171,11 +176,11 @@ module Release_lever =
 
 type levers =
     { ctrl_id : int; (* Oo.id of the controller object *)
-      start : res_id * res_id list * Netplex_encap.encap -> process_id option;
+      start : res_id * inherit_request * Netplex_encap.encap -> process_id option;
       deliver : process_id * Netplex_encap.encap option -> unit;
       get_result : process_id -> Netplex_encap.encap option option option;
       manage_resource : manage_resource_repr * int -> res_id;
-      create_prealloc_shm : string * int * int -> (res_id * string);
+      create_prealloc_shm : string * int * bool * int -> (res_id * string);
       get_resource : res_id * int -> trans_resource_repr option;
       release : res_id * int -> unit;
     }
@@ -259,7 +264,7 @@ object(self)
 end
 
 
-let master_start ctrl (fork_res_id,inherited_res_id_l,arg) =
+let master_start ctrl (fork_res_id,inherit_req,arg) =
   (* [start] from the master process *)
   let `Resource fork_res_id_n = fork_res_id in
   dlogr (fun () -> sprintf "start %d" fork_res_id_n);
@@ -271,7 +276,7 @@ let master_start ctrl (fork_res_id,inherited_res_id_l,arg) =
     let sem_name = sprintf "Netmcore.process_result.%d" pid in
     ignore(Netplex_semaphore.create ~protected:false sem_name 0L);
     let join_res_id = fork_res#join_res in
-    !create_process_fwd  f arg (`Process pid) join_res_id inherited_res_id_l;
+    !create_process_fwd  f arg (`Process pid) join_res_id inherit_req;
     Some(`Process pid :> process_id)
   with Not_found -> None
 
@@ -281,6 +286,15 @@ let forget_process pid =
   Hashtbl.remove process_table pid;
   let sem_name = sprintf "Netmcore.process_result.%d" pid in
   Netplex_semaphore.destroy sem_name
+
+
+let is_delivered ctrl (`Process pid) =
+  let pi_opt = 
+    try Some(Hashtbl.find process_table pid)
+    with Not_found -> None in
+  match pi_opt with
+    | None -> true
+    | Some pi -> pi.result <> None
 
 
 let master_deliver ctrl (`Process pid,res_opt) =
@@ -344,12 +358,14 @@ let master_manage_resource ctrl (res_repr, cid) =
   manage_resource res_repr (fun _ -> ()) (`Container cid)
 
 
-let create_prealloc_shm prefix size exec =
+let create_prealloc_shm prefix size value_area exec =
   let (fd, name) =
     Netsys_posix.shm_create prefix size in
   let mem =
     Netsys_mem.memory_map_file fd true size in
   Unix.close fd;
+  if value_area then
+    Netsys_mem.value_area mem;
   dlogr (fun () -> sprintf "create_prealloc_shm %s" name);
   let post_start _ =
     Netsys_mem.memory_unmap_file mem in
@@ -358,8 +374,8 @@ let create_prealloc_shm prefix size exec =
   (res_id, name)
 
 
-let master_create_prealloc_shm ctrl (prefix,size,cid) =
-  create_prealloc_shm prefix size (`Container cid)
+let master_create_prealloc_shm ctrl (prefix,size,value_area,cid) =
+  create_prealloc_shm prefix size value_area (`Container cid)
 
 
 let master_get_resource ctrl (res_id, cid) =
@@ -413,7 +429,7 @@ let maybe_install_levers ctrl =
 
 
 let create_process f arg (`Process pid) 
-                   join_res_id inherited_res_id_l =
+                   join_res_id inherit_req =
   (* Must be run in the master process: Starts a new
      container and runs [f arg] there. [pid] is used
      for creating a unique container name.
@@ -444,12 +460,16 @@ let create_process f arg (`Process pid)
 	  let kept_resources = ref [] in
 	  Hashtbl.iter
 	    (fun res_id res ->
-	       if (List.mem res_id inherited_res_id_l && 
-		     List.mem res#typ inheritable)
-	       then 
-		 kept_resources := (res_id,res) :: !kept_resources
-	       else
-		 res#post_start (`Process pid)
+	       if List.mem res#typ inheritable then (
+		 let do_it =
+		   match inherit_req with
+		     | `Resources l -> List.mem res_id l
+		     | `All -> true in
+		 if do_it then 
+		   kept_resources := (res_id,res) :: !kept_resources
+		 else
+		   res#post_start (`Process pid)
+	       )
 	    )
 	    resource_table;
 	  Hashtbl.clear resource_table;
@@ -483,6 +503,12 @@ let create_process f arg (`Process pid)
 
 	method post_finish_hook _ ctrl cont_id =
 	  dlogr (fun () -> sprintf "post_finish_hook pid=%d" pid);
+	  if not (is_delivered ctrl (`Process pid)) then (
+	    dlogr
+	      (fun () -> sprintf "worker terminated abnormally, cleaning up");
+	    master_deliver ctrl (`Process pid, None);
+	    ignore(Netplex_semaphore.ctrl_increment sem_name cont_id);
+	  );
 	  Hashtbl.iter
 	    (fun res_id res ->
 	       res # released_in (`Container (Oo.id cont_id))
@@ -673,7 +699,7 @@ let get_resource res_id =
 
 (* API-only stuff *)
 
-let start ?(inherit_resources=[]) fork_res_id arg =
+let start ?(inherit_resources=`Resources []) fork_res_id arg =
   let r = get_resource fork_res_id in
   match r # repr with
     | `Fork_point f ->
@@ -730,13 +756,13 @@ let get_sem res_id =
     | _ ->
 	failwith "Netmcore.get_sem: the resource is not a semaphore"
   
-let create_preallocated_shm prefix size =
+let create_preallocated_shm ?(value_area=false) prefix size =
   match self_exec() with
     | Some (`Container cid) ->
 	let lev = get_levers() in
-	lev.create_prealloc_shm (prefix,size,cid)
+	lev.create_prealloc_shm (prefix,size,value_area,cid)
     | Some exec ->
-	create_prealloc_shm prefix size exec
+	create_prealloc_shm prefix size value_area exec
     | None ->
 	failwith "Netmcore.create_preallocated_shm: unknown context"
     

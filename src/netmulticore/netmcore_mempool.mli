@@ -25,8 +25,8 @@
 exception Out_of_pool_memory
 
 val create_mempool : int -> Netmcore.res_id
-  (** Creates the memory pool as shared memory object of the passed size,
-      and returns the resource ID.
+  (** Creates the memory pool as shared memory object of the passed size
+      (rounded up to the next multiple of pages) and returns the resource ID.
 
       Note that the process calling this function cannot use the pool,
       but only worker processes that are forked later. It is possible
@@ -35,7 +35,8 @@ val create_mempool : int -> Netmcore.res_id
 
 val alloc_mem : Netmcore.res_id -> int -> Netsys_mem.memory
   (** Allocate memory in this pool. The passed int the size of the
-      returned [memory] object.
+      returned [memory] object. The size is rounded up to the next
+      multiple of pages.
 
       Blocks are actually allocated in units of pages.
 
@@ -68,3 +69,10 @@ val stats : Netmcore.res_id -> int * int * int
       - [contiguous] is the size of the largest contiguous free block
    *)
 
+val debug_info : Netmcore.res_id -> string
+  (** Returns a string describing the allocations etc. *)
+
+
+module Debug : sig
+  val enable : bool ref
+end

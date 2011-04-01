@@ -1,5 +1,20 @@
 (* $Id$ *)
 
+open Printf
+
+
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Netmcore_mempool" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netmcore_mempool" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Netmcore_mempool" Debug.enable
+
+
+
 exception Out_of_pool_memory
 
 (* Header:
@@ -62,7 +77,7 @@ let page_size =
   with Invalid_argument _ -> 4096 
 
 let alloc_mem n =
-  Bigarray.Array1.create Bigarray.c_layout Bigarray.char n
+  Bigarray.Array1.create Bigarray.char Bigarray.c_layout n
 
 let to_page n =
   n / page_size
@@ -91,12 +106,18 @@ let assert_is_free mem hdr offs =
       "Netmcore_mempool: Mem block does not have the signature of free blocks"
 
 
+let get_int8 mem offs =
+  let s = String.create 8 in
+  Netsys_mem.blit_memory_to_string mem offs s 0 8;
+  Netnumber.int_of_int8 (Netnumber.HO.read_int8 s 0)
+
+
 let lookup_fl_entry mem hdr offs =
   (* Return the pool_fl value of this free block *)
   assert_is_free mem hdr offs;
   let p = String.length fl_magic in
-  let eoffs = Netnumber.int_of_int8 (Netnumber.HO.read_int8 mem (offs+p)) in
-  let entry = (Netsys_mem.as_value mem (offs+eoffs) : pool_fl) in
+  let eoffs = get_int8 mem (offs+p) in
+  let entry = (Netsys_mem.as_value mem eoffs : pool_fl) in
   entry
   
 
@@ -148,6 +169,10 @@ let del_in_pool_fl_at mem hdr offs bsize prev =
   (* Delete this block from the freelist, and remove fl_magic.
      prev points to the preceding entry in the free list (or 0).
    *)
+  dlogr (fun () ->
+	   sprintf "del_in_pool_fl_at offs=%d bsize=%d prev=%d"
+	     offs bsize prev
+	);
   let psize = bsize / page_size in
   let k = if psize < pool_fl_size then psize else 0 in
   let entry = lookup_fl_entry mem hdr offs in
@@ -158,11 +183,16 @@ let del_in_pool_fl_at mem hdr offs bsize prev =
     prev_entry.pool_fl_next <- entry.pool_fl_next
   );
   let u = String.make (String.length fl_magic) ' ' in
-  Netsys_mem.blit_string_to_memory u 0 mem offs (String.length fl_magic)
+  Netsys_mem.blit_string_to_memory u 0 mem offs (String.length fl_magic);
+  dlog "del_in_pool_fl_at: done"
 
 
 let del_in_pool_fl mem hdr offs bsize =
   (* Delete this block from the freelist, and remove fl_magic *)
+  dlogr (fun () ->
+	   sprintf "del_in_pool_fl offs=%d bsize=%d"
+	     offs bsize
+	);
   let psize = bsize / page_size in
   let k = if psize < pool_fl_size then psize else 0 in
   let prev = ref 0 in
@@ -174,7 +204,7 @@ let del_in_pool_fl mem hdr offs bsize =
   done;
   if !cur = 0 then
     failwith "Netmcore_mempool: Cannot find free block in free list";
-  del_in_pool_fl_at mem hdr offs bsize prev
+  del_in_pool_fl_at mem hdr offs bsize !prev
 
 
 let add_to_pool_fl mem hdr offs bsize =
@@ -182,6 +212,7 @@ let add_to_pool_fl mem hdr offs bsize =
      check whether the block can be joined with adjacent blocks.
      bsize is the length of the block.
    *)
+  dlogr (fun () -> sprintf "add_to_pool_fl offs=%d bsize=%d" offs bsize);
   let p = String.length fl_magic in
   Netsys_mem.blit_string_to_memory fl_magic 0 mem offs p;
   let entry_orig =
@@ -189,14 +220,17 @@ let add_to_pool_fl mem hdr offs bsize =
       pool_fl_bsize = bsize
     } in
   let (voffs, _) = Netsys_mem.init_value mem (offs+p+8) entry_orig [] in
-  let entry = (Netsys_mem.as_value mem (offs+p+8+voffs) : pool_fl) in
+  let entry = (Netsys_mem.as_value mem voffs : pool_fl) in
   let voffs_s =
-    Netnumber.HO.int8_as_string (Netnumber.int8_of_int (p+8+voffs)) in
+    Netnumber.HO.int8_as_string (Netnumber.int8_of_int voffs) in
   Netsys_mem.blit_string_to_memory voffs_s 0 mem (offs+p) 8;
   let psize = bsize / page_size in
   let k = if psize < pool_fl_size then psize else 0 in
   entry.pool_fl_next <- hdr.pool_fl.(k);
-  hdr.pool_fl.(k) <- offs
+  hdr.pool_fl.(k) <- offs;
+  if bsize > hdr.pool_free_contiguous then
+    hdr.pool_free_contiguous <- bsize;
+  dlog "add_to_pool_fl done"
 
 
 let merge_with_pool_fl mem hdr offs bsize =
@@ -238,34 +272,69 @@ let find_free_block mem hdr bsize =
   let found = ref false in
   let best = ref 0 in
   let best_prev = ref 0 in
-  while not !found && !cur <> 0 do
-    let e = lookup_fl_entry mem hdr !cur in
-    if e.pool_fl_bsize >= bsize then (
-      best := !cur;
-      best_prev := !prev
-    );
-    if e.pool_fl_bsize=bsize then found := true;
-    prev := !cur;
-    cur := e.pool_fl_next;
-    if not !found && !cur = 0 && !k > 0 then (
+  while not !found && (!cur <> 0 || !k > 0) do
+    (* dlogr (fun () -> sprintf "k=%d cur=%d" !k !cur); *)
+    if !cur = 0 then (
       incr k;
       if !k = pool_fl_size then k := 0;
       prev := 0;
       cur := hdr.pool_fl.( !k )
+    ) else (
+      let e = lookup_fl_entry mem hdr !cur in
+      if e.pool_fl_bsize >= bsize then (
+	best := !cur;
+	best_prev := !prev
+      );
+      if e.pool_fl_bsize=bsize then found := true;
+      prev := !cur;
+      cur := e.pool_fl_next;
     )
   done;
   if !best = 0 then
     raise Out_of_pool_memory;
+  dlogr (fun () -> 
+	   sprintf "find_free_block: bsize=%d best=%d best_prev=%d"
+	     bsize !best !best_prev
+	);
   (!best, !best_prev)
+
+
+let set_pfc mem hdr =
+  (* Set pool_free_contiguous  *)
+  dlog "set_pfc";
+  if hdr.pool_fl.(0) <> 0 then (
+    let cur = ref hdr.pool_fl.( 0 ) in
+    let best_bsize = ref 0 in
+    while !cur <> 0 do
+      let e = lookup_fl_entry mem hdr !cur in
+      best_bsize := max !best_bsize e.pool_fl_bsize;
+      cur := e.pool_fl_next
+    done;
+    hdr.pool_free_contiguous <- !best_bsize
+  )
+  else (
+    hdr.pool_free_contiguous <- 0;
+    let k = ref (pool_fl_size - 1) in
+    while !k > 0 do
+      if hdr.pool_fl.(!k) <> 0 then (
+	hdr.pool_free_contiguous <- !k * page_size;
+	k := 0
+      )
+      else decr k
+    done
+  )
 
 
 let really_alloc_mem mem hdr bsize =
   (* bsize must here be a multiple of the page size *)
+  dlogr (fun () -> sprintf "really_alloc_mem: bsize=%d" bsize);
   let (offs, prev) = find_free_block mem hdr bsize in
   let e = lookup_fl_entry mem hdr offs in
+  let orig_fl_bsize = e.pool_fl_bsize in
   let alloc_offs =
     if e.pool_fl_bsize = bsize then (
       (* We need to remove this block from the free list *)
+      dlog "really_alloc_mem: new block fits exactly";
       del_in_pool_fl_at mem hdr offs bsize prev;
       offs
     )
@@ -275,7 +344,7 @@ let really_alloc_mem mem hdr bsize =
 	 part is the newly allocated block. In some cases, the remaining
 	 free part of the block has to be moved to a different free list.
        *)
-      let orig_fl_bsize = e.pool_fl_bsize in
+      dlog "really_alloc_mem: have to split block";
       let new_fl_bsize = e.pool_fl_bsize - bsize in
 
       let orig_fl_psize = orig_fl_bsize / page_size in
@@ -286,17 +355,35 @@ let really_alloc_mem mem hdr bsize =
 
       if new_k <> orig_k then (
 	(* Move the block to a different free list *)
+	dlog "really_alloc_mem: switching free list";
 	del_in_pool_fl_at mem hdr offs orig_fl_bsize prev;
 	add_to_pool_fl mem hdr offs new_fl_bsize
       )
       else
-	e.e.pool_fl_bsize <- new_fl_bsize;
+	e.pool_fl_bsize <- new_fl_bsize;
       
       offs + new_fl_bsize
     ) in
+
+  dlogr (fun () -> sprintf "really_alloc_mem: alloc_offs=%d" alloc_offs);
   
   (* Now add the newly allocated block to the tree: *)
-  Netmcore_util.AVL.add hdr.pool_alloc alloc_offs bsize;
+  ( try
+      Netmcore_util.AVL.add hdr.pool_alloc alloc_offs bsize
+    with
+      | Netmcore_util.AVL.Tree_full ->
+	  raise Out_of_pool_memory
+  );
+
+  hdr.pool_free <- hdr.pool_free - bsize;
+  assert(hdr.pool_free >= 0);
+
+  if orig_fl_bsize = hdr.pool_free_contiguous then (
+    (* We have to recompute hdr.pool_free_contiguous *)
+    set_pfc mem hdr
+  );
+
+  dlog "really_alloc_mem: done";
 
   (* Return a memory bigarray: *)
   Bigarray.Array1.sub mem alloc_offs bsize
@@ -314,7 +401,9 @@ let really_free_mem mem hdr offs =
 	Netmcore_util.AVL.remove hdr.pool_alloc offs;
 
 	(* add to the free list: *)
-	merge_with_pool_fl mem hdr offs bsize
+	merge_with_pool_fl mem hdr offs bsize;
+
+	hdr.pool_free <- hdr.pool_free + bsize
 
 
 let really_size_mem mem hdr offs =
@@ -327,22 +416,19 @@ let really_size_mem mem hdr offs =
 	bsize
 
 
-(*
-  FIXME
-
-  Needs to be done after mapping:
-
-  Netsys_mem.value_area mem;
- *)
-
 (* Prob: init_pool is called by a process that normally does not have access
    to mem! Idea: delay initialization until first access.
  *)
 
 let delayed_init_pool mem =
+  dlog "delayed_init_pool";
   let size = Bigarray.Array1.dim mem in
   let pg = to_page size in
   let size_pool_at = 64 + (pg / management_factor) in
+  dlogr (fun () -> 
+	   sprintf "size=%d pg=%d entries=%d"
+	     size pg size_pool_at
+	);
   let dummy = Netmcore_util.AVL.create_node() in
   let pool_alloc = Netmcore_util.AVL.create_header() in
   pool_alloc.Netmcore_util.AVL.nodes <- Array.make size_pool_at dummy;
@@ -350,7 +436,7 @@ let delayed_init_pool mem =
     { pool_size = size;
       pool_free = 0; (* later *)
       pool_free_contiguous = 0; (* later *)
-      pool_fl = Array.make pool_fl_size (-1);  (* later *)
+      pool_fl = Array.make pool_fl_size 0;
       pool_alloc = pool_alloc;
       pool_start = 0 (* later *)
     } in
@@ -358,19 +444,23 @@ let delayed_init_pool mem =
   let p0 = String.length magic in
   let p = ref (p0 + 8 + Netsys_posix.sem_size) in
   let (voffs, n) = Netsys_mem.init_value mem !p hdr_orig [] in
+  dlog "delayed_init_pool: init_value done";
   let hoffs_s =
-    Netnumber.HO.int8_as_string (Netnumber.int8_of_int (!p+voffs)) in
+    Netnumber.HO.int8_as_string (Netnumber.int8_of_int voffs) in
   Netsys_mem.blit_string_to_memory hoffs_s 0 mem p0 8;
-  let hdr = (Netsys_mem.as_value mem (!p + voffs) : header) in
+  dlog "delayed_init_pool: wrote hoffs";
+  let hdr = (Netsys_mem.as_value mem voffs : header) in
   p := !p + n;
   (* Now allocate the tree: *)
   for k = 1 to size_pool_at - 1 do
     let (voffs,n) = Netsys_mem.init_value mem !p dummy [] in
-    let node = (Netsys_mem.as_value mem (!p + voffs)) in
+    let node = (Netsys_mem.as_value mem voffs) in
     p := !p + n;
     hdr.pool_alloc.Netmcore_util.AVL.nodes.(k) <- node;
   done;
+  dlog "delayed_init_pool: allocated nodes";
   Netmcore_util.AVL.init_header hdr.pool_alloc;
+  dlog "delayed_init_pool: initialized tree";
   (* At this point we know how much mem we need for the header *)
   let p_block = ((to_page (!p-1)) + 1) * page_size in
   let remaining = size - p_block in
@@ -379,10 +469,12 @@ let delayed_init_pool mem =
   hdr.pool_start <- p_block;
   hdr.pool_free <- remaining;
   hdr.pool_free_contiguous <- remaining;
+  dlog "delayed_init_pool done";
   hdr
 
 
 let with_pool mem f =
+  dlog "with_pool";
   let p0 = String.length magic in
   let u = String.create p0 in
   Netsys_mem.blit_memory_to_string mem 0 u 0 p0;
@@ -390,19 +482,25 @@ let with_pool mem f =
     failwith "Netmcore_mempool: Uninitialized pool";
   let sem = Netsys_posix.as_sem mem (p0+8) in
   Netsys_posix.sem_wait sem Netsys_posix.SEM_WAIT_BLOCK;
+  dlog "with_pool: got lock";
   (* CHECK: signals *)
   try
-    let hoffs = Netnumber.int_of_int8 (Netnumber.HO.read_int8 mem p0) in
-    if hoffs = 0 then
-      delayed_init_pool mem;
-    let hoffs = Netnumber.int_of_int8 (Netnumber.HO.read_int8 mem p0) in
+    let hoffs = get_int8 mem p0 in
+    if hoffs = 0 then (
+      dlog "with_pool: delayed initialization";
+      ignore(delayed_init_pool mem);
+      dlog "with_pool: delayed initialization done";
+    );
+    let hoffs = get_int8 mem p0 in
     assert(hoffs <> 0);
     let hdr = (Netsys_mem.as_value mem hoffs : header) in
     let r = f hdr in
+    dlog "with_pool: unlock";
     Netsys_posix.sem_post sem;
     r
   with
     | error ->
+	dlog "with_pool: unlock";
 	Netsys_posix.sem_post sem;
 	raise error
     
@@ -416,9 +514,12 @@ let init_pool mem =
 
 
 let get_mem res_id =
+  dlog "get_mem";
   let res = Netmcore.get_resource res_id in
   match res#repr with
-    | `Posix_shm_preallocated(_,mem) -> mem
+    | `Posix_shm_preallocated(_,mem) -> 
+	dlog "get_mem successful";
+	mem
     | _ -> failwith "Netmcore_mempool: this resource is not a pool"
   
 
@@ -426,7 +527,7 @@ let alloc_mem res_id bsize =
   (* round up to multiple of page_size: *)
   if bsize <= 0 then
     invalid_arg "Netmcore_mempool.alloc_mem: bad size";
-  let bsize = ((bsize - 1) / page_size) * page_size + 1 in
+  let bsize = ((bsize - 1) / page_size + 1) * page_size in
   let mem = get_mem res_id in
   with_pool mem 
     (fun hdr -> really_alloc_mem mem hdr bsize)
@@ -454,19 +555,62 @@ let size_mem res_id m =
    (fun hdr -> really_size_mem mem hdr offs)
 
 
+let stats res_id =
+  let mem = get_mem res_id in
+  with_pool mem
+    (fun hdr ->
+       (hdr.pool_size, hdr.pool_free, hdr.pool_free_contiguous)
+    )
+
+
+let debug_info res_id =
+  let mem = get_mem res_id in
+  with_pool mem
+    (fun hdr ->
+       let free_list_string k =
+	 let b = Buffer.create 100 in
+	 let first = ref true in
+	 Buffer.add_string b "{";
+	 let cur = ref hdr.pool_fl.( k ) in
+	 while !cur <> 0 do
+	   let e = lookup_fl_entry mem hdr !cur in
+	   if not !first then bprintf b ",";
+	   bprintf b "%d->%d" !cur e.pool_fl_bsize;
+	   first := false;
+	   cur := e.pool_fl_next
+	done;
+	 Buffer.add_string b "}";
+	 Buffer.contents b
+       in
+       let b = Buffer.create 100 in
+       bprintf b "pool_size = %d\n" hdr.pool_size;
+       bprintf b "pool_free = %d\n" hdr.pool_free;
+       bprintf b "pool_free_contiguous = %d\n" hdr.pool_free_contiguous;
+       bprintf b "pool_start = %d\n" hdr.pool_start;
+       bprintf b "allocations (offs->bsize): %s\n" 
+	 (Netmcore_util.AVL.as_debug_list hdr.pool_alloc);
+       for k = 0 to pool_fl_size - 1 do
+	 bprintf b "free_list[%d]: %s\n" k (free_list_string k)
+       done;
+       Buffer.contents b
+    )
+    
+
 let create_mempool size =
   (* round up to multiple of page_size: *)
   if size <= 0 then
     invalid_arg "Netmcore_mempool.create_mempool: bad size";
-  let size = ((size - 1) / page_size) * page_size + 1 in
-  let res_id, full_name = Netmcore.create_preallocated_shm "/mempool" size in
+  let size = ((size - 1) / page_size + 1) * page_size in
+  let res_id, full_name = 
+    Netmcore.create_preallocated_shm ~value_area:true "/mempool" size in
   (* Map the first page only *)
   let fd = Netsys_posix.shm_open full_name [Netsys_posix.SHM_O_RDWR] 0 in
-  ( try
+  let mem =
+    try
       let mem = Netsys_mem.memory_map_file fd true page_size in
-      Unix.close fd
+      Unix.close fd;
+      mem
     with
-      | error -> Unix.close fd; raise error
-  );
+      | error -> Unix.close fd; raise error in
   init_pool mem;
   res_id

@@ -50,12 +50,17 @@ type compute_resource_type =
     | `Posix_sem | `Fork_point | `Join_point
     ]
 
+type inherit_request =
+    [ `Resources of res_id list
+    | `All
+    ]
+
 type compute_resource_repr =
     [ `File of string
     | `Posix_shm of string
     | `Posix_shm_preallocated of string * Netsys_mem.memory
     | `Posix_sem of string
-    | `Fork_point of (res_id list * Netplex_encap.encap -> process_id)
+    | `Fork_point of (inherit_request * Netplex_encap.encap -> process_id)
     | `Join_point of (process_id -> Netplex_encap.encap option)
     ]
   (** Centrally managed resources include:
@@ -159,7 +164,7 @@ val def_process :
     (i.e. Netplex containers)
  *)
 
-val start : ?inherit_resources:res_id list -> 
+val start : ?inherit_resources:inherit_request -> 
             res_id -> Netplex_encap.encap -> process_id
   (** [let pid = start fork_point arg]: Starts the process with the
       given [fork_point] and the argument [arg].
@@ -172,7 +177,9 @@ val start : ?inherit_resources:res_id list ->
 
       Option [inherit_resources]: Certain resources are only accessible by
       the process when they are inherited to it. This is the case for
-      [`Posix_shm_preallocated].
+      [`Posix_shm_preallocated]. This can be set to [`All] to inherit
+      all inheritable resources, or to [`Resources l] to only inherit
+      the resources of [l]. By default, no resources are inherited.
    *)
 
 val join : res_id -> process_id -> Netplex_encap.encap option
@@ -221,7 +228,8 @@ val get_shm : res_id -> string
     and opened with {!Netsys_posix.shm_open}. 
  *)
 
-val create_preallocated_shm : string -> int -> (res_id * string)
+val create_preallocated_shm : 
+       ?value_area:bool -> string -> int -> (res_id * string)
   (** [create_preallocated_shm prefix size]: Creates a new preallocated
       shm object with a unique name based on [prefix], and a length of
       [size] bytes. The object is created and mapped into the master
@@ -237,6 +245,10 @@ val create_preallocated_shm : string -> int -> (res_id * string)
       block cannot be mapped at the right address. Nevertheless, the calling
       process counts as a user of the object, and needs to release
       the object.
+
+      Option [value_area]: if set, the new memory is marked as value
+      area, so the ocaml runtime allows value comparisons in this
+      memory area.
    *)
 
 val manage_sem : string -> compute_resource
