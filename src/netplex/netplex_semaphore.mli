@@ -90,6 +90,13 @@ val destroy : string -> unit
       [destroy] can also be invoked from the controller process.
    *)
 
+val ctrl_increment : string -> Netplex_types.container_id -> int64
+  (** Increment the named semaphore from controller context, substituting
+      an increment from a container (e.g. a container that terminated
+      or is otherwise no longer able to do so). In this
+      case the ID of the container needs to be passed 
+   *)
+
 
 (** Example (code fragment):
 

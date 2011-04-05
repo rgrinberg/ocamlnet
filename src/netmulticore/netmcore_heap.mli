@@ -41,7 +41,7 @@
 type 'a heap
   (** A heap where the type of the root element is ['a] *)
 
-val create_heap : res_id -> int -> 'a -> 'a heap
+val create_heap : Netmcore.res_id -> int -> 'a -> 'a heap
   (** [create_heap pool_id size root]: Creates a new heap with [size]
       bytes in the pool identified by [pool_id]. This ID must refer
       to a {!Netmcore_mempool}-managed pool.
@@ -49,6 +49,17 @@ val create_heap : res_id -> int -> 'a -> 'a heap
       The value [root] is copied to the new heap. This is done by
       deeply duplicating [root] and all values pointed to by [root],
       and storing these duplicates in the heap.
+
+      The possible types of value [root] are restricted. In particular,
+      the following types are not supported (as ['a] or as a component
+      of ['a]):
+      - Function types
+      - Lazy values
+      - Objects
+      - Custom blocks (including bigarrays, [int32], [int64], [nativeint])
+      - I/O references like [in_channel] and [out_channel]
+      - empty arrays are only partially supported (in particular,
+        comparisons [x = [| |]] do not work)
    *)
 
 val minimum_size : 'a -> int
@@ -86,6 +97,16 @@ val with_value : 'a heap -> (unit -> 'b) -> ('b -> 'c) -> 'c
       garbage collection will not delete it.
    *)
 
+val destroy : 'a heap -> unit
+  (** Destroys the heap and gives the memory back to the pool *)
+
+val gc : 'a heap -> unit
+  (** Lock the heap and do a GC pass *)
+
+val debug_info : 'a heap -> string
+  (** Returns a multi-line debug string *)
+
+
 
 (** {2 Example: Mutable Variable}
 
@@ -113,3 +134,8 @@ val with_value : 'a heap -> (unit -> 'b) -> ('b -> 'c) -> 'c
     ]}
 
  *)
+
+
+module Debug : sig
+  val enable : bool ref
+end

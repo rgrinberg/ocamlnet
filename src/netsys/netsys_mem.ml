@@ -37,6 +37,10 @@ external memory_address : memory -> nativeint
 external getpagesize : unit -> int
   = "netsys_getpagesize"
 
+let pagesize =
+  try getpagesize()
+  with Invalid_argument _ -> 4096
+
 external netsys_alloc_memory_pages : nativeint -> int -> memory
   = "netsys_alloc_memory_pages"
 
@@ -65,8 +69,13 @@ let zero_pages mem pos len =
     invalid_arg "Netsys_mem.zero_pages (index out of range)";
   netsys_zero_pages mem pos len
 
+external grab : nativeint -> int -> memory
+  = "netsys_grab"
+
 external as_value : memory -> int -> 'a
   = "netsys_as_value"
+
+let as_obj mem offs = Obj.repr(as_value mem offs)
 
 external netsys_value_area_add : memory -> unit 
   = "netsys_value_area_add"
@@ -78,6 +87,15 @@ let value_area m =
   netsys_value_area_add m;
   Gc.finalise netsys_value_area_remove m;
   ()
+
+external obj_address : Obj.t -> nativeint
+  = "netsys_obj_address"
+
+external hdr_address : Obj.t -> nativeint
+  = "netsys_hdr_address"
+
+external init_header : memory -> int -> int -> int -> unit
+  = "netsys_init_header"
 
 external cmp_string : string -> string -> int
   = "netsys_cmp_string"
@@ -136,6 +154,14 @@ external get_custom_ops : 'a -> string * custom_ops
 
 external copy_value : init_value_flag list -> 'a -> 'a
   = "netsys_copy_value"
+
+type color = White | Gray | Blue | Black
+
+external color : Obj.t -> color
+  = "netsys_color"
+
+external set_color : Obj.t -> color -> unit
+  = "netsys_set_color"
 
 external netsys_mem_read : Unix.file_descr -> memory -> int -> int -> int
   = "netsys_mem_read"
@@ -222,11 +248,7 @@ type memory_pool =
     }
 
 let create_pool bsize =
-  let page_size = 
-    try getpagesize() 
-    with Invalid_argument _ -> 4096 
-      (* alloc_memory_pages is then also not supported *) in
-  if bsize <= 0 || bsize mod page_size <> 0 then
+  if bsize <= 0 || bsize mod pagesize <> 0 then
     invalid_arg "Netsys_mem.create_pool";
   let m = !Netsys_oothr.provider # create_mutex() in
   { pool_block_size = bsize;
@@ -359,11 +381,7 @@ let pool_block_size p =
   p.pool_block_size
 
 let default_pool_size =
-  let page_size = 
-    try getpagesize() 
-    with Invalid_argument _ -> 4096 
-      (* alloc_memory_pages is then also not supported *) in
-  page_size * 16
+  pagesize * 16
 
 let default_pool =
   create_pool default_pool_size

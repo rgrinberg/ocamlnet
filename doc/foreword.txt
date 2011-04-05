@@ -122,12 +122,14 @@ especially try to
 
 {2 Libraries Using Ocamlnet}
 
-There a number of libraries using Ocamlnet:
+There a number of libraries using and extending Ocamlnet:
 
 - {{:http://oss.wink.com/hydro} Hydro} implements the ICE remote procedure
   call system
 - {{:http://oss.wink.com/hydro} Netdns} implements much of a DNS client
   and client cache
+- {{:http://oss.wink.com/webdav/} Webdav} is a WebDAV client
+- {{:http://oss.wink.com/netamqp/} NetAMQP} is an AMQP client
 - {{:http://code.google.com/p/orpc2} orpc} is another language mapping layer
   for SunRPC
 - {{:http://merjis.com/_file/simplesoap-doc.html} SimpleSOAP} provídes a

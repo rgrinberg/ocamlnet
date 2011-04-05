@@ -68,6 +68,17 @@ CAMLprim value netsys_getpagesize(value dummy)
 #endif
 }
 
+CAMLprim value netsys_grab(value addrv, value lenv)
+{
+    void *start;
+    size_t length;
+
+    start = (void *) Nativeint_val(addrv);
+    length = Long_val(lenv);
+    return alloc_bigarray_dims(BIGARRAY_C_LAYOUT | BIGARRAY_UINT8,
+			       1, start, length);
+}
+
 
 CAMLprim value netsys_alloc_memory_pages(value addrv, value pv)
 {
@@ -251,6 +262,53 @@ CAMLprim value netsys_memory_unmap_file(value memv)
 		(b->flags & ~BIGARRAY_MANAGED_MASK) | BIGARRAY_EXTERNAL;
 	}
     }
+    return Val_unit;
+}
+
+/**********************************************************************/
+/* Obj helpers                                                        */
+/**********************************************************************/
+
+/* From gc.h: */
+#ifndef CAML_GC_H
+#define Caml_white (0 << 8)
+#define Caml_gray  (1 << 8)
+#define Caml_blue  (2 << 8)
+#define Caml_black (3 << 8)
+#define Color_hd(hd) ((color_t) ((hd) & Caml_black))
+#define Whitehd_hd(hd) (((hd)  & ~Caml_black)/*| Caml_white*/)
+#endif
+
+/* e.g. to get the color:
+
+   color = Color_hd(Hd_val(value))
+
+   to set the color:
+
+   Hd_val(value) = Whitehd_hd(Hd_val(value)) | color
+*/
+
+
+CAMLprim value netsys_obj_address(value objv)
+{
+    return caml_copy_nativeint((intnat) Op_val(objv));
+}
+
+CAMLprim value netsys_hdr_address(value objv)
+{
+    return caml_copy_nativeint((intnat) Hp_val(objv));
+}
+
+CAMLprim value netsys_color(value objv)
+{
+    return Val_int(Color_hd(Hd_val(objv)) >> 8);
+}
+
+CAMLprim value netsys_set_color(value objv, value colv)
+{
+    int col;
+    col = Int_val(colv);
+    Hd_val(objv) = Whitehd_hd(Hd_val(objv)) | (col << 8);
     return Val_unit;
 }
 
@@ -466,6 +524,31 @@ CAMLprim value netsys_value_area_remove(value memv)
 #endif
 }
 
+CAMLprim value netsys_init_header(value memv, value offv, value tagv,
+				  value sizev)
+{
+    struct caml_bigarray *b = Bigarray_val(memv);
+    intnat off = Long_val(offv);
+    intnat size = Long_val(sizev);
+    int tag = Int_val(tagv);
+    value *m;
+
+#ifdef ARCH_SIXTYFOUR
+    if (off % 8 != 0)
+	invalid_argument("Netsys_mem.init_header");
+#else
+    if (off % 4 != 0)
+	invalid_argument("Netsys_mem.init_header");
+#endif
+
+    m = (value *) (((char *) b->data) + off);
+    m[0] = /* Make_header (wosize, tag, Caml_white) */
+	(value) (((header_t) size << 10) + tag);
+
+    return Val_unit;
+    
+}
+
 CAMLprim value netsys_cmp_string(value s1, value s2)
 {
     mlsize_t l1, l2, k;
@@ -490,8 +573,8 @@ CAMLprim value netsys_cmp_string(value s1, value s2)
 CAMLprim value netsys_init_string(value memv, value offv, value lenv) 
 {
     struct caml_bigarray *b = Bigarray_val(memv);
-    long off = Long_val(offv);
-    long len = Long_val(lenv);
+    intnat off = Long_val(offv);
+    intnat len = Long_val(lenv);
     value *m;
     char *m_b;
     mlsize_t wosize;
@@ -509,8 +592,8 @@ CAMLprim value netsys_init_string(value memv, value offv, value lenv)
     m_b = (char *) m;
     wosize = (len + sizeof (value)) / sizeof (value);  /* >= 1 */
     
-    m[0] = /* Make_header (wosize, String_tag, Caml_black) */
-	(value) (((header_t) wosize << 10) + (3 << 8) + String_tag);
+    m[0] = /* Make_header (wosize, String_tag, Caml_white) */
+	(value) (((header_t) wosize << 10) + String_tag);
     m[wosize] = 0;
 
     offset_index = Bsize_wsize (wosize) - 1;
@@ -525,22 +608,6 @@ struct named_custom_ops {
     void *ops;
     struct named_custom_ops *next;
 };
-
-/* From gc.h: */
-#ifndef CAML_GC_H
-#define Caml_black (3 << 8)
-#define Color_hd(hd) ((color_t) ((hd) & Caml_black))
-#define Whitehd_hd(hd) (((hd)  & ~Caml_black)/*| Caml_white*/)
-#endif
-
-/* e.g. to get the color:
-
-   color = Color_hd(Hd_val(value))
-
-   to set the color:
-
-   Hd_val(value) = Whitehd_hd(Hd_val(value)) | color
-*/
 
 #ifndef CAML_MAJOR_GC_H
 extern uintnat caml_allocated_words;

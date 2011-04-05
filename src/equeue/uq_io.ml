@@ -514,8 +514,7 @@ let inactivate d =
 	b # inactivate ()
 
 let mem_obj_buffer() =
-  let psize = 
-    try Netsys_mem.getpagesize() with Invalid_argument _ -> 4096 in
+  let psize = Netsys_mem.pagesize in
   let buf = 
     Netpagebuffer.create psize in
   ( object

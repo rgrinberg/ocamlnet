@@ -32,6 +32,9 @@
  *
  * (1) These features can be implemented on top of this module if really needed,
  *     but there is no special support for them.
+ *
+ * If you are looking for WebDAV there is an extension of this module:
+ * {{:http://oss.wink.com/webdav/} Webdav}, which is separately available.
  *)
 
 (** {b Thread safety}

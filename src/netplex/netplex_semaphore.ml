@@ -110,7 +110,7 @@ let plugin_i =
 	  | _ ->
 	      failwith "Unknown procedure"
 
-      method private increment ctrl cid sem_name =
+      method increment ctrl cid sem_name =
 	let (sem, protected, waiting) = self # get_sem_tuple ctrl sem_name in
 	let cont_sem = self # get_cont_sem cid sem_name protected in
 	int64_incr sem;
@@ -305,3 +305,14 @@ let destroy sem_name =
     | Not_found ->
 	raise Netplex_cenv.Not_in_container_thread
 
+
+let ctrl_increment sem_name cid =
+  try
+    match Netplex_cenv.self_obj() with
+      | `Container cont ->
+	  failwith "Netplex_semaphore.ctrl_increment: not in controller context"
+      | `Controller ctrl ->
+	  plugin_i # increment ctrl cid sem_name
+  with
+    | Not_found ->
+	raise Netplex_cenv.Not_in_container_thread

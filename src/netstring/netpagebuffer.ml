@@ -48,8 +48,7 @@ let alloc_pages buf n =
 
 
 let create pgsize =
-  let sys_pgsize = 
-    try Netsys_mem.getpagesize() with Invalid_argument _ -> 4096 in
+  let sys_pgsize = Netsys_mem.pagesize in
   if pgsize mod sys_pgsize <> 0 then
     failwith "Netpagebuffer.create: invalid pagesize";
   let pool = 

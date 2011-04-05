@@ -302,8 +302,7 @@ object(self)
 
     if streaming || List.mem `Streaming flags then (
       let onempty() = () in
-      let page_size = 
-	try Netsys_mem.getpagesize() with _ -> 4096 in
+      let page_size = Netsys_mem.pagesize in
       let buf = Netpagebuffer.create page_size in
       let eof = ref false in
       let ondata n =
@@ -461,8 +460,7 @@ object(self)
       (* We have to use chunked transfer encoding: *)
       req_hdr # update_field "Transfer-Encoding" "chunked";
 
-      let page_size = 
-	try Netsys_mem.getpagesize() with _ -> 4096 in
+      let page_size = Netsys_mem.pagesize in
       let buf = Netpagebuffer.create page_size in
       let eof = ref false in
       let added = ref false in

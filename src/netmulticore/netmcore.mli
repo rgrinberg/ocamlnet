@@ -281,6 +281,7 @@ val add_plugins : Netplex_types.controller -> unit
 val startup : socket_directory:string ->
               ?pidfile:string ->
               ?init_ctrl:(Netplex_types.controller -> unit) ->
+              ?inherit_resources:inherit_request ->
               first_process:(res_id * Netplex_encap.encap) ->
               unit ->
                 unit
@@ -296,6 +297,9 @@ val startup : socket_directory:string ->
 
       [pidfile]: If passed, the PID of the master process is written
       to this file.
+
+      [inherit_resources]: this is taken into account when starting the
+      first worker.
    *)
 
 val destroy_resources : unit -> unit

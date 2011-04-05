@@ -46,13 +46,16 @@ val memory_address : memory -> nativeint
 (** {2 Allocation and memory-mapping} *)
 
 val getpagesize : unit -> int
-  (** Returns the size of a page.
+  (** Returns the size of a page as reported by [sysconf].
 
       On many systems, a page has 4096 bytes, but this cannot be relied
       upon.
 
       This function is only available if the system has [sysconf].
    *)
+
+val pagesize : int
+  (** The best guess at the page size *)
 
 val alloc_memory_pages : ?addr:nativeint -> int -> memory
   (** Allocates memory in units of pages. The memory buffer will start
@@ -124,6 +127,15 @@ val zero_pages : memory -> int -> int -> unit
       overwriting these pages would imply a copy-on-write operation.
    *)
 
+val grab : nativeint -> int -> memory
+  (** [grab addr len]: Interprets the address range from [addr] to
+      [addr+len-1] as [memory] bigarray.
+
+      This function does not allocate! It assumes that the given
+      address range points to valid memory.
+   *)
+
+
 (** {2 Interpreting memory as values} *)
 
 val as_value : memory -> int -> 'a
@@ -146,6 +158,9 @@ val as_value : memory -> int -> 'a
       {!Netsys_mem.value_area} is called for the memory block.
    *)
 
+val as_obj : memory -> int -> Obj.t
+  (** Same as [as_value] but returns the value as [Obj.t] *)
+
 val value_area : memory -> unit
   (** Marks the memory block as value area. This enables that the
       value primitives (polymorphic equality, marshalling, hashing)
@@ -157,6 +172,15 @@ val value_area : memory -> unit
       This function is first available since O'Caml 3.11.
    *)
 
+val obj_address : Obj.t -> nativeint
+val hdr_address : Obj.t -> nativeint
+  (** These two functions return the address of the [Obj.t] and the
+      address of the header of the [Obj.t], respectively.
+
+      Note that this can only be relied upon if the input object
+      cannot be moved around by the garbage collector!
+   *)
+
 val cmp_string : string -> string -> int
   (** Compares two strings like [String.compare]. This also works
       when the strings reside outside the O'Caml heap, e.g. in a
@@ -165,6 +189,13 @@ val cmp_string : string -> string -> int
 
 
 exception Out_of_space
+
+val init_header : memory -> int -> int -> int -> unit
+  (** [init_header mem offset tag size]: Initializes the word at
+      [mem+offset] as an Ocaml value header with the given [tag]
+      and the given [size] (in words). The GC color is always set
+      to "white".
+   *)
 
 val init_string : memory -> int -> int -> (int * int)
   (** [let voffset, bytelen = init_string mem offset len]: 
@@ -181,6 +212,8 @@ val init_string : memory -> int -> int -> (int * int)
 
       The function is useful for initializing shared memory as string
       so that several processes can directly access the string.
+
+      The string has the GC color [White].
 
       Raises [Out_of_space] if the memory block is too small.
    *)
@@ -250,6 +283,8 @@ val init_value :
       memory block is mapped at this address and not at the address it
       is really mapped. This is useful for preparing memory that is going
       to be mapped at a different address than it is right now.
+
+      The new value has the GC color [White].
    *)
 
 val get_custom_ops : 'a -> (string * custom_ops)
@@ -271,6 +306,15 @@ val copy_value : init_value_flag list -> 'a -> 'a
 
       Cyclic input values are supported. [Copy_simulate] is ignored.
    *)
+
+type color = White | Gray | Blue | Black
+    (** GC colors *)
+
+val color : Obj.t -> color
+  (** Return the GC color *)
+
+val set_color : Obj.t -> color -> unit
+  (** Set the GC color *)
 
 
 (** {2 I/O using [memory] as buffers} *)

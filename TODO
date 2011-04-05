@@ -1,5 +1,11 @@
 OCAMLNET
 
+Optimization:
+  - Uq_io.input_lines: reads as much lines as possible from in_buffer
+    and returns list of lines
+    -> useful in Mapred_task_exec, emap implementation
+
+
 Fixes TODO:
 
 - Http_fs: the http_stream_fs should also define a pipeline method

@@ -60,10 +60,10 @@ and pool_fl =
       mutable pool_fl_bsize : int;      (* size of block (multiple of page size) *)
     }
 
-let pool_fl_size = 16
+let pool_fl_size = 64
   (* size of pool_fl *)
 
-let management_factor = 10
+let management_factor = 4
   (* Every this number of pages another alloc_tree element is preallocated *)
 
 let magic = "MEMPOOL\n"
@@ -72,9 +72,7 @@ let magic = "MEMPOOL\n"
 let fl_magic = "MEMFREE\n"
   (* must have length 8 *)
 
-let page_size =
-  try Netsys_mem.getpagesize() 
-  with Invalid_argument _ -> 4096 
+let page_size = Netsys_mem.pagesize
 
 let alloc_mem n =
   Bigarray.Array1.create Bigarray.char Bigarray.c_layout n
@@ -272,6 +270,7 @@ let find_free_block mem hdr bsize =
   let found = ref false in
   let best = ref 0 in
   let best_prev = ref 0 in
+  let best_size = ref max_int in
   while not !found && (!cur <> 0 || !k > 0) do
     (* dlogr (fun () -> sprintf "k=%d cur=%d" !k !cur); *)
     if !cur = 0 then (
@@ -281,9 +280,10 @@ let find_free_block mem hdr bsize =
       cur := hdr.pool_fl.( !k )
     ) else (
       let e = lookup_fl_entry mem hdr !cur in
-      if e.pool_fl_bsize >= bsize then (
+      if e.pool_fl_bsize >= bsize && e.pool_fl_bsize < !best_size then (
 	best := !cur;
-	best_prev := !prev
+	best_prev := !prev;
+	best_size := e.pool_fl_bsize
       );
       if e.pool_fl_bsize=bsize then found := true;
       prev := !cur;

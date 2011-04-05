@@ -97,8 +97,7 @@ let ssh_interpreter ?(options=[ "-o"; "BatchMode yes"]) ?user ~host () =
 
 
 let output_stream_adapter ~ci ~close_in ~skip =
-  let page_size = 
-    try Netsys_mem.getpagesize() with _ -> 4096 in
+  let page_size = Netsys_mem.pagesize in
 
   let stdout_buf = Netpagebuffer.create page_size in
   let stdout_eof = ref false in
@@ -154,8 +153,7 @@ let output_stream_adapter ~ci ~close_in ~skip =
 
 
 let input_stream_adapter ~ci ~close_out =
-  let page_size = 
-    try Netsys_mem.getpagesize() with _ -> 4096 in
+  let page_size = Netsys_mem.pagesize in
 
   let stdin_buf = Netpagebuffer.create page_size in
   let stdin_eof = ref false in

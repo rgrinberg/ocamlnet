@@ -764,7 +764,7 @@ let create_preallocated_shm ?(value_area=false) prefix size =
     | Some exec ->
 	create_prealloc_shm prefix size value_area exec
     | None ->
-	failwith "Netmcore.create_preallocated_shm: unknown context"
+	create_prealloc_shm prefix size value_area `Controller
     
 let self_process_id() =
   match !self_pid with
@@ -786,7 +786,8 @@ let destroy_resources () =
     resource_table
 
 
-let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ()) ~first_process
+let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ()) 
+            ?inherit_resources ~first_process
             () =
   let (fork_res_id, arg) = first_process in
   let config_tree =
@@ -811,7 +812,7 @@ let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ()) ~first_process
     ~late_initializer:(fun cf ctrl ->
 			 add_plugins ctrl;
 			 init_ctrl ctrl;
-			 let pid = start fork_res_id arg in
+			 let pid = start ?inherit_resources fork_res_id arg in
 			 initial_process := Some pid
 		      )
     ( Netplex_mp.mp ~keep_fd_open:true ~terminate_tmo:(-1) () )
