@@ -626,6 +626,14 @@ let add mut newval =
     Netsys_mem.as_value mem voffs
   )
 
+
+let add_some mut (x:'a) =
+  (* Very low-level! *)
+  let y_orig = (Some (Obj.magic 0) : 'a option) in
+  let y = add mut y_orig in
+  Obj.set_field (Obj.repr y) 0 (Obj.repr x);
+  y
+
 let set_tmp_root heap x =
   if Obj.is_block (Obj.repr x) then (
     dlog "set_tmp_root: searching for free root element";

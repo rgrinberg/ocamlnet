@@ -106,6 +106,12 @@ val add_init_array : mutator -> int -> (int -> 'a) -> 'a array
       [f k] and pushing the copy of this onto the heap.
    *)
 
+val add_some : mutator -> 'a -> 'a option
+  (** [add_some mut x]: Returns [Some x] where the O'Caml value representing
+      [Some] is allocated in the heap using [mut]. It is assumed that [x] is
+      already  a resident of the heap. This means [x] is not copied!
+   *)
+
 val pin : mutator -> 'a -> unit
   (** [pin m x]: Pins a shared value [x] so it cannot be deleted by
       the garbage collector. The value remains pinned for the lifetime
