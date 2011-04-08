@@ -6,6 +6,8 @@
 
    Bad interaction with ledit: SIGINT from ledit is only sent to the
    master process but not to the whole process group.
+
+   FIXME: SIGINT does not work properly
  *)
 
 module Unit_encap = Netplex_encap.Make_encap(struct type t = unit end)
@@ -49,7 +51,9 @@ let toploop_fork, toploop_join =
 let spawn_toploop () =
   let pid =
     Netmcore.start ~inherit_resources:`All toploop_fork (Unit_encap.wrap()) in
+  Sys.catch_break false;
   ignore(Netmcore.join toploop_join pid);
+  Sys.catch_break true;
   print_endline 
     ("Netmcore: Returning to toploop in worker child [PID=" ^ 
        string_of_int (Unix.getpid()) ^ "]")

@@ -70,17 +70,49 @@ val minimum_size : 'a -> int
 val root : 'a heap -> 'a
   (** Returns the root element *)
 
-val modify : 'a heap -> (('b -> 'b) -> unit) -> unit
+type mutator
+  (** Mutators allow it to push new values onto the heap.
+
+      Caveat: pushed values are not considered as roots, and thus they
+      need immediately be attached to the existing data structure.
+      Otherwise, the next push might trigger a garbage collection, and
+      the new value is deleted. If this is not possible, one can
+      call [pin] instead (see below).
+   *)
+
+val modify : 'a heap -> (mutator -> unit) -> unit
   (** [modify h mutate]: This function locks the heap so that this process
       has exclusive write access to it for the duration of the [mutate]
       function. The [mutate] function is immediately called back, and
-      the argument of [mutate] is a function [add] to deeply copy further values
-      to the heap:
+      the argument of [mutate] is the mutator [m] that allows one to push
+      values onto the heap.
 
-      {[ mutate add ]}
-
-      By calling [add x] from the body of [mutate] one can create a copy
+      By calling [add m x] from the body of [mutate] one can create a copy
       of [x] that is stored in the heap. 
+   *)
+
+val add : mutator -> 'a -> 'a
+  (** Pushes a new value onto the heap *)
+
+val add_uniform_array : mutator -> int -> 'a -> 'a array
+  (** [add_uniform_array m n x]: Pushes a new value with n elements onto
+      the heap. Each index position of the array is initialized with
+      the same copy of [x].
+   *)
+
+val add_init_array : mutator -> int -> (int -> 'a) -> 'a array
+  (** [add_init_array m n f]: Pushes a new value with n element onto
+      the heap. The index position [k] is inititialized by running
+      [f k] and pushing the copy of this onto the heap.
+   *)
+
+val pin : mutator -> 'a -> unit
+  (** [pin m x]: Pins a shared value [x] so it cannot be deleted by
+      the garbage collector. The value remains pinned for the lifetime
+      of the mutator [m] (i.e. the runtime of the [modify] function).
+
+      Pinning is relatively expensive if done in masses, and should be
+      avoided if possible.
    *)
 
 val copy : 'a -> 'a
@@ -95,6 +127,22 @@ val with_value : 'a heap -> (unit -> 'b) -> ('b -> 'c) -> 'c
       While [process] is being executed, the value [x] is temporarily
       added to the set of reachable values, so that a parallely running
       garbage collection will not delete it.
+      
+      Note that [x] {b must} reside in the heap!
+
+      Calling [modify] from [find] will cause a deadlock. Calling 
+      it from [process] is allowed.
+   *)
+
+val with_value_2 : 'a heap -> (unit -> ('b * 'c)) -> ('b * 'c -> 'z) -> 'z
+val with_value_3 : 'a heap -> (unit -> ('b * 'c * 'd)) -> ('b * 'c * 'd -> 'z) -> 'z
+val with_value_4 : 'a heap -> (unit -> ('b * 'c * 'd * 'e)) -> ('b * 'c * 'd * 'e -> 'z) -> 'z
+val with_value_5 : 'a heap -> (unit -> ('b * 'c * 'd * 'e * 'f)) -> ('b * 'c * 'd * 'e * 'f -> 'z) -> 'z
+  (** Same as [with_value], but a tuple of values can be passed down
+   *)
+
+val with_value_n : 'a heap -> (unit -> 'b list) -> ('b list -> 'c) -> 'c
+  (** Same as [with_value], but a list of values can be passed down
    *)
 
 val destroy : 'a heap -> unit

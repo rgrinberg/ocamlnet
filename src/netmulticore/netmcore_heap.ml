@@ -122,6 +122,11 @@ and ext_block =
    the value area (custom values would be incompatible with our GC).
  *)
 
+type mutator =
+    { heap : Obj.t heap;
+      mutable alive : bool;
+      mutable pinned : int list;
+    }
 
 let fl_size = 64
 
@@ -151,7 +156,9 @@ let bytes_per_word =
     | 32 -> 4
     | 64 -> 8
     | _ -> assert false
-	
+
+let create_mutator heap =	
+  { heap = Obj.magic heap; alive = true; pinned = [] }
 
 let ext_mem ext =
   Netsys_mem.grab ext.ext_addr ext.ext_size
@@ -253,10 +260,11 @@ let extend_heap heap size =
       if req_size = mem_size then
 	mem_real_size - size
       else
-	n;
-    assert(ext.ext_start >= n);
+	magic_len + n;
+    assert(ext.ext_start >= magic_len+n);
     heap.heap_ext.ext_next <- ptr_to_ext_block heap ext;
-    (ext_block heap old_next).ext_prev <- ptr_to_ext_block heap ext;
+    if old_next <> no_ext_block then
+      (ext_block heap old_next).ext_prev <- ptr_to_ext_block heap ext;
     dlogr (fun () -> sprintf "extent_heap addr=%nx" ext.ext_addr);
     Some(mem, ext.ext_start, ext.ext_end - ext.ext_start)
   with
@@ -352,6 +360,9 @@ let do_gc heap =
   dlogr (fun () ->
 	   sprintf "range: 0x%nx - 0x%nx" start_addr end_addr);
 
+  let debug_addr = Hashtbl.create 20 in
+  (* For debugging [mark] *)
+
   let rec mark (v:Obj.t) =
     (* FIXME: this recursion can cause stack overflows *)
     if Obj.is_block v then (
@@ -364,6 +375,8 @@ let do_gc heap =
 	  dlogr (fun () -> sprintf "marking 0x%nx" 
 		   (Netsys_mem.obj_address v));
 	  Netsys_mem.set_color v Netsys_mem.Black;
+	  if !Debug.enable then
+	    Hashtbl.replace debug_addr (Netsys_mem.obj_address v) ();
 	  if Obj.tag v < Obj.no_scan_tag then (
 	    let sz = Obj.size v in
 	    for k = 0 to sz - 2 do
@@ -373,7 +386,14 @@ let do_gc heap =
 	      mark (Obj.field v (sz-1))  (* tail-rec *)
 	  )
 	)
-	else dlog "wrong color"
+	else (
+	  if !Debug.enable then (
+	    if not (Hashtbl.mem debug_addr (Netsys_mem.obj_address v)) then (
+	      dlog (sprintf "wrong color at 0x%nx"
+		      (Netsys_mem.obj_address v))
+	    )
+	  )
+	)
       )
       else dlog "addr out of range"
     ) in
@@ -493,6 +513,7 @@ let find_free_block heap size =
     )
   done;
   if !best != null_obj then (
+    dlog "found free block";
     let addr = Netsys_mem.hdr_address !best in
     let byte_size = (Obj.size !best + 1) * bytes_per_word in
     let mem = Netsys_mem.grab addr byte_size in
@@ -521,12 +542,12 @@ let alloc_in_free_block heap size mem offs len entry prev =
       (* The remaining part would only have 1 word. We initialize this word
 	 as zero-length block, but it is not entered into a freelist
        *)
-      init_as_atom mem size;
+      init_as_atom mem (offs+size);
       (mem, offs)
     )
     else (
       (* the remaining part is added to a freelist *)
-      add_to_fl heap mem size (len - size);
+      add_to_fl heap mem (offs+size) (len - size);
       (mem, offs)
     )
   )
@@ -552,6 +573,12 @@ let alloc heap size =
 		dlog "alloc: extending heap";
 		( match extend_heap heap size with
 		    | Some(mem, offs, len) ->
+(*
+eprintf "mem=%nx offs=%x len=%d\n%!"
+  (Netsys_mem.memory_address mem)
+  offs
+  len;
+ *)
 			if len = size then (
 			  init_as_block mem offs size;
 			  (mem,offs)
@@ -559,7 +586,8 @@ let alloc heap size =
 			else (
 			  assert(len <> size + bytes_per_word);
 			  init_as_block mem offs size;
-			  add_to_fl heap mem size (len - size);
+			  add_to_fl heap mem (offs+size) (len - size);
+
 			  (mem,offs)
 			)
 		    | None ->
@@ -568,28 +596,157 @@ let alloc heap size =
 	)
 
 
-let add heap newval =
+let add mut newval =
   (* It is assumed that we already got the lock for the heap *)
   dlog "add";
+  if not mut.alive then
+    failwith "Netmcore_heap.add: invalid mutator";
+  if Obj.is_int (Obj.repr newval) then
+    newval
+  else (
+    let heap = mut.heap in
+    let heap_mem = ext_mem heap.heap_ext in
+    let _, size =
+      Netsys_mem.init_value
+	heap_mem 0 newval 
+	[Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom] in
+    assert(size mod bytes_per_word = 0);
+    (* We need [size] bytes to store [newval] *)
+    let (mem, offs) = alloc heap size in
+    (* Do the copy: Note that we need the same flags here as above,
+       except Copy_simulate which is omitted
+     *)
+    let voffs, size' =
+      Netsys_mem.init_value
+	mem offs newval 
+	[Netsys_mem.Copy_atom] in
+    assert(size = size');
+    (* Return the new value: *)
+    dlog "add done";
+    Netsys_mem.as_value mem voffs
+  )
+
+let set_tmp_root heap x =
+  if Obj.is_block (Obj.repr x) then (
+    dlog "set_tmp_root: searching for free root element";
+    (* Look for a free entry in the list of roots. There is always a
+       free entry
+     *)
+    let n = Array.length heap.heap_roots in
+    let found = ref false in
+    let k = ref (-1) in
+    while not !found && !k < n-1 do
+      incr k;
+      found := heap.heap_roots.( !k ) == null_obj
+    done;
+    assert(!found);
+    dlogr
+      (fun () -> sprintf "set_tmp_root: root element %d" !k);
+    heap.heap_roots.( !k ) <- Obj.repr x;
+    (* If the array of roots is full, reallocate it.
+       At this point we can reallocate, because x is already member of
+       the roots array. (Realloction can trigger the GC!)
+     *)
+    let j = ref !k in
+    found := false;
+    while not !found && !j < n-1 do
+      incr j;
+      found := heap.heap_roots.( !j ) == null_obj
+    done;
+    if not !found then (
+      dlog "set_tmp_root: reallocation";
+      let r_orig = Array.make (2*n) null_obj in
+      Array.blit heap.heap_roots 0 r_orig 0 n;
+      let mut = create_mutator heap in
+      let r = add mut r_orig in
+      heap.heap_roots <- r
+    );
+    !k
+  )
+  else (-1)
+
+
+let release_tmp_root heap k =
+  dlog "release_tmp_root: freeing root";
+  if k >= 0 then
+    heap.heap_roots.(k) <- null_obj
+
+
+let add_uniform_array mut n x_orig =
+  if not mut.alive then
+    failwith "Netmcore_heap.add_uniform_array: invalid mutator";
+  let heap = mut.heap in
   let heap_mem = ext_mem heap.heap_ext in
-  let _, size =
-    Netsys_mem.init_value
-      heap_mem 0 newval 
-      [Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom] in
-  assert(size mod bytes_per_word = 0);
-  (* We need [size] bytes to store [newval] *)
-  let (mem, offs) = alloc heap size in
-  (* Do the copy: Note that we need the same flags here as above,
-     except Copy_simulate which is omitted
-   *)
-  let voffs, size' =
-    Netsys_mem.init_value
-      mem offs newval 
-      [Netsys_mem.Copy_atom] in
-  assert(size = size');
-  (* Return the new value: *)
-  dlog "add done";
-  Netsys_mem.as_value mem voffs
+  let x_orig_obj = Obj.repr x_orig in
+  let x_is_float =
+    Obj.is_block x_orig_obj && Obj.tag x_orig_obj = Obj.double_tag in
+  let x_is_block =
+    Obj.is_block x_orig_obj && Obj.tag x_orig_obj <> Obj.double_tag in
+  let x_size =
+    if x_is_block then
+      snd (
+	Netsys_mem.init_value
+	  heap_mem 0 x_orig
+	  [Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom])
+    else
+      0 in
+  let a_size = 
+    if x_is_float then
+      Netsys_mem.init_float_array_bytelen n
+    else
+      Netsys_mem.init_array_bytelen n in
+  let t_size = x_size + a_size in
+  (* allocate in one go, so the new value cannot be garbage collected *)
+  let (mem,offs) = alloc heap t_size in
+  let x =
+    if x_is_block then (
+      let x_voffs, _ =
+	Netsys_mem.init_value
+	  mem offs x_orig
+	  [Netsys_mem.Copy_atom] in
+      Netsys_mem.as_value mem x_voffs
+    )
+    else x_orig in
+  let a_offs = offs + x_size in
+  let a =
+    if x_is_float then (
+      let (a_voffs, _) = Netsys_mem.init_float_array mem a_offs n in
+      let a = (Netsys_mem.as_value mem a_voffs : _ array) in
+      let a_obj = Obj.repr a in
+      let x_float = (Obj.obj x_orig_obj : float) in
+      for k = 0 to n-1 do
+	Obj.set_double_field a_obj k x_float
+      done;
+      a
+    )
+    else (
+      let (a_voffs, _) = Netsys_mem.init_array mem a_offs n in
+      let a = (Netsys_mem.as_value mem a_voffs : _ array) in
+      let a_obj = Obj.repr a in
+      let x_obj = Obj.repr x in
+      for k = 0 to n-1 do
+	Obj.set_field a_obj k x_obj
+      done;
+      a
+    ) in
+  a
+
+
+let add_init_array mut n f =
+  if not mut.alive then
+    failwith "Netmcore_heap.add_init_array: invalid mutator";
+  if n=0 then
+    Obj.magic(add_uniform_array mut 0 0)
+  else (
+    let x0 = f 0 in
+    let a = add_uniform_array mut n x0 in
+    let r = set_tmp_root mut.heap a in
+    for k = 1 to n-1 do
+      Array.unsafe_set a k (add mut (f k))
+    done;
+    release_tmp_root mut.heap r;
+    a
+  )
 
 
 let with_lock heap f =
@@ -616,67 +773,113 @@ let gc heap =
     )
 
 
+let pin mut x =
+  (* FIXME: there is a cheaper way of pinning, because we have the
+     heap lock. We could also just gather the roots in a list, and
+     consider this list during GC
+   *)
+  let k = set_tmp_root mut.heap x in
+  mut.pinned <- k :: mut.pinned
+
+
 let modify heap mutate =
- with_lock heap
-   (fun () ->
-      mutate (add heap)
-   )
+  with_lock heap
+    (fun () ->
+       let mut = create_mutator (Obj.magic heap) in
+       let finish() =
+	 mut.alive <- false;
+	 List.iter (fun k -> release_tmp_root heap k) mut.pinned in
+       try
+	 let r = mutate mut in
+	 finish();
+	 r
+       with
+	 | error ->
+	     finish();
+	     raise error
+    )
 
 
 let copy x =
   Netsys_mem.copy_value [Netsys_mem.Copy_atom] x
 
 
-let with_value heap find process =
+let with_value_n heap find process =
   dlog "with_value";
-  let x, k =
+  let l, k_list =
     with_lock heap
       (fun () ->
-	 let x = find() in
-	 dlog "with_value: searching for free root element";
-	 (* Look for a free entry in the list of roots. There is always a
-	    free entry
-	  *)
-	 let n = Array.length heap.heap_roots in
-	 let found = ref false in
-	 let k = ref (-1) in
-	 while not !found && !k < n-1 do
-	   incr k;
-	   found := heap.heap_roots.( !k ) == null_obj
-	 done;
-	 assert(!found);
-	 dlogr
-	   (fun () -> sprintf "with_value: root element %d" !k);
-	 heap.heap_roots.( !k ) <- Obj.repr x;
-	 (* If the array of roots is full, reallocate it.
-	    At this point we can reallocate, because x is already member of
-	    the roots array. (Realloction can trigger the GC!)
-	  *)
-	 let j = ref !k in
-	 found := false;
-	 while not !found && !j < n-1 do
-	   incr j;
-	   found := heap.heap_roots.( !j ) == null_obj
-	 done;
-	 if not !found then (
-	   dlog "with_value: reallocation";
-	   let r_orig = Array.make (2*n) null_obj in
-	   Array.blit heap.heap_roots 0 r_orig 0 n;
-	   let r = add heap r_orig in
-	   heap.heap_roots <- r
-	 );
-	 x, !k
+	 let l = find() in
+	 let k_list = List.map (fun x -> set_tmp_root heap x) l in
+	 l, k_list
       ) in
   dlog "with_value: process";
-  let y = process x in
+  let y = process l in
   (* We need the lock again *)
   with_lock heap
     (fun () ->
-       dlog "with_value: freeing root";
-       heap.heap_roots.(k) <- null_obj
+       List.iter (release_tmp_root heap) k_list
     );
   dlog "with_value: returning";
   y
+
+let with_value heap find process =
+  with_value_n
+    heap
+    (fun () -> [find()])
+    (function [x] -> process x | _ -> assert false)
+
+let with_value_2 heap (find : unit -> ('t1 * 't2)) process =
+  with_value_n
+    heap
+    (fun () -> 
+       let (x1,x2) = find() in
+       [ Obj.repr x1; Obj.repr x2 ]
+    )
+    (function
+       | [x1; x2] -> process ((Obj.obj x1 : 't1), (Obj.obj x2 : 't2))
+       | _ -> assert false
+    )
+
+let with_value_3 heap find process =
+  with_value_n
+    heap
+    (fun () -> 
+       let (x1,x2,x3) = find() in
+       [ Obj.repr x1; Obj.repr x2; Obj.repr x3 ]
+    )
+    (function
+       | [x1; x2; x3] -> process ((Obj.obj x1), (Obj.obj x2), (Obj.obj x3))
+       | _ -> assert false
+    )
+
+let with_value_4 heap find process =
+  with_value_n
+    heap
+    (fun () -> 
+       let (x1,x2,x3,x4) = find() in
+       [ Obj.repr x1; Obj.repr x2; Obj.repr x3; Obj.repr x4 ]
+    )
+    (function
+       | [x1; x2; x3; x4] -> 
+	   process ((Obj.obj x1), (Obj.obj x2), (Obj.obj x3), (Obj.obj x4))
+       | _ -> assert false
+    )
+
+let with_value_5 heap find process =
+  with_value_n
+    heap
+    (fun () -> 
+       let (x1,x2,x3,x4,x5) = find() in
+       [ Obj.repr x1; Obj.repr x2; Obj.repr x3; Obj.repr x4; Obj.repr x5 ]
+    )
+    (function
+       | [x1; x2; x3; x4; x5] -> 
+	   process
+	     ((Obj.obj x1), (Obj.obj x2), (Obj.obj x3), (Obj.obj x4),
+	      (Obj.obj x5))
+       | _ -> assert false
+    )
 
 
 let root heap =
@@ -765,10 +968,11 @@ let create_heap pool size rootval_orig =
       Netnumber.HO.int8_as_string (Netnumber.int8_of_int voffs) in
     Netsys_mem.blit_string_to_memory hoffs_s 0 heap_mem p_hoffs 8;
     p := !p + n;
-    let heap = Netsys_mem.as_value heap_mem voffs in
+    let heap = (Netsys_mem.as_value heap_mem voffs : _ heap) in
     heap.heap_ext.ext_start <- !p;
     add_to_fl heap heap_mem !p (heap.heap_ext.ext_end - !p);
-    let rootval = add heap rootval_orig in
+    let mut = create_mutator heap in
+    let rootval = add mut rootval_orig in
     heap.heap_value <- rootval;
     heap.heap_roots.(0) <- Obj.repr rootval;
     heap
