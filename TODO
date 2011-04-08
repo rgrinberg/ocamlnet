@@ -5,6 +5,21 @@ Optimization:
     and returns list of lines
     -> useful in Mapred_task_exec, emap implementation
 
+Netmulticore:
+ - type heap_descr
+ - *_descr for each data structure
+ - heap: be more careful with GC colors
+ - heap: support r/w locks
+ - heap: support recursive locks for modify
+ - heap: allow custom ints
+ - heap: helper function self_contained
+ - Netmcore_buffer.gc: remove all unreferenced mem blocks
+ - Netmcore_hashtbl.gc: shrink the table as far as possible
+
+Advanced:
+ - Special form of condition variables one can poll on
+
+
 
 Fixes TODO:
 
