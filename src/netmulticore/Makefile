@@ -4,11 +4,12 @@ PKGNAME  = netmulticore
 OBJECTS  = netmcore.cmo netmcore_camlbox.cmo netmcore_util.cmo \
 	   netmcore_mempool.cmo netmcore_heap.cmo netmcore_ref.cmo \
 	   netmcore_array.cmo netmcore_sem.cmo netmcore_mutex.cmo \
-	   netmcore_condition.cmo netmcore_queue.cmo netmcore_buffer.cmo
+	   netmcore_condition.cmo netmcore_queue.cmo netmcore_buffer.cmo \
+	   netmcore_matrix.cmo
 DOBJECTS = netmcore.mli netmcore_camlbox.mli netmcore_mempool.mli \
 	   netmcore_heap.mli netmcore_ref.mli netmcore_array.mli \
 	   netmcore_sem.mli netmcore_mutex.mli netmcore_condition.mli \
-	   netmcore_queue.mli netmcore_buffer.mli
+	   netmcore_queue.mli netmcore_buffer.mli netmcore_matrix.mli
 
 INCLUDES += $(INC_EQUEUE) $(INC_RPC) $(INC_NETSTRING) $(INC_NETSYS) \
             $(INC_NETPLEX) $(INC_NETCAMLBOX)

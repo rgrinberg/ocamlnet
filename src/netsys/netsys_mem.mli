@@ -223,6 +223,43 @@ val init_string_bytelen : int -> int
       [len].
    *)
 
+
+val init_array : memory -> int -> int -> (int * int)
+  (** [let voffset, bytelen = init_array mem offset size]: 
+      Initializes the memory at [offset]
+      and following bytes as Ocaml array with [size] elements.
+      Returns in [voffset] the offset where the value starts
+      (i.e. [offset] plus one word), and in [bytelen] the number
+      of bytes used in [mem]. 
+
+      The array cannot be used as float array.
+
+      [offset] must be a multiple of the word size in bytes.
+
+      The array can be accessed with
+      {[ let a = (as_value mem voffset : _ array) ]}
+
+      The elements of the array have a value but it might not be
+      valid for the element type of the array. Because of this, it
+      is unwise to access the elements before setting them for the
+      first time.
+
+      The array has the GC color [White].
+
+      Raises [Out_of_space] if the memory block is too small.
+   *)
+
+val init_float_array : memory -> int -> int -> (int * int)
+  (** Same for arrays of floats *)
+
+val init_array_bytelen : int -> int
+  (** Returns [bytelen] if [init_array] was called with the passed
+      [size].
+   *)
+
+val init_float_array_bytelen : int -> int
+  (** Same for arrays of floats *)
+
 type custom_ops = nativeint
 
 type init_value_flag = 

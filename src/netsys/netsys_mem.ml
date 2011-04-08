@@ -127,6 +127,45 @@ let init_string mem offset len =
   (offset+ws, blen)
 
 
+let init_array_bytelen size =
+  let ws = Sys.word_size / 8 in  (* word size in bytes *)
+  (size + 1) * ws
+  
+
+let init_array mem offset size =
+  let ws = Sys.word_size / 8 in  (* word size in bytes *)
+  let memlen = Bigarray.Array1.dim mem in
+  if offset < 0 || size < 0 then
+    invalid_arg "Netsys_mem.init_array";
+  let blen = init_array_bytelen size in
+  if blen > memlen - offset then
+    raise Out_of_space;
+  init_header mem offset 0 size;
+  Bigarray.Array1.fill (Bigarray.Array1.sub mem (offset+ws) (size*ws)) '\001';
+  (offset+ws, blen)
+
+
+let init_float_array_bytelen size =
+  let ws = Sys.word_size / 8 in  (* word size in bytes *)
+  if ws = 4 then
+    (2*size + 1) * ws
+  else
+    (size+1) * ws
+
+
+let init_float_array mem offset size =
+  let ws = Sys.word_size / 8 in  (* word size in bytes *)
+  let memlen = Bigarray.Array1.dim mem in
+  if offset < 0 || size < 0 then
+    invalid_arg "Netsys_mem.init_array";
+  let blen = init_float_array_bytelen size in
+  if blen > memlen - offset then
+    raise Out_of_space;
+  init_header mem offset Obj.double_array_tag size;
+  Bigarray.Array1.fill (Bigarray.Array1.sub mem (offset+ws) (size*ws)) '\001';
+  (offset+ws, blen)
+
+
 type init_value_flag =
   | Copy_bigarray
   | Copy_custom_int
