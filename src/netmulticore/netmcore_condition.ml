@@ -15,8 +15,7 @@ type condition =
     }
 
 and wait_entry =
-    { dummy_set : bool;
-      mutable empty : bool;  
+    { mutable empty : bool;  
       (* if empty, this entry is the last in the set, and it is considered
 	 as representing no waiter
        *)
@@ -25,12 +24,15 @@ and wait_entry =
       mutable set_next : wait_entry;  (* not meaningful if [empty] *)
     }
 
-and wait_set = wait_entry ref
+and wait_set = 
+    { dummy_set : bool;
+      mutable alloc_lock : Netmcore_sem.semaphore;
+      mutable head : wait_entry;
+    }
 
-let empty_wait_entry dummy =
+let empty_wait_entry() =
   let rec we =
-    { dummy_set = dummy;
-      empty = true;
+    { empty = true;
       sem = Netmcore_sem.dummy();
       next = we;
       set_next = we;
@@ -40,18 +42,21 @@ let empty_wait_entry dummy =
 
 let dummy_condition () =
   { dummy_cond = true;
-    waiters = empty_wait_entry true;
-    null = empty_wait_entry true;
+    waiters = empty_wait_entry ();
+    null = empty_wait_entry ();
     lock = Netmcore_sem.dummy()
   }
 
 
 let dummy_wait_set() =
-  ref(empty_wait_entry true)
+  { dummy_set = true;
+    alloc_lock = Netmcore_sem.dummy();
+    head = empty_wait_entry()
+  }
 
 
 let create_condition mut =
-  let null = empty_wait_entry false in
+  let null = empty_wait_entry () in
   let cond_orig =
     { dummy_cond = false;
       waiters = null;
@@ -70,57 +75,82 @@ let destroy_condition c =
 
 
 let create_wait_set mut =
-  let we_orig = ref(empty_wait_entry false) in
-  Netmcore_heap.add mut we_orig
+  let wset_orig =
+    { dummy_set = false;
+      alloc_lock = Netmcore_sem.dummy();
+      head = empty_wait_entry()
+    } in
+  let wset = Netmcore_heap.add mut wset_orig in
+  Netmcore_heap.pin mut wset;
+  wset.alloc_lock <- Netmcore_sem.create mut 1;
+  wset
   
 
 let destroy_wait_set wset =
-  if not !wset.dummy_set then (
-    let we = ref !wset in
+  if not wset.dummy_set then (
+    let we = ref wset.head in
     Netmcore_sem.destroy !we.sem;
     while not !we.empty do
       we := !we.set_next;
       Netmcore_sem.destroy !we.sem;
     done;
+    Netmcore_sem.destroy wset.alloc_lock
   )
 
 
+let with_alloc_lock wset f =
+  Netmcore_sem.wait wset.alloc_lock Netsys_posix.SEM_WAIT_BLOCK;
+  try
+    let r = f () in
+    Netmcore_sem.post wset.alloc_lock;
+    r
+  with error ->
+    Netmcore_sem.post wset.alloc_lock;
+    raise error
+
+
 let alloc_wait_entry mut wset =
-  if !wset.dummy_set then
+  if wset.dummy_set then
     failwith "Netmcore_condition.alloc_wait_entry: dummy wait_set";
-  (* not really fast *)
-  let we = ref !wset in
-  while not !we.empty do
-    we := !we.set_next
-  done;
-  let tail_orig = empty_wait_entry false in
-  let tail = Netmcore_heap.add mut tail_orig in
-  !we.set_next <- tail;
-  !we.empty <- false;
-  !we.sem <- Netmcore_sem.create mut 0;
-  !we
+  with_alloc_lock wset
+    (fun () ->
+       (* not really fast *)
+       let we = ref wset.head in
+       while not !we.empty do
+	 we := !we.set_next
+       done;
+       let tail_orig = empty_wait_entry () in
+       let tail = Netmcore_heap.add mut tail_orig in
+       !we.set_next <- tail;
+       !we.empty <- false;
+       !we.sem <- Netmcore_sem.create mut 0;
+       !we
+    )
 
 
 let free_wait_entry mut wset we_to_free =
-  if !wset.dummy_set then
+  if wset.dummy_set then
     failwith "Netmcore_condition.free_wait_entry: dummy wait_set";
-  (* not really fast *)
-  let we = ref !wset in
-  let prev = ref None in
-  while not !we.empty && !we != we_to_free do
-    prev := Some !we;
-    we := !we.set_next
-  done;
-  if !we.empty then
-    failwith "Netmcore_condition.free_wait_entry: not found";
-  ( match !prev with
-      | None ->
-	  wset := !we.set_next
-      | Some p ->
-	  p.set_next <- !we.set_next
-  );
-  !we.set_next <- !we;
-  !we.next <- !we
+  with_alloc_lock wset
+    (fun () ->
+       (* not really fast *)
+       let we = ref wset.head in
+       let prev = ref None in
+       while not !we.empty && !we != we_to_free do
+	 prev := Some !we;
+	 we := !we.set_next
+       done;
+       if !we.empty then
+	 failwith "Netmcore_condition.free_wait_entry: not found";
+       ( match !prev with
+	   | None ->
+	       wset.head <- !we.set_next
+	   | Some p ->
+	       p.set_next <- !we.set_next
+       );
+       !we.set_next <- !we;
+       !we.next <- !we
+    )
 
 
 let wait we c m =
