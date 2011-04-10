@@ -25,6 +25,11 @@ type 'h t =
 
 type 'h buffer = 'h t heap
 
+type 'h buffer_descr = 'h t descr
+
+let descr_of_buffer = descr_of_heap
+let buffer_of_descr = heap_of_descr
+
 let create pool bsize h =
   let bsize =
     ((bsize - 1) / Netsys_mem.pagesize + 1) * Netsys_mem.pagesize in

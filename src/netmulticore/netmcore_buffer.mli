@@ -35,6 +35,9 @@
 type 'h buffer
   (** A buffer with a header of type ['h] *)
 
+type 'h buffer_descr
+  (** The marshallable buffer descriptor *)
+
 val create : Netmcore.res_id -> int -> 'h -> 'h buffer
   (** [create pool bsize h]: Creates a buffer in [pool] with a block
       size of [bsize]. The block size can be an arbitrary positive integer
@@ -95,6 +98,12 @@ val clear : 'h buffer -> unit
 
 val header : 'h buffer -> 'h
   (** Returns the header *)
+
+val descr_of_buffer : 'h buffer -> 'h buffer_descr
+  (** Returns the descriptor *)
+
+val buffer_of_descr : Netmcore.res_id -> 'h buffer_descr -> 'h buffer
+  (** Look up the buffer for this descriptor *)
 
 val heap : _ buffer -> Obj.t Netmcore_heap.heap
   (** Returns the underlying heap *)

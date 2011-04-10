@@ -9,6 +9,12 @@ type ('e,'h) t =
 
 type ('e,'h) sarray = ('e,'h) t heap
 
+type ('e,'h) sarray_descr = ('e,'h) t descr
+
+let descr_of_sarray = descr_of_heap
+
+let sarray_of_descr = heap_of_descr
+
 let create res_id a h =
   let ra = { array = a; header = h } in
   create_heap 

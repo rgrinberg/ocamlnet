@@ -15,6 +15,9 @@ type ('e,'h) sarray
       type ['h]
    *)
 
+type ('e,'h) sarray_descr
+  (** The marshallable descriptor of a shared array *)
+
 val create : Netmcore.res_id -> 'e array -> 'h -> ('e,'h) sarray
   (** [create pool_id a h]:
       Creates a shared array by deeply copying a normal array [a]
@@ -79,6 +82,13 @@ val deref : ('e,_) sarray -> 'e array
 
 val heap : (_,_) sarray -> Obj.t Netmcore_heap.heap
   (** Return the backing heap structure *)
+
+val descr_of_sarray : ('e,'h) sarray -> ('e,'h) sarray_descr
+  (** Returns the descriptor *)
+
+val sarray_of_descr : Netmcore.res_id -> ('e,'h) sarray_descr -> ('e,'h) sarray
+  (** Look up the buffer for this descriptor *)
+
 
 
 (** {3 Mutating header fields}

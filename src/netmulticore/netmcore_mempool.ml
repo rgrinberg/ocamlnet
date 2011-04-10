@@ -544,15 +544,18 @@ let free_mem res_id m =
    (fun hdr -> really_free_mem mem hdr offs)
 
 
-let size_mem res_id m =
+let size_mem_at_addr res_id addr =
   let mem = get_mem res_id in
   let offs =
     Nativeint.to_int
       (Nativeint.sub
-	 (Netsys_mem.memory_address m)
+	 addr
 	 (Netsys_mem.memory_address mem)) in
  with_pool mem
    (fun hdr -> really_size_mem mem hdr offs)
+
+let size_mem res_id m =
+  size_mem_at_addr res_id (Netsys_mem.memory_address m)
 
 
 let stats res_id =

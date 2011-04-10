@@ -122,6 +122,8 @@ and ext_block =
    the value area (custom values would be incompatible with our GC).
  *)
 
+type 'a descr = int
+
 type mutator =
     { heap : Obj.t heap;
       mutable alive : bool;
@@ -156,6 +158,28 @@ let bytes_per_word =
     | 32 -> 4
     | 64 -> 8
     | _ -> assert false
+
+let descr_of_heap heap =
+  let addr = heap.heap_ext.ext_addr in
+  Nativeint.to_int(Nativeint.shift_right addr 1)
+
+let heap_of_descr pool ptr =
+  let addr = Nativeint.shift_left (Nativeint.of_int ptr) 1 in
+  try
+    let size = Netmcore_mempool.size_mem_at_addr pool addr in
+    let mem = Netsys_mem.grab addr size in
+    let u = String.create magic_len in
+    Netsys_mem.blit_memory_to_string mem 0 u 0 magic_len;
+    if u <> magic then raise Not_found;
+    let hoffs_s = String.create 8 in
+    Netsys_mem.blit_memory_to_string mem 8 hoffs_s 0 8;
+    let hoffs =
+      Netnumber.int_of_int8 (Netnumber.HO.read_int8 hoffs_s 0) in
+    Netsys_mem.as_value mem hoffs
+  with
+    | Not_found ->
+	failwith "Netmcore_heap.heap_of_descr: no heap structure found \
+                  at this address"
 
 let create_mutator heap =	
   { heap = Obj.magic heap; alive = true; pinned = [] }

@@ -12,6 +12,9 @@ type ('a, 'b, 'h) t
     header of type ['h]
  *)
 
+type ('a, 'b, 'h) t_descr
+  (** The marshallable descriptor of a shared hash table *)
+
 val create : Netmcore.res_id -> 'h -> ('a, 'b, 'h) t
 (** [Hashtbl.create pool h] creates a new, empty hash table in [pool]
     with a header [h]. *)
@@ -108,4 +111,11 @@ val header : ('a, 'b, 'h) t -> 'h
 
 val heap : ('a, 'b, 'h) t -> Obj.t Netmcore_heap.heap
   (** Returns the heap backing this data structure *)
+
+val descr_of_hashtbl : ('a,'b,'h) t -> ('a,'b,'h) t_descr
+  (** Returns the descriptor *)
+
+val hashtbl_of_descr : Netmcore.res_id -> ('a,'b,'h) t_descr -> ('a,'b,'h) t
+  (** Look up the hash table for this descriptor *)
+
 

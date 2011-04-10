@@ -23,7 +23,12 @@ and ('a, 'b) bucketcell =
     }
 
 type ('a, 'b, 'h) t = ('a, 'b, 'h) tbl H.heap
+
+type ('a, 'b, 'h) t_descr = ('a, 'b, 'h) tbl H.descr
   
+let descr_of_hashtbl = H.descr_of_heap
+let hashtbl_of_descr = H.heap_of_descr
+
 let create pool h =
   let tbl =
     { size = 0;

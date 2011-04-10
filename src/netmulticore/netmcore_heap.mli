@@ -41,6 +41,11 @@
 type 'a heap
   (** A heap where the type of the root element is ['a] *)
 
+type 'a descr
+  (** A descriptor ("address") pointing to the heap. Descriptors
+      can be marshalled.
+   *)
+
 val create_heap : Netmcore.res_id -> int -> 'a -> 'a heap
   (** [create_heap pool_id size root]: Creates a new heap with [size]
       bytes in the pool identified by [pool_id]. This ID must refer
@@ -69,6 +74,15 @@ val minimum_size : 'a -> int
 
 val root : 'a heap -> 'a
   (** Returns the root element *)
+
+val descr_of_heap : 'a heap -> 'a descr
+  (** Get the descriptor of a heap *)
+
+val heap_of_descr : Netmcore.res_id -> 'a descr -> 'a heap
+  (** [heap_of_descr pool d]:
+      Get the heap for a descriptor. This assumes that the heap still
+      exists.
+   *)
 
 type mutator
   (** Mutators allow it to push new values onto the heap.
@@ -159,7 +173,6 @@ val gc : 'a heap -> unit
 
 val debug_info : 'a heap -> string
   (** Returns a multi-line debug string *)
-
 
 
 (** {2 Example: Mutable Variable}

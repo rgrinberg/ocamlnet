@@ -16,7 +16,13 @@ and 'e cell =
 
 type ('e, 'h) squeue = ('e, 'h) q heap
 
+type ('e, 'h) squeue_descr = ('e, 'h) q descr
+
 exception Empty
+
+
+let descr_of_squeue = descr_of_heap
+let squeue_of_descr = heap_of_descr
 
 let create res_id h =
   create_heap

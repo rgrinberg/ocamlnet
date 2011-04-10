@@ -10,6 +10,10 @@ type ('e,'h) t =
     }
 
 type ('e,'h) sarray2 = ('e,'h) t heap
+type ('e,'h) sarray2_descr = ('e,'h) t descr
+
+let descr_of_sarray2 = descr_of_heap
+let sarray2_of_descr = heap_of_descr
 
 let create res_id n2 a h =
   let ra = { array = a; dim1 = Array.length a; dim2 = n2; header = h } in

@@ -59,6 +59,9 @@ val realloc_mem :
 val size_mem : Netmcore.res_id -> Netsys_mem.memory -> int
   (** Returns the size of this block, or raises [Not_found] *)
 
+val size_mem_at_addr : Netmcore.res_id -> nativeint -> int
+  (** Returns the size of the block at this address, or raises [Not_found] *)
+
 val free_mem : Netmcore.res_id -> Netsys_mem.memory -> unit
   (** Frees this allocated block *)
 

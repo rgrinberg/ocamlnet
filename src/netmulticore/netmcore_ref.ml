@@ -4,6 +4,12 @@ open Netmcore_heap
 
 type 't sref = 't ref heap
 
+type 't sref_descr = 't ref descr
+
+let descr_of_sref = descr_of_heap
+let sref_of_descr = heap_of_descr
+
+
 let sref res_id x =
   create_heap res_id (minimum_size x) (ref x)
 

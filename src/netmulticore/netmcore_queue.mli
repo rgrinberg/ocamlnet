@@ -7,6 +7,9 @@ type ('e, 'h) squeue
       type ['h]
    *)
 
+type ('e,'h) squeue_descr
+  (** The marshallble descriptor of queues *)
+
 exception Empty
   (** Raised when the queue is empty and the operation cannot be done *)
 
@@ -80,3 +83,10 @@ val header : ('e,'h) squeue -> 'h
 
 val heap : (_,_) squeue -> Obj.t Netmcore_heap.heap
   (** Returns the underlying heap *)
+
+val descr_of_squeue : ('e,'h) squeue -> ('e,'h) squeue_descr
+  (** Returns the descriptor *)
+
+val squeue_of_descr : Netmcore.res_id -> ('e,'h) squeue_descr -> ('e,'h) squeue
+  (** Look up the queue for this descriptor *)
+

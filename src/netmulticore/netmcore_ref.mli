@@ -4,6 +4,9 @@
 
 type 't sref
 
+type 't sref_descr
+  (** The marshallable descriptor of a reference *)
+
 val sref : Netmcore.res_id -> 't -> 't sref
   (** The shared version of [ref]: Creates a mutable shared variable in
       the give memory pool
@@ -38,3 +41,10 @@ val deref_c : 't sref -> 't
 
 val heap : 't sref -> Obj.t Netmcore_heap.heap
   (** Returns the backing heap structure *)
+
+val descr_of_sref : 't sref -> 't sref_descr
+  (** Returns the descriptor *)
+
+val sref_of_descr : Netmcore.res_id -> 't sref_descr -> 't sref
+  (** Look up the reference for this descriptor *)
+
