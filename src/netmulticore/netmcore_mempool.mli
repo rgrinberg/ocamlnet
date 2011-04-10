@@ -78,4 +78,9 @@ val debug_info : Netmcore.res_id -> string
 
 module Debug : sig
   val enable : bool ref
+    (** Enable debugging *)
+
+  val enable_alloc : bool ref
+    (** Trace allocation and deallocation *)
+
 end

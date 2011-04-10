@@ -51,6 +51,12 @@ let create pool bsize h =
     );
   sb
 
+let destroy sb =
+  let b = root sb in
+  Netmcore_mutex.destroy b.add_lock;
+  Netmcore_heap.destroy sb
+
+
 let start sb =
   (root sb).start_index
 

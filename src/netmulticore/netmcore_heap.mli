@@ -94,7 +94,7 @@ type mutator
       call [pin] instead (see below).
    *)
 
-val modify : 'a heap -> (mutator -> unit) -> unit
+val modify : 'a heap -> (mutator -> 'r) -> 'r
   (** [modify h mutate]: This function locks the heap so that this process
       has exclusive write access to it for the duration of the [mutate]
       function. The [mutate] function is immediately called back, and

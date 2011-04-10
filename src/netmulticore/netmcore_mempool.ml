@@ -5,13 +5,20 @@ open Printf
 
 module Debug = struct
   let enable = ref false
+  let enable_alloc = ref false
 end
 
 let dlog = Netlog.Debug.mk_dlog "Netmcore_mempool" Debug.enable
 let dlogr = Netlog.Debug.mk_dlogr "Netmcore_mempool" Debug.enable
 
+let dlog_alloc = 
+  Netlog.Debug.mk_dlog "Netmcore_mempool.alloc" Debug.enable_alloc
+let dlogr_alloc = 
+  Netlog.Debug.mk_dlogr "Netmcore_mempool.alloc" Debug.enable_alloc
+
 let () =
-  Netlog.Debug.register_module "Netmcore_mempool" Debug.enable
+  Netlog.Debug.register_module "Netmcore_mempool" Debug.enable;
+  Netlog.Debug.register_module "Netmcore_mempool.alloc" Debug.enable_alloc
 
 
 
@@ -530,7 +537,24 @@ let alloc_mem res_id bsize =
   let bsize = ((bsize - 1) / page_size + 1) * page_size in
   let mem = get_mem res_id in
   with_pool mem 
-    (fun hdr -> really_alloc_mem mem hdr bsize)
+    (fun hdr -> 
+       let r =
+	 really_alloc_mem mem hdr bsize in
+       dlogr_alloc
+	 (fun () ->
+	    sprintf "alloc (id=%d) size=%d addr=0x%nx"
+	      (match res_id with `Resource id -> id)
+	      bsize
+	      (Netsys_mem.memory_address r)
+	 );
+       dlogr_alloc
+	 (fun () ->
+	    sprintf "stats (id=%d) total=%d free=%d contiguous=%d"
+	      (match res_id with `Resource id -> id)
+	      hdr.pool_size hdr.pool_free hdr.pool_free_contiguous
+	 );
+       r
+    )
 
 
 let free_mem res_id m =
@@ -540,8 +564,23 @@ let free_mem res_id m =
       (Nativeint.sub
 	 (Netsys_mem.memory_address m)
 	 (Netsys_mem.memory_address mem)) in
- with_pool mem
-   (fun hdr -> really_free_mem mem hdr offs)
+  with_pool mem
+    (fun hdr -> 
+       let r = really_free_mem mem hdr offs in
+       dlogr_alloc
+	 (fun () ->
+	    sprintf "free (id=%d) addr=0x%nx"
+	      (match res_id with `Resource id -> id)
+	      (Netsys_mem.memory_address m)
+	 );
+       dlogr_alloc
+	 (fun () ->
+	    sprintf "stats (id=%d) total=%d free=%d contiguous=%d"
+	      (match res_id with `Resource id -> id)
+	      hdr.pool_size hdr.pool_free hdr.pool_free_contiguous
+	 );
+       r
+   )
 
 
 let size_mem_at_addr res_id addr =
@@ -616,4 +655,10 @@ let create_mempool size =
     with
       | error -> Unix.close fd; raise error in
   init_pool mem;
+  dlogr_alloc
+    (fun () ->
+       sprintf "mempool (id=%d) space=%d created"
+	 (match res_id with `Resource id -> id)
+	 size
+    );
   res_id

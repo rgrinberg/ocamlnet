@@ -46,6 +46,9 @@ val create : Netmcore.res_id -> int -> 'h -> 'h buffer
       of memory.
    *)
 
+val destroy : 'h buffer -> unit
+  (** Destroys the buffer *)
+
 
 (** The valid index positions (e.g. for [sub]) are [start] to
     [start+length-1]:
