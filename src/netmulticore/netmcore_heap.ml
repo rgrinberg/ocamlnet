@@ -289,7 +289,8 @@ let extend_heap heap size =
     heap.heap_ext.ext_next <- ptr_to_ext_block heap ext;
     if old_next <> no_ext_block then
       (ext_block heap old_next).ext_prev <- ptr_to_ext_block heap ext;
-    dlogr (fun () -> sprintf "extent_heap addr=%nx" ext.ext_addr);
+    dlogr (fun () -> sprintf "extent_heap addr=%nx real_size=%d usable=%d"
+	     ext.ext_addr ext.ext_size (ext.ext_end - ext.ext_start));
     Some(mem, ext.ext_start, ext.ext_end - ext.ext_start)
   with
     | error ->
@@ -469,7 +470,9 @@ let do_gc heap =
     else
       push();
 
-    dlogr (fun () -> sprintf "sweep_ext free_size=%d" !free_size)
+    dlogr (fun () -> sprintf "sweep_ext free_size=%d" !free_size);
+
+    (!free_size, ext.ext_end - ext.ext_start)
   in
 
   let sweep () =
@@ -479,6 +482,8 @@ let do_gc heap =
     done;
     (* Iterate over the extension blocks: *)
     let ext = ref (Some heap.heap_ext) in
+    let free_total = ref 0 in
+    let size_total = ref 0 in
     while !ext <> None do
       match !ext with
 	| Some x ->
@@ -488,10 +493,13 @@ let do_gc heap =
 		None
 	      else
 		Some(ext_block heap x.ext_next) in
-	    sweep_ext x;
+	    let (f,s) = sweep_ext x in
+	    free_total := !free_total + f;
+	    size_total := !size_total + s;
 	    ext := next
 	| None -> assert false
-    done in
+    done;
+    (!free_total, !size_total) in
 
   dlog "mark";
   let root = Obj.repr heap.heap_roots in
@@ -500,11 +508,28 @@ let do_gc heap =
   mark root;
 
   dlog "sweep";
-  sweep();
- 
-  dlog "gc done"
+  let (f,s) = sweep() in
+  dlog "gc done";
+  (f, s)
 
 
+let do_gc_adjust heap size =
+  (* Do a GC pass and adjust the amount of free mem. If new mem is allocated
+     it should be at least [size]
+   *)
+  let (free, total) = do_gc heap in
+  if free < total/2 then (
+    let alloc_size0 = max size (total/2 - free) in
+    let alloc_size = ((alloc_size0 - 1) / 8 + 1) * 8 in
+    dlogr (fun () -> sprintf "do_gc_adjust: alloc_size=%d" alloc_size);
+    ( match extend_heap heap alloc_size with
+	| Some(mem, offs, len) ->
+	    add_to_fl heap mem offs len
+	| None ->
+	    ()
+    )
+  )
+  
 
 let find_free_block heap size =
   (* Find a free block >= [size] in the freelists *)
@@ -579,6 +604,7 @@ let alloc_in_free_block heap size mem offs len entry prev =
 
 let alloc heap size =
   (* First search in the freelists *)
+  (* assert: size divisible by word size *)
   dlogr (fun () -> sprintf "alloc size=%d" size);
   match find_free_block heap size with
     | Some(mem, offs, len, obj, prev) ->
@@ -587,7 +613,7 @@ let alloc heap size =
     | None ->
 	(* Nothing found in the freelists: Do now a GC pass, and try again.
 	 *)
-	( do_gc heap;
+	( do_gc_adjust heap size;
 	  match find_free_block heap size with
 	    | Some(mem, offs, len, obj, prev) ->
 		dlog "alloc: got block from free list";
@@ -801,7 +827,7 @@ let with_lock heap f =
 let gc heap =
   with_lock heap
     (fun () ->
-       do_gc heap
+       ignore(do_gc heap)
     )
 
 
