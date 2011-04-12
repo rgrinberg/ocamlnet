@@ -286,7 +286,7 @@ let control_fork, control_join =
 let () =
   (* Netmcore_mempool.Debug.enable_alloc := true; *)
   Netmcore.startup
-    ~socket_directory:"sockdir"
+    ~socket_directory:"run_pipeline"
     ~inherit_resources:`All
     ~first_process:(control_fork, Unit_encap.wrap())
     ()

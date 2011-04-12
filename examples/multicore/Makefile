@@ -1,11 +1,11 @@
-all: create_join chameneos pipeline
+all: create_join chameneos pipeline nqueens
 
 OCAMLC=ocamlc
 # set to ocamlopt to get native executables
 
 clean:
 	rm -f *.cmi *.cmo *.cma *.cmx *.cmxa *.o *.a 
-	rm -f create_join chameneos pipeline
+	rm -f create_join chameneos pipeline nqueens
 
 create_join: create_join.ml
 	ocamlfind $(OCAMLC) -o create_join -package netmulticore -linkpkg -g \
@@ -20,4 +20,9 @@ pipeline: pipeline.ml
 	ocamlfind $(OCAMLC) -o pipeline -package netmulticore,netcamlbox \
  	   -linkpkg -g \
 	  pipeline.ml
+
+nqueens: nqueens.ml
+	ocamlfind $(OCAMLC) -o nqueens -package netmulticore,netcamlbox \
+ 	   -linkpkg -g \
+	  nqueens.ml
 

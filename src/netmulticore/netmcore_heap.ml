@@ -859,7 +859,10 @@ let modify heap mutate =
 
 
 let copy x =
-  Netsys_mem.copy_value [Netsys_mem.Copy_atom] x
+  if Obj.is_block (Obj.repr x) then
+    Netsys_mem.copy_value [Netsys_mem.Copy_atom] x
+  else
+    x
 
 
 let with_value_n heap find process =
@@ -949,14 +952,15 @@ let dummy_mem =
 
 
 let minimum_size x =
-  if not (Obj.is_block (Obj.repr x)) then
-    failwith "Netmcore_heap.minimum_size: the element is not a block";
-  let (_, n) =
-    Netsys_mem.init_value
-      dummy_mem 0 x
-      [Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom] in
-  n + ((40 + fl_size + n_roots) * bytes_per_word)
-  (* this is just an estimate *)
+  if Obj.is_block (Obj.repr x) then
+    let (_, n) =
+      Netsys_mem.init_value
+	dummy_mem 0 x
+	[Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom] in
+    n + ((40 + fl_size + n_roots) * bytes_per_word)
+      (* this is just an estimate *)
+  else
+    ((40 + fl_size + n_roots) * bytes_per_word)
 
 
 let destroy heap =

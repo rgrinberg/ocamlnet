@@ -6,8 +6,8 @@ Optimization:
     -> useful in Mapred_task_exec, emap implementation
 
 Netmulticore:
- - type heap_descr
- - *_descr for each data structure
+ - type heap_descr - DONE
+ - *_descr for each data structure - DONE
  - heap: be more careful with GC colors
  - heap: support r/w locks
  - heap: support recursive locks for modify
@@ -18,6 +18,34 @@ Netmulticore:
 
 Advanced:
  - Special form of condition variables one can poll on
+
+Examples:
+ - pipeline - DONE
+ - nqueens - DONE
+ - matrix
+ - sort
+
+Docs:
+ - Multicore tutorial
+ - Multicore memory management (background info)
+
+Blogs:
+ - Multicore announcement + test release
+ - N-Queens
+ - Pipeline
+ - Matrix
+
+Commerce:
+ - Landing page: Multicore consulting
+ - Landing page: Cluster consulting
+ - Shop:
+    * Whitepaper "Server architectures in Ocaml"
+    * Whitepaper "Using multicore in Ocaml"
+ - Sponsor wanted:
+    * Netmcore_set, _map
+ - Ocaml-Kurs
+
+
 
 
 
