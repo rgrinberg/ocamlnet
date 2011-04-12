@@ -30,6 +30,8 @@ let test_fork, test_join =
 let () =
   Netmcore.startup
     ~socket_directory:"/tmp/t_mempool"
-    ~first_process:(test_fork, Unit_encap.wrap())
-    ~inherit_resources:`All
+    ~first_process:(fun () -> 
+		      Netmcore.start
+			~inherit_resources:`ALl
+			test_fork (Unit_encap.wrap()))
     ()

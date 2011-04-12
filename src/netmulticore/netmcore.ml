@@ -103,6 +103,7 @@ end
 
 type process_info =
     { pid : process_id;
+      join_point : res_id;
       mutable result : Netplex_encap.encap option option;
         (* Some (Some e): Process finished with a result [e]
 	   Some None: Process finished without result
@@ -129,7 +130,7 @@ module Deliver_lever =
 module Get_result_lever =
   Netplex_cenv.Make_lever
     (struct
-       type s = process_id
+       type s = res_id * process_id
        type r = Netplex_encap.encap option option option
 	   (* None: unknown pid 
 	      Some None: pid known, but no result yet
@@ -178,7 +179,7 @@ type levers =
     { ctrl_id : int; (* Oo.id of the controller object *)
       start : res_id * inherit_request * Netplex_encap.encap -> process_id option;
       deliver : process_id * Netplex_encap.encap option -> unit;
-      get_result : process_id -> Netplex_encap.encap option option option;
+      get_result : res_id * process_id -> Netplex_encap.encap option option option;
       manage_resource : manage_resource_repr * int -> res_id;
       create_prealloc_shm : string * int * bool * int -> (res_id * string);
       get_resource : res_id * int -> trans_resource_repr option;
@@ -310,10 +311,12 @@ let master_deliver ctrl (`Process pid,res_opt) =
 	     the worker, i.e. the semaphore is increased
 	   *)
 
-let master_get_result ctrl (`Process pid) =
+let master_get_result ctrl (join_point, `Process pid) =
   dlogr (fun () -> sprintf "get_result (lever) pid=%d" pid);
   try
-    let r = (Hashtbl.find process_table pid).result in
+    let info = Hashtbl.find process_table pid in
+    if join_point <> info.join_point then raise Not_found;
+    let r = info.result in
     if r <> None then
       forget_process pid;
     Some r
@@ -525,6 +528,7 @@ let create_process f arg (`Process pid)
   Netplex_kit.add_helper_service ctrl name hooks;
   let pi =
     { pid = `Process pid;
+      join_point = join_res_id;
       result = None;
     } in
   Hashtbl.add process_table pid pi
@@ -598,14 +602,14 @@ let def_process f =
 let worker_join res_id (`Process pid) =
   dlogr (fun () -> sprintf "worker_join pid=%d" pid);
   let lev = get_levers() in
-  match lev.get_result (`Process pid) with
+  match lev.get_result (res_id, `Process pid) with
     | Some (Some res) -> res
     | Some None ->
 	(* We know at least that the pid is ok *)
 	let sem_name = sprintf "Netmcore.process_result.%d" pid in
 	let v = Netplex_semaphore.decrement ~wait:true sem_name in
 	dlogr (fun () -> sprintf "worker_join pid=%d sem=%Ld" pid v);
-	( match lev.get_result (`Process pid) with
+	( match lev.get_result (res_id, `Process pid) with
 	    | Some (Some res) -> res
 	    | _ ->
 		assert false
@@ -787,9 +791,8 @@ let destroy_resources () =
 
 
 let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ()) 
-            ?inherit_resources ~first_process
+            ~first_process
             () =
-  let (fork_res_id, arg) = first_process in
   let config_tree =
     `Section("netplex",
 	     [ `Section("controller",
@@ -812,7 +815,7 @@ let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ())
     ~late_initializer:(fun cf ctrl ->
 			 add_plugins ctrl;
 			 init_ctrl ctrl;
-			 let pid = start ?inherit_resources fork_res_id arg in
+			 let pid = first_process() in
 			 initial_process := Some pid
 		      )
     ( Netplex_mp.mp ~keep_fd_open:true ~terminate_tmo:(-1) () )

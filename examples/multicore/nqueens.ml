@@ -1,9 +1,10 @@
 (* n-queens problem
 
-   This is a parallel solution of the n-queens problem. In order to make
-   a bit more interesting, we are only interested in results that
-   cannot be derived from other results by mirroring or rotation.
-   This means we have to filter out such results.
+   This is a parallel solution of the n-queens problem. In order to
+   make a bit more interesting, we only search for results that cannot
+   be derived from other results by mirroring or rotation.  This means
+   we have to filter out results that are in the same equivalence
+   class.
 
    We require that the result set is available at the end in a
    single data structure, and that the number of results is printed.
@@ -14,7 +15,7 @@
    - Shared_hashtable:
      a parallel solution using a shared hashtable for storing the results
    - Shared_hashtable_2:
-     an improved version with two hashtables (but not much faster)
+     an improved version with two hashtables
    - Message_passing:
      a parallel solution where the results are passed to a filter (which
      is sequential)
@@ -157,20 +158,6 @@ module Shared_hashtable = struct
   type ht_descr =
       (board, unit, ht_header) Netmcore_hashtbl.t_descr
 
-  module Worker_arg =
-    Netplex_encap.Make_encap(
-      struct type t = Netmcore.res_id * ht_descr * int * int end
-    )
-
-  module Controller_arg =
-    Netplex_encap.Make_encap(
-      struct type t = Netmcore.res_id * int end
-    )
-
-  module Unit_encap = 
-    Netplex_encap.Make_encap(struct type t = unit end)
-
-
   let worker (pool, ht_descr, first_queen, n) =
     let ht = Netmcore_hashtbl.hashtbl_of_descr pool ht_descr in
     solve first_queen n
@@ -210,11 +197,7 @@ module Shared_hashtable = struct
       )
 
   let worker_fork, worker_join =
-    Netmcore.def_process
-      (fun args_encap ->
-	 worker (Worker_arg.unwrap args_encap);
-	 Unit_encap.wrap ()
-      )
+    Netmcore_process.def_process worker
 
   let controller (pool, n) =
     let header_orig =
@@ -232,17 +215,17 @@ module Shared_hashtable = struct
       List.fold_left
 	(fun acc k ->
 	   let pid =
-	     Netmcore.start
+	     Netmcore_process.start
 	       ~inherit_resources:`All
 	       worker_fork
-	       (Worker_arg.wrap (pool, ht_descr, k, n)) in
+	       (pool, ht_descr, k, n) in
 	   pid :: acc
 	)
 	[]
 	l in
     List.iter
       (fun pid ->
-	 match Netmcore.join worker_join pid with
+	 match Netmcore_process.join worker_join pid with
 	   | None ->
 	       failwith "Error in worker"
 	   | Some _ ->
@@ -253,11 +236,7 @@ module Shared_hashtable = struct
 
 
   let controller_fork, controller_join =
-    Netmcore.def_process
-      (fun args_encap ->
-	 controller (Controller_arg.unwrap args_encap);
-	 Unit_encap.wrap ()
-      )
+    Netmcore_process.def_process controller
 
 
   let run n =
@@ -265,8 +244,11 @@ module Shared_hashtable = struct
     let pool = Netmcore_mempool.create_mempool pool_size in
     Netmcore.startup
       ~socket_directory:"run_nqueens"
-      ~inherit_resources:`All
-      ~first_process:(controller_fork, Controller_arg.wrap (pool,n))
+      ~first_process:(fun () ->
+			Netmcore_process.start
+			  ~inherit_resources:`All
+			  controller_fork
+			  (pool,n))
       ();
     Netmcore.release pool;
     let t1 = Unix.gettimeofday() in
@@ -289,20 +271,6 @@ module Shared_hashtable_2 = struct
 
   type ht_descr =
       (board, unit, ht_header) Netmcore_hashtbl.t_descr
-
-  module Worker_arg =
-    Netplex_encap.Make_encap(
-      struct type t = Netmcore.res_id * ht_descr * ht_descr * int * int end
-    )
-
-  module Controller_arg =
-    Netplex_encap.Make_encap(
-      struct type t = Netmcore.res_id * int end
-    )
-
-  module Unit_encap = 
-    Netplex_encap.Make_encap(struct type t = unit end)
-
 
   let worker (pool, ht1_descr, ht2_descr, first_queen, n) =
     let ht1 = Netmcore_hashtbl.hashtbl_of_descr pool ht1_descr in
@@ -335,11 +303,7 @@ module Shared_hashtable_2 = struct
       )
 
   let worker_fork, worker_join =
-    Netmcore.def_process
-      (fun args_encap ->
-	 worker (Worker_arg.unwrap args_encap);
-	 Unit_encap.wrap ()
-      )
+    Netmcore_process.def_process worker
 
   let controller (pool, n) =
     let create_ht() =
@@ -365,17 +329,17 @@ module Shared_hashtable_2 = struct
       List.fold_left
 	(fun acc k ->
 	   let pid =
-	     Netmcore.start
+	     Netmcore_process.start
 	       ~inherit_resources:`All
 	       worker_fork
-	       (Worker_arg.wrap (pool, ht1_descr, ht2_descr, k, n)) in
+	       (pool, ht1_descr, ht2_descr, k, n) in
 	   pid :: acc
 	)
 	[]
 	l in
     List.iter
       (fun pid ->
-	 match Netmcore.join worker_join pid with
+	 match Netmcore_process.join worker_join pid with
 	   | None ->
 	       failwith "Error in worker"
 	   | Some _ ->
@@ -398,11 +362,7 @@ module Shared_hashtable_2 = struct
 
 
   let controller_fork, controller_join =
-    Netmcore.def_process
-      (fun args_encap ->
-	 controller (Controller_arg.unwrap args_encap);
-	 Unit_encap.wrap ()
-      )
+    Netmcore_process.def_process controller
 
 
   let run n =
@@ -410,8 +370,11 @@ module Shared_hashtable_2 = struct
     let pool = Netmcore_mempool.create_mempool pool_size in
     Netmcore.startup
       ~socket_directory:"run_nqueens"
-      ~inherit_resources:`All
-      ~first_process:(controller_fork, Controller_arg.wrap (pool,n))
+      ~first_process:(fun () ->
+			Netmcore_process.start
+			  ~inherit_resources:`All
+			  controller_fork
+			  (pool,n))
       ();
     Netmcore.release pool;
     let t1 = Unix.gettimeofday() in
@@ -436,19 +399,6 @@ module Message_passing = struct
      OCaml's built-in [min] function. It could be any other criterion,
      provided it can be unambigously determined.
    *)
-
-  module Worker_arg =
-    Netplex_encap.Make_encap(
-      struct type t = Netmcore.res_id * int * int end
-    )
-
-  module Collector_arg =
-    Netplex_encap.Make_encap(
-      struct type t = int end
-    )
-
-  module Unit_encap = 
-    Netplex_encap.Make_encap(struct type t = unit end)
 
   type message = 
     | Boards of board list
@@ -495,11 +445,7 @@ module Message_passing = struct
 
 
   let worker_fork, worker_join =
-    Netmcore.def_process
-      (fun args_encap ->
-	 worker (Worker_arg.unwrap args_encap);
-	 Unit_encap.wrap ()
-      )
+    Netmcore_process.def_process worker
 
   let collector n =
     let msg_max_size =
@@ -513,10 +459,10 @@ module Message_passing = struct
       List.fold_left
 	(fun acc k ->
 	   let pid =
-	     Netmcore.start
+	     Netmcore_process.start
 	       ~inherit_resources:`All
 	       worker_fork
-	       (Worker_arg.wrap (camlbox_id, k, n)) in
+	       (camlbox_id, k, n) in
 	   pid :: acc
 	)
 	[]
@@ -549,7 +495,7 @@ module Message_passing = struct
 
     List.iter
       (fun pid ->
-	 match Netmcore.join worker_join pid with
+	 match Netmcore_process.join worker_join pid with
 	   | None ->
 	       failwith "Error in worker"
 	   | Some _ ->
@@ -560,17 +506,13 @@ module Message_passing = struct
 
 
   let collector_fork, collector_join =
-    Netmcore.def_process
-      (fun args_encap ->
-	 collector (Collector_arg.unwrap args_encap);
-	 Unit_encap.wrap ()
-      )
+    Netmcore_process.def_process collector
 
   let run n =
     let t0 = Unix.gettimeofday() in
     Netmcore.startup
       ~socket_directory:"run_nqueens"
-      ~first_process:(collector_fork, Collector_arg.wrap n)
+      ~first_process:(fun () -> Netmcore_process.start collector_fork n)
       ();
     let t1 = Unix.gettimeofday() in
     printf "Time: %.3f\n%!" (t1-.t0)
@@ -594,26 +536,6 @@ module Message_passing_2 = struct
   type id_rec_sref = id_rec Netmcore_ref.sref
   type id_rec_descr = id_rec Netmcore_ref.sref_descr
 
-
-  module Worker_arg =
-    Netplex_encap.Make_encap(
-      struct type t = Netmcore.res_id * id_rec_descr * int * int end
-    )
-
-  module Collector_arg =
-    Netplex_encap.Make_encap(
-      struct 
-	type t = Netmcore.res_id * id_rec_descr * Netmcore.res_id * int * int
-      end
-    )
-
-  module Master_collector_arg =
-    Netplex_encap.Make_encap(
-      struct type t = Netmcore.res_id * int end
-    )
-
-  module Unit_encap = 
-    Netplex_encap.Make_encap(struct type t = unit end)
 
   type message = 
     | Boards of board list
@@ -701,11 +623,7 @@ module Message_passing_2 = struct
 
 
   let worker_fork, worker_join =
-    Netmcore.def_process
-      (fun args_encap ->
-	 worker (Worker_arg.unwrap args_encap);
-	 Unit_encap.wrap ()
-      )
+    Netmcore_process.def_process worker
 
   let collector (pool, id_rec_descr, outbox_id, n, coll_id) =
     let id_rec_ref = Netmcore_ref.sref_of_descr pool id_rec_descr in
@@ -770,11 +688,7 @@ module Message_passing_2 = struct
 
 
   let collector_fork, collector_join =
-    Netmcore.def_process
-      (fun args_encap ->
-	 collector (Collector_arg.unwrap args_encap);
-	 Unit_encap.wrap ()
-      )
+    Netmcore_process.def_process collector
 
   let master_collector (pool,n) =
     let ((outbox : camlbox), outbox_id) =
@@ -801,26 +715,26 @@ module Message_passing_2 = struct
     let id_rec_descr = Netmcore_ref.descr_of_sref id_rec_ref in
 
     let pid1 =
-      Netmcore.start
+      Netmcore_process.start
 	~inherit_resources:`All
 	collector_fork
-	(Collector_arg.wrap (pool, id_rec_descr, outbox_id, n, 0)) in
+	(pool, id_rec_descr, outbox_id, n, 0) in
 
     let pid2 =
-      Netmcore.start
+      Netmcore_process.start
 	~inherit_resources:`All
 	collector_fork
-	(Collector_arg.wrap (pool, id_rec_descr, outbox_id, n, 1)) in
+	(pool, id_rec_descr, outbox_id, n, 1) in
 
     let l = Array.to_list (Array.init n (fun k -> k)) in
     let worker_pids =
       List.fold_left
 	(fun acc k ->
 	   let pid =
-	     Netmcore.start
+	     Netmcore_process.start
 	       ~inherit_resources:`All
 	       worker_fork
-	       (Worker_arg.wrap (pool, id_rec_descr, k, n)) in
+	       (pool, id_rec_descr, k, n) in
 	   pid :: acc
 	)
 	[]
@@ -853,7 +767,7 @@ module Message_passing_2 = struct
 
     List.iter
       (fun pid ->
-	 match Netmcore.join worker_join pid with
+	 match Netmcore_process.join worker_join pid with
 	   | None ->
 	       failwith "Error in worker"
 	   | Some _ ->
@@ -862,7 +776,7 @@ module Message_passing_2 = struct
       worker_pids;
     List.iter
       (fun pid ->
-	 match Netmcore.join collector_join pid with
+	 match Netmcore_process.join collector_join pid with
 	   | None ->
 	       failwith "Error in collector"
 	   | Some _ ->
@@ -872,11 +786,7 @@ module Message_passing_2 = struct
     printf "Number solutions: %n\n%!" (Hashtbl.length ht)
 
   let master_collector_fork, master_collector_join =
-    Netmcore.def_process
-      (fun args_encap ->
-	 master_collector (Master_collector_arg.unwrap args_encap);
-	 Unit_encap.wrap ()
-      )
+    Netmcore_process.def_process master_collector
 
 
   let run n =
@@ -884,8 +794,11 @@ module Message_passing_2 = struct
     let pool = Netmcore_mempool.create_mempool 16384 in
     Netmcore.startup
       ~socket_directory:"run_nqueens"
-      ~first_process:(master_collector_fork, Master_collector_arg.wrap (pool,n))
-      ~inherit_resources:`All
+      ~first_process:(fun () ->
+			Netmcore_process.start
+			  ~inherit_resources:`All
+			  master_collector_fork
+			  (pool,n))
       ();
     Netmcore.release pool;
     let t1 = Unix.gettimeofday() in

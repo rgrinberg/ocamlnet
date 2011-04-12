@@ -104,6 +104,13 @@ end
 
 (** {2 Defining processes} *)
 
+(** This is the lower-level version of the process API where arguments
+    and results of processes are dynamically typed. It may have some
+    uses when writing generic process managers, but for the
+    normal application the statically typed API in {!Netmcore_process}
+    is easier to use (and less verbose).
+ *)
+
 val def_process : 
      (Netplex_encap.encap -> Netplex_encap.encap) -> 
      res_id * res_id
@@ -281,15 +288,18 @@ val add_plugins : Netplex_types.controller -> unit
 val startup : socket_directory:string ->
               ?pidfile:string ->
               ?init_ctrl:(Netplex_types.controller -> unit) ->
-              ?inherit_resources:inherit_request ->
-              first_process:(res_id * Netplex_encap.encap) ->
+              first_process:(unit -> process_id) ->
               unit ->
                 unit
   (** This function makes the current process the master process.
       It starts immediately a new worker process, called the 
-      [first_process]. The [startup] function returns first when this
+      first process. The [startup] function returns first when this
       process is finished, in which case the whole Netplex system is
-      shut down.
+      shut down (which may lead to killing the remaining processes,
+      following the usual shutdown procedure).
+
+      The first process is created by calling [first_process()] at the
+      right moment. This function normally just invokes [start].
 
       Passing a [socket_directory] is mandatory. This directory will
       contain helper files. The must be a separate [socket_directory]
@@ -297,9 +307,6 @@ val startup : socket_directory:string ->
 
       [pidfile]: If passed, the PID of the master process is written
       to this file.
-
-      [inherit_resources]: this is taken into account when starting the
-      first worker.
    *)
 
 val destroy_resources : unit -> unit

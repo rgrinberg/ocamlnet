@@ -18,9 +18,6 @@
 
 open Printf
 
-module Int_encap = Netplex_encap.Make_encap(struct type t = int end)
-module Unit_encap = Netplex_encap.Make_encap(struct type t = unit end)
-
 let spell_int i = 
   let spell_char = function 
     | '0' -> "zero"
@@ -104,9 +101,6 @@ module Meeting_place = struct
 	meetings : int;
       }
 
-  module Config_encap =
-    Netplex_encap.Make_encap(struct type t = config end )
-
   type meet_request =
       { me : Chameneos_type.t;
 	response_box : Netmcore.res_id;
@@ -125,9 +119,7 @@ module Meeting_place = struct
     | First of int * meet_request
 	(* slot, request *)
 	
-  let meeting_place arg_encap =
-    let config =
-      Config_encap.unwrap arg_encap in
+  let meeting_place config =
     let (box : request ref Netcamlbox.camlbox), box_id =
       Netmcore_camlbox.create_camlbox "chameneos" config.num_slots 512 in
     (* 512: just an upper limit for the message size *)
@@ -193,18 +185,17 @@ module Meeting_place = struct
 	req_slots
     done;
     let box_id_var = get_box_id_var pid in
-    ignore(Netplex_sharedvar.delete_var box_id_var);
-    Unit_encap.wrap ()
+    ignore(Netplex_sharedvar.delete_var box_id_var)
 
 
   let fork_meeting_place, join_meeting_place =
-    Netmcore.def_process meeting_place
+    Netmcore_process.def_process meeting_place
 
   let start config =
-    Netmcore.start fork_meeting_place (Config_encap.wrap config)
+    Netmcore_process.start fork_meeting_place config
 
   let join pid =
-    ignore(Netmcore.join join_meeting_place pid)
+    ignore(Netmcore_process.join join_meeting_place pid)
 
   let shutdown pid =
     let req_box_id = get_box_id pid in
@@ -274,10 +265,7 @@ module Chameneos = struct
 	chameneos : t;
       }
 	
-  module Run_encap = Netplex_encap.Make_encap(struct type t = run end)
-    
-  let run arg_encap =
-    let arg = Run_encap.unwrap arg_encap in
+  let run arg =
     let ch = arg.chameneos in
     let connector = Meeting_place.connect arg.place_pid in
     let pref_slot = ref 0 in
@@ -297,20 +285,20 @@ module Chameneos = struct
 	    loop () 
     in
     loop();
-    Run_encap.wrap { arg with chameneos = ch }
+    { arg with chameneos = ch }
       
   let fork_chameneos, join_chameneos =
-    Netmcore.def_process run
+    Netmcore_process.def_process run
       
   let start arg =
-    Netmcore.start fork_chameneos (Run_encap.wrap arg)
+    Netmcore_process.start fork_chameneos arg
 	
   let join pid =
-    match Netmcore.join join_chameneos pid with
+    match Netmcore_process.join join_chameneos pid with
       | None ->
 	  failwith "no result from chameneos"
-      | Some arg_enc ->
-	  Run_encap.unwrap arg_enc
+      | Some arg ->
+	  arg
 end
 
 
@@ -358,25 +346,23 @@ module Compute = struct
     printf "\n%!"
 
 
-  let compute n_enc =
-    let n = Int_encap.unwrap n_enc in
-    
+  let compute n =
     work [ Color.Blue; Color.Red; Color.Yellow ] n;
     printf "\n%!";
     work [ Color.Blue; Color.Red; Color.Yellow; Color.Red; Color.Yellow;
 	   Color.Blue; Color.Red; Color.Yellow; Color.Red; Color.Blue ] n;
     printf "\n%!";
     
-    Unit_encap.wrap ()
+    ()
 
   let fork_compute, join_compute =
-    Netmcore.def_process compute
+    Netmcore_process.def_process compute
 
   let start n =
-    Netmcore.start fork_compute (Int_encap.wrap n)
+    Netmcore_process.start fork_compute n
 	
   let join pid =
-    ignore(Netmcore.join join_compute pid)
+    ignore(Netmcore_process.join join_compute pid)
 
 end
 
@@ -398,6 +384,7 @@ let print_complements () =
 ;;
 
 let main () = 
+  (* Netmcore.Debug.enable := true; *)
   let n = 
     try 
       int_of_string (Sys.argv.(1))
@@ -422,7 +409,9 @@ let main () =
 		  ctrl#add_plugin Netplex_sharedvar.plugin;
 		  (* ctrl#controller_config#set_max_level `Debug *)
 	       )
-    ~first_process:(Compute.fork_compute, Int_encap.wrap n)
+    ~first_process:(fun () ->
+		      Netmcore_process.start
+			Compute.fork_compute n)
     ()
 ;;
 

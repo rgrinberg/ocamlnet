@@ -38,15 +38,6 @@ let send_size = 16 * 1024 * 1024 * 1024       (* 16 G *)
 let variant = `Nocopy
   (* see consumer *)
 
-
-(* Define process types: *)
-
-module Buffer_encap = 
-  Netplex_encap.Make_encap(struct type t = buffer_descr end)
-
-module Unit_encap = 
-  Netplex_encap.Make_encap(struct type t = unit end)
-
 (* Define the pool. This is allowed to do in the master process.
    Note that the process calling create_mempool generally cannot use
    the pool!
@@ -54,8 +45,9 @@ module Unit_encap =
 
 let pool = Netmcore_mempool.create_mempool pool_size
 
-let producer (b:buffer) =
+let producer (bd:buffer_descr) =
   (* We send (almost) endlessly the string 0123456789... *)
+  let b = Netmcore_buffer.buffer_of_descr pool bd in
   let p_len = max_buffer - (max_buffer mod 10) + 10 in
   let p = String.make p_len ' ' in
   for k = 0 to p_len-1 do
@@ -109,18 +101,14 @@ let producer (b:buffer) =
 
 
 let producer_fork, producer_join =
-  Netmcore.def_process
-    (fun b_encap ->
-       let bd = Buffer_encap.unwrap b_encap in
-       producer (Netmcore_buffer.buffer_of_descr pool bd);
-       Unit_encap.wrap ()
-    )
+  Netmcore_process.def_process producer
 
 
 let one_meg = float (1024 * 1024)
 
-let consumer (b:buffer) =
+let consumer (bd:buffer_descr) =
   (* We compute a checksum, just to do something with the data *)
+  let b = Netmcore_buffer.buffer_of_descr pool bd in
   let cksum = ref 0 in
   let t0 = Unix.gettimeofday() in
   let t1 = ref t0 in
@@ -208,12 +196,7 @@ let consumer (b:buffer) =
 
 
 let consumer_fork, consumer_join =
-  Netmcore.def_process
-    (fun b_encap ->
-       let bd = Buffer_encap.unwrap b_encap in
-       consumer (Netmcore_buffer.buffer_of_descr pool bd);
-       Unit_encap.wrap ()
-    )
+  Netmcore_process.def_process consumer
 
 
 let control() =
@@ -244,22 +227,22 @@ let control() =
 
   (* Now start the workers for producing and consuming data *)
   let producer_pid =
-    Netmcore.start
+    Netmcore_process.start
       ~inherit_resources:`All
-      producer_fork (Buffer_encap.wrap (Netmcore_buffer.descr_of_buffer b)) in
+      producer_fork (Netmcore_buffer.descr_of_buffer b) in
   let consumer_pid =
-    Netmcore.start
+    Netmcore_process.start
       ~inherit_resources:`All
-      consumer_fork (Buffer_encap.wrap (Netmcore_buffer.descr_of_buffer b)) in
+      consumer_fork (Netmcore_buffer.descr_of_buffer b) in
   
   (* Now wait until these processes are done *)
-  ( match Netmcore.join producer_join producer_pid with
+  ( match Netmcore_process.join producer_join producer_pid with
       | None ->
 	  failwith "Error in the producer"
       | Some _ ->
 	  ()
   );
-  ( match Netmcore.join consumer_join consumer_pid with
+  ( match Netmcore_process.join consumer_join consumer_pid with
       | None ->
 	  failwith "Error in the consumer"
       | Some _ ->
@@ -276,17 +259,14 @@ let control() =
 
 
 let control_fork, control_join =
-  Netmcore.def_process
-    (fun _ ->
-       control();
-       Unit_encap.wrap ()
-    )
+  Netmcore_process.def_process control
 
 
 let () =
   (* Netmcore_mempool.Debug.enable_alloc := true; *)
   Netmcore.startup
     ~socket_directory:"run_pipeline"
-    ~inherit_resources:`All
-    ~first_process:(control_fork, Unit_encap.wrap())
+    ~first_process:(fun () -> 
+		      Netmcore_process.start 
+			~inherit_resources:`All control_fork ())
     ()

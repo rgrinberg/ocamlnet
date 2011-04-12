@@ -66,5 +66,5 @@ let () =
 let () =
   Netmcore.startup
     ~socket_directory:"/tmp/t_toploop"
-    ~first_process:(toploop_fork, Unit_encap.wrap())
+    ~first_process:(fun() -> Netmcore.start toploop_fork (Unit_encap.wrap()))
     ()
