@@ -53,10 +53,11 @@ val set : ('e,_) sarray -> int -> 'e -> unit
       deep copy of [x].
    *)
 
-val get : ('e,_) sarray -> int -> 'e
-  (** [get sa k]: Gets the [k]-th element of the shared array [sa].
+val get_ro : ('e,_) sarray -> int -> 'e
+  (** [get_ro sa k]: Gets the [k]-th element of the shared array [sa].
       Note that there is no guarantee that this value still exists if
       it is returned, and a parallely running [set] changes this element.
+      If such values are accessed the program may crash!
    *)
 
 val get_p : ('e,_) sarray -> int -> ('e -> 'a) -> 'a

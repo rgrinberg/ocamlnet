@@ -292,8 +292,24 @@ processes, and sending messages between them.
 
 {!modules:
     Netmcore
+    Netmcore_process
+    Netmcore_mempool
+    Netmcore_heap
+    Netmcore_array
+    Netmcore_buffer
+    Netmcore_hashtbl
+    Netmcore_matrix
+    Netmcore_queue
+    Netmcore_ref
+    Netmcore_mutex
+    Netmcore_sem
+    Netmcore_condition
     Netmcore_camlbox
 }
+
+{3:rpc_intro Guides}
+
+- {!module:Netmcore_tut}: Tutorial
 
 
 {2:netclient The [netclient] library}

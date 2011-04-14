@@ -563,7 +563,7 @@ module Message_passing_2 = struct
        camlbox_id2
      *)
     let id_rec_ref = Netmcore_ref.sref_of_descr pool id_rec_descr in
-    let id_rec = Netmcore_ref.deref id_rec_ref in
+    let id_rec = Netmcore_ref.deref_ro id_rec_ref in
     let we =
       Netmcore_heap.modify
 	(Netmcore_ref.heap id_rec_ref)
@@ -627,7 +627,7 @@ module Message_passing_2 = struct
 
   let collector (pool, id_rec_descr, outbox_id, n, coll_id) =
     let id_rec_ref = Netmcore_ref.sref_of_descr pool id_rec_descr in
-    let id_rec = Netmcore_ref.deref id_rec_ref in
+    let id_rec = Netmcore_ref.deref_ro id_rec_ref in
 
     let ((cbox : camlbox), camlbox_id) =
       Netmcore_camlbox.create_camlbox
@@ -707,7 +707,7 @@ module Message_passing_2 = struct
     Netmcore_heap.modify
       (Netmcore_ref.heap id_rec_ref)
       (fun mut ->
-	 let id_rec = Netmcore_ref.deref id_rec_ref in
+	 let id_rec = Netmcore_ref.deref_ro id_rec_ref in
 	 id_rec.lock <- Netmcore_mutex.create mut `Normal;
 	 id_rec.cond <- Netmcore_condition.create_condition mut;
 	 id_rec.wait_set <- Netmcore_condition.create_wait_set mut;

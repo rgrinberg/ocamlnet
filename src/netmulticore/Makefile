@@ -10,7 +10,8 @@ DOBJECTS = netmcore.mli netmcore_camlbox.mli netmcore_mempool.mli \
 	   netmcore_heap.mli netmcore_ref.mli netmcore_array.mli \
 	   netmcore_sem.mli netmcore_mutex.mli netmcore_condition.mli \
 	   netmcore_queue.mli netmcore_buffer.mli netmcore_matrix.mli \
-	   netmcore_hashtbl.mli netmcore_process.mli
+	   netmcore_hashtbl.mli netmcore_process.mli \
+	   netmcore_tut.txt
 
 INCLUDES += $(INC_EQUEUE) $(INC_RPC) $(INC_NETSTRING) $(INC_NETSYS) \
             $(INC_NETPLEX) $(INC_NETCAMLBOX)

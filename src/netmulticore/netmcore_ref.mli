@@ -18,12 +18,13 @@ val assign : 't sref -> 't -> unit
       and no other [assign] can run.
    *)
 
-val deref : 't sref -> 't
+val deref_ro : 't sref -> 't
   (** Dereferences the variable and returns the contents, comparable to
       [!]. Note that this returns a value that lives in shared memory,
       and there is no guarantee that this value still exists if 
       [assign] operations are done in parallel, and old version are
-      garbage-collected.
+      garbage-collected. If such values are accessed the program may
+      crash!
    *)
 
 val deref_p : 't sref -> ('t -> 'a) -> 'a

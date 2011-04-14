@@ -4,7 +4,7 @@
 
 (** This module provides a slightly higher-level view on processes,
     but is also a bit more restricted than the primitives in
-    {!Netmcore].
+    {!Netmcore}.
  *)
 
 type 'a fork_point

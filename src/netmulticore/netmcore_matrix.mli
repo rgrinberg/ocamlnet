@@ -39,11 +39,12 @@ val set : ('e,_) sarray2 -> int -> int -> 'e -> unit
       deep copy of [x].
    *)
 
-val get : ('e,_) sarray2 -> int -> int -> 'e
-  (** [get sa k1 k2]: Gets the [(k1,k2)]-th element of the matrix [sa].
+val get_ro : ('e,_) sarray2 -> int -> int -> 'e
+  (** [get_ro sa k1 k2]: Gets the [(k1,k2)]-th element of the matrix [sa].
       Note that there is no guarantee that this value still exists if
       it is returned, and a parallely running [set] changes this element.
-   *)
+      If such values are accessed the program may crash! 
+  *)
 
 val get_p : ('e,_) sarray2 -> int -> int -> ('e -> 'a) -> 'a
   (** [get_p sa k1 k2 f]: Gets the [(k1,k2)]-th element of the matrix [sa]

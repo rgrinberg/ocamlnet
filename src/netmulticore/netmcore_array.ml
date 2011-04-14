@@ -66,7 +66,7 @@ let set sa k x =
        a.(k) <- add mut x
     )
 
-let get sa k =
+let get_ro sa k =
   let a = (root sa).array in
   a.(k)
 

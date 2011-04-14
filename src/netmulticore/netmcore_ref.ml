@@ -16,7 +16,7 @@ let sref res_id x =
 let assign r x =
   modify r (fun mut -> (root r) := add mut x)
 
-let deref r =
+let deref_ro r =
   !(root r)
 
 let deref_p r f =

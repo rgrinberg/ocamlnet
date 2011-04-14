@@ -1,3 +1,10 @@
+2011-04-14  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Test release: 3.3.0test1
+
+	* Netmulticore: adding a lot of modules for managing shared
+	  heaps. Also contains a tutorial now.
+
 2011-03-07  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Netnumber: better successor of Rtypes, with both big-endian
