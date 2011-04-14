@@ -183,6 +183,22 @@ f src/nethttpd-for-netcgi2/Makefile
 f src/nethttpd-for-netcgi2/Makefile.pre
 f src/nethttpd-for-netcgi2/LICENSE
 
+d src/netgssapi
+f src/netgssapi/META.in
+f src/netgssapi/Makefile
+f src/netgssapi/Makefile.pre
+p src/netgssapi/.*\.ml
+p src/netgssapi/.*\.mli
+p src/netgssapi/.*\.txt
+
+d src/netmech-scram
+f src/netmech-scram/META.in
+f src/netmech-scram/Makefile
+f src/netmech-scram/Makefile.pre
+p src/netmech-scram/.*\.ml
+p src/netmech-scram/.*\.mli
+p src/netmech-scram/.*\.txt
+
 d src/equeue
 f src/equeue/META.in
 f src/equeue/Makefile
@@ -342,6 +358,7 @@ f src/netmulticore/Makefile
 f src/netmulticore/Makefile.pre
 p src/netmulticore/.*\.ml
 p src/netmulticore/.*\.mli
+p src/netmulticore/.*\.txt
 
 d examples
 
@@ -512,6 +529,8 @@ d examples/multicore
 f examples/multicore/Makefile
 f examples/multicore/chameneos.ml
 f examples/multicore/create_join.ml
+f examples/multicore/pipeline.ml
+f examples/multicore/nqueens.ml
 
 d doc
 d doc/html-main
