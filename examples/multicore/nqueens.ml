@@ -162,29 +162,19 @@ module Shared_hashtable = struct
     let ht = Netmcore_hashtbl.hashtbl_of_descr pool ht_descr in
     solve first_queen n
       (fun b ->
+	 let b = Array.copy b in
+	 let b_list = transformations b in
+	 let b_min =
+	   List.fold_left
+	     (fun acc b1 -> min acc b1)
+	     (List.hd b_list)
+	     (List.tl b_list) in
 	 (* Because this is a read-modify-update operation we have to lock
 	    the hash table
 	  *)
 	 let header = Netmcore_hashtbl.header ht in
 	 Netmcore_mutex.lock header.lock;
 	 try
-(* - This is a bit slower than the solution below -
-	   if not (Netmcore_hashtbl.mem ht b) then (
-	     List.iter
-	       (fun b' ->
-		  Netmcore_hashtbl.add ht b' ()
-	       )
-	       (transformations b);
-	     print b
-	   );
- *)
-	   let b = Array.copy b in
-	   let b_list = transformations b in
-	   let b_min =
-	     List.fold_left
-	       (fun acc b1 -> min acc b1)
-	       (List.hd b_list)
-	       (List.tl b_list) in
 	   if not (Netmcore_hashtbl.mem ht b_min) then (
 	     Netmcore_hashtbl.add ht b_min ();
 	     print b_min
