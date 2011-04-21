@@ -283,7 +283,6 @@ module Shared_hashtable_2 = struct
 	 try
 	   if not (Netmcore_hashtbl.mem ht b_min) then (
 	     Netmcore_hashtbl.add ht b_min ()
-	       (* Cannot print b here any longer! *)
 	   );
 	   Netmcore_mutex.unlock header.lock;
 	 with
