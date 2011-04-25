@@ -43,6 +43,11 @@ Commerce:
     * Whitepaper "Using multicore in Ocaml"
  - Sponsor wanted:
     * Netmcore_set, _map
+ - "Ocamlnet EE - Enterprise Extensions"
+    * GSS-API system binding
+    * Kerberos bindings
+    * System authentication
+    * LDAP authentication
  - Ocaml-Kurs
 
 IDEAS FOR OCAMLNET RECIPES:

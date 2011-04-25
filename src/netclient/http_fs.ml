@@ -305,9 +305,11 @@ object(self)
       let page_size = Netsys_mem.pagesize in
       let buf = Netpagebuffer.create page_size in
       let eof = ref false in
+      let running = ref true in  (* prevents that Interrupt escapes *)
       let ondata n =
 	if not !eof then
-	  Unixqueue.once p#event_system g 0.0 (fun () -> raise Interrupt) in
+	  Unixqueue.once p#event_system g 0.0
+	    (fun () -> if !running then raise Interrupt) in
       let cur_ch = ref None in
       let call_done = ref false in
       call # set_response_body_storage
@@ -334,41 +336,48 @@ object(self)
       (* Wait until data is available, or the whole call is done (in case
 	 of error)
        *)
-      run();
-      match !cur_ch with
-	| None ->
-	    (* Error *)
-	    handle_error path call  (* raise exception *)
-	| Some c_ch ->
-	    (* Success *)
-	    if not enable_read_for_directories then
-	      check_dir (call # effective_request_uri) path;
-	    let (ch : Netchannels.rec_in_channel) =
-	      ( object
-		  method input s pos len =
-		    while (not !call_done && not !eof && 
-			     Netpagebuffer.length buf < 16 * page_size)
-		    do
-		      run()
-		    done;
-		    if !call_done then run();   (* ensure proper shutdown *)
-		    ( try
-			c_ch # input s pos len
+      try
+	run();
+	match !cur_ch with
+	  | None ->
+	      (* Error *)
+	      handle_error path call  (* raise exception *)
+	  | Some c_ch ->
+	      (* Success *)
+	      if not enable_read_for_directories then
+		check_dir (call # effective_request_uri) path;
+	      let (ch : Netchannels.rec_in_channel) =
+		( object
+		    method input s pos len =
+		      while (not !call_done && not !eof && 
+			       Netpagebuffer.length buf < 16 * page_size)
+		      do
+			run()
+		      done;
+		      if !call_done then run();   (* ensure proper shutdown *)
+		      ( try
+			  c_ch # input s pos len
+			with
+			  | End_of_file ->
+			      (* check for pending error *)
+			      ( match is_error_response path call with
+				  | None -> raise End_of_file
+				  | Some e -> handle_error path call
+			      )
+		      )
+		    method close_in() =
+		      try
+			p # reset();
+			while not !call_done do run() done;
+			running := false;
+			(* We ignore any pending error here *)
 		      with
-			| End_of_file ->
-			    (* check for pending error *)
-			    ( match is_error_response path call with
-				| None -> raise End_of_file
-				| Some e -> handle_error path call
-			    )
-		    )
-		  method close_in() =
-		    p # reset();
-		    while not !call_done do run() done;
-		    (* We ignore any pending error here *)
-		end
-	      ) in
-	    Netchannels.lift_in ~buffered:true (`Rec ch)
+			| err -> running := false; raise err
+		  end
+		) in
+	      Netchannels.lift_in ~buffered:true (`Rec ch)
+      with
+	| err -> running := false; raise err
     )
     else (
       let cur_tmp = ref None in 
@@ -464,6 +473,7 @@ object(self)
       let buf = Netpagebuffer.create page_size in
       let eof = ref false in
       let added = ref false in
+      let running = ref true in  (* prevents that Interrupt escapes *)
 
       let ondata n = 
 	if n>=16*page_size || !eof then (
@@ -477,6 +487,7 @@ object(self)
 	  );
 	  run();
 	  if !eof then (
+	    running := false;
 	    (* check for errors *)
 	    last_response_header := Some(call#response_header);
 	    match is_error_response ~precondfailed path call with
@@ -485,7 +496,8 @@ object(self)
 	  )
 	) in
       let onempty () =
-	Unixqueue.once p#event_system g 0.0 (fun () -> raise Interrupt) in
+	Unixqueue.once p#event_system g 0.0
+	  (fun () -> if !running then raise Interrupt) in
       let add_sub_string buf s pos len =
 	(* Create a chunk: *)
 	Netpagebuffer.add_string buf (sprintf "%x\r\n" len);

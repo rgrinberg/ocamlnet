@@ -1,52 +1,146 @@
-Ocamlnet consists of a number of libraries:
+Ocamlnet is an enhanced system platform library for Ocaml. As the name
+suggests, large parts of it have to do with network programming, but
+it is actually not restricted to this. Other parts deal with the
+management of multiple worker processes, and the interaction with
+other programs running on the same machine. You can also view Ocamlnet
+as an extension of the system interface as provided by the [Unix]
+module of the standard library.
 
-- [netstring] is about processing strings that occur in network context
-- [netcgi1] and [netcgi2] focus on portable web applications
-- [nethttpd] is a web server component (HTTP server implementation)
-- [netplex] is a generic server framework
-- [rpc] implements OncRPC
-- [netclient] implements clients for HTTP, FTP, and Telnet 
-- [equeue] is an event queue used for many protocol implementations
-- [shell] is about calling external commands
-- [netshm] provides shared memory for IPC purposes
-- [netsys] contains bindings for system functions
-- [smtp] and [pop] are two further client implementations
-- [netmulticore] and [netcamlbox] help parallelizing execution
+So, which kind of applications can profit from Ocamlnet?
+
+- {b Web applications} can use the [netcgi2] library which provides
+  all core functionality like connecting to web servers, decomposing
+  web requests, and emitting web data. With the [nethttpd] library
+  Ocamlnet even includes a little web server of its own, so
+  stand-alone Ocaml programs can respond to HTTP requests. This is
+  especially interesting for providing high-speed HTTP-based APIs
+  like REST interfaces.
+- {b Client/server architectures} can be built with the included SunRPC
+  support. This is a very robust and mature implementation of this
+  binary RPC protocol, both on the client and the server side. It
+  is wire-compatible with C implementations of SunRPC. There is a
+  generator for transforming SunRPC IDL files into Ocaml
+  modules. Authentication and encryption are also supported (using
+  GSS-API, or the non-standard SSL extension).
+- {b Compute jobs} profit from Ocamlnet because the [netmulticore]
+  library allows it to run compute tasks on as many cores of the
+  machine as needed. The tasks can communicate with message passing
+  and exchange data via shared memory. Of course, [netmulticore] is 
+  strictly typed.
+- {b Any kind of application} can cherry-pick the parts of Ocamlnet
+  that are considered useful. Especially, Ocamlnet includes a number
+  of network clients (for HTTP, FTP, Telnet, SMTP, POP), and a large
+  number of network-related string processing functions (e.g. for
+  URL's, Base64, UTF-8, mail headers). For interacting with the system
+  there are functions to invoke subcommands ([shell] library),
+  and also for globbing, sending email, and logging. Local and remote
+  filesystems can be accessed with the {!Netfs} framework. The
+  [netsys] library wraps lots of additional system calls that are
+  missing in the Ocaml standard library.
 
 A number of ideas and concepts are used throughout the libraries:
 
 - {!Netchannels} are a way to abstract sequential I/O channels
 - The event queues provided by {!Equeue} and {!Unixqueue} make
   asynchronous protocol interpreters possible
+- The [netplex] library manages worker subprocesses, e.g. for
+  accepting network connections or for doing computations.
 
-{2 Foreword}
+{2 Introductory chapters}
 
-Some introductional notes how Ocamlnet is organized:
-
-- {!Foreword}
-
-An overview of the list of changes is available in this external
-article:
-
-- {{:http://blog.camlcity.org/blog/ocamlnet3_release.html} Ocamlnet 3
-  finally released}
-
-{2 Platform support}
-
-Please read this document for extended information which features
-are supported on which platform: 
-
+- {!Foreword}: How Ocamlnet is organized
 - {!Platform}: Which functions are available on which platform
   (POSIX/Win32). Also hints for portable programming.
 
-{3:platform_blog External articles}
+Related external articles:
 
+- {{:http://blog.camlcity.org/blog/ocamlnet3_release.html} Ocamlnet 3
+  finally released}
 - {{:http://blog.camlcity.org/blog/ocamlnet3_win32.html} Stranger in
   a strange land}, by Gerd Stolpmann. The Win32 port in Ocamlnet 3.
 
-{2:netstring The [netstring] library}
+{2 Contents by library}
 
-[netstring] focuses on string processing functions.
+{ul
+  {- {!Intro.ch_base}
+     {ul
+       {- {!Intro.netstring}}
+       {- {!Intro.netzip}}
+       {- {!Intro.equeue}}
+       {- {!Intro.netplex}}
+       {- {!Intro.netshm}}
+       {- {!Intro.netsys}}
+     }
+  }
+  {- {!Intro.ch_web}
+     {ul
+       {- {!Intro.netcgi2}}
+       {- {!Intro.netcgi2_apache}}
+       {- {!Intro.netcgi2_plex}}
+       {- {!Intro.nethttpd}}
+     }
+  }
+  {- {!Intro.ch_cs}
+     {ul
+       {- {!Intro.rpc}}
+       {- {!Intro.rpc_local}}
+       {- {!Intro.rpc_authdh}}
+       {- {!Intro.rpc_xti}}
+       {- {!Intro.rpc_ssl}}
+       {- {!Intro.netgssapi}}
+       {- {!Intro.netmech_scram}}
+     }
+  }
+  {- {!Intro.ch_comp}
+     {ul
+       {- {!Intro.netcamlbox}}
+       {- {!Intro.netmulticore}}
+     }
+  }
+  {- {!Intro.ch_netproto}
+     {ul
+       {- {!Intro.netclient}}
+       {- {!Intro.pop}}
+       {- {!Intro.smtp}}
+     }
+  }
+}
+
+
+
+
+
+{1:ch_base Base Libraries}
+
+{3:ch_base_guides Guides}
+
+- {!module:Netchannels_tut}: The [Netchannels] tutorial - {b strongly 
+  recommended read!}
+- {!module:Netmime_tut}: The [Netmime] tutorial
+- {!module:Netsendmail_tut}: The [Netsendmail] tutorial
+- {!module:Netulex_tut}: The [Netulex] tutorial
+- {!module:Neturl_tut}: The [Neturl] tutorial
+- {!module:Equeue_intro}: Introduction to programming with [equeue]
+- {!module:Netplex_intro}: Introduction to [Netplex]
+- {!module:Netplex_advanced}: Advanced features of [Netplex]
+- {!module:Netshm_intro}: Shared Memory for IPC
+- {!module:Shell_intro}: Motivation for [shell]
+
+
+{3:equeue_blog External articles}
+
+- {{:http://ambassadortothecomputers.blogspot.com/2009/02/equeue-compared-to-lwt.html} Equeue compared to Lwt}, by Jake Donham.
+- {{:http://blog.camlcity.org/blog/parallelmm.html} Parallelizing with
+  Ocamlnet}, by Gerd Stolpmann. Demonstrates how to parallelize
+  matrix multiplications with Netplex-controlled worker processes.
+- {{:http://blog.camlcity.org/blog/ocamlnet3_mp.html} 
+  Mastering Multi-processing}, by Gerd Stolpmann. About the new
+  synchronization primitives in Ocamlnet 3
+
+{2:netstring The [netstring] library: string processing functions}
+
+[netstring] focuses on string processing functions, and base definitions
+for other libraries.
 
 {!modules: 
    Netconversion
@@ -79,16 +173,7 @@ are supported on which platform:
    Xdr_mstring
 }
 
-{3:netstring_intro Guides}
-
-- {!module:Netchannels_tut}: The [Netchannels] tutorial - {b strongly 
-  recommended read!}
-- {!module:Netmime_tut}: The [Netmime] tutorial
-- {!module:Netsendmail_tut}: The [Netsendmail] tutorial
-- {!module:Netulex_tut}: The [Netulex] tutorial
-- {!module:Neturl_tut}: The [Neturl] tutorial
-
-{2:netzip The [netzip] library}
+{2:netzip The [netzip] library: compression for object channels}
 
 Support for (un)compressing data on the fly with object channels.
 Requires ocamlzip.
@@ -96,237 +181,7 @@ Requires ocamlzip.
 {!modules:
     Netgzip}
 
-{2:netcgi1 The [netcgi1] library}
-
-The [netcgi1] library is no longer supported in Ocamlnet 3. Please
-switch to [netcgi2].
-
-
-{2:netcgi2 The [netcgi2] library}
-
-This is the revised library for Web applications, now called [netcgi2].
-
-{!modules:
-    Netcgi
-    Netcgi_common
-    Netcgi_cgi
-    Netcgi_fcgi
-    Netcgi_ajp
-    Netcgi_scgi
-    Netcgi_test
-    Netcgi_dbi
-    Netcgi1_compat}
-
-{3:netcgi_intro Guides}
-
-- {!module:Netcgi_porting}: Porting [netcgi1] programs to [netcgi2]
-
-{2:netcgi2_apache The [netcgi2-apache] library}
-
-This is an Apache connector for the {!netcgi2} library.
-
-{!modules:
-    Netcgi_apache
-    Netcgi_modtpl}
-
-{2:netcgi2_plex The [netcgi2-plex] library}
-
-Netplex support for running Netcgi2 connectors:
-
-{!modules:
-    Netcgi_plex}
-
-{2:nethttpd The [nethttpd] library}
-
-The [nethttpd] library is a Web server component written in O'Caml. 
-For a full web server, you'll also need [netplex].
-
-{!modules:
-   Nethttpd_types
-   Nethttpd_kernel
-   Nethttpd_reactor
-   Nethttpd_engine
-   Nethttpd_services
-   Nethttpd_plex
-   Nethttpd_util
-}
-
-{3:nethttpd_intro Guides}
-
-- {!module:Nethttpd_intro}: Overview over the HTTP daemon
-
-{2:netplex The [netplex] library}
-
-The [netplex] library is a protocol-independent server framework. 
-Especially, it can be used in conjunction with [nethttpd] to
-build web servers, and with [rpc] to build RPC servers.
-
-{!modules:
-    Netplex_types
-    Netplex_config
-    Netplex_controller
-    Netplex_container
-    Netplex_sockserv
-    Netplex_workload
-    Netplex_kit
-    Netplex_cenv
-    Netplex_log
-    Netplex_main
-    Netplex_mp
-    Netplex_mt
-    Netplex_mutex
-    Netplex_semaphore
-    Netplex_sharedvar
-    Netplex_encap
-    Rpc_netplex}
-    
-{3:netplex_intro Guides}
-
-- {!module:Netplex_intro}: Introduction to [Netplex]
-- {!module:Netplex_advanced}: Advanced features of [Netplex]
-
-{3:netplex_blog External articles}
-
-- {{:http://blog.camlcity.org/blog/parallelmm.html} Parallelizing with
-  Ocamlnet}, by Gerd Stolpmann. Demonstrates how to parallelize
-  matrix multiplications with Netplex-controlled worker processes.
-- {{:http://blog.camlcity.org/blog/ocamlnet3_mp.html} 
-  Mastering Multi-processing}, by Gerd Stolpmann. About the new
-  synchronization primitives in Ocamlnet 3
-
-
-{2:equeue The [rpc] library}
-
-This library implements OncRPC (alias SunRPC).
-
-{!modules:
-   Rpc
-   Rpc_program
-   Rpc_client
-   Rpc_simple_client
-   Rpc_proxy
-   Rpc_server
-   Rpc_auth_sys
-   Rpc_portmapper
-   Rpc_portmapper_aux
-   Rpc_portmapper_clnt
-   Rpc_transport
-   Rpc_packer
-   Rpc_auth_gssapi
-}
-
-{3:rpc_intro Guides}
-
-- {!module:Rpc_intro}: Introduction
-- {!module:Rpc_mapping_ref}: RPC Language Mapping Reference
-- {!module:Rpc_intro_gss}: Securing RPC with the GSS-API
-
-{3:rpc_blog External articles}
-
-- {{:http://blog.camlcity.org/blog/ocamlnet3_ha.html} The next server,
-  please!}, by Gerd Stolpmann. About highly-available RPC.
-
-{3:rpc_local The [rpc-auth-local] extension}
-
-Authentication for local socket connections.
-
-{!modules:
-    Rpc_auth_local}
-
-{3:rpc_authdh The [rpc-auth-dh] extension}
-
-This is Diffie-Hellman authentication for OncRPC (also known as
-"Secure RPC").
-
-{!modules:
-    Rpc_auth_dh
-    Rpc_key_service
-    Rpc_time}
-
-{3:rpc_xti The [rpc-xti] extension}
-
-System V provides a network API called XTI in addition to the socket API.
-This library allows it to connect to RPC services that can only be reached
-over a local XTI connection ("cots" connection).
-
-{!modules:
-    Rpc_xti_client}
-
-{3:rpc_ssl The [rpc_ssl] extension}
-
-This library allows you to tunnel RPC through SSL/TLS.
-
-{!modules:
-    Rpc_ssl}
-
-
-{2:netgssapi The [netgssapi] library with the GSS-API framework}
-
-{!modules:
-    Netgssapi}
-
-{2:security Security mechanisms}
-
-{3:netmech_scram The [netmech-scram] library for SCRAM}
-
-Implements SCRAM (RFC 5802). Right now only for GSS-API.
-
-{!modules:
-    Netmech_scram
-    Netmech_scram_gssapi}
-
-
-{2:netcamlbox The [netcamlbox] library}
-
-Camlbox is a fast message-passing system between processes running on
-the same machine. It uses shared memory for communication. A message
-sent to a Camlbox is only copied once, not twice.
-
-{!modules:
-    Netcamlbox}
-
-{2:netmulticore The [netmulticore] library}
-
-Netmulticore is an experimental framework for managing multiple
-processes, and sending messages between them.
-
-{!modules:
-    Netmcore
-    Netmcore_process
-    Netmcore_mempool
-    Netmcore_heap
-    Netmcore_array
-    Netmcore_buffer
-    Netmcore_hashtbl
-    Netmcore_matrix
-    Netmcore_queue
-    Netmcore_ref
-    Netmcore_mutex
-    Netmcore_sem
-    Netmcore_condition
-    Netmcore_camlbox
-}
-
-{3:rpc_intro Guides}
-
-- {!module:Netmcore_tut}: Tutorial
-
-
-{2:netclient The [netclient] library}
-
-This library includes clients for HTTP, Telnet, and (incomplete) FTP.
-
-{!modules:
-   Http_client
-   Http_client_conncache
-   Http_fs
-   Telnet_client
-   Ftp_client
-   Ftp_data_endpoint
-}
-
-
-{2:equeue The [equeue] library}
+{2:equeue The [equeue] library: concurrent execution flows via event queues}
 
 [equeue] is a fundamental library for event queues. It is mainly used
 by a number of other libraries of Ocamlnet to parallelize network code
@@ -343,13 +198,6 @@ by a number of other libraries of Ocamlnet to parallelize network code
    Uq_io
 }
 
-{3:equeue_intro Guides}
-
-- {!module:Equeue_intro}: Introduction to programming with [equeue]
-
-{3:equeue_blog External articles}
-
-- {{:http://ambassadortothecomputers.blogspot.com/2009/02/equeue-compared-to-lwt.html} Equeue compared to Lwt}, by Jake Donham.
 
 {3:equeue_gtk The [equeue-gtk1] and [equeue-gtk2] extensions}
 
@@ -374,21 +222,33 @@ made with labltk
 {!modules:
   Uq_tcl}
 
-{2:pop The [pop] library}
+{2:netplex The [netplex] library: generic server framework}
 
-This is a simple POP 3 client.
-
-{!modules:
-    Netpop}
-
-{2:smtp The [smtp] library}
-
-This is a simple SMTP client.
+The [netplex] library is a protocol-independent server framework. 
+Especially, it can be used in conjunction with [nethttpd] to
+build web servers, and with [rpc] to build RPC servers.
 
 {!modules:
-    Netsmtp}
+    Netplex_types
+    Netplex_config
+    Netplex_controller
+    Netplex_container
+    Netplex_sockserv
+    Netplex_workload
+    Netplex_kit
+    Netplex_cenv
+    Netplex_log
+    Netplex_main
+    Netplex_mp
+    Netplex_mt
+    Netplex_mutex
+    Netplex_semaphore
+    Netplex_sharedvar
+    Netplex_encap
+    Rpc_netplex}
+    
 
-{2:shell The [shell] library}
+{2:shell The [shell] library: start external commands}
 
 The [shell] library allows you to start external commands. It is integrated
 into [equeue].
@@ -399,14 +259,12 @@ into [equeue].
     Shell_uq
     Shell_fs}
 
-{3:shell_intro Guides}
 
-- {!module:Shell_intro}: Motivation for [shell]
-
-{2:netshm The [netshm] library}
+{2:netshm The [netshm] library: manage shared memory}
 
 The [netshm] library manages a shared memory object either as hash table
 or array. It is designed to be used in multi-processing program architectures.
+Note that there is now also the much better {!Intro.netmulticore} library.
 
 {!modules:
     Netshm
@@ -414,11 +272,8 @@ or array. It is designed to be used in multi-processing program architectures.
     Netshm_hashtbl
     Netshm_array}
 
-{3:netshm_intro Guides}
 
-- {!module:Netshm_intro}: Shared Memory for IPC
-
-{2:netsys The [netsys] library}
+{2:netsys The [netsys] library: system interfaces}
 
 The [netsys] library contains a number of low-level functions used by
 other Ocamlnet libraries.
@@ -440,6 +295,230 @@ other Ocamlnet libraries.
     Netsys_win32
     Netsys_rng
 }
+
+
+
+
+
+{1:ch_web Web Programming}
+
+{3:ch_web_guides Guides}
+
+- {!module:Netcgi_porting}: Porting [netcgi1] programs to [netcgi2]
+- {!module:Nethttpd_intro}: Overview over the HTTP daemon
+
+{3:netcgi1 The [netcgi1] library}
+
+The [netcgi1] library is no longer supported in Ocamlnet 3. Please
+switch to [netcgi2].
+
+
+{2:netcgi2 The [netcgi2] library: web application framework}
+
+This is the revised library for Web applications, now called [netcgi2].
+
+{!modules:
+    Netcgi
+    Netcgi_common
+    Netcgi_cgi
+    Netcgi_fcgi
+    Netcgi_ajp
+    Netcgi_scgi
+    Netcgi_test
+    Netcgi_dbi
+    Netcgi1_compat}
+
+
+{2:netcgi2_apache The [netcgi2-apache] library: run web apps inside Apache}
+
+This is an Apache connector for the {!netcgi2} library.
+
+{!modules:
+    Netcgi_apache
+    Netcgi_modtpl}
+
+{2:netcgi2_plex The [netcgi2-plex] library: run web apps with Netplex}
+
+Netplex support for running Netcgi2 connectors:
+
+{!modules:
+    Netcgi_plex}
+
+{2:nethttpd The [nethttpd] library: standalone web apps}
+
+The [nethttpd] library is a Web server component written in O'Caml. 
+For a full web server, you'll also need [netplex].
+
+{!modules:
+   Nethttpd_types
+   Nethttpd_kernel
+   Nethttpd_reactor
+   Nethttpd_engine
+   Nethttpd_services
+   Nethttpd_plex
+   Nethttpd_util
+}
+
+
+
+
+{1:ch_cs Client/Server Programming}
+
+{3:ch_cs_guides Guides}
+
+- {!module:Rpc_intro}: Introduction
+- {!module:Rpc_mapping_ref}: RPC Language Mapping Reference
+- {!module:Rpc_intro_gss}: Securing RPC with the GSS-API
+
+{3:ch_cs_blog External articles}
+
+- {{:http://blog.camlcity.org/blog/ocamlnet3_ha.html} The next server,
+  please!}, by Gerd Stolpmann. About highly-available RPC.
+
+{2:rpc The [rpc] library: SunRPC}
+
+This library implements OncRPC (alias SunRPC).
+
+{!modules:
+   Rpc
+   Rpc_program
+   Rpc_client
+   Rpc_simple_client
+   Rpc_proxy
+   Rpc_server
+   Rpc_auth_sys
+   Rpc_portmapper
+   Rpc_portmapper_aux
+   Rpc_portmapper_clnt
+   Rpc_transport
+   Rpc_packer
+   Rpc_auth_gssapi
+}
+
+{2:rpc_local The [rpc-auth-local] extension: authentication for local sockets}
+
+Authentication for local socket connections.
+
+{!modules:
+    Rpc_auth_local}
+
+{2:rpc_authdh The [rpc-auth-dh] extension: Diffie-Hellman authentication}
+
+This is Diffie-Hellman authentication for OncRPC (also known as
+"Secure RPC").
+
+{!modules:
+    Rpc_auth_dh
+    Rpc_key_service
+    Rpc_time}
+
+{2:rpc_xti The [rpc-xti] extension: System V helpers}
+
+System V provides a network API called XTI in addition to the socket API.
+This library allows it to connect to RPC services that can only be reached
+over a local XTI connection ("cots" connection).
+
+{!modules:
+    Rpc_xti_client}
+
+{2:rpc_ssl The [rpc_ssl] extension: SSL encryption}
+
+This library allows you to tunnel RPC through SSL/TLS.
+
+{!modules:
+    Rpc_ssl}
+
+
+{2:netgssapi The [netgssapi] library with the GSS-API framework}
+
+{!modules:
+    Netgssapi}
+
+{2:netmech_scram The [netmech-scram] library for SCRAM}
+
+Implements SCRAM (RFC 5802). Right now only for GSS-API.
+
+{!modules:
+    Netmech_scram
+    Netmech_scram_gssapi}
+
+
+
+
+
+{1:ch_comp Parallel Computing}
+
+{3:netmcore_intro Guides}
+
+- {!module:Netmcore_tut}: Tutorial
+
+{2:netcamlbox The [netcamlbox] library: message passing}
+
+Camlbox is a fast message-passing system between processes running on
+the same machine. It uses shared memory for communication. A message
+sent to a Camlbox is only copied once, not twice.
+
+{!modules:
+    Netcamlbox}
+
+{2:netmulticore The [netmulticore] library: compute jobs}
+
+Netmulticore is an experimental framework for managing multiple
+processes, and sending messages between them.
+
+{!modules:
+    Netmcore
+    Netmcore_process
+    Netmcore_mempool
+    Netmcore_heap
+    Netmcore_array
+    Netmcore_buffer
+    Netmcore_hashtbl
+    Netmcore_matrix
+    Netmcore_queue
+    Netmcore_ref
+    Netmcore_mutex
+    Netmcore_sem
+    Netmcore_condition
+    Netmcore_camlbox
+}
+
+
+
+
+{1:ch_netproto Network Protocol Libraries}
+
+{2:netclient The [netclient] library: HTTP, FTP, Telnet}
+
+This library includes clients for HTTP, Telnet, and (incomplete) FTP.
+
+{!modules:
+   Http_client
+   Http_client_conncache
+   Http_fs
+   Telnet_client
+   Ftp_client
+   Ftp_data_endpoint
+}
+
+
+{2:pop The [pop] library: POP protocol}
+
+This is a simple POP 3 client.
+
+{!modules:
+    Netpop}
+
+{2:smtp The [smtp] library: SMTP protocol}
+
+This is a simple SMTP client.
+
+{!modules:
+    Netsmtp}
+
+
+
+{1 Trailer}
 
 {2 Index}
 
