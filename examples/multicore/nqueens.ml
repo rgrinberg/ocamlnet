@@ -222,7 +222,7 @@ module Shared_hashtable = struct
 	       ()
       )
       pids;
-    printf "Number solutions: %n\n%!" (Netmcore_hashtbl.length ht / 8)
+    printf "Number solutions: %n\n%!" (Netmcore_hashtbl.length ht)
 
 
   let controller_fork, controller_join =
