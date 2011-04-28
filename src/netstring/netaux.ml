@@ -8,7 +8,7 @@ module KMP = struct
   type pattern = { len : int; 
 		   p : string; 
 		   fail : int array;
-		   rex : Pcre.regexp;
+		   rex : Netstring_str.regexp;
 		 }
 
   let rec delta pat state c =
@@ -19,7 +19,8 @@ module KMP = struct
   let make_pattern p =
     let l = String.length p in
     if l = 0 then invalid_arg "Netaux.KMP.make_pattern";
-    let rex = Pcre.regexp (Pcre.quote (String.make 1 p.[0])) in
+    let rex = 
+      Netstring_str.regexp (Netstring_str.quote (String.make 1 p.[0])) in
     let pat = { len = l; p = p; fail = Array.make l 0; rex = rex } in
     for n = 0 to l - 2 do
       pat.fail.(n + 1) <- delta pat pat.fail.(n) p.[n]
@@ -36,7 +37,7 @@ module KMP = struct
 	else
 	  if state = 0 then
 	    (* run_loop 0 (pos+1) *)
-	    run_pcre (pos+1)
+	    run_regexp (pos+1)
 	  else
 	    let state' = fail.(state-1) in
 	    run_delta p.[state'] state' pos
@@ -51,8 +52,8 @@ module KMP = struct
 	  let state' = fail.(state-1) in
 	  run_delta p.[state'] state' pos
 
-    and run_pcre pos =
-      (* Does the same as [run_loop 0 pos], but uses PCRE to skip all the
+    and run_regexp pos =
+      (* Does the same as [run_loop 0 pos], but uses regexps to skip all the
        * non-matching characters. Improves the speed of bytecode dramatically,
        * but does not cost very much for native code.
        *)
@@ -62,8 +63,9 @@ module KMP = struct
 	   * but this might lead to problems in multi-threaded programs.
 	   * So we don't do it here. Better fix Pcre someday...
 	   *)
-	  let a = Pcre.pcre_exec ~rex ~pos s in  (* FIXME: no ~len *)
-	  a.(0)
+	  let p, _ =
+	    Netstring_str.search_forward rex s pos in (* FIXME: no ~len *)
+	  p
 	with
 	    Not_found -> endpos
       in

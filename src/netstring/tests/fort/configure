@@ -1,0 +1,79 @@
+#! /bin/sh
+
+# $Id: configure,v 1.4 2001/11/12 05:05:06 pdoane Exp $
+
+prefix=/usr/local
+bindir=''
+libdir=''
+exec_suffix=''
+
+# Parse command-line arguments
+
+while : ; do
+    case "$1" in
+	"") break;;
+	-prefix|--prefix)
+	    prefix=$2; shift;;
+        -bindir|--bindir)
+	    bindir=$2; shift;;
+	-libdir|--libdir)
+	    libdir=$2; shift;;
+         *)
+	    echo "Unknown option \"$1\"." 1>&2
+	    exit 1
+	    ;;
+    esac
+    shift
+done
+
+echo -n "Checking for cygwin... "
+u=`uname`
+case "$u" in
+    CYGWIN*)
+      echo "found"
+      exec_suffix=".exe"
+      ;;
+    *)
+      echo "not found"
+      ;;
+esac
+
+
+# Defaults
+
+if test "$bindir" = ""; then
+  bindir="$prefix/bin"
+fi
+
+if test "$libdir" = ""; then
+  libdir="$prefix/lib/ocaml"
+fi
+
+# Where to install
+
+echo "# Makefile.config written by configure" >>Makefile.config
+cat <<EOF > Makefile.config
+# Where fort binaries are to be installed
+BINDIR=$bindir
+
+# Where fort libraries are to be installed
+LIBDIR=$libdir
+
+# Any suffix required for executables
+EXEC_SUFFIX=$exec_suffix
+EOF
+
+# Print a summary
+
+cat <<EOF
+
+** Configuration summary **
+
+Directories where FORT will be installed:
+        binaries.................. $bindir
+        libraries................. $libdir
+
+OS information:
+        executable suffix......... $exec_suffix
+EOF
+

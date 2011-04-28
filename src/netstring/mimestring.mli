@@ -172,8 +172,8 @@ val read_header :
      * To read the mail message "[file.txt]":
      *
      * {[
-     * let ch = Netchannels.input_channel (open_in "file.txt") in
-     * let stream = Netstream.input_stream ch in
+     * let ch = new Netchannels.input_channel (open_in "file.txt") in
+     * let stream = new Netstream.input_stream ch in
      * let header = read_header stream in
      * stream#close_in()  (* no need to close ch *)
      * ]}

@@ -597,7 +597,13 @@ object
 end
 
 
-let req_line_re = Netstring_pcre.regexp "([^ \r\n]+)[ \t]+([^ \r\n]+)[ \t]+([^ \r\n]+)\r?\n$";;
+let req_line_re = 
+  Netstring_str.regexp "\\([^ \r\n]+\\)\
+                        [ \t]+\
+                        \\([^ \r\n]+\\)\
+                        [ \t]+\
+                        \\([^ \r\n]+\\)\
+                        \r?\n$";;
   (* Note: \r at end is optional, because the class input_string might be changed
    * in the future to also accept CRLF as line terminator.
    *
@@ -605,7 +611,10 @@ let req_line_re = Netstring_pcre.regexp "([^ \r\n]+)[ \t]+([^ \r\n]+)[ \t]+([^ \
    * word is missing.
    *)
 
-let chunk_re = Netstring_pcre.regexp "([0-9a-fA-F]+)[ \t]*(;|\r?\n)";;
+let chunk_re = 
+  Netstring_str.regexp "\\([0-9a-fA-F]+\\)\
+                        [ \t]*\
+                        \\(;\\|\r?\n\\)";;
 
 
 
@@ -943,16 +952,16 @@ object(self)
       waiting_for_next_message <- false;
       let line = String.sub s block_start (reqline_end - block_start) in
       let ((meth,uri),req_version) as request_line =
-	match Netstring_pcre.string_match req_line_re line 0 with
+	match Netstring_str.string_match req_line_re line 0 with
 	  | None ->
 	      (* This is a bad request. Response should be "Bad Request" *)
 	      IFDEF Testing THEN self # case "accept_header/3" ELSE () END;
 	      raise (Bad_request `Bad_request_line)
 	  | Some m ->
 	      IFDEF Testing THEN self # case "accept_header/4" ELSE () END;
-	      let meth = Netstring_pcre.matched_group m 1 line in
-	      let uri = Netstring_pcre.matched_group m 2 line in
-	      let proto = protocol_of_string(Netstring_pcre.matched_group m 3 line) in
+	      let meth = Netstring_str.matched_group m 1 line in
+	      let uri = Netstring_str.matched_group m 2 line in
+	      let proto = protocol_of_string(Netstring_str.matched_group m 3 line) in
 	      ( match proto with
 		  | `Http((1,_),_) -> ()
 		  | _ -> raise (Bad_request `Protocol_not_supported)
@@ -1135,12 +1144,12 @@ object(self)
     try
       let p = find_line_end s pos (l - pos) (* or Buffer_exceeded *) in
       let chunk_header = Netbuffer.sub recv_buf pos (p-pos) in
-      match Netstring_pcre.string_match chunk_re chunk_header 0 with
+      match Netstring_str.string_match chunk_re chunk_header 0 with
 	| None ->
 	    IFDEF Testing THEN self # case "accept_body_chunked/invalid_ch" ELSE () END;
 	    raise(Bad_request (`Format_error "Invalid chunk"))
 	| Some m ->
-	    let hex_digits = Netstring_pcre.matched_group m 1 chunk_header in
+	    let hex_digits = Netstring_str.matched_group m 1 chunk_header in
 	    let chunk_length =
 	      try int_of_string("0x" ^ hex_digits)
 	      with Failure _ -> 

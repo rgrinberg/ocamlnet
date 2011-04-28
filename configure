@@ -48,6 +48,7 @@ set_defaults () {
     enable_zip=0
     enable_crypto=0
     enable_apache=0
+    enable_pcre=1
     with_nethttpd=0
     with_rpc_auth_dh=0
     bindir=`dirname "$ocamlc"`
@@ -75,15 +76,16 @@ ehelp_ssl="Enable/disable parts that depend on SSL"
 ehelp_zip="Enable/disable parts that depend on camlzip"
 ehelp_crypto="Enable/disable parts that depend on cryptokit"
 ehelp_apache="Enable/disable Apache mod connector (EXPERIMENTAL)"
+ehelp_pcre="Enable/disable the build against pcre-ocaml (recommended)"
 whelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
 whelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
 
 # Which options exist? eoptions for enable/disable, woptions for with/without:
-eoptions="gtk gtk2 tcl ssl zip crypto apache"
+eoptions="pcre gtk gtk2 tcl ssl zip crypto apache"
 woptions="nethttpd rpc_auth_dh"
 
 # Packages to include anyway:
-requires="unix pcre"
+requires="unix"
 
 # Directory where to install data files:
 net_db_dir="<library directory>"
@@ -470,15 +472,25 @@ fi
 ######################################################################
 # Check that pcre is available:
 
-printf "%s" "Checking for PCRE... "
-if check_library pcre pcre.cmi; then
-    echo "found"
+if [ $enable_pcre -gt 0 ]; then
+    printf "%s" "Checking for PCRE... "
+    if check_library pcre pcre.cmi; then
+	echo "found"
+	regexp_defs="-D HAVE_PCRE"
+	have_pcre=1
+	regexp_provider="pcre"
+    else
+	echo "not found"
+	echo "Sorry, installation is not possible without PCRE."
+	echo "Get the PCRE-OCaml library from:"
+	echo "http://www.ocaml.info/home/ocaml_sources.html,"
+	echo "or disable the build against PCRE-Ocaml (not recommended)".
+	exit 1
+    fi
 else
-    echo "not found"
-    echo "Sorry, installation is not possible without PCRE."
-    echo "Get the PCRE-OCaml library from:"
-    echo "http://www.ocaml.info/home/ocaml_sources.html"
-    exit 1
+    regexp_defs=""
+    have_pcre=0
+    regexp_provider="str"
 fi
 
 ######################################################################
@@ -897,6 +909,11 @@ ENDIANESS = $endianess
 
 # gprof:
 HAVE_GPROF = $have_gprof
+
+# REGEXP support:
+REGEXP_DEFS = $regexp_defs
+HAVE_PCRE = $have_pcre
+REGEXP_PROVIDER = $regexp_provider
 
 # Compiler switch to enable multi-threading:
 THREAD = $mt_switch

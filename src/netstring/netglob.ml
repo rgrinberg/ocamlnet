@@ -413,10 +413,10 @@ let print_set buf encoding neg_char negated set =
   )
 
 
-let esc_re = Netstring_pcre.regexp "[][*?{},\\\\~]";;
+let esc_re = Netstring_str.regexp "[][*?{},\\~]";;
 
 let esc_subst m s =
-  "\\" ^ Netstring_pcre.matched_group m 0 s
+  "\\" ^ Netstring_str.matched_group m 0 s
 
 let print_glob_expr ?(escape_in_literals=true) expr =
   let buf = Buffer.create 200 in
@@ -425,7 +425,7 @@ let print_glob_expr ?(escape_in_literals=true) expr =
       | `Literal s :: gl' ->
           Buffer.add_string buf
 	    (if escape_in_literals then
-	       Netstring_pcre.global_substitute esc_re esc_subst s
+	       Netstring_str.global_substitute esc_re esc_subst s
 	     else
 	       s
 	    );

@@ -1,0 +1,25 @@
+# Don't ever fiddle with -I or try to manage lists of cma!
+# Call like
+#    make -f Makefile.working byte
+# Set environment variable
+#    OCAMLPATH=../../../src
+# to test Ocamlnet before it is installed.
+
+PACKAGES = netcgi2 cryptokit str
+
+byte:
+	for pgm in add counter filemanager icfp2001; do \
+	   for var in cgi fcgi scgi; do \
+	       if [ -f "$${pgm}_$${var}.ml" ]; then \
+	            if [ "$$var" = "cgi" ]; then suff=".cgi"; else suff=""; fi; \
+		    ocamlfind ocamlc -package "$(PACKAGES)" \
+		        -linkpkg -custom -o "$${pgm}_$${var}$${suff}" \
+			$${pgm}.ml $${pgm}_$${var}.ml; \
+	       fi; \
+	   done; \
+	done
+
+clean:
+	rm -f *.cmi *.cmo *.cma *.cmxa *.o *.a
+	rm -f *.cgi
+	rm -f add_fcgi counter_fcgi filemanager_fcgi filemanager_scgi

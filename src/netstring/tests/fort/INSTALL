@@ -1,0 +1,35 @@
+-------------------------------------------------------------------
+Unix/Cygwin Installation
+-------------------------------------------------------------------
+
+1. Run the configure script.
+
+The "configure" script accepts the following options:
+
+-bindir <dir>
+        Directory where binaries will be installed
+
+-libdir <dir>
+        Directory where libraries will be installed
+
+-prefix <dir>
+        Set bindir and libdir to
+	<dir>/bin, <dir>/lib/ocaml respectively
+
+2. make
+
+3. make install
+
+-------------------------------------------------------------------
+Native Windows Installation
+-------------------------------------------------------------------
+
+1. Create a file Makefile.config containing the following variable definitions:
+
+     BINDIR=<directory where binaries will be installed>
+     LIBDIR=<directory where libraries will be installed>
+
+2. nmake -f Makefile.win
+
+3. nmake -f Makefile.win install
+

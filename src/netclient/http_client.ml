@@ -143,8 +143,8 @@ let max_pipeline = 8 ;;
 
 let pipeline_blacklist =
   (* Stolen from Mozilla *)
-  [ Netstring_pcre.regexp "Microsoft-IIS/";
-    Netstring_pcre.regexp "Netscape-Enterprise/3.";
+  [ Netstring_str.regexp "Microsoft-IIS/";
+    Netstring_str.regexp "Netscape-Enterprise/3.";
   ]
 ;;
 
@@ -172,40 +172,47 @@ type http_options =
 type header_kind = [ `Base | `Effective ]
 
 let http_re =
-  Netstring_pcre.regexp
-    "^http://(([^/:@]+)(:([^/:@]+))?@)?([^/:@]+)(:([0-9]+))?([/?].*)?$"
+  Netstring_str.regexp
+    "^http://\
+     \\(\
+       \\([^/:@]+\\)\
+       \\(:\\([^/:@]+\\)\\)?@\
+     \\)?\
+     \\([^/:@]+\\)\
+     \\(:\\([0-9]+\\)\\)?\
+     \\([/?].*\\)?$"
 
 let parse_http_url url =
-  match Netstring_pcre.string_match http_re url 0 with
+  match Netstring_str.string_match http_re url 0 with
     | None ->
 	raise Not_found
     | Some m ->
 	let user =
-	  try Some(Netstring_pcre.matched_group m 2 url) 
+	  try Some(Netstring_str.matched_group m 2 url) 
 	  with Not_found -> None in
 	let password =
-	  try Some(Netstring_pcre.matched_group m 4 url)
+	  try Some(Netstring_str.matched_group m 4 url)
 	  with Not_found -> None in
 	let host =
-	  Netstring_pcre.matched_group m 5 url in
+	  Netstring_str.matched_group m 5 url in
 	let port =
-	  try int_of_string(Netstring_pcre.matched_group m 7 url)
+	  try int_of_string(Netstring_str.matched_group m 7 url)
 	  with Not_found -> 80 in
 	let path =
-	  try Netstring_pcre.matched_group m 8 url with Not_found -> "" in
+	  try Netstring_str.matched_group m 8 url with Not_found -> "" in
 	(user,password,host,port,path)
 ;;
 
 
-let comma_re = Netstring_pcre.regexp "[ \t\n\r]*,[ \t\n\r]*" ;;
+let comma_re = Netstring_str.regexp "[ \t\n\r]*,[ \t\n\r]*" ;;
 
 let split_words_by_commas s =
-  Netstring_pcre.split comma_re s ;;
+  Netstring_str.split comma_re s ;;
 
-let space_re = Netstring_pcre.regexp "[ \t\n\r]+" ;;
+let space_re = Netstring_str.regexp "[ \t\n\r]+" ;;
 
 let split_words s =
-  Netstring_pcre.split space_re s ;;
+  Netstring_str.split space_re s ;;
 
 
 let sync_resolver esys name reply =
@@ -1544,15 +1551,25 @@ exception Garbage_received of string
    *)
 
 
-let line_end_re = Netstring_pcre.regexp "[^\\x00\r\n]+\r?\n";;
+let line_end_re = Netstring_str.regexp "[^\000\r\n]+\r?\n";;
 
-let line_end2_re = Netstring_pcre.regexp "([^\\x00\r\n]+\r?\n)*\r?\n";;
+let line_end2_re = Netstring_str.regexp "\\([^\000\r\n]+\r?\n\\)*\r?\n";;
 
-let status_re = Netstring_pcre.regexp "^([^ \t]+)[ \t]+([0-9][0-9][0-9])([ \t]+([^\r\n]*))?\r?\n$" ;;
+let status_re = 
+  Netstring_str.regexp "^\\([^ \t]+\\)\
+                        [ \t]+\
+                        \\([0-9][0-9][0-9]\\)\
+                        \\([ \t]+\\([^\r\n]*\\)\\)\
+                        ?\r?\n$" ;;
 
-let chunk_re = Netstring_pcre.regexp "[ \t]*([0-9a-fA-F]+)[ \t]*(;[^\r\n\\x00]*)?\r?\n" ;;
+let chunk_re = 
+  Netstring_str.regexp "[ \t]*\
+                        \\([0-9a-fA-F]+\\)\
+                        [ \t]*\
+                        \\(;[^\r\n\000]*\\)\
+                        ?\r?\n" ;;
 
-let crlf_re = Netstring_pcre.regexp "\r?\n";;
+let crlf_re = Netstring_str.regexp "\r?\n";;
 
 type sockstate =
     Down
@@ -1708,25 +1725,25 @@ class io_buffer options conn_cache fd fd_state =
       (* Parses the status line. If 1XX: do XXX *)
       restart_parser <- self # parse_status_line;
       let b = B.unsafe_buffer in_buf in
-      match Netstring_pcre.string_match line_end_re b in_pos with
+      match Netstring_str.string_match line_end_re b in_pos with
 	| None ->
 	    if B.length in_buf - in_pos > 500 then 
 	      raise (Garbage_received "Status line too long");
 	    if in_eof then 
 	      raise (Garbage_received "EOF where status line expected")
 	| Some m ->
-	    in_pos <- Netstring_pcre.match_end m;
+	    in_pos <- Netstring_str.match_end m;
 	    assert(in_pos <= B.length in_buf);
-	    let s = Netstring_pcre.matched_string m b in
-	    ( match Netstring_pcre.string_match status_re s 0 with
+	    let s = Netstring_str.matched_string m b in
+	    ( match Netstring_str.string_match status_re s 0 with
 		| None ->
 		    raise (Garbage_received "Bad status line")
 		| Some m ->
-		    let proto = Netstring_pcre.matched_group m 1 s in
-		    let code_str = Netstring_pcre.matched_group m 2 s in
+		    let proto = Netstring_str.matched_group m 1 s in
+		    let code_str = Netstring_str.matched_group m 2 s in
 		    let code = int_of_string code_str in
 		    let text =
-		      try Netstring_pcre.matched_group m 4 s 
+		      try Netstring_str.matched_group m 4 s 
 		      with Not_found -> "" in
 		    if code < 100 || code > 599 then 
 		      raise (Garbage_received "Bad status code");
@@ -1739,7 +1756,7 @@ class io_buffer options conn_cache fd fd_state =
       (* Parses the HTTP header following the status line *)
       restart_parser <- self # parse_header code;
       let b = B.unsafe_buffer in_buf in
-      match Netstring_pcre.string_match line_end2_re b in_pos with
+      match Netstring_str.string_match line_end2_re b in_pos with
 	| None ->
 	    if B.length in_buf - in_pos > 100000 then (
 	      if code < 200 then
@@ -1755,7 +1772,7 @@ class io_buffer options conn_cache fd fd_state =
 	    )
 	| Some m ->
 	    let start = in_pos in
-	    in_pos <- Netstring_pcre.match_end m;
+	    in_pos <- Netstring_str.match_end m;
 	    assert(in_pos <= B.length in_buf);
 	    let _ch =
 	      new Netchannels.input_string ~pos:start ~len:(in_pos-start) b in
@@ -1844,16 +1861,16 @@ class io_buffer options conn_cache fd fd_state =
       (* Parses a chunked HTTP body *)
       restart_parser <- self # parse_chunked_body code header ch;
       let b = B.unsafe_buffer in_buf in
-      match Netstring_pcre.string_match chunk_re b in_pos with
+      match Netstring_str.string_match chunk_re b in_pos with
 	| None ->
 	    if B.length in_buf - in_pos > 5000 then 
 	      raise (Bad_message "Cannot parse chunk of response body");
 	    if in_eof then 
 	      raise (Bad_message "EOF where next response chunk expected")
 	| Some m ->
-	    in_pos <- Netstring_pcre.match_end m;
+	    in_pos <- Netstring_str.match_end m;
 	    assert(in_pos <= B.length in_buf);
-	    let hex_len = Netstring_pcre.matched_group m 1 b in
+	    let hex_len = Netstring_str.matched_group m 1 b in
 	    let len =
 	      try Int64.of_string ("0x" ^ hex_len)
 	      with Failure _ -> 
@@ -1884,14 +1901,14 @@ class io_buffer options conn_cache fd fd_state =
       (* Parses the CRLF after the chunk, and the next chunks *)
       restart_parser <- self # parse_chunk_end code header ch;
       let b = B.unsafe_buffer in_buf in
-      match Netstring_pcre.string_match crlf_re b in_pos with
+      match Netstring_str.string_match crlf_re b in_pos with
 	| None ->
 	    if B.length in_buf - in_pos > 2 then 
 	      raise (Bad_message "CR/LF after response chunk is missing");
 	    if in_eof then 
 	      raise (Bad_message "EOF where next response chunk expected")
 	| Some m ->
-	    in_pos <- Netstring_pcre.match_end m;
+	    in_pos <- Netstring_str.match_end m;
 	    assert(in_pos <= B.length in_buf);
 	    self # parse_chunked_body code header ch call
 
@@ -1899,7 +1916,7 @@ class io_buffer options conn_cache fd fd_state =
       (* Parses the trailer *)
       restart_parser <- self # parse_trailer code header ch;
       let b = B.unsafe_buffer in_buf in
-      match Netstring_pcre.string_match line_end2_re b in_pos with
+      match Netstring_str.string_match line_end2_re b in_pos with
 	| None ->
 	    if B.length in_buf - in_pos > 10000 then 
 	      raise (Bad_message "Response trailer too large");
@@ -1907,7 +1924,7 @@ class io_buffer options conn_cache fd fd_state =
 	      raise (Bad_message "EOF where response trailer expected")
 	| Some m ->
 	    let start = in_pos in
-	    in_pos <- Netstring_pcre.match_end m;
+	    in_pos <- Netstring_str.match_end m;
 	    assert(in_pos <= B.length in_buf);
 	    let _ch =
 	      new Netchannels.input_string ~pos:start ~len:(in_pos-start) b in
@@ -2306,7 +2323,7 @@ class transmitter
 	  let server = resp_header # field "Server" in
 	  not (List.exists 
 		 (fun re -> 
-		    Netstring_pcre.string_match re server 0 <> None
+		    Netstring_str.string_match re server 0 <> None
 		 ) 
 		 pipeline_blacklist)
 	with

@@ -189,33 +189,38 @@ let string_of_cmd =
     | `MDTM s -> "MDTM " ^ s ^ "\r\n"
 
 
-let port_re = Netstring_pcre.regexp ".*[^0-9](\\d+),(\\d+),(\\d+),(\\d+),(\\d+),(\\d+)"
+let port_re = 
+  Netstring_str.regexp 
+    ".*[^0-9]\\([0-9]+\\),\\([0-9]+\\),\\([0-9]+\\),\
+             \\([0-9]+\\),\\([0-9]+\\),\\([0-9]+\\)"
 
 let extract_port s =
-  match Netstring_pcre.string_match port_re s 0 with
+  match Netstring_str.string_match port_re s 0 with
     | None ->
 	proto_viol "Cannot parse specification of passive port"
     | Some m ->
-	let h1 = Netstring_pcre.matched_group m 1 s in
-	let h2 = Netstring_pcre.matched_group m 2 s in
-	let h3 = Netstring_pcre.matched_group m 3 s in
-	let h4 = Netstring_pcre.matched_group m 4 s in
-	let p1 = Netstring_pcre.matched_group m 5 s in
-	let p2 = Netstring_pcre.matched_group m 6 s in
+	let h1 = Netstring_str.matched_group m 1 s in
+	let h2 = Netstring_str.matched_group m 2 s in
+	let h3 = Netstring_str.matched_group m 3 s in
+	let h4 = Netstring_str.matched_group m 4 s in
+	let p1 = Netstring_str.matched_group m 5 s in
+	let p2 = Netstring_str.matched_group m 6 s in
 	let p = int_of_string p1 * 256 + int_of_string p2 in
 	(h1 ^ "." ^ h2 ^ "." ^ h3 ^ "." ^ h4, p)
 
-let addr_re = Netstring_pcre.regexp "^(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)$"
+let addr_re = 
+  Netstring_str.regexp
+    "^\\([0-9]+\\)\\.\\([0-9]+\\)\\.\\([0-9]+\\)\\.\\([0-9]+\\)$"
 
 let format_port (addr,p) =
-  match Netstring_pcre.string_match addr_re addr 0 with
+  match Netstring_str.string_match addr_re addr 0 with
     | None ->
 	failwith "Bad IP address"
     | Some m ->
-	let h1 = Netstring_pcre.matched_group m 1 addr in
-	let h2 = Netstring_pcre.matched_group m 2 addr in
-	let h3 = Netstring_pcre.matched_group m 3 addr in
-	let h4 = Netstring_pcre.matched_group m 4 addr in
+	let h1 = Netstring_str.matched_group m 1 addr in
+	let h2 = Netstring_str.matched_group m 2 addr in
+	let h3 = Netstring_str.matched_group m 3 addr in
+	let h4 = Netstring_str.matched_group m 4 addr in
 	let p1 = string_of_int(p lsr 8) in
 	let p2 = string_of_int(p land 0xff) in
 	h1 ^ "," ^ h2 ^ "," ^ h3 ^ "," ^ h4 ^ "," ^ p1 ^ "," ^ p2
@@ -231,21 +236,22 @@ let set_ftp_port state value =
   { state with ftp_port = value }
 
 
-let feature_line_re = Netstring_pcre.regexp "^ ([\x21-\xff]+)( .*)?$"
+let feature_line_re = 
+  Netstring_str.regexp "^ \\([\x21-\xff]+\\)\\( .*\\)?$"
 
-let line_re = Netstring_pcre.regexp "\r?\n"
+let line_re = Netstring_str.regexp "\r?\n"
 
 let parse_features s =
-  let lines = Netstring_pcre.split line_re s in
+  let lines = Netstring_str.split line_re s in
   List.flatten
     (List.map
        (fun line ->
-	  match Netstring_pcre.string_match feature_line_re line 0 with
+	  match Netstring_str.string_match feature_line_re line 0 with
 	    | None -> []
 	    | Some m ->
-		let label = Netstring_pcre.matched_group m 1 line in
+		let label = Netstring_str.matched_group m 1 line in
 		let param = 
-		  try Some(Netstring_pcre.matched_group m 2 line)
+		  try Some(Netstring_str.matched_group m 2 line)
 		  with Not_found -> None in
 		[ label, param ]
        )
@@ -294,8 +300,8 @@ let init_state s =
   }
 
 
-let start_reply_re = Netstring_pcre.regexp "^[0-9][0-9][0-9]-"
-let end_reply_re = Netstring_pcre.regexp "^[0-9][0-9][0-9] "
+let start_reply_re = Netstring_str.regexp "^[0-9][0-9][0-9]-"
+let end_reply_re = Netstring_str.regexp "^[0-9][0-9][0-9] "
 
 
 let is_active state =
@@ -471,7 +477,7 @@ object(self)
 	let line = ctrl_input # input_line() in  (* or exception! *)
 	dlogr (fun () ->
 		 sprintf "ctrl received: %s" line);
-	if Netstring_pcre.string_match start_reply_re line 0 <> None then (
+	if Netstring_str.string_match start_reply_re line 0 <> None then (
 	  let code = int_of_string (String.sub line 0 3) in
 	  if reply_code <> (-1) && reply_code <> code then 
 	    proto_viol "Parse error of control message";
@@ -480,7 +486,7 @@ object(self)
 	  Buffer.add_string reply_text "\n";
 	)
 	else
-	  if Netstring_pcre.string_match end_reply_re line 0 <> None then (
+	  if Netstring_str.string_match end_reply_re line 0 <> None then (
 	    let code = int_of_string (String.sub line 0 3) in
 	    if reply_code <> (-1) && reply_code <> code then
 	      proto_viol "Parse error of control message";
@@ -1342,7 +1348,7 @@ object(self)
 end
 
 
-let slash_re = Netstring_pcre.regexp "/+";;
+let slash_re = Netstring_str.regexp "/+";;
 
 
 let rec basename l =
@@ -1410,13 +1416,13 @@ object(self)
 
     match destination with
       | `File name ->
-	  let rpath = List.rev (Netstring_pcre.split slash_re name) in
+	  let rpath = List.rev (Netstring_str.split slash_re name) in
 	  ( match rpath with
 	      | _ :: dir -> walk_to_directory (List.rev dir)
 	      | [] -> failwith "Bad filename"
 	  )
       | `Dir name ->
-	  let path = Netstring_pcre.split slash_re name in
+	  let path = Netstring_str.split slash_re name in
 	  walk_to_directory path
       | `Stay ->
 	  Action.empty
@@ -1442,7 +1448,7 @@ let destination_of_dir =
 
 let ftp_filename =
   function
-    | `NVFS name -> basename (Netstring_pcre.split slash_re name)
+    | `NVFS name -> basename (Netstring_str.split slash_re name)
     | `Verbatim name -> name
 
 
@@ -1542,18 +1548,27 @@ class delete_method file =
 
 (* MDTM response is YYYYMMDDHHMMSS[.s+] (GMT) *)
 
-let time_re = Netstring_pcre.regexp ".*[^0-9](\\d{4})(\\d{2})(\\d{2})(\\d{2})(\\d{2})(\\d{2})(?:\\.(\\d+))?"
+let time_re = 
+  Netstring_str.regexp
+    ".*[^0-9]\
+     \\([0-9][0-9][0-9][0-9]\\)\
+     \\([0-9][0-9]\\)\
+     \\([0-9][0-9]\\)\
+     \\([0-9][0-9]\\)\
+     \\([0-9][0-9]\\)\
+     \\([0-9][0-9]\\)\
+     \\(\\.\\([0-9]+\\)\\)?"
 
 let extract_time s =
-  match Netstring_pcre.string_match time_re s 0 with
+  match Netstring_str.string_match time_re s 0 with
   | None ->
       failwith ("Cannot parse time-val: " ^ s)
   | Some m ->
       let fraction =
-        try if (Netstring_pcre.matched_group m 7 s).[0] < '5' then 0 else 1
+        try if (Netstring_str.matched_group m 8 s).[0] < '5' then 0 else 1
         with Not_found -> 0
       in
-      let get_int i = int_of_string (Netstring_pcre.matched_group m i s) in
+      let get_int i = int_of_string (Netstring_str.matched_group m i s) in
       Netdate.since_epoch
         { Netdate.year = get_int 1;
           Netdate.month = get_int 2;
@@ -1595,8 +1610,8 @@ class rename_method ~file_from ~(file_to : filename) () =
     match (file_from, file_to) with
       | (`NVFS p1), (`NVFS p2) ->
 	  (* p1 and p2 must point to the same directory. Return basename of p2 *)
-	  let p1' = Netstring_pcre.split slash_re p1 in
-	  let p2' = Netstring_pcre.split slash_re p2 in
+	  let p1' = Netstring_str.split slash_re p1 in
+	  let p2' = Netstring_str.split slash_re p2 in
 	  let d1 = dirname p1' in
 	  let d2 = dirname p2' in
 	  if d1 <> d2 then invalid_arg "Ftp_client.rename_method";

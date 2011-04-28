@@ -1,3 +1,6 @@
+#use "topfind";;
+#require "netstring";;
+
 open Netdate
 open Printf
 ;;

@@ -1281,13 +1281,13 @@ let url_of_string url_syntax s =
 
 
 
-let problem_re = Pcre.regexp "[ <>\"{}|\\\\^\\[\\]`]"
+let problem_re = Netstring_str.regexp "[] <>\"{}|\\^[`]"
 
 let fixup_url_string =
-  Netstring_pcre.global_substitute 
+  Netstring_str.global_substitute 
     problem_re
     (fun m s ->
-       sprintf "%%%02x" (Char.code s.[Netstring_pcre.match_beginning m]))
+       sprintf "%%%02x" (Char.code s.[Netstring_str.match_beginning m]))
 ;;
 
   
@@ -1526,10 +1526,10 @@ let print_url url =
 ;;
 
 
-let backslash_re = Netstring_pcre.regexp "\\\\";;
-let drive_letter_re = Netstring_pcre.regexp "^([A-Za-z]):/";;
-let drive_letter_re' = Netstring_pcre.regexp "^/([A-Za-z]):/";;
-let unc_path_re = Netstring_pcre.regexp "^//([^/]+)(/|$)";;
+let backslash_re = Netstring_str.regexp "\\\\";;
+let drive_letter_re = Netstring_str.regexp "^\\([A-Za-z]\\):/";;
+let drive_letter_re' = Netstring_str.regexp "^/\\([A-Za-z]\\):/";;
+let unc_path_re = Netstring_str.regexp "^//\\([^/]+\\)\\(/|$\\)";;
 
 
 let os_type = Sys.os_type;;
@@ -1542,15 +1542,15 @@ let classify_path p =
 	else
 	  `Relative p
     | "Win32" ->
-	let p' = Netstring_pcre.global_replace backslash_re "/" p in
-	( match Netstring_pcre.string_match drive_letter_re p' 0 with
+	let p' = Netstring_str.global_replace backslash_re "/" p in
+	( match Netstring_str.string_match drive_letter_re p' 0 with
 	      Some m ->
 		`Absolute_local ("/" ^ p')
 	    | None ->
-		( match Netstring_pcre.string_match unc_path_re p' 0 with
+		( match Netstring_str.string_match unc_path_re p' 0 with
 		      Some m ->
-			let host = Netstring_pcre.matched_group m 1 p' in
-			let host_e = Netstring_pcre.group_end m 1 in
+			let host = Netstring_str.matched_group m 1 p' in
+			let host_e = Netstring_str.group_end m 1 in
 			let path = String.sub p' host_e (String.length p' - host_e) in
 			let path = if path = "" then "/" else path in
 			`Absolute_remote(host,path)
@@ -1562,17 +1562,17 @@ let classify_path p =
 		)
 	)
     | "Cygwin" ->
-	let p' = Netstring_pcre.global_replace backslash_re "/" p in
-	( match Netstring_pcre.string_match drive_letter_re p' 0 with
+	let p' = Netstring_str.global_replace backslash_re "/" p in
+	( match Netstring_str.string_match drive_letter_re p' 0 with
 	      Some m ->
-		let letter = Netstring_pcre.matched_group m 1 p' in
+		let letter = Netstring_str.matched_group m 1 p' in
 		let rest = String.sub p' 2 (String.length p' - 2) in
 		`Absolute_local("/cygdrive/" ^ letter ^ rest)
 	    | None ->
-		( match Netstring_pcre.string_match unc_path_re p' 0 with
+		( match Netstring_str.string_match unc_path_re p' 0 with
 		      Some m ->
-			let host = Netstring_pcre.matched_group m 1 p' in
-			let host_e = Netstring_pcre.group_end m 1 in
+			let host = Netstring_str.matched_group m 1 p' in
+			let host_e = Netstring_str.group_end m 1 in
 			let path = String.sub p' host_e (String.length p' - host_e) in
 			let path = if path = "" then "/" else path in
 			`Absolute_remote(host,path)
@@ -1610,9 +1610,9 @@ let file_url_of_local_path ?(getcwd = Sys.getcwd) p =
       | `Relative_drive r ->
 	  ( match classify_path (getcwd()) with
 		`Absolute_local l ->
-		  ( match Netstring_pcre.string_match drive_letter_re' l 0 with
+		  ( match Netstring_str.string_match drive_letter_re' l 0 with
 			Some m ->
-			  let letter = Netstring_pcre.matched_group m 1 l in
+			  let letter = Netstring_str.matched_group m 1 l in
 			  `Absolute_local("/" ^ letter ^ ":" ^ r)
 		      | None ->
 			  assert false
@@ -1638,7 +1638,7 @@ let file_url_of_local_path ?(getcwd = Sys.getcwd) p =
 ;;
 
 
-let drive_letter_comp_re = Netstring_pcre.regexp "^([A-Za-z])(:|\\|)";;
+let drive_letter_comp_re = Netstring_str.regexp "^\\([A-Za-z]\\)\\(:|\\|\\)";;
 
 let local_path_of_file_url u =
   let local_path p =
@@ -1651,9 +1651,9 @@ let local_path_of_file_url u =
 	  (* There must be a drive letter: *)
 	  ( match p with
 		("" :: drive :: rest) ->
-		  (match Netstring_pcre.string_match drive_letter_comp_re drive 0 with
+		  (match Netstring_str.string_match drive_letter_comp_re drive 0 with
 		       Some m ->
-			 let letter = Netstring_pcre.matched_group m 1 drive in
+			 let letter = Netstring_str.matched_group m 1 drive in
 			 let rest = if rest = [] then [""] else rest in
 			 join_path((letter ^ ":") :: rest)
 		     | None ->
@@ -1666,9 +1666,9 @@ let local_path_of_file_url u =
 	  (* Recognize drive letters: *)
 	  ( match p with
 		("" :: drive :: rest) ->
-		  (match Netstring_pcre.string_match drive_letter_comp_re drive 0 with
+		  (match Netstring_str.string_match drive_letter_comp_re drive 0 with
 		       Some m ->
-			 let letter = Netstring_pcre.matched_group m 1 drive in
+			 let letter = Netstring_str.matched_group m 1 drive in
 			 join_path("" :: "cygdrive" :: letter :: rest)
 		     | None ->
 			 join_path p

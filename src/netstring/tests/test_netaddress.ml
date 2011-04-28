@@ -1,3 +1,8 @@
+#use "topfind";;
+#require "netstring";;
+#directory "fort";;
+#load "fort.cmo";;
+
 open Fort
 open Netaddress;;
 
@@ -13,9 +18,9 @@ let spec_printer (local_part, domain) =
 ;;
 
 let eq_mailbox x y =
-  expect_equal_app ~printer:id ~msg:"name"
-    x#name ()
-    y#name ();
+  expect_equal ~printer:id ~msg:"name"
+    x#name
+    y#name;
   expect_equal ~printer:(list_printer id) ~msg:"route"
     x#route y#route;
   expect_equal ~printer:spec_printer ~msg:"spec"
@@ -138,7 +143,7 @@ address_pass "many groups"
 address_pass "other oddities 1"
   [`Mailbox
     (new mailbox ~name:"Pete" [] ("pete", Some "silly.test"))]
-  "Pete(A wonderful \) chap) <pete(his account)@silly.test(his host)>"
+  "Pete(A wonderful \\) chap) <pete(his account)@silly.test(his host)>"
 ;;
 
 address_pass "other oddities 2"

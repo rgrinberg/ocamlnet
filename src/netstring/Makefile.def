@@ -12,7 +12,7 @@ OBJECTS  = netconst.cmo netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
 
 PKGNAME  = netstring
 
-REQUIRES = pcre bigarray
+REQUIRES = $(REGEXP_PROVIDER) bigarray
 INCLUDES += $(INC_NETSYS)
 
 ISO_MAPPINGS   = mappings/iso*.unimap
@@ -154,14 +154,44 @@ netnumber.ml: netnumber.mlp
 	    -parser Camlp4MacroParser $(NETNUMBER_DEFS) \
 	    -impl netnumber.mlp > netnumber.ml || rm -f netnumber.ml
 
+netnumber.cmo: netnumber.cmi
+netnumber.cmx: netnumber.cmi
+
 OCAMLOPT_OPTIONS_FOR_netnumber.ml = -inline 10
 OCAMLOPT_OPTIONS_FOR_xdr.ml = -inline 5
+
+# regexps:
+
+netstring_pcre.mli: netstring_pcre.mlip
+	$(CAMLP4)  pa_o.cmo pa_op.cmo pr_o.cmo \
+	    -parser Camlp4MacroParser $(REGEXP_DEFS) \
+	    -intf netstring_pcre.mlip > netstring_pcre.mli || \
+	      rm -f netstring_pcre.mli
+
+netstring_pcre.ml: netstring_pcre.mlp
+	$(CAMLP4)  pa_o.cmo pa_op.cmo pr_o.cmo \
+	    -parser Camlp4MacroParser $(REGEXP_DEFS) \
+	    -impl netstring_pcre.mlp > netstring_pcre.ml || \
+	      rm -f netstring_pcre.ml
+
+netstring_str.ml: netstring_str.mlp
+	$(CAMLP4)  pa_o.cmo pa_op.cmo pr_o.cmo \
+	    -parser Camlp4MacroParser $(REGEXP_DEFS) \
+	    -impl netstring_str.mlp > netstring_str.ml || \
+	      rm -f netstring_str.ml
+
+netstring_pcre.cmo: netstring_pcre.cmi
+netstring_pcre.cmx: netstring_pcre.cmi
+
+netstring_str.cmo: netstring_str.cmi netstring_pcre.cmi
+netstring_str.cmx: netstring_str.cmi netstring_pcre.cmi
 
 
 include $(TOP_DIR)/Makefile.rules
 
 CLEAN_LIST += tools_done netdb_done netdb.ml netdate.ml $(PMAP:.pmap=.ml)
-CLEAN_LIST += netconst.ml netnumber.ml
+CLEAN_LIST += netconst.ml netnumber.ml netstring_pcre.mli
+CLEAN_LIST += netstring_pcre.ml netstring_str.ml
 
 clean::
 	test ! -d mappings || rm -f $(PMAP)

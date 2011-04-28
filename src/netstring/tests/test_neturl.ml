@@ -1,17 +1,16 @@
 #use "topfind";;
-#require "pcre";;
-#require "unix";;
-
-#directory "..";;
-#load "netstring.cma";;
+#require "netstring";;
 
 open Neturl;;
 
+let details = false
 
 let expect_malformed_url f =
+  if details then print_string ".";
   try ignore(f()); false with Malformed_URL -> true;;
 
 let works f =
+  if details then print_string ".";
   not (expect_malformed_url f)
 ;;
 
@@ -152,7 +151,7 @@ let t020 () =
   (url_password ~encoded:true u1 = "%25%28%29%7E%24%40") &&
   (url_path     ~encoded:true u1 = ["";"%3F";""]) &&
 
-  string_of_url u1 = "http://U:%25%28%29%7E%24%40@a.b.c:81/%3F/"
+  (string_of_url u1 = "http://U:%25%28%29%7E%24%40@a.b.c:81/%3F/")
 ;;
 
 
@@ -468,7 +467,7 @@ let t035 () =
 
 
 let t036 () =
-  (* It is not possible to have a path with double slashes *)
+  (* It is not possible to have a path that begins with double slashes *)
   
   (* reference: *)
   works
@@ -483,7 +482,7 @@ let t036 () =
 	 ~path:["";""]
 	 ip_url_syntax) &&
 
-  expect_malformed_url
+  works
     (fun () ->
        make_url
 	 ~path:["a";"";""]
@@ -495,7 +494,7 @@ let t036 () =
 	 ~path:["";"";"a"]
 	 ip_url_syntax) &&
 
-  expect_malformed_url
+  works
     (fun () ->
        make_url
 	 ~path:["a";"";"a"]
@@ -664,10 +663,12 @@ let t051 () =
   let identical s =
     string_of_url (url_of_string ip_url_syntax s) = s in
 
+(*
   let fails s =
     try ignore(url_of_string ip_url_syntax s); false 
     with Malformed_URL -> true
   in
+ *)
 
   identical "//host" &&
   identical "//user@host" &&
@@ -894,52 +895,70 @@ let t061 () =
 (* apply_relative_url:                                                *)
 (**********************************************************************)
 
+let url_eq u1 u2 =
+  let get f arg =
+    try Some(f arg) with Not_found -> None in
+  get url_scheme u1 = get url_scheme u2 &&
+  get url_user u1 = get url_user u2 &&
+  get url_user_param u1 = get url_user_param u2 &&
+  get url_password u1 = get url_password u2 &&
+  get url_host u1 = get url_host u2 &&
+  get url_port u1 = get url_port u2 &&
+  get url_path u1 = get url_path u2 &&
+  get url_param u1 = get url_param u2 &&
+  get url_query u1 = get url_query u2 &&
+  get url_fragment u1 = get url_fragment u2 &&
+  get url_other u1 = get url_other u2
+
+let ( <=> ) = url_eq
+
+
 let t070() =
   (* Examples taken from RFC 1808 *)
   let url = url_of_string ip_url_syntax in
   let base = url "http://a/b/c/d;p?q#f" in
   let aru = apply_relative_url base in
 
-  (aru (url "g:h")     = url "g:h") &&
-  (aru (url "g")       = url "http://a/b/c/g") &&
-  (aru (url "./g")     = url "http://a/b/c/g") &&
-  (aru (url "g/")      = url "http://a/b/c/g/") &&
-  (aru (url "/g")      = url "http://a/g") &&
-  (aru (url "//g")     = url "http://g") &&
-  (aru (url "?y")      = url "http://a/b/c/d;p?y") &&
-  (aru (url "g?y")     = url "http://a/b/c/g?y") &&
-  (aru (url "g?y/./x") = url "http://a/b/c/g?y/./x") &&
-  (aru (url "#s")      = url "http://a/b/c/d;p?q#s") &&
-  (aru (url "g#s")     = url "http://a/b/c/g#s") &&
-  (aru (url "g#s/./x") = url "http://a/b/c/g#s/./x") &&
-  (aru (url "g?y#s")   = url "http://a/b/c/g?y#s") &&
-  (aru (url ";x")      = url "http://a/b/c/d;x") &&
-  (aru (url "g;x")     = url "http://a/b/c/g;x") &&
-  (aru (url "g;x?y#s") = url "http://a/b/c/g;x?y#s") &&
-  (aru (url ".")       = url "http://a/b/c/") &&
-  (aru (url "./")      = url "http://a/b/c/") &&
-  (aru (url "..")      = url "http://a/b/") &&
-  (aru (url "../")     = url "http://a/b/") &&
-  (aru (url "../g")    = url "http://a/b/g") &&
-  (aru (url "../..")   = url "http://a/") &&
-  (aru (url "../../")  = url "http://a/") &&
-  (aru (url "../../g") = url "http://a/g") &&
+  (aru (url "g:h")     <=> url "g:h") &&
+  (aru (url "g")       <=> url "http://a/b/c/g") &&
+  (aru (url "./g")     <=> url "http://a/b/c/g") &&
+  (aru (url "g/")      <=> url "http://a/b/c/g/") &&
+  (aru (url "/g")      <=> url "http://a/g") &&
+  (aru (url "//g")     <=> url "http://g") &&
+  (aru (url "?y")      <=> url "http://a/b/c/d;p?y") &&
+  (aru (url "g?y")     <=> url "http://a/b/c/g?y") &&
+  (aru (url "g?y/./x") <=> url "http://a/b/c/g?y/./x") &&
+  (aru (url "#s")      <=> url "http://a/b/c/d;p?q#s") &&
+  (aru (url "g#s")     <=> url "http://a/b/c/g#s") &&
+  (aru (url "g#s/./x") <=> url "http://a/b/c/g#s/./x") &&
+  (aru (url "g?y#s")   <=> url "http://a/b/c/g?y#s") &&
+  (aru (url ";x")      <=> url "http://a/b/c/d;x") &&
+  (aru (url "g;x")     <=> url "http://a/b/c/g;x") &&
+  (aru (url "g;x?y#s") <=> url "http://a/b/c/g;x?y#s") &&
+  (aru (url ".")       <=> url "http://a/b/c/") &&
+  (aru (url "./")      <=> url "http://a/b/c/") &&
+  (aru (url "..")      <=> url "http://a/b/") &&
+  (aru (url "../")     <=> url "http://a/b/") &&
+  (aru (url "../g")    <=> url "http://a/b/g") &&
+  (aru (url "../..")   <=> url "http://a/") &&
+  (aru (url "../../")  <=> url "http://a/") &&
+  (aru (url "../../g") <=> url "http://a/g") &&
 
-  (aru (url "")              = url "http://a/b/c/d;p?q#f") &&
-  (aru (url "../../../g")    = url "http://a/../g") &&
-  (aru (url "../../../../g") = url "http://a/../../g") &&
-  (aru (url "/./g")          = url "http://a/./g") &&
-  (aru (url "/../g")         = url "http://a/../g") &&
-  (aru (url "g.")            = url "http://a/b/c/g.") &&
-  (aru (url ".g")            = url "http://a/b/c/.g") &&
-  (aru (url "g..")           = url "http://a/b/c/g..") &&
-  (aru (url "..g")           = url "http://a/b/c/..g") &&
-  (aru (url "./../g")        = url "http://a/b/g") &&
-  (aru (url "./g/.")         = url "http://a/b/c/g/") &&
-  (aru (url "g/./h")         = url "http://a/b/c/g/h") &&
-  (aru (url "g/../h")        = url "http://a/b/c/h") &&
-  (aru (url "http:g")        = url "http:g") &&
-  (aru (url "http:")         = url "http:") &&
+  (aru (url "")              <=> url "http://a/b/c/d;p?q#f") &&
+  (aru (url "../../../g")    <=> url "http://a/../g") &&
+  (aru (url "../../../../g") <=> url "http://a/../../g") &&
+  (aru (url "/./g")          <=> url "http://a/./g") &&
+  (aru (url "/../g")         <=> url "http://a/../g") &&
+  (aru (url "g.")            <=> url "http://a/b/c/g.") &&
+  (aru (url ".g")            <=> url "http://a/b/c/.g") &&
+  (aru (url "g..")           <=> url "http://a/b/c/g..") &&
+  (aru (url "..g")           <=> url "http://a/b/c/..g") &&
+  (aru (url "./../g")        <=> url "http://a/b/g") &&
+  (aru (url "./g/.")         <=> url "http://a/b/c/g/") &&
+  (aru (url "g/./h")         <=> url "http://a/b/c/g/h") &&
+  (aru (url "g/../h")        <=> url "http://a/b/c/h") &&
+  (aru (url "http:g")        <=> url "http:g") &&
+  (aru (url "http:")         <=> url "http:") &&
 
   true
 ;;

@@ -193,9 +193,10 @@ val simple_listing : ?hide:string list ->
              extended_environment -> Netcgi.cgi_activation -> file_service -> unit
   (** Simple listing generator for [`Enable_listings] 
     *
-    * [hide]: An optional list of PCRE regular expressions. File names matching one
+    * [hide]: An optional list of Str regular expressions. File names matching one
     * of the regexps are hidden in the listing. Defaults to hiding files starting with
-    * a dot, and files ending in a tilde character.
+    * a dot, and files ending in a tilde character. (Changed in Ocamlnet-3.3:
+    * [hide] uses now Str regexps, and no longer PCRE regexps.)
    *)
 
 type std_activation_options =

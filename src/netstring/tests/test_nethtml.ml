@@ -1,3 +1,8 @@
+#use "topfind";;
+#require "netstring";;
+#directory "fort";;
+#load "fort.cmo";;
+
 open Fort
 open Nethtml
 ;;

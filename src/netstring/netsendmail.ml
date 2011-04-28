@@ -10,17 +10,20 @@ open Mimestring
 let sendmail_program = "/usr/lib/sendmail" ;;
 
 
-let only_usascii_re = Pcre.regexp "^[\001-\127]*$";;
+let only_usascii_re = Netstring_str.regexp "^[\001-\127]*$";;
 
 let specials_re = 
-  Pcre.regexp "[\\<\\>\\\"\\\\\\,\\(\\)\\@\\;\\:\\.\\[\\]\\/\\=\\?]"
+  Netstring_str.regexp "[]<>\"\\,()@;:.[/=?]"
+    (* PCRE: "[\\<\\>\\\"\\\\\\,\\(\\)\\@\\;\\:\\.\\[\\]\\/\\=\\?]" *)
 
 let exists rex s =
   try 
-    ignore(Pcre.exec ~rex s); true
+    ignore(Netstring_str.search_forward rex s 0); true
   with
       Not_found -> false
 ;;
+
+let ws_re = Netstring_str.regexp "[ \t\r\n]+"
 
 let create_address_tokens
     ?(in_charset = `Enc_iso88591) ?(out_charset = `Enc_iso88591) 
@@ -32,12 +35,14 @@ let create_address_tokens
   let hr_addr = 
     Netconversion.recode_string ~in_enc:in_charset ~out_enc:out_charset hr_addr in
   let hr_words =
-    if Pcre.pmatch ~rex:only_usascii_re hr_addr then begin
+    if Netstring_str.string_match only_usascii_re hr_addr 0 <> None then begin
       (* Use double quotes to protect meta characters *)
       if exists specials_re hr_addr then
 	[Mimestring.QString hr_addr]
       else 
-	List.map (fun s -> Mimestring.Atom s) (Pcre.split hr_addr)
+	List.map
+	  (fun s -> Mimestring.Atom s)
+	  (Netstring_str.split ws_re hr_addr)
     end
     else
       [Mimestring.EncodedWord((Netconversion.string_of_encoding out_charset,""),
@@ -91,8 +96,8 @@ let create_text_tokens
   let value =
     Netconversion.recode_string ~in_enc:in_charset ~out_enc:out_charset value in
   let words =
-    if Pcre.pmatch ~rex:only_usascii_re value then
-      List.map (fun s -> Atom s) (Pcre.split value)
+    if Netstring_str.string_match only_usascii_re value 0 <> None then
+      List.map (fun s -> Atom s) (Netstring_str.split ws_re value)
     else
       [ Mimestring.EncodedWord((Netconversion.string_of_encoding out_charset,""), 
 			       "Q", 

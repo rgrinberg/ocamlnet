@@ -167,19 +167,19 @@ let username_saslprep s =
 	raise(Invalid_username_encoding(s1,s2))
 
 
-let comma_re = Netstring_pcre.regexp ","
+let comma_re = Netstring_str.regexp ","
 
 let comma_split s =
-  Netstring_pcre.split_delim comma_re s
+  Netstring_str.split_delim comma_re s
 
-let n_value_re = Netstring_pcre.regexp "([a-zA-Z])=(.*)"
+let n_value_re = Netstring_str.regexp "\\([a-zA-Z]\\)=\\(.*\\)"
 
 let n_value_split s =
-  match Netstring_pcre.string_match n_value_re s 0 with
+  match Netstring_str.string_match n_value_re s 0 with
     | None -> raise (Invalid_encoding("n_value_split", s))
     | Some r ->
-	(Netstring_pcre.matched_group r 1 s,
-	 Netstring_pcre.matched_group r 2 s)
+	(Netstring_str.matched_group r 1 s,
+	 Netstring_str.matched_group r 2 s)
 
 let check_value_safe_chars s =
   let enc =
@@ -205,26 +205,26 @@ let check_printable s =
       | _ -> raise(Invalid_encoding("check_printable",s))
   done
 
-let pos_re = Netstring_pcre.regexp "[1-9][0-9]+$"
+let pos_re = Netstring_str.regexp "[1-9][0-9]+$"
 
 let check_positive_number s =
-  match Netstring_pcre.string_match pos_re s 0 with
+  match Netstring_str.string_match pos_re s 0 with
     | None -> raise(Invalid_encoding("check_positive_number",s))
     | Some _ -> ()
 
-let comma_slash_re = Netstring_pcre.regexp "[,/]"
+let comma_slash_re = Netstring_str.regexp "[,/]"
 
-let rev_comma_slash_re = Netstring_pcre.regexp "(=2C|=3D|=|,)"
+let rev_comma_slash_re = Netstring_str.regexp "\\(=2C\\|=3D\\|=\\|,\\)"
 
 let encode_saslname s =
   ( try
       Netconversion.verify `Enc_utf8 s
     with _ -> raise(Invalid_username_encoding("encode_saslname",s))
   );
-  Netstring_pcre.global_substitute
+  Netstring_str.global_substitute
     comma_slash_re
     (fun r s ->
-       match Netstring_pcre.matched_string r s with
+       match Netstring_str.matched_string r s with
 	 | "," -> "=2C"
 	 | "/" -> "=3D"
 	 | _ -> assert false
@@ -233,10 +233,10 @@ let encode_saslname s =
 
 let decode_saslname s =
   let s' =
-    Netstring_pcre.global_substitute
+    Netstring_str.global_substitute
       rev_comma_slash_re
       (fun r s ->
-	 match Netstring_pcre.matched_string r s with
+	 match Netstring_str.matched_string r s with
 	   | "=2C" -> ","
 	   | "=3D" -> "/"
 	   | "=" | "," -> raise(Invalid_username_encoding("decode_saslname",s))

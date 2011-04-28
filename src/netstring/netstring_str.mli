@@ -33,25 +33,17 @@
  * [set]         matches the characters from set
  * [^set]        matches the characters except from set
  * \(...\)       group paranthesis
- * \n            back reference
- * \w            matches word (= alphanumeric characters (and underscore))
- * \W            matches characters except \w
- * \b            matches at word boundary
- * \B            matches everywhere but not at word boundary
- * \<            matches at beginning of word
- * \>            matches at end of word
+ * \n            back reference (n is digit)
  * ^             matches at beginning of line
  * $             matches at end of line
- * \`            matches at beginning of buffer
- * \'            matches at end of buffer
  * ]}
  *
- * This is exactly what [Str] supports with one exception. Character classes
+ * This is exactly what [Str] supports. Character classes
  * are not implemented.
  *)
 
-type regexp = Pcre.regexp;;
-  (** The type of regular expressions; now based on [Pcre] *)
+type regexp
+  (** The type of regular expressions *)
 
 type split_result = Str.split_result = Text of string | Delim of string;;
   (** Here we keep compatibility with [Str] *)
@@ -70,22 +62,20 @@ val regexp_string: string -> regexp
 val regexp_string_case_fold: string -> regexp
   (** Returns a case-insensitive regexp that matches exactly the string *)
 
-(** Note: the [groups] argument is ignored in the following functions.
- * Once upon a time this argument determined how many groups were 
- * copied to the [result] value.
- * Now all groups are accessible in the [result] value, no matter
- * what [groups] says.
- *)
+val quote_set : string -> string
+  (** Returns a regexp (as string) that matches any of the characters in
+      the argument. The argument must be non-empty
+   *)
 
 val string_match: 
-      ?groups:int -> regexp -> string -> int -> result option
+      regexp -> string -> int -> result option
   (** Matches the string at the position with the regexp. Returns
    * [None] if no match is found. Returns [Some r] on success,
    * and [r] describes the match.
    *)
 
 val search_forward: 
-      ?groups:int -> regexp -> string -> int -> (int * result)
+      regexp -> string -> int -> (int * result)
   (** Searches a match of the string with the regexp, starting at
    * the position and in forward direction.
    * Raises [Not_found] if no match could be found.
@@ -93,7 +83,7 @@ val search_forward:
    * described by [r].
    *)
 val search_backward: 
-      ?groups:int -> regexp -> string -> int -> (int * result)
+      regexp -> string -> int -> (int * result)
   (** Searches a match of the string with the regexp, starting at
    * the position and in backward direction.
    * Raises [Not_found] if no match could be found.
@@ -159,7 +149,6 @@ val replace_first: regexp -> (*templ:*) string -> string -> string
    *)
 
 val global_substitute:
-       ?groups:int -> 
        regexp -> (result -> string -> string) -> string -> string
   (** [global_substitute re subst s]: Applies the substitution function
    * [subst] to all matchings of [re] in [s], and returns the 
@@ -168,7 +157,6 @@ val global_substitute:
    *)
 
 val substitute_first:
-       ?groups:int -> 
        regexp -> (result -> string -> string) -> string -> string
   (** [substitute_first re subst s]: Applies the substitution function
    * [subst] to the first matching of [re] in [s], and returns the 

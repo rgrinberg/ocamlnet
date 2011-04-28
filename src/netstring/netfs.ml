@@ -60,9 +60,9 @@ object
 end
 
 
-let slash_re = Netstring_pcre.regexp "/+"
+let slash_re = Netstring_str.regexp "/+"
 
-let drive_re = Netstring_pcre.regexp "^[a-zA-Z]:$"
+let drive_re = Netstring_str.regexp "^[a-zA-Z]:$"
 
 exception Not_absolute
 exception Unavailable
@@ -168,14 +168,14 @@ let local_fs ?encoding ?root () : stream_fs =
     root = None && Sys.os_type = "Win32" in
 
   let is_drive_letter s =
-    Netstring_pcre.string_match drive_re s 0 <> None in
+    Netstring_str.string_match drive_re s 0 <> None in
 
   let is_unc s =
     String.length s >= 3 && s.[0] = '/' && s.[1] = '/' && s.[2] <> '/' in
 
   let check_and_norm_path p =
     try
-      let l = Netstring_pcre.split_delim slash_re p in
+      let l = Netstring_str.split_delim slash_re p in
       ( match l with
 	  | [] ->  raise (Unix.Unix_error(Unix.EINVAL,
 					  "Netfs: empty path",
@@ -481,7 +481,7 @@ let local_fs ?encoding ?root () : stream_fs =
 		);
 		traverse curdir' todo' in
 	let fn1 = check_and_norm_path filename in
-	let l = Netstring_pcre.split_delim slash_re fn1 in
+	let l = Netstring_str.split_delim slash_re fn1 in
 	traverse [List.hd l] (List.tl l)
 
       method rmdir flags filename =

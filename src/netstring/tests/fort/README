@@ -1,0 +1,30 @@
+FORT (Framework for Ocaml Regression Testing)
+Copyright (c) 2001 Patrick Doane.
+For conditions of distribution and use, see copyright notice in LICENSE.
+
+FORT provides an environment for testing programs and Objective Caml
+modules.  It contains a module that oversees the testing process as
+well as a front-end for executing tests.  Individual test cases are
+written as Objective Caml functions that return the result of
+executing the test.  FORT was influenced by the design of DejaGNU [1]
+and Greg [2] but there is no support for the cross-platform/remote
+testing provided by DejaGNU nor is there a library which emulates the
+behavior of the TCL expect library.
+
+Usage of Fort is easy for unit testing pure Caml code. Simply pass the
+library or compiled module along with the test script on the command
+line like this:
+
+  % fort unit_under_test.cmo test_script.ml
+
+The file test_script.ml should contain a sequence of tests that invoke
+the various functions of the Fort module See the interface file
+fort.mli for documentation.
+
+Please join the fort-users mailing list at
+
+  http://lists.sourceforge.net/lists/listinfo/fort-users
+
+[1] http://www.gnu.org/software/dejagnu
+[2] http://www.gnu.org/software/greg
+

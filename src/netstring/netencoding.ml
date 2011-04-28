@@ -4,8 +4,6 @@
  *)
 
 
-module Str = Netstring_pcre
-
 module Base64 = struct
   let b64_pattern plus slash =
     [| 'A'; 'B'; 'C'; 'D'; 'E'; 'F'; 'G'; 'H'; 'I'; 'J'; 'K'; 'L'; 'M';
@@ -902,8 +900,6 @@ end
 
 
 module Url = struct
-  (* Ocamlnet2 implementation. Keep it for reference.
-
   let hex_digits =
     [| '0'; '1'; '2'; '3'; '4'; '5'; '6'; '7';
        '8'; '9'; 'A'; 'B'; 'C'; 'D'; 'E'; 'F' |];;
@@ -927,17 +923,17 @@ module Url = struct
 
 
   let url_encoding_re =
-    Str.regexp "[^A-Za-z0-9_.!*-]";;
+    Netstring_str.regexp "[^A-Za-z0-9_.!*-]";;
 
   let url_decoding_re =
-    Str.regexp "\\+|%..|%.|%";;
+    Netstring_str.regexp "\\+\\|%..\\|%.\\|%";;
 
 
   let encode ?(plus = true) s =
-    Str.global_substitute
+    Netstring_str.global_substitute
       url_encoding_re
       (fun r _ ->
-	 match Str.matched_string r s with
+	 match Netstring_str.matched_string r s with
 	     " " when plus -> "+"
 	   | x ->
 	       let k = Char.code(x.[0]) in
@@ -946,19 +942,24 @@ module Url = struct
       s ;;
 
 
-  let decode ?(plus = true) s =
-    let l = String.length s in
-    Str.global_substitute
+  let decode ?(plus = true) ?(pos=0) ?len s =
+    let s_l = String.length s in
+    let s1 = 
+      if pos = 0 && len=None then s else 
+	let len = match len with Some n -> n | None -> s_l in
+	String.sub s pos len in
+    let l = String.length s1 in
+    Netstring_str.global_substitute
       url_decoding_re
       (fun r _ ->
-	 match Str.matched_string r s with
+	 match Netstring_str.matched_string r s1 with
 	   | "+" -> if plus then " " else "+"
 	   | _ ->
-	       let i = Str.match_beginning r in
-	       (* Assertion: s.[i] = '%' *)
+	       let i = Netstring_str.match_beginning r in
+	       (* Assertion: s1.[i] = '%' *)
 	       if i+2 >= l then failwith "Netencoding.Url.decode";
-	       let c1 = s.[i+1] in
-	       let c2 = s.[i+2] in
+	       let c1 = s1.[i+1] in
+	       let c2 = s1.[i+2] in
 	       begin
 		 try
 		   let k1 = of_hex1 c1 in
@@ -969,10 +970,10 @@ module Url = struct
 		       failwith "Netencoding.Url.decode"
 	       end
       )
-      s ;;
+      s1 ;;
 
   let url_split_re =
-    Str.regexp "[&=]";;
+    Netstring_str.regexp "[&=]";;
 
   let mk_url_encoded_parameters nv_pairs =
     String.concat "&"
@@ -989,29 +990,33 @@ module Url = struct
   let dest_url_encoded_parameters parstr =
     let rec parse_after_amp tl =
       match tl with
-	  Str.Text name :: Str.Delim "=" :: Str.Text value :: tl' ->
+	  Netstring_str.Text name :: Netstring_str.Delim "=" :: Netstring_str.Text value :: tl' ->
 	    (decode name, decode value) :: parse_next tl'
-	| Str.Text name :: Str.Delim "=" :: Str.Delim "&" :: tl' ->
+	| Netstring_str.Text name :: Netstring_str.Delim "=" :: Netstring_str.Delim "&" :: tl' ->
 	    (decode name, "") :: parse_after_amp tl'
-	| Str.Text name :: Str.Delim "=" :: [] ->
+	| Netstring_str.Text name :: Netstring_str.Delim "=" :: [] ->
 	    [decode name, ""]
 	| _ ->
 	    failwith "Netencoding.Url.dest_url_encoded_parameters"
     and parse_next tl =
       match tl with
 	  [] -> []
-	| Str.Delim "&" :: tl' ->
+	| Netstring_str.Delim "&" :: tl' ->
 	    parse_after_amp tl'
 	| _ ->
 	    failwith "Netencoding.Url.dest_url_encoded_parameters"
     in
-    let toklist = Str.full_split url_split_re parstr in
+    let toklist = Netstring_str.full_split url_split_re parstr in
     match toklist with
 	[] -> []
       | _ -> parse_after_amp toklist
   ;;
 
-   *)
+(* Alternative version. It is commented out because it causes problems
+   in Neturl.
+ *)
+
+(*
 
   (* The Ocamlnet3 version is from Christophe Troestler. 
      See netcgi.mli for the full copyright message.
@@ -1161,6 +1166,7 @@ module Url = struct
     | '\000' .. '\031' | '\127' .. '\255' (* Control chars and non-ASCII *)
     | '<' | '>' | '#' | '%' | '"'         (* delimiters *)
     | '{' | '}' | '|' | '\\' | '^' | '[' | ']' | '`' (* unwise *)
+    | '~' (* causes sometimes problems *)
 	-> true
     | _ -> false
   (* ' ' must also be encoded but its encoding '+' takes a single char. *)
@@ -1171,6 +1177,7 @@ module Url = struct
       else (fun c -> special_rfc2396 c || c = ' ') in
     encode_wrt is_special s
 
+ *)
 
   let mk_url_encoded_parameters params =
     String.concat "&"
@@ -1487,48 +1494,45 @@ module Html = struct
    * [encode] that can be implemented by regular expressions.
    *)
 
-  let no_alphanum_re = Netstring_pcre.regexp "[^a-zA-Z0-9]";;
-  let null_re = Netstring_pcre.regexp "\\\\\\000";;
-      (* matches: backslash NUL *)
-
   let encode_quickly ~prefer_name ~unsafe_chars () =
     (* Preconditions: in_enc = out_enc, and the encoding must be a single-byte,
      * ASCII-compatible encoding.
      *)
-    let unsafe_re_str = 
-      "[" ^ Netstring_pcre.global_replace no_alphanum_re "\\$&" unsafe_chars ^
-      "]" in
-    let unsafe_re_str' =
-      Netstring_pcre.global_replace null_re "\\000" unsafe_re_str in
-      (* Replace backslash-NUL by PCRE null *)
-    let unsafe_re = 
-      Netstring_pcre.regexp unsafe_re_str' in
-    Netstring_pcre.global_substitute
-      unsafe_re
-      (fun r s ->
-	 let t = Netstring_pcre.matched_string r s in
-	 let p = Char.code (t.[0]) in    (* p is an ASCII code point *)
-	 let name = rev_etable.(p) in
-	 if prefer_name && name <> "" then
-	   name
-	 else
-	   "&#" ^ string_of_int p ^ ";"
-      )
+    if unsafe_chars = "" then
+      (fun s -> s)
+    else
+      let unsafe_re_str = 
+	Netstring_str.quote_set unsafe_chars in
+      let unsafe_re = 
+	Netstring_str.regexp unsafe_re_str in
+      Netstring_str.global_substitute
+	unsafe_re
+	(fun r s ->
+	   let t = Netstring_str.matched_string r s in
+	   let p = Char.code (t.[0]) in    (* p is an ASCII code point *)
+	   let name = rev_etable.(p) in
+	   if prefer_name && name <> "" then
+	     name
+	   else
+	     "&#" ^ string_of_int p ^ ";"
+	)
   ;;
 
+  let msb_set = (
+    let s = String.create 128 in
+    for k = 0 to 127 do s.[k] <- Char.chr (128+k) done;
+    s
+  )
 
   let encode_ascii ~in_enc ~prefer_name ~unsafe_chars () =
     (* Preconditions: out_enc = `Enc_usascii, and in_enc must be a single-byte,
      * ASCII-compatible encoding.
      *)
+    let unsafe_chars1 = unsafe_chars ^ msb_set in
     let unsafe_re_str = 
-      "[" ^ Netstring_pcre.global_replace no_alphanum_re "\\$&" unsafe_chars ^ 
-      "\128-\255]" in
-    let unsafe_re_str' =
-      Netstring_pcre.global_replace null_re "\\000" unsafe_re_str in
-      (* Replace backslash-NUL by PCRE null *)
+      Netstring_str.quote_set unsafe_chars1 in
     let unsafe_re = 
-      Netstring_pcre.regexp unsafe_re_str' in
+      Netstring_str.regexp unsafe_re_str in
     (* unicode_of.[q] = p: the code point q+128 of in_enc is the same as the
      * Unicode code point p
      *)
@@ -1544,10 +1548,10 @@ module Html = struct
 	  Netconversion.Malformed_code -> 
 	    unicode_of.(i) <- (-1)
     done;
-    Netstring_pcre.global_substitute
+    Netstring_str.global_substitute
       unsafe_re
       (fun r s ->
-	 let t = Netstring_pcre.matched_string r s in
+	 let t = Netstring_str.matched_string r s in
 	 (* p is the code point in the encoding ~in_enc; p' is the Unicode
 	  * code point:
 	  *)
@@ -1634,7 +1638,11 @@ module Html = struct
   type entity_set = [ `Html | `Xml | `Empty ];;
 
   let eref_re = 
-    Pcre.regexp "\\&(\\#([0-9]+);|\\#[xX]([0-9a-fA-F]+)\\;|([a-zA-Z]+)\\;)" ;;
+    Netstring_str.regexp "&\\(\
+                            #\\([0-9]+\\);\\|\
+                            #[xX]\\([0-9a-fA-F]+\\);\\|\
+                            \\([a-zA-Z]+\\);\
+                          \\)" ;;
 
   let total_enc =
     (* every byte must have a corresponding Unicode code point, i.e. the
@@ -1669,6 +1677,18 @@ module Html = struct
       n := (!n lsl 4) lor d
     done;
     !n
+
+
+  let search_all re s pos =
+    let rec search p acc =
+      match 
+	try Some(Netstring_str.search_forward re s p) with Not_found -> None
+      with
+	| Some (k,r) ->
+	    search (k+1) ( (k,r) :: acc )
+	| None ->
+	    List.rev acc in
+    search pos []
       
 
   let decode 
@@ -1716,60 +1736,60 @@ module Html = struct
     in
     (fun s ->
        (* Find all occurrences of &name; or &#num; or &#xnum; *)
-       let occurences = 
-	 try Pcre.exec_all ~rex:eref_re s with Not_found -> [| |] in
+       let occurrences = search_all eref_re s 0  in
        (* Collect the resulting string in a buffer *)
        let buf = Buffer.create 250 in
        let n = ref 0 in
-       for k = 0 to Array.length occurences - 1 do
-	 let (n0,n1) = Pcre.get_substring_ofs (occurences.(k)) 0 in
-	 if n0 > !n then
-	   Buffer.add_string buf (recode_str (String.sub s !n (n0 - !n)));
-	 (* TODO: avoid String.sub *)
-	 let occurence = occurences.(k) in
-	 let replacement =
-	   let num = 
-	     try Pcre.get_substring occurence 2 with Not_found -> "" in
-	   (* Note: Older versions of Pcre return "" when the substring
-	    * did not match, newer versions raise Not_found  
-	    *)
-	   if num <> "" then begin
-	     let n = int_of_string num in
-	     makechar n
-	   end
-	   else begin
-	     let xnum = 
-	       try Pcre.get_substring occurence 3 with Not_found -> "" in
-	     (* Note: Older versions of Pcre return "" when the substring
-	      * did not match, newer versions raise Not_found  
-	      *)
-	     if xnum <> "" then begin
-	       let n = hex_of_string xnum in
-	       makechar n
-	     end
-	     else begin
-	       let name = 
-		 try Pcre.get_substring occurence 4 with Not_found -> "" in
-	       (* Note: Older versions of Pcre return "" when the substring
-	        * did not match, newer versions raise Not_found  
-	        *)
-	       assert(name <> "");
-	       lookup_entity name
-	     end
-	   end
-	 in
-	 Buffer.add_string buf replacement;
-	 n := n1;
-       done;
+       List.iter
+	 (fun (n0,r) ->
+	    let n1 = Netstring_str.match_end r in
+	    if n0 > !n then
+	      Buffer.add_string buf (recode_str (String.sub s !n (n0 - !n)));
+	    (* TODO: avoid String.sub *)
+	    let replacement =
+	      let num = 
+		try Netstring_str.matched_group r 2 s with Not_found -> "" in
+	      (* Note: Older versions of Pcre return "" when the substring
+	       * did not match, newer versions raise Not_found  
+	       *)
+	      if num <> "" then begin
+		let n = int_of_string num in
+		makechar n
+	      end
+	      else begin
+		let xnum = 
+		  try Netstring_str.matched_group r 3 s with Not_found -> "" in
+		(* Note: Older versions of Pcre return "" when the substring
+		 * did not match, newer versions raise Not_found  
+		 *)
+		if xnum <> "" then begin
+		  let n = hex_of_string xnum in
+		  makechar n
+		end
+		else begin
+		  let name = 
+		    try Netstring_str.matched_group r 4 s with Not_found -> "" in
+		  (* Note: Older versions of Pcre return "" when the substring
+	           * did not match, newer versions raise Not_found  
+	           *)
+		  assert(name <> "");
+		  lookup_entity name
+		end
+	      end
+	    in
+	    Buffer.add_string buf replacement;
+	    n := n1;
+	 )
+	 occurrences;
        let n0 = String.length s in
        if n0 > !n then
 	 Buffer.add_string buf (recode_str (String.sub s !n (n0 - !n)));
-	 (* TODO: avoid String.sub *)
+       (* TODO: avoid String.sub *)
        (* Return *)
        Buffer.contents buf
     )
   ;;
-
+     
   let decode_to_latin1 =
     decode ~in_enc:`Enc_iso88591 ~out_enc:`Enc_iso88591 
            ~lookup:(fun s -> "&" ^ s ^ ";")

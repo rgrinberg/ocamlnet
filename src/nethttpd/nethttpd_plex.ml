@@ -91,18 +91,18 @@ let is_options_request env =
 let is_any_request env =
   true
 
-let ws_re = Pcre.regexp "[ \r\t\n]+"
+let ws_re = Netstring_str.regexp "[ \r\t\n]+"
 
 let split_ws s =
-  Netstring_pcre.split ws_re s
+  Netstring_str.split ws_re s
 
-let name_port_re = Pcre.regexp "^([^:]+):([0-9]+)$"
+let name_port_re = Netstring_str.regexp "^\\([^:]+\\):\\([0-9]+\\)$"
 
 let split_name_port s =
-  match Netstring_pcre.string_match name_port_re s 0 with
+  match Netstring_str.string_match name_port_re s 0 with
     | Some m ->
-	let name = Netstring_pcre.matched_group m 1 s in
-	let port = Netstring_pcre.matched_group m 2 s in
+	let name = Netstring_str.matched_group m 1 s in
+	let port = Netstring_str.matched_group m 2 s in
 	(name, int_of_string port)
     | None ->
 	failwith "Bad name:port specifier"

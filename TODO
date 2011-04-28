@@ -1,5 +1,26 @@
 OCAMLNET
 
+Test regexp:
+ - Mimestring.scan_header OK, read_header OK, write_header OK
+ - Mimestring: token scanner, RFC 2231 encoding, read_multipart_body OK
+ - Netconversion.norm_enc_name OK
+ - Netencoding.Html.encode, decode OK
+ - Netstring_str.quote_set OK
+ - Netglob.esc_subst OK
+ - Netfs.local_fs OK
+ - Nethttp.Header OK
+ - Netmime.drop_ws OK
+ - Neturl.fixup_url_string, classify_path, local_path_of_file_url OK
+ - Netmech_scram OK
+ - Netaux.KMP OK
+ - Netsendmail.create_address_tokens create_text_tokens OK
+ - Nethttpd_kernel, also chunked encoding -> test_acceptor OK
+ - Netstring tests OK
+ - Http_client OK
+
+Fixme:
+ - Netstring_pcre.quote: does not work for NULL bytes
+
 Optimization:
   - Uq_io.input_lines: reads as much lines as possible from in_buffer
     and returns list of lines

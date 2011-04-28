@@ -26,6 +26,9 @@ end
 
 exception Interrupt
 
+let ws_re = Netstring_str.regexp "[ \t\r\n]+"
+
+
 let cmd_interpreter mk_command =
   let esys = Unixqueue.create_unix_event_system() in
   let g = Unixqueue.new_group esys in
@@ -198,9 +201,9 @@ let execute ci cctx = ci # exec cctx
 let wait ci = ci # run()
 
 
-let slash_re = Netstring_pcre.regexp "/+"
+let slash_re = Netstring_str.regexp "/+"
 
-let link_re = Netstring_pcre.regexp ".*? -> (.*)$"
+let link_re = Netstring_str.regexp ".*? -> \\(.*\\)$"
 
 exception Not_absolute
 
@@ -237,7 +240,7 @@ class shell_fs ?encoding ?(root="/") ?(dd_has_excl=false) (ci : command_interpre
 
   let check_and_norm_path p =
     try
-      let l = Netstring_pcre.split_delim slash_re p in
+      let l = Netstring_str.split_delim slash_re p in
       ( match l with
 	  | [] ->  raise (Unix.Unix_error(Unix.EINVAL,
 					  "Shell_fs: empty path",
@@ -424,7 +427,7 @@ object(self)
       | 0 ->
 	  let ch = new Netchannels.input_string stdout in
 	  let line = try ch#input_line() with End_of_file -> "" in
-	  let fields = Pcre.split line in
+	  let fields = Netstring_str.split ws_re line in
 	  ( match fields with
 	      | _ :: _ :: _ :: _ :: size_str :: _ ->
 		  Int64.of_string size_str
@@ -668,17 +671,17 @@ object(self)
       | 0 ->
 	  let ch = new Netchannels.input_string stdout in
 	  let line = try ch#input_line() with End_of_file -> "" in
-	  let fields = Pcre.split line in
+	  let fields = Netstring_str.split ws_re line in
 	  ( match fields with
 	      | perms :: _ ->
 		  if perms <> "" && perms.[0] = 'l' then
 		    (* look for leftmost occurrence of " -> <name>" *)
-		    match Netstring_pcre.string_match link_re line 0 with
+		    match Netstring_str.string_match link_re line 0 with
 		      | None ->
 			  raise(Unix.Unix_error(Unix.EINVAL, 
 						"Shell_fs.readlink", filename))
 		      | Some m ->
-			  Netstring_pcre.matched_group m 1 line
+			  Netstring_str.matched_group m 1 line
 		  else
 		    raise(Unix.Unix_error(Unix.EINVAL, 
 					  "Shell_fs.readlink", filename))

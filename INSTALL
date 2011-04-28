@@ -61,6 +61,14 @@ CORE		pcre		>= 5
 		 (pcre-ocaml)	http://www.ocaml.info/ocaml_sources
 				Regular expressions library
 
+				Since Ocamlnet-3.3 pcre is not
+				strictly required. It is also possible
+				to build without by configuring with
+				-disable-pcre. The Str regexp engine
+				is then used instead.  The
+				functionality should be exactly the
+				same.
+
 -enable-gtk	lablgtk		>= 1.2 (*)
 				http://wwwfun.kurims.kyoto-u.ac.jp/soft/
 				  olabl/lablgtk.html

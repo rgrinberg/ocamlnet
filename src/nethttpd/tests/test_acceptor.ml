@@ -199,19 +199,19 @@ class config
         ?(limit_pipeline_length = 99)
         ?(limit_pipeline_size = max_int)
         () : Nethttpd_kernel.http_protocol_config =
-object
-  method config_max_reqline_length = max_reqline_length
-  method config_max_header_length = max_header_length
-  method config_max_trailer_length = max_trailer_length
-  method config_limit_pipeline_length = limit_pipeline_length
-  method config_limit_pipeline_size = limit_pipeline_size
-end
+  Nethttpd_kernel.modify_http_protocol_config
+    ~config_max_reqline_length:max_reqline_length
+    ~config_max_header_length:max_header_length
+    ~config_max_trailer_length:max_trailer_length
+    ~config_limit_pipeline_length:limit_pipeline_length
+    ~config_limit_pipeline_size:limit_pipeline_size
+    Nethttpd_kernel.default_http_protocol_config
 
 (* ---- Test driver ---- *)
 
 let lf_to_crlf s =
-  Netstring_pcre.global_replace 
-    (Netstring_pcre.regexp "\n")
+  Netstring_str.global_replace 
+    (Netstring_str.regexp "\n")
     "\r\n"
     s
 ;;
@@ -259,7 +259,7 @@ let perform config f (name,print_req,quiet,crlf) =
 	      if not quiet then (
 		Printf.printf "- `Req_header:\n";
 		Printf.printf "     method = %s, uri = %s, version = %s\n" 
-		  meth uri (string_of_protocol v);
+		  meth uri (Nethttp.string_of_protocol v);
 		print_header "header" hdr;
 	      );
 	  | `Req_expect_100_continue ->

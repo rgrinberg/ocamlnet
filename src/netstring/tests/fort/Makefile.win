@@ -1,0 +1,43 @@
+# Copyright (c) 2001 Patrick Doane.
+# For conditions of distribution and use, see copyright notice in LICENSE. *)
+
+!include Makefile.config
+
+OCAMLC=ocamlc
+
+# FORT top-level interpreter
+NAME=fort
+OBJECTS=fort.cmo fortmain.cmo
+LIBS=unix.cma
+
+# Rules
+
+EXEC_SUFFIX=.exe
+EXECUTABLE=$(NAME)$(EXEC_SUFFIX)
+
+$(EXECUTABLE): $(OBJECTS)
+	$(OCAMLC) -linkall -o $@ toplevellib.cma $(LIBS) $(OBJECTS)
+
+install: $(EXECUTABLE) $(OBJECTS)
+	cp fort.cmi $(OBJECTS) $(LIBDIR)
+	cp $(EXECUTABLE) $(BINDIR)
+
+clean:
+	rm -f *.cm[iox] *.obj
+
+distclean: clean
+	rm -f $(EXECUTABLE) *~
+
+
+.SUFFIXES: .mli .ml .cmi .cmo
+
+.mli.cmi:
+	$(OCAMLC) -c $<
+
+.ml.cmo:
+	$(OCAMLC) -c $<
+
+# Dependencies
+
+fort.cmo: fort.cmi 
+fortmain.cmo: fort.cmi

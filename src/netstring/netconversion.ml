@@ -224,9 +224,9 @@ let rec is_single_byte =
 ;;
 
 
-let punct_re = Netstring_pcre.regexp "[\\-\\_\\.]";;
-let ibm_re = Netstring_pcre.regexp "^IBM(\\d+)$";;
-let year_re = Netstring_pcre.regexp ":\\d\\d\\d\\d$";;
+let punct_re = Netstring_str.regexp "[-_.]";;
+let ibm_re = Netstring_str.regexp "^IBM\\([0-9]+\\)$";;
+let year_re = Netstring_str.regexp ":[0-9][0-9][0-9][0-9]$";;
 
 
 let norm_enc_name e =
@@ -234,11 +234,11 @@ let norm_enc_name e =
    * converts "IBM#" to "CP#"; drops ":YEAR" suffixes 
    *)
   let e1 = String.uppercase e in
-  let e2 = Netstring_pcre.global_replace punct_re "" e1 in
-  let e3 = Netstring_pcre.global_replace year_re "" e2 in
-  match Netstring_pcre.string_match ibm_re e3 0 with
+  let e2 = Netstring_str.global_replace punct_re "" e1 in
+  let e3 = Netstring_str.global_replace year_re "" e2 in
+  match Netstring_str.string_match ibm_re e3 0 with
       Some r ->
-	"CP" ^ Netstring_pcre.matched_group r 1 e3
+	"CP" ^ Netstring_str.matched_group r 1 e3
     | None ->
 	e3
 ;;

@@ -455,31 +455,31 @@ let oid_to_string oid =
   "{" ^ String.concat " " (List.map string_of_int (Array.to_list oid)) ^ "}"
 
 
-let oid_str_re = Netstring_pcre.regexp "[ \t\r\n]+|{|}"
+let oid_str_re = Netstring_str.regexp "[ \t\r\n]+\\|{\\|}"
 let string_to_oid s =
   let rec cont1 l =
     match l with
-      | Netstring_pcre.Delim "{" :: l' -> cont2 l'
-      | Netstring_pcre.Delim "}" :: _ -> raise Not_found
-      | Netstring_pcre.Delim _ :: l' -> cont1 l'   (* whitespace *)
+      | Netstring_str.Delim "{" :: l' -> cont2 l'
+      | Netstring_str.Delim "}" :: _ -> raise Not_found
+      | Netstring_str.Delim _ :: l' -> cont1 l'   (* whitespace *)
       | _ -> raise Not_found 
   and cont2 l =  (* after "{" *)
     match l with
-      | Netstring_pcre.Delim "{" :: _ -> raise Not_found
-      | Netstring_pcre.Delim "}" :: l' -> cont3 l'
-      | Netstring_pcre.Delim _ :: l' -> cont2 l'
-      | Netstring_pcre.Text s :: l' -> int_of_string s :: cont2 l'
+      | Netstring_str.Delim "{" :: _ -> raise Not_found
+      | Netstring_str.Delim "}" :: l' -> cont3 l'
+      | Netstring_str.Delim _ :: l' -> cont2 l'
+      | Netstring_str.Text s :: l' -> int_of_string s :: cont2 l'
       | _ -> raise Not_found
   and cont3 l = (* after "}" *)
     match l with
-      | Netstring_pcre.Delim ("{" | "}") :: _ -> raise Not_found
-      | Netstring_pcre.Delim _ :: l' -> cont3 l'
+      | Netstring_str.Delim ("{" | "}") :: _ -> raise Not_found
+      | Netstring_str.Delim _ :: l' -> cont3 l'
       | [] -> []
       | _ -> raise Not_found 
   in
 
   let l =
-    Netstring_pcre.full_split oid_str_re s in
+    Netstring_str.full_split oid_str_re s in
   try
     Array.of_list(cont1 l)
   with

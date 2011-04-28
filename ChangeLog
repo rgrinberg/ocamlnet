@@ -1,3 +1,12 @@
+2011-04-28  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Reverting Netencoding.Url to the implementation used
+	  in Ocamlnet-2. The new impl introduces some incompatibilities
+	  with Neturl.
+
+	* Ocamlnet can now also be built without PCRE! Just configure
+	  with -disable-pcre.
+
 2011-04-14  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Test release: 3.3.0test1

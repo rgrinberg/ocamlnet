@@ -1,8 +1,5 @@
 #use "topfind";;
-#require "pcre";;
-#require "unix";;
-#directory "..";;
-#load "netstring.cma";;
+#require "netstring";;
 
 
 open Netencoding;;

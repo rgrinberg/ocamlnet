@@ -335,13 +335,13 @@ let read_config_file filename =
 
 
 let inet4_binding =
-  Pcre.regexp "^([0-9.]*):([0-9]+)$" ;;
+  Netstring_str.regexp "^\\([0-9.]*\\):\\([0-9]+\\)$" ;;
 
 let inet6_binding =
-  Pcre.regexp "^\\[([0-9a-fA-F.:]*)\\]:([0-9]+)$" ;;
+  Netstring_str.regexp "^\\[\\([0-9a-fA-F.:]*\\)\\]:\\([0-9]+\\)$" ;;
 
 let host_binding =
-  Pcre.regexp "^(.*):([0-9]+)$" ;;
+  Netstring_str.regexp "^\\(.*\\):\\([0-9]+\\)$" ;;
 
 let is_letter =
   function
@@ -426,15 +426,15 @@ let extract_address socket_dir service_name proto_name cf addraddr =
 	    with
 	      | Not_found ->
 		  failwith ("Missing parameter: " ^ cf#print addraddr ^ ".bind") in
-	  ( match Netstring_pcre.string_match inet4_binding bind 0 with
+	  ( match Netstring_str.string_match inet4_binding bind 0 with
 	      | Some m ->
 		  ( try
 		      let a = 
 			Unix.inet_addr_of_string
-			  (Netstring_pcre.matched_group m 1 bind) in
+			  (Netstring_str.matched_group m 1 bind) in
 		      let p =
 			int_of_string
-			  (Netstring_pcre.matched_group m 2 bind) in
+			  (Netstring_str.matched_group m 2 bind) in
 		      [ `Socket (Unix.ADDR_INET(a,p)) ]
 		    with
 		      | _ ->
@@ -442,15 +442,15 @@ let extract_address socket_dir service_name proto_name cf addraddr =
 				      ".bind")
 		  )
 	      | None ->
-		  ( match Netstring_pcre.string_match inet6_binding bind 0 with
+		  ( match Netstring_str.string_match inet6_binding bind 0 with
 		      | Some m ->
 			  ( try
 			      let a = 
 				Unix.inet_addr_of_string
-				  (Netstring_pcre.matched_group m 1 bind) in
+				  (Netstring_str.matched_group m 1 bind) in
 			      let p =
 				int_of_string
-				  (Netstring_pcre.matched_group m 2 bind) in
+				  (Netstring_str.matched_group m 2 bind) in
 			      [ `Socket (Unix.ADDR_INET(a,p)) ]
 			    with
 			      | _ ->
@@ -458,14 +458,14 @@ let extract_address socket_dir service_name proto_name cf addraddr =
 					      ".bind")
 			  )
 		      | None ->
-			  ( match Netstring_pcre.string_match host_binding bind 0 with
+			  ( match Netstring_str.string_match host_binding bind 0 with
 			      | Some m ->
 				  ( try
 				      let h = 
-					Netstring_pcre.matched_group m 1 bind in
+					Netstring_str.matched_group m 1 bind in
 				      let p =
 					int_of_string
-					  (Netstring_pcre.matched_group m 2 bind) in
+					  (Netstring_str.matched_group m 2 bind) in
 				      let entry =
 					Unix.gethostbyname h in
 				      let al =

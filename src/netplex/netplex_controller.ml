@@ -15,12 +15,12 @@ let dlogr = Netlog.Debug.mk_dlogr "Netplex_controller" Debug.enable
 let () =
   Netlog.Debug.register_module "Netplex_controller" Debug.enable
 
-let ast_re = Pcre.regexp "[*]";;
+let ast_re = Netstring_str.regexp "[*]";;
 
 let regexp_of_pattern s =
-  let l = Netstring_pcre.split_delim ast_re s in
-  Netstring_pcre.regexp
-    (String.concat ".*" (List.map (fun u -> Netstring_pcre.quote u) l) ^ "$")
+  let l = Netstring_str.split_delim ast_re s in
+  Netstring_str.regexp
+    (String.concat ".*" (List.map (fun u -> Netstring_str.quote u) l) ^ "$")
 
 
 class type extended_socket_controller =
@@ -1519,7 +1519,7 @@ object(self)
   method private matching_services re =
     List.filter
       (fun (sockserv, ctrl, _) ->
-	 match Netstring_pcre.string_match re sockserv#name 0 with
+	 match Netstring_str.string_match re sockserv#name 0 with
 	   | Some _ -> true
 	   | None -> false
       )
@@ -1528,7 +1528,7 @@ object(self)
   method private matching_receivers re =
     List.filter
       (fun recv ->
-	 match Netstring_pcre.string_match re recv#name 0 with
+	 match Netstring_str.string_match re recv#name 0 with
 	   | Some _ -> true
 	   | None -> false
       )

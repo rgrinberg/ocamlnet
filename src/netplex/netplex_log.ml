@@ -74,12 +74,12 @@ let format_message fmt component subchannel level message =
   Buffer.contents b
 
 
-let ast_re = Pcre.regexp "[*]";;
+let ast_re = Netstring_str.regexp "[*]";;
 
 let regexp_of_pattern s =
-  let l = Netstring_pcre.split_delim ast_re s in
-  Netstring_pcre.regexp
-    (String.concat ".*" (List.map (fun u -> Netstring_pcre.quote u) l) ^ "$")
+  let l = Netstring_str.split_delim ast_re s in
+  Netstring_str.regexp
+    (String.concat ".*" (List.map (fun u -> Netstring_str.quote u) l) ^ "$")
 
 
 let mk_filter (gc:generic_config) =
@@ -88,8 +88,8 @@ let mk_filter (gc:generic_config) =
 
   fun component subchannel level ->
     level_weight level <= level_weight gc#log_max_level && (
-      (Netstring_pcre.string_match comp_re component 0 <> None) &&
-      (Netstring_pcre.string_match subch_re subchannel 0 <> None)
+      (Netstring_str.string_match comp_re component 0 <> None) &&
+      (Netstring_str.string_match subch_re subchannel 0 <> None)
     )
   
 
@@ -289,10 +289,10 @@ object(self)
 	  (fun (_, _, _, file, fmt) -> (file, fmt))
 	  (List.filter
 	     (fun (comp_re, subch_re, level_pat, _, _) ->
-		match Netstring_pcre.string_match comp_re component 0 with
+		match Netstring_str.string_match comp_re component 0 with
 		  | Some _ ->
 		      ( match 
-			  Netstring_pcre.string_match subch_re subchannel 0
+			  Netstring_str.string_match subch_re subchannel 0
 			with
 			  | Some _ ->
 			      ( match level_pat with

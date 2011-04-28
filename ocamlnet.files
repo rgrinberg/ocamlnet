@@ -73,6 +73,12 @@ x src/netstring/netdb.ml
 f src/netstring/netaccel_c.c
 f src/netstring/netnumber.mlp
 x src/netstring/netnumber.ml
+f src/netstring/netstring_str.mlp
+x src/netstring/netstring_str.ml
+f src/netstring/netstring_pcre.mlp
+x src/netstring/netstring_pcre.ml
+f src/netstring/netstring_pcre.mlip
+x src/netstring/netstring_pcre.mli
 # The pattern:
 p src/netstring/.*\.ml
 p src/netstring/.*\.mli

@@ -3,12 +3,17 @@
  *
  *)
 
-module S = Netstring_pcre;;
+module S = Netstring_str;;
 
 let cr_or_lf_re = S.regexp "[\013\n]";;
 
 let header_stripped_re =
-  S.regexp "([^ \t\r\n:]+):[ \t]*((.*[^ \t\r\n])?([ \t\r]*\n[ \t](.*[^ \t\r\n])?)*)[ \t\r]*\n";;
+  S.regexp "\\([^ \t\r\n:]+\\):[ \t]*\
+            \\(\
+              \\(.*[^ \t\r\n]\\)?\
+              \\([ \t\r]*\n[ \t]\\(.*[^ \t\r\n]\\)?\\)*\
+            \\)\
+            [ \t\r]*\n";;
 (* This expression extracts the name and the stripped value (whitespace is
  * removed at the beginning and at the end). Explanations:
  * ([^ \t\r\n:]+)             The name of the header field, all but whitespace
@@ -39,8 +44,8 @@ let header_stripped_re =
  *)
 
 let header_unstripped_re =
-  S.regexp "([^ \t\r\n:]+):([ \t]*.*\n([ \t].*\n)*)";;
-(* This much simpler expression returnes the name and the unstripped 
+  S.regexp "\\([^ \t\r\n:]+\\):\\([ \t]*.*\n\\([ \t].*\n\\)*\\)";;
+(* This much simpler expression returns the name and the unstripped 
  * value.
  *)
 
@@ -125,9 +130,29 @@ let read_header ?downcase ?unfold ?strip (s : Netstream.in_obj_stream) =
 ;;
 
 
-let write_re =
+(*let write_re =
   S.regexp "[ \t\r]*(\n|\\z)([ \t\r]*)" ;;
 (* Note: \z matches the end of the buffer (PCRE) *)
+ *)
+
+let write1_re =
+  S.regexp "[ \t\r]*\\(\n\\)[ \t\r]*" ;;
+
+let write2_re =
+  S.regexp "[ \t\r]*$" (* "$" means here: end of buffer *) ;;
+
+let rec wsearch s pos =
+  (* Skip over linear white space *)
+  try
+    let k, r = S.search_forward write1_re s pos in
+    let k_lf = S.group_beginning r 1 in
+    let k_end = S.match_end r in
+    (k, k_lf, k_end)
+  with
+    | Not_found -> (* no LF found *)
+	let k, r = S.search_forward write2_re s pos in
+	let k_end = S.match_end r in
+	(k, k_end, k_end)
 
 let ws_re =
   S.regexp "^[ \t\r\n]*" ;;
@@ -147,10 +172,8 @@ let write_header ?(soft_eol = "\r\n") ?(eol = "\r\n") ch h =
        );
        try
 	 while !pos < l do
-	   let (k, r) = S.search_forward write_re v !pos in  
-	                (* might raise Not_found *)
+	   let k, k_lf, pos' = wsearch v !pos in  (* might raise Not_found *)
 	   Buffer.add_substring hd v !pos (k - !pos);
-	   let pos' = S.match_end r in
 	   if pos' < l then begin 
 	     (* Before printing linear whitespace, ensure that the line
 	      * would not be empty
@@ -162,7 +185,7 @@ let write_header ?(soft_eol = "\r\n") ?(eol = "\r\n") ch h =
 		*)
 	       Buffer.add_string hd soft_eol;
 	       let found_space = ref false in
-	       for i = S.group_beginning r 2 to pos' - 1 do
+	       for i = k_lf + 1 to pos' - 1 do
 		 let c = v.[i] in
 		 if c = ' ' || c = '\t' then begin
 		   Buffer.add_char hd c;
@@ -346,7 +369,13 @@ let create_mime_scanner ~specials ~scan_options =
 
 
 let encoded_word_re =
-  S.regexp "=\\?([^?]+)\\?([^?]+)\\?([^?]+)\\?=";;
+  S.regexp "=[?]\
+            \\([^?]+\\)\
+            [?]\
+            \\([^?]+\\)\
+            [?]\
+            \\([^?]+\\)\
+            [?]=";;
 
 let scan_next_token (spec,target) =
   let mk_pair t len =
@@ -439,7 +468,7 @@ let scan_next_token (spec,target) =
       let astring = String.sub s i0 (i-i0) in
       let r =
 	if spec.opt_recognize_encoded_words then
-	  S.string_match ~groups:4 encoded_word_re astring 0
+	  S.string_match encoded_word_re astring 0
 	else
 	  None
       in
@@ -786,9 +815,13 @@ let print_s_param fmt = function
 ;;
 
 
-let name_re = S.regexp "^([^*]+)(\\*\\d+)?(\\*)?$" ;;
+let name_re = S.regexp "^\\([^*]+\\)\
+                         \\([*][0-9]+\\)?\
+                         \\([*]\\)?$" ;;
 
-let encoding_re = S.regexp "^([^\\']*)\\'([^\\']*)\\'(.*)$" ;;
+let encoding_re = S.regexp "^\\([^']*\\)\
+                            '\\([^']*\\)\
+                            '\\(.*\\)$" ;;
 
 let opt f x =
   try Some(f x) with Not_found -> None ;;

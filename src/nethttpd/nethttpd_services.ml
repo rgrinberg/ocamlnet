@@ -776,14 +776,14 @@ let file_translator spec uri =
 	let spec_uri_list = Neturl.norm_path (Neturl.split_path spec.file_uri) in
 	translate spec_uri_list uri_list
 
-let ext_re = Netstring_pcre.regexp ".*\\.([^.]+)$";;
+let ext_re = Netstring_str.regexp ".*\\.\\([^.]+\\)$";;
 
 let get_extension s =
-  match Netstring_pcre.string_match ext_re s 0 with
+  match Netstring_str.string_match ext_re s 0 with
     | None ->
 	None
     | Some m ->
-	Some(Netstring_pcre.matched_group m 1 s)
+	Some(Netstring_str.matched_group m 1 s)
 
 let merge_byte_ranges st ranges =
   (* Merge the byte [ranges] into a single range. Returns [Some (first,last)] if
@@ -1164,7 +1164,7 @@ let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi.cgi_activation) fs
   let col_name = 30 in
   let col_mtime = 20 in
   let col_size = 10 in
-  let regexps = List.map (fun re -> Netstring_pcre.regexp re) hide in
+  let regexps = List.map (fun re -> Netstring_str.regexp re) hide in
   let req_path_esc = env#cgi_path_info in
   let req_path = uripath_decode req_path_esc in
   let files = Sys.readdir (w32_fix_trailing_slash dirname) in
@@ -1172,7 +1172,7 @@ let simple_listing ?(hide=[ "\\."; ".*~$" ]) env (cgi :Netcgi.cgi_activation) fs
     Array.map
       (fun name ->
 	 if List.exists 
-	      (fun re -> Netstring_pcre.string_match re name 0 <> None) regexps 
+	      (fun re -> Netstring_str.string_match re name 0 <> None) regexps 
 	 then
 	   `None
 	 else
@@ -1395,10 +1395,10 @@ let ac_by_host (spec, (srv : 'a http_service)) =
   )
 
 
-let ws_re = Pcre.regexp "[ \r\t\n]+"
+let ws_re = Netstring_str.regexp "[ \r\t\n]+"
 
 let split_ws s =
-  Netstring_pcre.split ws_re s
+  Netstring_str.split ws_re s
 
 let read_media_types_file fname =
   let f = open_in fname in

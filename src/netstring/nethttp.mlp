@@ -18,14 +18,14 @@ let string_of_protocol =
     | `Http((m,n),_) -> "HTTP/" ^ string_of_int m ^ "." ^ string_of_int n
     | `Other -> failwith "string_of_protocol"
 
-let http_re = Netstring_pcre.regexp "HTTP/([0-9]+)\\.([0-9]+)$"
+let http_re = Netstring_str.regexp "HTTP/\\([0-9]+\\)\\.\\([0-9]+\\)$"
 
 let protocol_of_string s =
-  match Netstring_pcre.string_match http_re s 0 with
+  match Netstring_str.string_match http_re s 0 with
     | Some m ->
 	( try 
-	    `Http ((int_of_string (Netstring_pcre.matched_group m 1 s),
-		    int_of_string (Netstring_pcre.matched_group m 2 s)), [])
+	    `Http ((int_of_string (Netstring_str.matched_group m 1 s),
+		    int_of_string (Netstring_str.matched_group m 2 s)), [])
 	  with
 	      Failure _ -> `Other  (* Probably denial-of-service attack! *)
 	)
@@ -284,16 +284,16 @@ type cookie = netscape_cookie
 
 
 let status_re =
-  Netstring_pcre.regexp "^([0-9]+)([ \t]+(.*))?$"
+  Netstring_str.regexp "^\\([0-9]+\\)\\([ \t]+\\(.*\\)\\)?$"
 
 let status_of_cgi_header hdr =
   let (code, phrase) =
     try
       let status = hdr # field "Status" in
-      ( match Netstring_pcre.string_match status_re status 0 with
+      ( match Netstring_str.string_match status_re status 0 with
 	  | Some m ->
-	      (int_of_string (Netstring_pcre.matched_group m 1 status),
-	       (try Netstring_pcre.matched_group m 3 status with Not_found -> "")
+	      (int_of_string (Netstring_str.matched_group m 1 status),
+	       (try Netstring_str.matched_group m 3 status with Not_found -> "")
 	      )
 	  | None ->
 	      failwith "Bad Status response header field"
@@ -324,38 +324,38 @@ let status_of_cgi_header hdr =
 
 
 let query_re =
-  Netstring_pcre.regexp "^([^?]*)\\?(.*)$"
+  Netstring_str.regexp "^\\([^?]*\\)\\?\\(.*\\)$"
 
 let decode_query req_uri =
-  match Netstring_pcre.string_match query_re req_uri 0 with
+  match Netstring_str.string_match query_re req_uri 0 with
     | Some m ->
-	(Netstring_pcre.matched_group m 1 req_uri,
-	 Netstring_pcre.matched_group m 2 req_uri)
+	(Netstring_str.matched_group m 1 req_uri,
+	 Netstring_str.matched_group m 2 req_uri)
     | None ->
 	(req_uri, "")
 
 let host4_re =
-  Netstring_pcre.regexp "([^: \t\\[\\]]+)(:([0-9]+))?$"
+  Netstring_str.regexp "\\([^]: \t[]+\\)\\(:\\([0-9]+\\)\\)?$" (* CHECK *)
 
 let host6_re =
-  Netstring_pcre.regexp "\\[([^ \t]+)\\](:([0-9]+))?$"
+  Netstring_str.regexp "\\[\\([^ \t]+\\)\\]\\(:\\([0-9]+\\)\\)?$"
 
 let split_host_port s =
-  match Netstring_pcre.string_match host4_re s 0 with
+  match Netstring_str.string_match host4_re s 0 with
     | Some m ->
-	let host_name = Netstring_pcre.matched_group m 1 s in
+	let host_name = Netstring_str.matched_group m 1 s in
 	let host_port =
-	  try Some(int_of_string(Netstring_pcre.matched_group m 3 s))
+	  try Some(int_of_string(Netstring_str.matched_group m 3 s))
 	  with
 	    | Not_found -> None
 	in
 	(host_name, host_port)
     | None ->
-	( match Netstring_pcre.string_match host6_re s 0 with
+	( match Netstring_str.string_match host6_re s 0 with
 	    | Some m ->
-		let host_name = Netstring_pcre.matched_group m 1 s in
+		let host_name = Netstring_str.matched_group m 1 s in
 		let host_port =
-		  try Some(int_of_string(Netstring_pcre.matched_group m 3 s))
+		  try Some(int_of_string(Netstring_str.matched_group m 3 s))
 		  with
 		    | Not_found -> None
 		in
@@ -845,21 +845,23 @@ module Header = struct
     in
     parse_comma_separated_field mh fn_name parse_extended_token fieldname
 
-  let qstring_indicator_re = 
-    Netstring_pcre.regexp "[\\\\\"()<>@,;:/[\\]?={} \\x00-\\x1f\\x7f]"
-
-  let qstring_re = Netstring_pcre.regexp "[\\\\\\\"]"
-		     (* = backslash, double quotes *)
-
+  let qstring_indicator_re =
+    Netstring_str.regexp "[]\\\"()<>@,;:/[?={} \x00-\x1f\x7f]"
+      (* Netstring_pcre.regexp "[\\\\\"()<>@,;:/[\\]?={} \\x00-\\x1f\\x7f]" *)
+      
+  let qstring_re = 
+    Netstring_str.regexp "[\\\"]"
+      (* Netstring_pcre.regexp "[\\\\\\\"]" *)
+      
   let qstring_of_value s =
     (* Returns a qstring *)
-      "\"" ^ Netstring_pcre.global_replace qstring_re "\\\\\\0" s ^ "\""
+      "\"" ^ Netstring_str.global_replace qstring_re "\\\\\\0" s ^ "\""
 	(* Escape qstring_re with a backslash *)
 
   let string_of_value s =
     (* Returns a token or a qstring, depending on the value of [s] *)
     try 
-      ignore(Netstring_pcre.search_forward qstring_indicator_re s 0);
+      ignore(Netstring_str.search_forward qstring_indicator_re s 0);
       qstring_of_value s
     with
 	Not_found -> s
@@ -1107,10 +1109,10 @@ module Header = struct
   let set_allow mh toks =
     mh # update_field "Allow" (String.concat "," toks)
 
-  let comma_split_re = Netstring_pcre.regexp "([ \t]*,)+[ \t]*"
+  let comma_split_re = Netstring_str.regexp "\\([ \t]*,\\)+[ \t]*"
 
   let comma_split =
-    Netstring_pcre.split comma_split_re
+    Netstring_str.split comma_split_re
       
   let parse_opt_eq_token stream =
     match stream with parser
@@ -1663,7 +1665,7 @@ module Header = struct
   let set_proxy_authenticate mh fields =
     mh # update_field "Proxy-Authenticate" (mk_challenges fields)
 
-  let ws_re = Netstring_pcre.regexp "[ \t\r\n]+";;
+  let ws_re = Netstring_str.regexp "[ \t\r\n]+";;
 
   let parse_credentials mh fn_name fieldname =
     let rec parse_creds stream =
@@ -1694,7 +1696,7 @@ module Header = struct
 
     (* Basic authentication is a special case! *)
     let v = mh # field fieldname in  (* or Not_found *)
-    match Netstring_pcre.split ws_re v with
+    match Netstring_str.split ws_re v with
       | [ name; creds ] when String.lowercase name = "basic" ->
 	  ("basic", ["credentials", creds])
       | _ ->
@@ -1748,15 +1750,16 @@ module Header = struct
 	Not_found ->
           raise(No_equation s)
 
-  let spaces_at_beginning_re = Pcre.regexp "^\\s+";;
-  let spaces_at_end_re = Pcre.regexp "\\s+$";;
+  let spaces_at_beginning_re = Netstring_str.regexp "^[ \t\r\n]+"
+  let spaces_at_end_re = Netstring_str.regexp "[ \t\r\n]+$"
 
-  let strip_spaces s =
-    (* Remove leading and trailing spaces: *)
-    Pcre.qreplace ~rex:spaces_at_end_re
-      (Pcre.qreplace ~rex:spaces_at_beginning_re s)
-
-  let split_cookies_re = Pcre.regexp "[ \t\r\n]*;[ \t\r\n]*" ;;
+  let strip_spaces s = (* Remove leading and trailing spaces: *)
+    Netstring_str.global_replace 
+      spaces_at_end_re ""
+      (Netstring_str.global_replace 
+	 spaces_at_beginning_re "" s)
+      
+  let split_cookies_re = Netstring_str.regexp "[ \t\r\n]*;[ \t\r\n]*" ;;
 
   let get_cookie mh =
     let cstrings = mh # multiple_field "Cookie" in
@@ -1764,10 +1767,7 @@ module Header = struct
     let cstrings' = List.map strip_spaces cstrings in
     let partss = List.map
                    (fun cstring ->
-                      Pcre.split
-                        ~max:(-1)
-                        ~rex:split_cookies_re
-                        cstring
+                      Netstring_str.split split_cookies_re cstring
                    )
                    cstrings' in
     let parts = List.flatten partss in
@@ -1803,25 +1803,25 @@ module Header = struct
     (* CHECK
        let nv_re = Pcre.regexp "^([a-zA-Z0-9_.]+)(=(.*))?$"
      *)
-  let nv_re = Pcre.regexp "^([^=;]+)(=(.*))?$"
+  let nv_re = Netstring_str.regexp "^\\([^=;]+\\)\\(=\\(.*\\)\\)?$"
 
 
   let get_set_cookie_1 s =
     let nv_list =
       List.map
 	(fun item ->
-	   ( match Netstring_pcre.string_match nv_re item 0 with
+	   ( match Netstring_str.string_match nv_re item 0 with
 	       | None ->
 		   raise(Bad_header_field "Nethttp.Header.get_set_cookie")
 	       | Some m ->
-		   let name = Netstring_pcre.matched_group m 1 item in
+		   let name = Netstring_str.matched_group m 1 item in
 		   let value = 
-		     try Netstring_pcre.matched_group m 3 item
+		     try Netstring_str.matched_group m 3 item
 		     with Not_found -> "" in
 		   (name, value)
 	   )
 	)
-	(Pcre.split ~rex:split_cookies_re s)
+	(Netstring_str.split split_cookies_re s)
     in
     match nv_list with
       | (n,v) :: params ->

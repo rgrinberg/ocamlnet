@@ -167,6 +167,7 @@ META: META.in
 	sed -e 's/@VERSION@/$(VERSION)/' \
 	    -e 's/@AUTHDHREQS@/$(AUTHDHREQS)/' \
 	    -e 's/@PREFERRED_CGI_PKG@/$(PREFERRED_CGI_PKG)/' \
+	    -e 's/@REGEXP_PROVIDER@/$(REGEXP_PROVIDER)/' \
 		META.in >META
 
 #----------------------------------------------------------------------

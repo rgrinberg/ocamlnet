@@ -238,15 +238,16 @@ end = struct
 end
 
 
-let drop_ws_re = Netstring_pcre.regexp "^[ \t\r\n]*(.*[^ \t\r\n])[ \t\r\n]*$";;
+let drop_ws_re = 
+  Netstring_str.regexp "^[ \t\r\n]*\\(.*[^ \t\r\n]\\)[ \t\r\n]*$";;
 
 let drop_ws s =
   (* Deletes whitespace at the beginning and at the end of s, and returns
    * the new string
    *)
-  match Netstring_pcre.string_match drop_ws_re s 0 with
+  match Netstring_str.string_match drop_ws_re s 0 with
       None -> ""
-    | Some r -> Netstring_pcre.matched_group r 1 s
+    | Some r -> Netstring_str.matched_group r 1 s
 ;;
   
 
