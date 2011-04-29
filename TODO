@@ -1,5 +1,8 @@
 OCAMLNET
 
+- Nethttpd should respect Netcgi.*.default_exn_handler
+- export Netcgi_common.error_page
+
 Test regexp:
  - Mimestring.scan_header OK, read_header OK, write_header OK
  - Mimestring: token scanner, RFC 2231 encoding, read_multipart_body OK

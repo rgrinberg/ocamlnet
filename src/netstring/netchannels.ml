@@ -1278,16 +1278,18 @@ object (self)
     ch # flush()
 
   method close_out() = 
-    ( try
-	self # flush()
-      with
-	| error ->
-	    Netlog.logf `Err
-	      "Netchannels: Suppressed error in close_out: %s"
-	      (Netexn.to_string error);
-    );
-    ch # close_out();
-    closed <- true
+    if not closed then (
+      ( try
+	  self # flush()
+	with
+	  | error ->
+	      Netlog.logf `Err
+		"Netchannels: Suppressed error in close_out: %s"
+		(Netexn.to_string error);
+      );
+      ch # close_out();
+      closed <- true
+    )
 
   method pos_out =
     (ch # pos_out) + bufpos
@@ -1483,6 +1485,7 @@ end
 class buffered_trans_channel ?(close_mode = (`Commit : close_mode)) 
 			      (ch : out_obj_channel)
                               : trans_out_obj_channel =
+  let closed = ref false in
   let transbuf = ref(Buffer.create 50) in
   let trans = ref(new output_buffer !transbuf) in
   let reset() =
@@ -1502,19 +1505,22 @@ object (self)
   method flush          = !trans # flush
 
   method close_out() =
-    ( try
-	( match close_mode with
-	      `Commit   -> self # commit_work()
-	    | `Rollback -> self # rollback_work()
-	)
-      with
-	| error ->
-	    Netlog.logf `Err
-	      "Netchannels: Suppressed error in close_out: %s"
-	      (Netexn.to_string error);
-    );
-    !trans # close_out();
-    out # close_out()
+    if not !closed then (
+      ( try
+	  ( match close_mode with
+		`Commit   -> self # commit_work()
+	      | `Rollback -> self # rollback_work()
+	  )
+	with
+	  | error ->
+	      Netlog.logf `Err
+		"Netchannels: Suppressed error in close_out: %s"
+		(Netexn.to_string error);
+      );
+      !trans # close_out();
+      out # close_out();
+      closed := true
+    )
 
 
   method pos_out =
@@ -1593,6 +1599,7 @@ class tempfile_trans_channel ?(close_mode = (`Commit : close_mode))
 			      : trans_out_obj_channel =
   let _transname, _transch_in, _transch_out = 
     make_temporary_file ?tmp_directory ?tmp_prefix () in
+  let closed = ref false in
 object (self)
   val transch_out        = _transch_out
   val mutable transch_in = _transch_in
@@ -1629,21 +1636,24 @@ object (self)
   method flush          = if need_clear then self#clear(); trans # flush
 
   method close_out() =
-    if need_clear then self#clear(); 
-    ( try
-	( match close_mode with
-	      `Commit   -> self # commit_work()
-	    | `Rollback -> self # rollback_work()
-	)
-      with
-	| error ->
-	    Netlog.logf `Err
-	      "Netchannels: Suppressed error in close_out: %s"
-	      (Netexn.to_string error);
-    );
-    Pervasives.close_in transch_in;
-    trans # close_out();      (* closes transch_out *)
-    out # close_out()
+    if not !closed then (
+      if need_clear then self#clear(); 
+      ( try
+	  ( match close_mode with
+		`Commit   -> self # commit_work()
+	      | `Rollback -> self # rollback_work()
+	  )
+	with
+	  | error ->
+	      Netlog.logf `Err
+		"Netchannels: Suppressed error in close_out: %s"
+		(Netexn.to_string error);
+      );
+      Pervasives.close_in transch_in;
+      trans # close_out();      (* closes transch_out *)
+      out # close_out();
+      closed := true
+    )
 
 
   method pos_out =

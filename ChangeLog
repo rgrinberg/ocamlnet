@@ -1,3 +1,8 @@
+2011-04-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Preventing errors "Netchannels: Suppressed error in close_out:
+  	  Netchannels.Closed_channel" (tentative fix)
+
 2011-04-28  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Reverting Netencoding.Url to the implementation used

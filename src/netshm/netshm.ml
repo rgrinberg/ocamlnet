@@ -239,8 +239,8 @@ let name_of_shm =
 
 let close_shm =
   function
-    | `File(_,fd,is_open) -> if !is_open then Unix.close fd
-    | `POSIX(_,fd,is_open) -> if !is_open then Unix.close fd
+    | `File(_,fd,is_open) -> if !is_open then Unix.close fd; is_open := false
+    | `POSIX(_,fd,is_open) -> if !is_open then Unix.close fd; is_open := false
 
 
 let unlink_shm =

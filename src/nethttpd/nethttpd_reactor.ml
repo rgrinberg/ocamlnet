@@ -869,7 +869,7 @@ let process_connection config fd (stage1 : 'a http_service) =
  
       | err when !(env#output_state) = `Start ->
 	  output_std_response config env `Internal_server_error None 
-	    (Some("Nethttpd: Uncaught exception: " ^ Netexn.to_string err));
+	    (Some("Nethttpd: Handler exception: " ^ Netexn.to_string err));
   in
 
   let do_stage3 req env stage3 =
@@ -1051,7 +1051,7 @@ let process_connection config fd (stage1 : 'a http_service) =
 	  dlogr (fun () ->
 		   sprintf "Exception forwarding to error log: %s" msg);
 	  config # config_log_error no_info
-	    ("Nethttpd: Exception: " ^ msg);
+	    ("Nethttpd: Protocol exception: " ^ msg);
   );
   ( try
       reactor # close()
@@ -1061,7 +1061,7 @@ let process_connection config fd (stage1 : 'a http_service) =
 	  dlogr (fun () ->
 		   sprintf "Exception forwarding to error log: %s" msg);
 	  config # config_log_error no_info
-	    ("Nethttpd: Exception: " ^ msg)
+	    ("Nethttpd: Protocol exception: " ^ msg)
   )
 ;;
 
