@@ -151,7 +151,7 @@ class http_environment (proc_config : #http_processor_config)
                        req_meth req_uri req_version req_hdr 
                        fd_addr peer_addr
                        in_ch in_cnt 
-                       out_ch output_state resp close_after_send_file
+                       out_ch output_state resp after_send_file
 		       reqrej fdi
                       : internal_environment =
 
@@ -273,7 +273,7 @@ object(self)
     sent_resp_hdr <- h;
     send_file_response resp status (Some h) fd length;
     out_state := `Sending;
-    close_after_send_file()
+    after_send_file()
 
   method log_error s =
     let info =
@@ -403,6 +403,7 @@ class http_reactor_output config resp synch out_state
 object
   val mutable closed = false
   val mutable locked = true
+  val mutable access_logged = false
 
   method output s spos slen =
     dlogr (fun () -> sprintf "FD=%Ld: output.output" fdi);
@@ -424,15 +425,14 @@ object
     dlogr (fun () -> sprintf "FD=%Ld: output.flush" fdi);
     if closed then raise Closed_channel;
     if locked then failwith "Nethttpd_reactor: channel is locked";
-    if !out_state <> `Sending then 
-      failwith "output channel: Cannot output now";
-    match config#config_reactor_synch with
-      | `Write
-      | `Flush ->
-	  synch()
-      | _ ->
-	  ()
-
+    if !out_state = `Sending then 
+      match config#config_reactor_synch with
+	| `Write
+	| `Flush ->
+	    synch()
+	| _ ->
+	    ()
+	      
   method close_out() =
     dlogr (fun () -> sprintf "FD=%Ld: output.close_out" fdi);
     if not closed then (
@@ -449,14 +449,19 @@ object
 	      ()
       );
       (* This is the right time for writing the access log entry: *)
-      f_access()
+      if not access_logged then (
+	f_access();
+	access_logged <- true
+      )
     )
       
 
 
-  method close_after_send_file() =
-    dlogr (fun () -> sprintf "FD=%Ld: output.close_after_send_file" fdi);
-    closed <- true;
+  method after_send_file() =
+    (* Flush after send_file. This method does not count as close_out,
+       though. It is possible that more flushes follow.
+     *)
+    dlogr (fun () -> sprintf "FD=%Ld: output.after_send_file" fdi);
     out_state := `End;
     ( match config#config_reactor_synch with
 	| `Write
@@ -467,7 +472,10 @@ object
 	    ()
     );
     (* This is the right time for writing the access log entry: *)
-    f_access()
+    if not access_logged then (
+      f_access();
+      access_logged <- true
+    )
 
   method unlock() =
     dlogr (fun () -> sprintf "FD=%Ld: output.unlock" fdi);
@@ -479,6 +487,9 @@ end
 class http_reactive_request_impl config env inch outch resp expect_100_continue
                                  finish_request reqrej
                                  : http_reactive_request =
+  (* NB. inch and outch must only be used here to control the locks in these
+     channels, not for doing real I/O
+   *)
 object(self)
 
   initializer (
@@ -707,6 +718,10 @@ object(self)
 	   * and not after every output method invocation.
 	   *)
 
+	  let after_send_file() =
+	    output_ch # after_send_file();
+	    lifted_output_ch # close_out() in
+
 	  let reqrej = ref false in
 	  ( try
 	      let env = new http_environment 
@@ -715,7 +730,7 @@ object(self)
                               fd_addr peer_addr
 		              lifted_input_ch in_cnt 
 			      lifted_output_ch output_state
-			      resp output_ch#close_after_send_file reqrej
+			      resp after_send_file reqrej
 			      (Netsys.int64_of_file_descr fd)
 	      in
 	      env_opt := Some env;
