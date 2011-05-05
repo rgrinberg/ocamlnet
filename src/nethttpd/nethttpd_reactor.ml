@@ -438,8 +438,9 @@ object
     if not closed then (
       if locked then failwith "Nethttpd_reactor: channel is locked";
       closed <- true;
+      if !out_state = `Sending then
+	resp # send `Resp_end;
       out_state := `End;
-      resp # send `Resp_end;
       ( match config#config_reactor_synch with
 	  | `Write
 	  | `Flush
