@@ -953,9 +953,11 @@ object (self)
 	  closed <- true; 
 	with
 	  | error ->
+	      let bt = Printexc.get_backtrace() in
 	      Netlog.logf `Err
-		"Netchannels: Suppressed error in close_out: %s"
-		(Netexn.to_string error);
+		"Netchannels.output_channel: \
+                   Suppressed error in close_out: %s - backtrace: %s"
+		(Netexn.to_string error) bt;
 	      Pervasives.close_out_noerr ch;
 	      closed <- true; 
       );
@@ -1283,9 +1285,11 @@ object (self)
 	  self # flush()
 	with
 	  | error ->
+	      let bt = Printexc.get_backtrace() in
 	      Netlog.logf `Err
-		"Netchannels: Suppressed error in close_out: %s"
-		(Netexn.to_string error);
+		"Netchannels.buffered_raw_out_channel: \
+                  Suppressed error in close_out: %s - backtrace: %s"
+		(Netexn.to_string error) bt;
       );
       ch # close_out();
       closed <- true
@@ -1513,9 +1517,11 @@ object (self)
 	  )
 	with
 	  | error ->
+	      let bt = Printexc.get_backtrace() in
 	      Netlog.logf `Err
-		"Netchannels: Suppressed error in close_out: %s"
-		(Netexn.to_string error);
+		"Netchannels.buffered_trans_channel: \
+                   Suppressed error in close_out: %s - backtrace: %s"
+		(Netexn.to_string error) bt;
       );
       !trans # close_out();
       out # close_out();
@@ -1645,9 +1651,11 @@ object (self)
 	  )
 	with
 	  | error ->
+	      let bt = Printexc.get_backtrace() in
 	      Netlog.logf `Err
-		"Netchannels: Suppressed error in close_out: %s"
-		(Netexn.to_string error);
+		"Netchannels.tempfile_trans_channel: \
+                  Suppressed error in close_out: %s - backtrace: %s"
+		(Netexn.to_string error) bt;
       );
       Pervasives.close_in transch_in;
       trans # close_out();      (* closes transch_out *)

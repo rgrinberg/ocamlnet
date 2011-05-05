@@ -184,7 +184,7 @@ module Make_var_type(T:Netplex_cenv.TYPE) :
 
       {[
          module Foo_var = 
-           Make_var_type(struct t = foo end)
+           Make_var_type(struct type t = foo end)
       ]}
 
       and use [Foo_var.get] and [Foo_var.set] to access the shared
