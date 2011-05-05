@@ -727,6 +727,9 @@ object(self)
     (* Check whether the HTTP connection is processed and can be closed: *)
     if eof_seen && not proto#do_output then (
       if proto # need_linger then (
+	(* FIXME: It is strange to check here for a lingering close. This
+	   should never be necessary after getting an EOF from the client
+	 *)
 	dlogr (fun () -> sprintf "FD %Ld: lingering"
 		 (Netsys.int64_of_file_descr fd));
 	let lc = 
@@ -1298,11 +1301,16 @@ object(self)
 		   None
 	     | err when !(env#output_state) = `Start ->
 		 output_std_response config env' `Internal_server_error None 
-		   (Some("Nethttpd: Uncaught exception: " ^ Netexn.to_string err));
+		   (Some("Nethttpd: Exception (sending server error): " ^
+			   Netexn.to_string err));
 		 None
 	     | err ->
 		 log_error req
-		   ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
+		   ("Nethttpd: Exception: " ^ Netexn.to_string err);
+		 (* Better do an abort here. We probably cannot finish
+		    the cycle regularly
+		  *)
+		 self # engine # abort();
 		 None
 	 in
 	 dlogr (fun () -> 
@@ -1401,12 +1409,16 @@ object(self)
 		   None
 	     | err when !(env#output_state) = `Start ->
 		 output_std_response config env' `Internal_server_error None 
-		   (Some("Nethttpd: Uncaught exception: " ^ 
+		   (Some("Nethttpd: Exception (sending server error): " ^ 
 			   Netexn.to_string err));
 		 None
-	     | err ->
+	     | err -> (* Unlikely case *)
 		 log_error req
-		   ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err);
+		   ("Nethttpd: Exception: " ^ Netexn.to_string err);
+		 (* Better do an abort here. We probably cannot finish
+		    the cycle regularly
+		  *)
+		 self # engine # abort();
 		 None
 	 in
 	 (* Send the event that we are done here: *)
@@ -1507,7 +1519,12 @@ object(self)
     with
       | err ->
 	  log_error req
-	    ("Nethttpd: Uncaught exception: " ^ Netexn.to_string err)
+	    ("Nethttpd: Exception: " ^ Netexn.to_string err);
+	  (* Better do an abort here. We probably cannot finish
+	     the cycle regularly
+	   *)
+	  self # engine # abort()
+	  
 	  
   method engine = Lazy.force engine
 

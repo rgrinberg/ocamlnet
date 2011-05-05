@@ -815,6 +815,7 @@ object(self)
 	    Unix.close fd; 
 	    raise err
     );
+    proto # shutdown();
     if proto # need_linger then (
       dlogr (fun () -> 
 	       sprintf "FD %Ld: lingering" (Netsys.int64_of_file_descr fd));
