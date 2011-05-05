@@ -14,6 +14,8 @@ let default_rng() =
 	   with e -> Unix.close fd; raise e
 	)
 
+    | _ ->
+	failwith "Netsys_rng: No default secure random number generator"
 
 let rng = ref (default_rng())
 
