@@ -1,3 +1,8 @@
+2011-05-06  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Unixqueue: important bug fixes that were introduced since
+	  Ocamlnet-3.2, and affect e.g. Http_client.
+
 2011-04-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Preventing errors "Netchannels: Suppressed error in close_out:
