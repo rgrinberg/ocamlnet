@@ -262,6 +262,7 @@ type http_options =
       verbose_request_contents : bool;
       verbose_response_contents : bool;
       verbose_connection : bool;
+      verbose_events : bool;
         (** Enable various debugging message types.
 	 * - [verbose_status]: reports about status of received documents
 	 * - [verbose_request_header]: prints the header sent to the server
@@ -270,6 +271,7 @@ type http_options =
 	 * - [verbose_response_contents]: prints the document received from the server
 	 * - [verbose_connection]: reports many connection events; authentication,
 	 *   too.
+         * - [verbose_events]: everything about the interaction with [Unixqueue]
          *
          * By default, [verbose_status] and [verbose_connection] are enabled.
          * Note that you also have to set [Debug.enable] to [true] to see
@@ -1140,8 +1142,18 @@ sig
       * body.
      *)
 
-  val http_verbose : unit -> unit
-    (** Turns on debug messages on stderr. *)
+  val http_verbose : 
+        ?verbose_status:bool ->
+        ?verbose_request_header:bool ->
+        ?verbose_response_header:bool ->
+        ?verbose_request_contents:bool ->
+        ?verbose_response_contents:bool ->
+        ?verbose_connection:bool ->
+        ?verbose_events:bool ->
+        unit -> unit
+    (** Turns on debug messages on stderr. By default, all options are 
+	turned on.
+     *)
 
 end
 

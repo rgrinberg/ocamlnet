@@ -166,6 +166,7 @@ type http_options =
       verbose_request_contents : bool;
       verbose_response_contents : bool;
       verbose_connection : bool;
+      verbose_events : bool;
     }
 ;;
 
@@ -2680,6 +2681,8 @@ class connection the_esys
 	       (* Very early error! *)
 	       ( match group with
 		     Some g ->
+		       if options.verbose_events then
+			 dlog "HTTP events: reset after DNS failure";
 		       Unixqueue.clear esys g;         (* clean up esys *)
 		       group <- None
 		   | None -> ()
@@ -2701,6 +2704,10 @@ class connection the_esys
 		   Unixqueue.add_resource esys g (Unixqueue.Wait_in fd, 
 						  timeout_value);
 		   Unixqueue.add_handler esys g (self # handler);
+		   if options.verbose_events then
+		     dlog (sprintf 
+			     "FD %Ld - HTTP events: config input (reused fd)"
+			     (Netsys.int64_of_file_descr fd));
 		 with
 		     Not_found ->
 		       (* No inactive connection found. Connect: *)
@@ -2774,6 +2781,11 @@ class connection the_esys
       let timeout_value = options.connection_timeout in
       Unixqueue.add_resource esys g (Unixqueue.Wait_in s, timeout_value);
       Unixqueue.add_handler esys g (self # handler);
+
+      if options.verbose_events then
+	dlog (sprintf 
+		"FD %Ld - HTTP events: config input (new fd)"
+		(Netsys.int64_of_file_descr s));
       self # maintain_polling;
 
 
@@ -2794,6 +2806,8 @@ class connection the_esys
 		     "HTTP connection: Cannot connect to %s: Exception %s"
 		     peer_host (Netexn.to_string err))
       );
+      if options.verbose_events then
+	dlog "HTTP events: reset after connect error";
       Unixqueue.clear esys g;         (* clean up esys *)
       group <- None;
       (* Continue with the regular error path: *)
@@ -2812,6 +2826,13 @@ class connection the_esys
        * - We wait for the reply of the first request send to a server
        * - The write side of the socket is closed
        *)
+
+      if options.verbose_events then
+	dlogr
+	  (fun () -> 
+	     sprintf "FD %s - HTTP events: maintain_polling"
+	     io#socket_str
+	  );
 
       if group <> None && io # socket_state <> Down then (
 	let timeout_value = options.connection_timeout in
@@ -2848,12 +2869,31 @@ class connection the_esys
 	  io#socket_state = Up_rw 
 	  && ( ( have_requests && not waiting_for_handshake) ||
 	       do_close_output ) in
+
+      if options.verbose_events then
+	dlogr
+	  (fun () -> 
+	     sprintf "FD %s - HTTP events: maintain_polling \
+                      n_read=%d n_write=%d \
+                      actual_max_drift=%d have_requests=%B do_close_output=%B \
+                      waiting_for_handshake=%B do_poll_wr=%B"
+	       io#socket_str
+	       (Q.length read_queue) (Q.length write_queue)
+	       actual_max_drift have_requests do_close_output 
+	       waiting_for_handshake do_poll_wr
+	  );
 	
 	if do_poll_wr && not polling_wr then (
 	  let g = match group with
 	      Some x -> x
 	    | None -> assert false
 	  in
+	  if options.verbose_events then
+	    dlogr
+	      (fun () -> 
+		 sprintf "FD %s - HTTP events: config output=enabled"
+		   io#socket_str
+	      );
 	  Unixqueue.add_resource esys g (Unixqueue.Wait_out io#socket, 
 					 timeout_value
 					);
@@ -2864,6 +2904,12 @@ class connection the_esys
 	      Some x -> x
 	    | None -> assert false
 	  in
+	  if options.verbose_events then
+	    dlogr
+	      (fun () -> 
+		 sprintf "FD %s - HTTP events: config output=disabled"
+		   io#socket_str
+	      );
 	  Unixqueue.remove_resource esys g (Unixqueue.Wait_out io#socket);
 	);
 	
@@ -2883,9 +2929,13 @@ class connection the_esys
 
 
 
-    method private clear_timeout g =
-      Unixqueue.clear esys g;
-      timeout_groups <- List.filter (fun x -> x <> g) timeout_groups;
+    method private clear_timeout group =
+      if options.verbose_events then
+	dlogr
+	  (fun () -> 
+	     sprintf "FD %s - HTTP events: clear_timeout" io#socket_str);
+      Unixqueue.clear esys group;
+      timeout_groups <- List.filter (fun x -> x <> group) timeout_groups;
 
 
     method private abort_connection ~reusable =
@@ -2920,6 +2970,9 @@ class connection the_esys
 		    else
 		      io # close()
 	      end;
+	      if options.verbose_events then
+		dlog (sprintf "FD %s - HTTP events: reset after shutdown"
+			io#socket_str);
 	      Unixqueue.clear esys g;
 	      polling_wr <- false;
 	      group <- None;
@@ -2955,6 +3008,9 @@ class connection the_esys
       (* No network packet arrived for a period of time.
        * May only happen when a connection is already established
        *)
+      if options.verbose_events then
+	dlogr (fun() -> 
+		 sprintf "FD %s - HTTP events: handle_timeout" io#socket_str);
       io # set_timeout;
       self # handle_input;   (* timeout is similar to EOF *)
 
@@ -2964,6 +3020,9 @@ class connection the_esys
     (**********************************************************************)
 
     method private handle_output =
+      if options.verbose_events then
+	dlogr (fun() -> 
+		 sprintf "FD %s - HTTP events: handle_output" io#socket_str);
 
       (* Ignore this event if the socket is not Up_rw (this may happen
        * if the output side is closed while there are still output
@@ -3142,6 +3201,10 @@ class connection the_esys
        * if the input side is closed while there are still input
        * events in the queue):
        *)
+      if options.verbose_events then
+	dlogr (fun() -> 
+		 sprintf "FD %s - HTTP events: handle_input" io#socket_str);
+
       if io#socket_state = Down then
 	raise Equeue.Reject;
 
@@ -3924,6 +3987,7 @@ class pipeline =
 	      verbose_request_contents = false;
 	      verbose_response_contents = false;
 	      verbose_connection = true;
+	      verbose_events = false;
 	    }
 
     val auth_cache = new auth_cache
@@ -4470,18 +4534,26 @@ module Convenience =
     let http_delete url = (http_delete_message url) # get_resp_body()
 
 
-    let http_verbose =
+    let http_verbose 
+         ?(verbose_status=true)
+         ?(verbose_request_header=true)
+         ?(verbose_response_header=true)
+         ?(verbose_request_contents=true)
+         ?(verbose_response_contents=true)
+         ?(verbose_connection=true)
+         ?(verbose_events=true) =
       serialize
 	(fun () ->
 	   let p = Lazy.force pipe in
 	   let opt = p # get_options in
 	   p # set_options
-	     { opt with verbose_status = true;
-	         verbose_request_header = true;
-		 verbose_response_header = true;
-		 verbose_request_contents = true;
-		 verbose_response_contents = true;
-		 verbose_connection = true 
+	     { opt with verbose_status = verbose_status;
+	         verbose_request_header = verbose_request_header;
+		 verbose_response_header = verbose_response_header;
+		 verbose_request_contents = verbose_request_contents;
+		 verbose_response_contents = verbose_response_contents;
+		 verbose_connection = verbose_connection;
+		 verbose_events = verbose_events
              };
 	   conv_verbose := true;
 	   Debug.enable := true;

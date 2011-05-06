@@ -55,7 +55,7 @@ let ops_until tmax m =
     with
       | Exit -> ()
   );
-  !l
+  List.rev !l
 
 
 exception Term of Unixqueue_util.group
@@ -66,6 +66,18 @@ exception Keep_alive
 
 exception Exit_loop
 
+
+let () =
+  Netexn.register_printer
+    (Term nogroup)
+    (function
+       | Term g ->
+	   if g = nogroup then
+	     "Term(nogroup)"
+	   else
+	     "Term(" ^ string_of_int (Oo.id g) ^ ")"
+       | _ -> assert false
+    )
 
 
 let pset_set (pset:Netsys_pollset.pollset) fd (i,o,p) =
@@ -170,7 +182,7 @@ class pollset_event_system (pset : Netsys_pollset.pollset) =
 	| Unixqueue_util.Wait_oob fd ->
 	    Unixqueue_util.Out_of_band(g,fd)
 	| Unixqueue_util.Wait _ ->
-	    Unixqueue_util.Timeout(g,op) in
+	    assert false in
 
   let events_of_op_wl op =
     try 
@@ -182,6 +194,17 @@ class pollset_event_system (pset : Netsys_pollset.pollset) =
              pset
            *)
 	  [] in
+
+  let tmo_event_of_op_wl_nf op =
+    let (_,_,g,_) = OpTbl.find tmo_of_op op in (* or Not_found *)
+    Unixqueue_util.Timeout(g,op) in
+
+  let tmo_events_of_op_wl op =
+    try 
+      [ event_of_op_wl_nf op ]
+    with
+      | Not_found -> [] (* Ghost event, see above *) in
+	    
 
   let add_event_wl e =
     Equeue.add_event (Lazy.force !sys) e;
@@ -223,8 +246,10 @@ object(self)
     let delta = if tmin < 0.0 then (-1.0) else max (tmin -. t0) 0.0 in
 
     if dbg then
-      dlogr (fun () -> (
-	       sprintf "t0 = %f" t0));
+      dlogr (fun () ->
+	       sprintf "t0 = %f,   #tmo_of_op = %d" 
+		 t0 (OpTbl.length tmo_of_op)
+	    );
     
     let nothing_to_do =
       (* For this test only non-weak resources count, so... *)
@@ -335,7 +360,7 @@ object(self)
          a timeout value of 0.0 won't work
        *)
 
-      let timeout_ops = 
+      let ops_timed_out_l =
 	(* Determine the operations in [tmo_of_op] that have timed
            out and that are not in [operations]
 	   FIXME: [List.mem op operations] is not scalable.
@@ -350,29 +375,40 @@ object(self)
 	  )
 	  []
 	  ops_timed_out in
-      
-      if dbg then
+
+      if dbg then (
 	dlogr
 	  (fun() -> 
-	     sprintf "delivering <%s>"
+	     sprintf "delivering events <%s>"
 	       (String.concat ";" 
 		  (flatten_map
 		     (fun op ->
 			List.map string_of_event (events_of_op_wl op)
 		     )
-		     (operations @ timeout_ops)
+		     operations
 		  )));
+	dlogr
+	  (fun() -> 
+	     sprintf "delivering timeouts <%s>"
+	       (String.concat ";" 
+		  (flatten_map
+		     (fun op ->
+			List.map string_of_event (tmo_events_of_op_wl op)
+		     )
+		     ops_timed_out_l
+		  )));
+      );
       
       (* deliver events *)
       let delivered = ref false in
-      let deliver op =
-	delivered := true;
+      let deliver get_ev op =
 	try 
-	  let ev = event_of_op_wl_nf op in
+	  let ev = get_ev op in
+	  delivered := true;
 	  Equeue.add_event _sys ev
 	with Not_found -> () in
-      List.iter deliver operations;
-      List.iter deliver timeout_ops;
+      List.iter (deliver event_of_op_wl_nf)     operations;
+      List.iter (deliver tmo_event_of_op_wl_nf) ops_timed_out_l;
 
       if !have_eintr then (
 	dlogr (fun () -> "delivering Signal");
@@ -395,8 +431,10 @@ object(self)
       (* Set a new timeout for all delivered events:
          (Note that [pset] remains unchanged, because the set of watched
          resources remains unchanged.)
+	 rm_done is true when the old timeout is already removed from
+	 ops_of_tmo.
        *)
-      let update_tmo oplist =
+      let update_tmo rm_done oplist =
 	List.iter
 	  (fun op ->
 	     try
@@ -404,7 +442,8 @@ object(self)
 		 OpTbl.find tmo_of_op op in (* or Not_found *)
 	       if tmo >= 0.0 then (
 		 let t2 = t1 +. tmo in
-		 self#sched_upd_tmo_wl g op tmo t2 is_strong t1
+		 self#sched_upd_tmo_wl g op tmo t2 is_strong 
+		   (if rm_done then (-1.0) else t1)
 	       )
 	     with
 	       | Not_found -> ()
@@ -414,8 +453,8 @@ object(self)
 		    *)
 	  )
 	  oplist in
-      update_tmo operations;
-      update_tmo timeout_ops;
+      update_tmo false operations;
+      update_tmo true  ops_timed_out_l;
 
       if is_mt then mutex # unlock();
       locked := false
@@ -481,7 +520,7 @@ object(self)
   method private sched_add_wl g op tmo t1 is_strong =
     dlogr(fun () -> (sprintf "sched_add %s tmo=%f t1=%f is_strong=%b"
 		       (string_of_op op) tmo t1 is_strong));
-    OpTbl.add tmo_of_op op (tmo, t1, g, is_strong);
+    OpTbl.replace tmo_of_op op (tmo, t1, g, is_strong);
     if is_strong then
       incr strong_ops;
     let l_ops =
@@ -516,11 +555,9 @@ object(self)
 		       (string_of_op op) tmo t1 is_strong));
     OpTbl.replace tmo_of_op op (tmo, t1, g, is_strong);
 
-    (* We assume old_t1 is already removed form ops_of_tmo, so the following
-       block is unnecessary:
-     *)
-    (*
-    ( try
+    (* We assume old_t1 is already removed form ops_of_tmo if old_t1 < 0 *)
+    if old_t1 >= 0.0 then (
+      try
 	let l_ops =
 	  FloatMap.find old_t1 !ops_of_tmo in
 	let l_ops' =
@@ -531,7 +568,6 @@ object(self)
 	  ops_of_tmo := FloatMap.add old_t1 l_ops' !ops_of_tmo
       with Not_found -> ()
     );
-    *)
 
     let l_ops_new =
       try FloatMap.find t1 !ops_of_tmo with Not_found -> OpSet.empty in
@@ -885,6 +921,7 @@ object(self)
     OpSet.iter
       self#pset_remove_wl
       ops;
+    Hashtbl.remove ops_of_group g;
 
     (* (ii) delete all handlers of g: *)
     add_event_wl (Extra (Term g));

@@ -180,31 +180,37 @@ let fd_cmp =
 	Pervasives.compare
     | _ ->
 	(fun (fd1:Unix.file_descr) fd2 ->
-	   Pervasives.compare (Obj.magic fd1 : int) (Obj.magic fd2 : int)
+	   (Obj.magic fd1 : int) - (Obj.magic fd2 : int)
 	)
 
 
-let is_op_eq op1 op2 = (* in native code faster then op1=op2 *)
-  match op1 with
-    | Wait_in fd1 ->
-	( match op2 with
-	    | Wait_in fd2 -> fd1=fd2
-	    | _ -> false
-	)
-    | Wait_out fd1 ->
-	( match op2 with
-	    | Wait_out fd2 -> fd1=fd2
-	    | _ -> false
-	)
-    | Wait_oob fd1 ->
-	( match op2 with
-	    | Wait_oob fd2 -> fd1=fd2
-	    | _ -> false
-	)
-    | Wait wid1 ->
-	( match op2 with
-	    | Wait wid2 -> (Oo.id wid1 = Oo.id wid2)
-	    | _ -> false
+let is_op_eq = (* in native code faster then op1=op2 *)
+  match Sys.os_type with
+    | "Win32" ->
+	(fun op1 op2 -> op1 = op2)
+    | _ ->
+	(fun op1 op2 ->
+	   match op1 with
+	     | Wait_in fd1 ->
+		 ( match op2 with
+		     | Wait_in fd2 -> fd1==fd2
+		     | _ -> false
+		 )
+	     | Wait_out fd1 ->
+		 ( match op2 with
+		     | Wait_out fd2 -> fd1==fd2
+		     | _ -> false
+		 )
+	     | Wait_oob fd1 ->
+		 ( match op2 with
+		     | Wait_oob fd2 -> fd1==fd2
+		     | _ -> false
+		 )
+	     | Wait wid1 ->
+		 ( match op2 with
+		     | Wait wid2 -> (Oo.id wid1 = Oo.id wid2)
+		     | _ -> false
+		 )
 	)
 
 
