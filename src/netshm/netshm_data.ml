@@ -195,7 +195,7 @@ let string_manager =
 	 List.iter
 	   (fun v ->
 	      let l = Bigarray.Array1.dim v in
-	      let has_last_content_word = !pos = !size in
+	      let has_last_content_word = !pos = !size && s_len > 0 in
 	      pos := !pos - l;
 	      let has_length_word = !pos = 0 in
 	      let loop_e = if has_last_content_word then l-2 else l-1 in
@@ -261,6 +261,7 @@ let pair_manager x_manager y_manager =
 	   raise(Netshm.Corrupt_file "Netshm_data.pair_manager: Cannot decode");
 	 let l' = List.rev l in
 	 let vl = List.hd l' in
+	 assert(Bigarray.Array1.dim vl > 0);
 	 let lx = Int32.to_int vl.{0} in
 	 
 	 let l1 = ref [] in
