@@ -6,8 +6,9 @@ STD_PACKAGES = unix pcre str findlib netstring
 DEBUG  = -g
 # Invoke with: make DEBUG=-g
 
+build: test_server refuser test_client test_bad_request
 
-test: test_server refuser test_client test_bad_request
+test: 
 	./test_bench
 
 #run:
@@ -31,21 +32,21 @@ refuser: refuser.cmo
 		refuser.cmo
 
 test_client.cmo: test_client.ml
-	ocamlfind ocamlc $(DEBUG) -package "$(STD_PACKAGES)" \
-		-I .. -c $<
+	ocamlfind ocamlc $(DEBUG) -package "$(STD_PACKAGES) netclient" \
+		-c $<
 
-test_client: test_client.cmo ../netclient.cma
+test_client: test_client.cmo
 	ocamlfind ocamlc -o test_client $(DEBUG) \
 		-predicates debug -verbose \
-		-package "$(STD_PACKAGES) equeue netstring" \
-		-linkpkg ../netclient.cma test_client.cmo
+		-package "$(STD_PACKAGES) equeue netstring netclient" \
+		-linkpkg test_client.cmo
 
-test_bad_request: test_bad_request.ml ../netclient.cma
+test_bad_request: test_bad_request.ml
 	ocamlfind ocamlc -o test_bad_request $(DEBUG) \
 		-predicates debug \
-		-package "$(STD_PACKAGES) equeue netstring" \
+		-package "$(STD_PACKAGES) equeue netstring netclient" \
 		-linkpkg -I .. \
-		 ../netclient.cma test_bad_request.ml
+		 test_bad_request.ml
 
 clean:
 	rm -f *.cmo *.cmi run test_client test_server *.out \

@@ -1,0 +1,89 @@
+#! /bin/sh
+
+# Run the automated tests in this directory.
+#
+# Modes:
+# ./test_suite clean
+#   --> clean all tests
+# ./test_suite make
+#   --> re-make all tests (implies prior "clean")
+# ./test_suite run
+#   --> run the tests
+
+top="$(dirname $PWD)"
+
+OCAMLPATH="$top/src"
+OCAMLFIND_IGNORE_DUPS_IN="$top/src"
+CAML_LD_LIBRARY_PATH="$top/src/equeue-ssl:$top/src/equeue-tcl:$top/src/netstring:$top/src/netsys:$top/src/rpc-auth-local"
+PATH="$top/src/rpc-generator:$PATH"
+
+export OCAMLPATH OCAMLFIND_IGNORE_DUPS_IN CAML_LD_LIBRARY_PATH PATH
+
+set -e 
+
+dirs="netclient/hhamsters \
+      netclient/http_bench \
+      netplex/bench \
+      netplex/mutex \
+      netstring/bench \
+      nethttpd/bench \
+      netshm/bench \
+      rpc/basic \
+      rpc/bench \
+      shell"
+
+clean() {
+    echo "****************************************"
+    echo "Cleaning"
+    echo "****************************************"
+    for d in $dirs; do
+	echo "----------------------------------------"
+	echo ">>> Directory $d"
+	echo "----------------------------------------"
+	( cd $d && make clean ) || exit
+    done
+}
+
+
+build() {
+    echo "****************************************"
+    echo "Building"
+    echo "****************************************"
+    for d in $dirs; do
+	echo "----------------------------------------"
+	echo ">>> Directory $d"
+	echo "----------------------------------------"
+	( cd $d && make build ) || exit
+    done
+}
+
+
+run() {
+    echo "****************************************"
+    echo "Testing"
+    echo "****************************************"
+    for d in $dirs; do
+	echo "----------------------------------------"
+	echo ">>> Directory $d"
+	echo "----------------------------------------"
+	( cd $d && make test ) || exit
+    done
+}
+
+
+if [ $# -eq 0 ]; then
+    echo "usage: ./test_suite ( clean | make | run )"
+    exit 0
+fi
+
+case "$1" in
+    clean)
+	clean ;;
+    make)
+	clean && build ;;
+    run)
+	run ;;
+    *)
+	echo "Illegal mode: $1" >&2;
+	exit 2 ;;
+esac

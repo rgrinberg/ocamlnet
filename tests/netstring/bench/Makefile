@@ -3,12 +3,14 @@
 # 2nd note: "test_encoding.cgi" is a CGI script; you must invoke
 # it through browser and WWW server.
 
-test: test_recode fort
-	OCAMLPATH=../.. ocaml test_netencoding.ml
-	OCAMLPATH=../.. ocaml test_mimestring.ml
-	OCAMLPATH=../.. ocaml test_nethtml.ml
-	OCAMLPATH=../.. ocaml test_neturl.ml
-	CAML_LD_LIBRARY_PATH=../../netsys ./test_recode
+build: test_recode fort
+
+test:
+	ocaml test_netencoding.ml
+	ocaml test_mimestring.ml
+	ocaml test_nethtml.ml
+	ocaml test_neturl.ml
+	./test_recode
 
 test_recode: test_recode.ml
 	OCAMLPATH=../.. \
@@ -34,6 +36,7 @@ distclean: clean
 
 clean:
 	rm -f *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa
+	rm -f test_recode speed_conv speed_conv_p
 	cd fort; make clean
 
 CLEAN:

@@ -1,5 +1,7 @@
+(*
 #use "topfind";;
 #require "shell";;
+*)
 
 let run() =
   let esys = Unixqueue.create_unix_event_system() in
@@ -45,3 +47,7 @@ let test() =
   for n = 1 to 1000 do
     run()
   done
+
+
+let () =
+  test()

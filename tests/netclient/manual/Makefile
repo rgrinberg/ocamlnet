@@ -9,7 +9,4 @@ testmt:
 
 clean:
 	rm -f *.cmi *.cmo *.cma *.cmx *.o *.a *.cmxa
-
-distclean: clean
-	rm -f *~ testmt
-
+	rm -f testmt

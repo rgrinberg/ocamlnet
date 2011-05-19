@@ -29,7 +29,9 @@ opt:
 	$(MAKE) depend
 	$(MAKE) -f Makefile.code opt
 
-test: all
+build: all
+
+test:
 	./prototest all
 
 gen: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.s2stamp)
