@@ -1,6 +1,0 @@
-HTTP/1.1 200 OK
-content-type: text/plain
-content-encoding: blah
-content-encoding: blup
-
-This is a simple answer; only one line.

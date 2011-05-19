@@ -1,6 +1,0 @@
-HTTP/1.0 200 OK
-content-type: text/plain
-content-length: 55
-proxy-connection: keep-alive
-
-ABCDEFGHIJKLMNOPQRSTUVWXYZ: abcdefghijklmnopqrstuvwxyz

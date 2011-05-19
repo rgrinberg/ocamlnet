@@ -1,6 +1,0 @@
-HTTP/1.1 401 Unauthorized
-content-type: text/plain
-content-length: 14
-www-authenticate: Basic realm="testrealm"
-
-Unauthorized.
