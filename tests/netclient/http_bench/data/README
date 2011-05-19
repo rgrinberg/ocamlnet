@@ -1,0 +1,53 @@
+simple:			minimal correct response (unframed)
+simple-nocr:            same as 'simple' but header lines are terminated by
+			a single LF instead of CR-LF
+simple-ci:              same as 'simple' but one header name is formed by
+			a mixture of lowercase and uppercase letters
+simple-extra-sp:        same as 'simple' but extra spaces between ':' and the
+			value of a header line
+simple-extra-tab:       same as 'simple' but extra tabs between ':' and the
+			value of a header line
+simple-cont-sp:         same as 'simple' but one header line continues in the
+			next line; continuation is indicated by a single space
+simple-cont-tab:        same as 'simple' but one header line continues in the
+			next line; continuation is indicated by a single tab
+simple-cont-2sp:        same as 'simple' but one header line continues in the
+			next line; continuation is indicated by two spaces
+simple-cont-2tab:       same as 'simple' but one header line continues in the
+			next line; continuation is indicated by two tabs
+simple-cont-sptab:      same as 'simple' but one header line continues in the
+			next line; continuation is indicated by a space 
+			followed by a tab
+simple-cont-early:	same as 'simple' but one header line is folded directly
+			after ':'
+simple-multi:           same as 'simple' but there are multiple header lines
+			with the same name
+simple-phantasy:        same as 'simple' but with a combination of the above
+			variations of the preferred format
+
+framed:			a response with a 'content-length' field
+framed-big:		a 64K response with a 'content-length' field
+framed-8bitclean:       demonstrates 8 bit cleanness
+
+chunked:		a response with chunked encoding
+chunked-ci:             a response with cHuNkEd encoding
+chunked-ext:            a response with extended chunks
+chunked-big:            a 64K response in chunked encoding
+chunked-footer:         a response with chunked encoding and a footer
+
+require-basicauth:	a 401 response demanding basic server authentication
+require-digestauth:	a 401 response demanding digest server authentication
+require-proxyauth:	a 407 response demanding basic proxy authentication
+
+status-100:             a 100 (Continue) response
+status-404:             a 404 (Not found) response
+
+illegal-protocol:       a response with illegal first line
+
+bad-request:		This is a real response from an Apache server on
+			a bad HTTP request
+
+head:			A trivial HEAD response, without "content-length"
+
+proxypersistency-1.0:	A framed HTTP/1.0 response with "proxy-connection":
+			keep-alive token.

@@ -1,0 +1,15 @@
+HTTP/1.1 200 OK
+content-type: text/plain
+transfer-encoding: chunked
+
+37
+ABCDEFGHIJKLMNOPQRSTUVWXYZ: abcdefghijklmnopqrstuvwxyz
+
+3a;key=value
+abcdefghijklmnopqrstuvwxyz: @#*ABCDEFGHIJKLMNOPQRSTUVWXYZ
+
+3A;key=value1;anotherkey="value;2";thirdkey
+abcdefghijklmnopqrstuvwxyz: *#@ABCDEFGHIJKLMNOPQRSTUVWXYZ
+
+0
+

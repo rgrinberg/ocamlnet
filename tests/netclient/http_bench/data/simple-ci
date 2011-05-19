@@ -1,0 +1,4 @@
+HTTP/1.1 200 OK
+CoNtEnT-TyPe: text/plain
+
+This is a simple answer; only one line.
