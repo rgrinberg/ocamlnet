@@ -698,6 +698,28 @@ object(self)
 end
 
 
+let timeout_engine d exn eng =
+  let esys = eng#event_system in
+  let g = Unixqueue.new_group esys in
+  let timeout_flag = ref false in
+  Unixqueue.once esys g d 
+    (fun () ->
+       timeout_flag := true;
+       eng#abort();
+    );
+  map_engine
+    ~map_done:(fun r -> Unixqueue.clear esys g; `Done r)
+    ~map_aborted:(fun _ -> 
+		    if !timeout_flag then `Error exn
+		    else ( Unixqueue.clear esys g; `Aborted))
+    ~map_error:(fun e -> Unixqueue.clear esys g; `Error e)
+    eng
+
+
+class ['a] timeout_engine d exn eng =
+  ['a] delegate_engine(timeout_engine d exn eng)
+
+
 class poll_process_engine ?(period = 0.1) ~pid ues =
 object(self)
 

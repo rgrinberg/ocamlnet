@@ -21,6 +21,7 @@ let () =
 
 open Http_client_conncache
 open Printf
+open Uq_engines.Operators
 
 exception Bad_message of string;;
 exception Http_error of (int * string);;
@@ -29,6 +30,7 @@ exception No_reply;;
 exception Too_many_redirections;;
 exception Name_resolution_error of string
 exception URL_syntax_error of string
+exception Timeout of string
 
 let () =
   Netexn.register_printer
@@ -378,6 +380,8 @@ object
   method set_error_counter : int -> unit
   method set_error_exception : exn -> unit
 
+  method error_if_unserved : bool -> exn -> unit
+
   method get_redir_counter : int
   method set_redir_counter : int -> unit
 
@@ -570,17 +574,31 @@ object(self)
 	  (* do this last - it can trigger user callback functions: *)
 	  pself # close_resp_ch();
 
+	method error_if_unserved verbose error =
+	  match status with
+	    | `Unserved ->
+		if verbose then
+		  dlogr (fun () -> 
+			   sprintf "Call %d - error %s"
+			     (Oo.id self)
+			     (Netexn.to_string error));
+		pself # set_error_exception error;
+	    | _ ->
+		()
+
 	method set_error_exception x =
 	  finished <- true;
 	  ( match x with
 		Http_error(_,_) -> assert false   (* not allowed *)
 	      | _ ->
+(*
 		  let do_increment =
 		    match status with
 		      | `Http_protocol_error _ -> false
 		      | _ -> true in
 		  if do_increment then
 		    error_counter <- error_counter + 1;
+ *)
 		  status <- (`Http_protocol_error x);
 	  );
 	  (* do this last - it can trigger user callback functions: *)
@@ -832,7 +850,7 @@ object(self)
   inherit generic_call
   method private fixup_request() = ()
   method private def_request_method = "PUT"
-  method private def_is_idempotent = false
+  method private def_is_idempotent = true (* sic! *)
   method private def_has_req_body = true
   method private def_has_resp_body = true
   method private def_empty_path_replacement = "/"
@@ -1603,7 +1621,7 @@ class io_buffer options conn_cache fd fd_state =
       match socket_state with
 	| Down  -> ()
 	| Up_rw -> 
-	    if options.verbose_connection then 
+	    if !options.verbose_connection then 
 	      dlogr (fun () ->
 		       sprintf "FD %Ld - HTTP connection: Sending EOF!"
 			 (Netsys.int64_of_file_descr fd));
@@ -1616,7 +1634,7 @@ class io_buffer options conn_cache fd fd_state =
       match socket_state with
 	| Down  -> ()
 	| _     -> 
-	    if options.verbose_connection then 
+	    if !options.verbose_connection then 
 	      dlogr (fun () ->
 		       sprintf "FD %Ld - HTTP connection: Closing socket!"
 			 (Netsys.int64_of_file_descr fd));
@@ -2072,7 +2090,7 @@ class transmitter
        * - Reset the status info of the http_call
        * - Initialize transmission state
        *)
-      if options.verbose_status then
+      if !options.verbose_status then
 	dlogr (fun () -> sprintf "Call %d: initialize transmitter" 
 		 (Oo.id msg));
       msg # private_api # prepare_transmission();
@@ -2131,16 +2149,7 @@ class transmitter
       (* also called by [clear_write_queue] *)
 
     method error_if_unserved error =
-      match msg # status with
-	| `Unserved ->
-	    if options.verbose_status then
-	      dlogr (fun () -> 
-		       sprintf "Call %d - error %s"
-			 self#call_id
-			 (Netexn.to_string error));
-	    msg # private_api # set_error_exception error;
-	| _ ->
-	    ()
+      msg # private_api # error_if_unserved !options.verbose_status error
 
     method send (io : io_buffer) do_handshake =
       (* do_handshake: If true, only the header is transmitted, and the
@@ -2176,7 +2185,7 @@ class transmitter
 	      );
 	      Buffer.add_string buf " HTTP/1.1";
 	      
-	      if options.verbose_status then
+	      if !options.verbose_status then
 		dlogr
 		  (fun () ->
 		     sprintf "FD %s - Call %d - HTTP request: %s"
@@ -2188,7 +2197,7 @@ class transmitter
 	      Mimestring.write_header ch rh#fields;
 	      ch # close_out();
 	      
-	      if options.verbose_request_header then
+	      if !options.verbose_request_header then
 		dump_header "HTTP request " rh#fields;
 	      
 	      io # send_this_string (Buffer.contents buf);
@@ -2210,7 +2219,7 @@ class transmitter
 		      | Some l ->
 			  body_length <- Some(Int64.sub l (Int64.of_int n))
 		  );
-		  if options.verbose_request_contents then
+		  if !options.verbose_request_contents then
 		    io # dump_send_buffer()
 		with
 		  | End_of_file ->
@@ -2227,6 +2236,8 @@ class transmitter
 	  | _ ->
 	      ()
       );
+
+      (* FIXME: unix_write should not be called here *)
 
       (* Send: *)
 
@@ -2256,6 +2267,8 @@ class transmitter
 	      ()
       )
 
+    (* FIXME. parse_response should go here (not in io_buffer) *)
+
     method receive (io : io_buffer) =
       (* This method is invoked if some additional octets have been received
        * that 
@@ -2280,7 +2293,7 @@ class transmitter
 		match e with
 		  | Bad_message s -> ": Bad message: " ^ s
 		  | _ -> ": " ^ Netexn.to_string e in
-	      if options.verbose_status then
+	      if !options.verbose_status then
 		dlogr
 		  (fun () ->
 		     sprintf "FD %s - Call %d - HTTP status: protocol error %s"
@@ -2289,7 +2302,7 @@ class transmitter
 	      if state = Sent_request then 
 		state <- Complete 
 	      else (
-		if options.verbose_status then
+		if !options.verbose_status then
 		dlogr
 		  (fun () ->
 		     sprintf "FD %s - Call %d - HTTP status: Got response before request was completely sent"
@@ -2297,16 +2310,16 @@ class transmitter
 		state <- Complete_broken;
 		io # close_out()
 	      );
-	      if options.verbose_status then
+	      if !options.verbose_status then
 		msg # private_api # dump_status();
-	      if options.verbose_response_header then
+	      if !options.verbose_response_header then
 		msg # private_api # dump_response_header();
-	      if options.verbose_response_contents then
+	      if !options.verbose_response_contents then
 		msg # private_api # dump_response_body();
       with
 	| Garbage_received s ->
 	    state <- Broken;
-	    if options.verbose_status then
+	    if !options.verbose_status then
 		dlogr
 		  (fun () ->
 		     sprintf "FD %s - Call %d - HTTP status: Garbage received: %s"
@@ -2376,9 +2389,11 @@ class transmitter
       normal_persistency || proxy_persistency
 	
 
+(*
     method postprocess =
       self#cleanup();
       indicate_done msg;
+ *)
 
     method message = msg
 
@@ -2386,6 +2401,25 @@ class transmitter
   
   end
 ;;
+
+
+
+let drive_postprocessing_msg esys options m f_done =
+  let do_callback () =
+    try
+      if !options.verbose_status then
+	dlogr (fun () -> 
+		 sprintf "Call %d - postprocessing" (Oo.id m));
+      f_done m
+    with
+      | any ->
+	  if !options.verbose_status then
+	    dlogr (fun () -> 
+		     sprintf "Call %d - Exception in postprocessing: %s"
+		       (Oo.id m) (Netexn.to_string any));
+	  raise any in
+  let g = Unixqueue.new_group esys in
+  Unixqueue.once esys g 0.0 do_callback
 
 
 (**********************************************************************)
@@ -2398,194 +2432,263 @@ class transmitter
 (**********************************************************************)
 (**********************************************************************)
 
-(* This is the core of this HTTP implementation: The object controlling
- * the state of the connection to a server (or a proxy).
- *)
+let tcp_connect_e esys peer_host peer_port conn_cache conn_owner options =
+  (* An engine connecting to peer_host:peer_port. If a connection is still
+     available in conn_cache, use this instead.
 
-class connection the_esys 
-                 (peer_host,peer_port)
-                 peer_is_proxy
-                 (proxy_user,proxy_password) 
-                 auth_cache
-                 conn_cache
-		 conn_owner   (* i.e. the pipeline coerced to < > *)
-		 counters     (* we count here only when connections close *)
-		 the_options
-  =
-  object (self)
-    val mutable esys = the_esys
-    val mutable group = None
+     Output is:
+     - `Done(fd, conn_time): fd is the new connection (established in conn_time
+       seconds)
+   *)
+  let timeout_value = !options.connection_timeout in
+  
+  let resolve_e, signal_res =
+    Uq_engines.signal_engine esys in
 
-    (* timeout_groups: Unixqueue groups that must be deleted when the 
-     * connection is closed. These groups represent timeout conditions.
-     *)
-    val mutable timeout_groups = []
+  let t0 = Unix.gettimeofday() in
 
-    val mutable io = 
-      new io_buffer the_options conn_cache Unix.stdin Down  (* dummy *)
+  !options.resolver
+    esys
+    peer_host
+    (function 
+       | None ->
+	   if !options.verbose_events then
+	     dlog "HTTP events: reset after DNS failure";
+	   let err = Name_resolution_error peer_host in
+	   signal_res (`Error err)
+	     
+       | Some addr ->
+	   signal_res (`Done addr)
+    );
 
-    val mutable write_queue = Q.create()
-    val mutable read_queue = Q.create()
-      (* Invariant: write_queue is a suffix of read_queue *)
-
-    (* polling_wr is 'true' iff the write side of the socket is currently
-     * polled. (The read side is always polled.)
-     *)
-
-    val mutable polling_wr = false
-
-    (* 'connecting' is 'true' if the 'connect' system call cannot connect
-     * immediately, and continues to connect in the background.
-     *)
-
-    val mutable connecting = None
-
-    (* 'connect_pause': seconds to wait until the next connection is tried.
-     * There seems to be a problem with some operating systems (namely
-     * Linux 2.2) which do not like immediate reconnects if the previous
-     * connection did not end in a sane state.
-     * A value of 0.5 seems to be sufficient for reconnects (see below).
-     *)			      
-
-    val mutable connect_pause = 0.0
-
-    (* The following two variables control whether pipelining is enabled or
-     * not. The problem is that it is unclear how old servers react if we
-     * send to them several requests at once. The solution is that the first
-     * "round" of requests and replies is done in a compatibility mode: After
-     * the first request has been sent sending stops, and the client waits
-     * until the reply is received. If the reply indicates HTTP/1.1 and does
-     * not contain a "connection: close" header, all further requests and 
-     * replies will be performed in pipelining mode, i.e. the requests are
-     * sent independent of whether the replies of the previous requests have
-     * been received or not.
-     *
-     * sending_first_message: 'true' means that the first request has not yet
-     *    been completely sent to the server. 
-     * done_first_message: 'true' means that the reply of the first request
-     *    has been arrived.
-     *)
-
-    val mutable sending_first_message = true
-    val mutable done_first_message = false
-
-    (* 'inhibit_pipelining_byserver': becomes true if the server is able
-     * to keep persistent connections but is not able to use pipelining.
-     * (HTTP/1.0 "keep alive" connections)
-     *)
-
-    val mutable inhibit_pipelining_byserver = false
- 
-    (* 'connect_started': when the last 'connect' operation started.
-     * 'connect_time': how many seconds the last 'connect' lasted. 
-     *)
-
-    val mutable connect_started = 0.0
-    val mutable connect_time = 0.0
-
-    (* If a connection does not lead to any type of response, the client 
-     * simply re-opens a new connection and tries again. The following 
-     * variables limit the number of attempts until the client gives up.
-     *
-     * 'totally_failed_connections': counts the number of failed connections
-     *      without any response from the server.
-     *)
-
-    val mutable totally_failed_connections = 0
-
-    (* 'close_connection' indicates that a HTTP/1.0 response was received or 
-     * that a response contained a 'connection: close' header.
-     *)
-
-    val mutable close_connection = false
-
-    (* Proxy authorization: If 'proxy_user' is non-empty, the variables
-     * 'proxy_user' and 'proxy_password' are interpreted as user and
-     * password for proxy authentication. More precisely, once the proxy
-     * responds with status code 407, 'proxy_credentials_required' becomes
-     * true, and all following requests will include the credentials identifying
-     * the user (with the "basic" authentication method).
-     * If the proxy responds again with code 407, this reaction will not
-     * be handled again but will be visible to the outside.
-     *)
-
-    val mutable proxy_credentials_required = false
-    val mutable proxy_cookie = ""
-
-
-    (* 'critical_section': true if further additions to the queues and
-     * every change of the internal state must be avoided. In this case,
-     * additions are put into 'deferred_additions' and actually added later.
-     *)
-
-    val mutable deferred_additions = Q.create()
-    val mutable critical_section = false
-
-    val mutable options = the_options
-
-    method length =
-      (* Returns the number of open requests (requests without response) *)
-      Q.length read_queue + Q.length deferred_additions
-
-
-    method active =
-      (* Whether something is to be done *)
-      self # length > 0
-
-
-    method add (m : http_call) f_done =
-      (* add 'm' to the read and write queues *)
-      ignore(self # add_msg false m f_done)
-
-
-    method private add_msg ?(critical=critical_section) urgent m f_done =
-      (* In contrast to 'add', the new message transporter is returned. *)
-
-      if options.verbose_connection then
-	dlogr (fun () -> 
-		 sprintf "HTTP Connection: adding call %d critical=%B"
-		   (Oo.id m) critical);
-
-      (* Create the transport container for the message and add it to the
-       * queues:
-       *)
-      let trans = new transmitter peer_is_proxy m f_done options in
-
-      (* If proxy authentication is enabled, and it is already known that
-       * the proxy demands authentication, add the necessary header fields: 
-       * (See also the code and the comments in method 
-       * 'postprocess_complete_message')
-       *)
-      if proxy_credentials_required  &&  peer_is_proxy then begin
-	(* If the cookie is not yet computed, do this now: *)
-	if proxy_cookie = "" then
-	  proxy_cookie <- Netencoding.Base64.encode
-	                     (proxy_user ^ ":" ^ proxy_password);
-	(* Add the "proxy-authorization" header: *)
-	trans # add_auth_header "proxy-authorization" ("Basic " ^ proxy_cookie)
-      end;
-
-      (* Check whether we can authenticate in advance: *)
-      if m # private_api # auth_state = `None then (
+  resolve_e
+  ++ (fun addr ->
+	let peer = Unix.ADDR_INET(addr, peer_port) in
 	try
-	  let sess = auth_cache # find_session_in_advance m in
-	  m # private_api # set_auth_state (`In_advance sess)
+	  let fd = conn_cache # find_inactive_connection peer in
+	  (* Case: reuse old connection *)
+	  conn_cache # set_connection_state fd (`Active conn_owner);
+	  if !options.verbose_events then
+	    dlog (sprintf 
+		    "FD %Ld - HTTP events: config input (reused fd)"
+		    (Netsys.int64_of_file_descr fd));
+	  eps_e (`Done(fd, 0.0)) esys
 	with
-	    Not_found -> ()
-      );
+	  | Not_found ->
+	      if !options.verbose_connection then
+		dlog ("HTTP connection: Connecting to " ^ 
+			peer_host);
+	      let eng =
+		Uq_engines.connector 
+		  (`Socket(`Sock_inet(Unix.SOCK_STREAM,
+				      addr,
+				      peer_port),
+			   Uq_engines.default_connect_options))
+		  esys in
 
-      (* Initialize [trans] for transmission: (Must be after in-advance
-       * authentication)
+	      Uq_engines.timeout_engine 
+		timeout_value
+		(Timeout (sprintf
+			    "Connect to %s:%d" peer_host peer_port))
+		eng
+	      ++ (function
+		    | `Socket(fd,_) ->
+			let t1 = Unix.gettimeofday() in
+			let d = t1 -. t0 in
+
+			if !options.verbose_connection then
+			  dlog (sprintf 
+				  "FD %Ld - HTTP connection to %s: Connected!"
+				  (Netsys.int64_of_file_descr fd) peer_host);
+
+			!options.configure_socket fd;
+			conn_cache # set_connection_state
+			  fd (`Active conn_owner);
+			eps_e (`Done(fd, d)) esys
+		    | _ ->
+			assert false
+		 )
+	      >> (function
+		    | `Error err ->
+			if !options.verbose_connection then (
+			  dlog(sprintf 
+				 "HTTP connection: Cannot connect to %s: \
+                                  Exception %s"
+				 peer_host (Netexn.to_string err))
+			);
+			`Error err
+		    | st -> st
+		 )
+     )		
+
+(**********************************************************************)
+
+let fragile_pipeline 
+       esys 
+       peer_host peer_port
+       peer_is_proxy (proxy_user,proxy_password) 
+       fd connect_time no_pipelining conn_cache
+       auth_cache
+       counters options =
+  (* Implements a pipeline for an existing connection [fd]. This object
+     does not implement any way of recovering after errors.
+   *)
+  let connection_e, signal_connection = Uq_engines.signal_engine esys in
+    (* Indicates that the connection is closed *)
+  let queue_e, signal_queue = Uq_engines.signal_engine esys in
+    (* Indicates that all processing of queued messages is done *)
+  let finished_e =
+    Uq_engines.sync_engine connection_e queue_e 
+    >> (function 
+	  | `Done _ -> `Done() 
+	  | `Error e -> `Error e
+	  | `Aborted -> `Aborted
+       ) in
+  let g = Unixqueue.new_group esys in
+  (* See comments on method connection_e below *)
+
+  ( object(self)
+      val mutable io = 
+	new io_buffer options conn_cache fd Up_rw
+
+      val mutable write_queue = Q.create()
+      val mutable read_queue = Q.create()
+	(* Invariant: write_queue is a suffix of read_queue *)
+
+      (* timeout_groups: Unixqueue groups that must be deleted when the 
+       * connection is closed. These groups represent timeout conditions.
        *)
-      trans # init();
+      val mutable timeout_groups = []
 
-      if critical then begin
-	(* This 'add_msg' invocation was done in a callback. This may interfer
-	 * with other queue modifications.
+      (* polling_wr is 'true' iff the write side of the socket is currently
+       * polled. (The read side is always polled.)
+       *)
+
+      val mutable polling_wr = false
+
+      (* The following two variables control whether pipelining is enabled or
+       * not. The problem is that it is unclear how old servers react if we
+       * send to them several requests at once. The solution is that the first
+       * "round" of requests and replies is done in a compatibility mode: After
+       * the first request has been sent sending stops, and the client waits
+       * until the reply is received. If the reply indicates HTTP/1.1 and does
+       * not contain a "connection: close" header, all further requests and 
+       * replies will be performed in pipelining mode, i.e. the requests are
+       * sent independent of whether the replies of the previous requests have
+       * been received or not.
+       *
+       * sending_first_message: 'true' means that the first request has not yet
+       *    been completely sent to the server. 
+       * done_first_message: 'true' means that the reply of the first request
+       *    has been arrived.
+       *)
+	
+      val mutable sending_first_message = true
+      val mutable done_first_message = false
+	
+      (* 'inhibit_pipelining_byserver': becomes true if the server is able
+       * to keep persistent connections but is not able to use pipelining.
+       * (HTTP/1.0 "keep alive" connections)
+       *)
+	
+      val mutable inhibit_pipelining_byserver = no_pipelining
+ 
+      (* Proxy authorization: If 'proxy_user' is non-empty, the variables
+       * 'proxy_user' and 'proxy_password' are interpreted as user and
+       * password for proxy authentication. More precisely, once the proxy
+       * responds with status code 407, 'proxy_credentials_required' becomes
+       * true, and all following requests will include the credentials identifying
+       * the user (with the "basic" authentication method).
+       * If the proxy responds again with code 407, this reaction will not
+       * be handled again but will be visible to the outside.
+       *)
+	
+      val mutable proxy_credentials_required = false
+      val mutable proxy_cookie = ""
+
+      (* Whether this connection never proves to exchange a message: *)
+      val mutable total_failure = false
+
+      (* 'close_connection' indicates that a HTTP/1.0 response was received or 
+       * that a response contained a 'connection: close' header.
+       *)
+      val mutable close_connection = false
+      
+      (* whether the [after_eof] cleanup has already been done (must only happen
+	 once
+       *)
+      val mutable after_eof = false
+
+      
+      method length =
+	(* Returns the number of open requests (requests without response) *)
+	Q.length read_queue
+
+
+      method active =
+	(* Whether something is to be done *)
+	self # length > 0
+
+
+      method iter_unserved_messages f =
+	(* Call f with all unserved messages *)
+	Queue.iter (fun trans -> f trans) read_queue
+
+
+      method is_total_failure = total_failure
+
+
+      method no_pipelining = inhibit_pipelining_byserver
+
+
+      method finished_e = finished_e
+	(* This engine transitions to [`Done()] when the
+	   connection is finished, and all messages are processed.
+
+	   At this point, the file descriptor is closed or given back
+	   to the cache. The read and write queues are unmodified, and
+	   can be used to recover.
+
+	   Errors are reported via the messages.
 	 *)
-	Q.add trans deferred_additions;
-      end
-      else begin
+
+
+      method add urgent m f_done =
+	(* add: adds to the read_queue/write_queue. This must be possible
+	   at any time - even after shutting down the socket and stopping
+	   any event processing.
+	 *)
+	(* urgent: whether to insert the message m into the front-most place
+	   (to be used after autorization)
+	 *)
+
+	if !options.verbose_connection then
+	  dlogr (fun () -> 
+		   sprintf "HTTP Connection: adding call %d"
+		     (Oo.id m));
+	
+	(* Create the transport container for the message and add it to the
+	 * queues:
+	 *)
+	let trans = new transmitter peer_is_proxy m f_done options in
+	
+	(* If proxy authentication is enabled, and it is already known that
+	 * the proxy demands authentication, add the necessary header fields: 
+	 * (See also the code and the comments in method 
+	 * 'postprocess_complete_message')
+	 *)
+	if proxy_credentials_required  &&  peer_is_proxy then begin
+	  (* If the cookie is not yet computed, do this now: *)
+	  if proxy_cookie = "" then
+	    proxy_cookie <- Netencoding.Base64.encode
+	      (proxy_user ^ ":" ^ proxy_password);
+	  (* Add the "proxy-authorization" header: *)
+	  trans # add_auth_header "proxy-authorization" ("Basic " ^ proxy_cookie)
+	end;
+	
+	(* Initialize [trans] for transmission: *)
+	trans # init();
+	
 	let n = Queue.length write_queue in
 	if urgent && n > 0 then (
 	  (* Insert [trans] at the ealierst possible place *)
@@ -2595,229 +2698,46 @@ class connection the_esys
 	else (
 	  Q.add trans write_queue;
 	  Q.add trans read_queue;
-	);
-
-        (* If there is currently no event group, we are detached from the
-         * event system (i.e. not receiving events). Attach again.
-         *)
-	if group = None then self # attach_to_esys;
-
-        (* Update the polling state. *)
-	self # maintain_polling;
-      end;
-
-      trans
-
-
-    method leave_critical_section : unit =
-      (* Move the entries from 'deferred_additions' to the real queues. *)
-
-      if options.verbose_connection then
-	dlog "HTTP Connection: leaving critical section";
-
-      Q.iter
-	(fun trans ->
-	   Q.add trans write_queue;
-	   Q.add trans read_queue;
-	)
-	deferred_additions;
-
-      if Q.length deferred_additions > 0 then begin
-	Q.clear deferred_additions;
-
-        (* If there is currently no event group, we are detached from the
-	 * event system (i.e. not receiving events). Attach again.
-	 *)
-	if group = None then self # attach_to_esys;
-
-        (* Update the polling state. *)
-	self # maintain_polling;
-
-      end
- 
-
-    method private add_again m_trans =
-      (* add 'm_trans' again to the read and write queues (as a consequence
-       * of authorization)
-       *)
-      let m = m_trans # message in
-      let f_done = m_trans # f_done in
-      self # add_msg ~critical:true true m f_done
-
-
-    method set_options p =
-      options <- p
-
-
-    method private attach_to_esys =
-      assert (group = None);
-      assert (io#socket_state = Down);
-
-      let g = Unixqueue.new_group esys in
-      group <- Some g;
-
-      connecting <- None;
-      sending_first_message <- true;
-      done_first_message <- false;
-      close_connection <- false;
-      polling_wr <- false;
-      critical_section <- false;
-
-      (*
-      inhibit_pipelining_byserver <- false;
-       -- never reset once it is [true]! Reason: Failed connections are often
-          caused by missing pipelining capabilities of the server (e.g. IIS)
-       *)
-
-      (* Now check how to get a socket connection: *)
-      
-      let timeout_value = options.connection_timeout in
-      
-      options.resolver
-	esys
-	peer_host
-	(function 
-	   | None ->
-	       (* Very early error! *)
-	       ( match group with
-		     Some g ->
-		       if options.verbose_events then
-			 dlog "HTTP events: reset after DNS failure";
-		       Unixqueue.clear esys g;         (* clean up esys *)
-		       group <- None
-		   | None -> ()
-	       );
-	       let err = Name_resolution_error peer_host in
-	       self # cleanup_on_eof ~force_total_failure:true err;
-	       counters.crashed_connections <-
-		 counters.crashed_connections + 1;
-	       self # leave_critical_section
-
-	   | Some addr ->
-	       ( let peer = Unix.ADDR_INET(addr, peer_port) in
-		 try
-		   let fd = conn_cache # find_inactive_connection peer in
-		   (* Case: reuse old connection *)
-		   connect_time <- 0.0;
-		   conn_cache # set_connection_state fd (`Active conn_owner);
-		   io <- new io_buffer options conn_cache fd Up_rw;
-		   Unixqueue.add_resource esys g (Unixqueue.Wait_in fd, 
-						  timeout_value);
-		   Unixqueue.add_handler esys g (self # handler);
-		   if options.verbose_events then
-		     dlog (sprintf 
-			     "FD %Ld - HTTP events: config input (reused fd)"
-			     (Netsys.int64_of_file_descr fd));
-		 with
-		     Not_found ->
-		       (* No inactive connection found. Connect: *)
-		       Unixqueue.once 
-			 esys
-			 g
-			 connect_pause
-			 (fun () -> 
-			    let g1 = Unixqueue.new_group esys in
-			    connect_pause <- 0.0;
-
-			    if options.verbose_connection then
-			      dlog ("HTTP connection: Connecting to " ^ 
-					       peer_host);
-			    let eng =
-			      Uq_engines.connector 
-				(`Socket(`Sock_inet(Unix.SOCK_STREAM,
-						    addr,
-						    peer_port),
-					 Uq_engines.default_connect_options))
-				esys in
-
-			    connect_started <- Unix.gettimeofday();
-			    connecting <- Some eng;
-
-			    Uq_engines.when_state
-			      ~is_done:(function
-					  | `Socket(s,_) ->
-					      Unixqueue.clear esys g1;
-					      self # connected 
-						peer_host g s peer
-					  | _ -> assert false
-				       )
-			      ~is_error:(function
-					   | err ->
-					       Unixqueue.clear esys g1;
-					       self # connect_error 
-						 peer_host g err
-					)
-			      ~is_aborted:(fun () -> 
-					     Unixqueue.clear esys g1;
-					     connecting <- None
-					  )
-			      eng;
-			    Unixqueue.once esys g1 timeout_value eng#abort
-			 )
-	       )
 	)
 
+      method attach() =
+	(* Enables event processing. To be called after [add] *)
+	sending_first_message <- true;
+	done_first_message <- false;
+	close_connection <- false;
+	polling_wr <- false;
 
-    method private connected peer_host g s peer =
-      Netlog.Debug.track_fd
-	~owner:"Http_client"
-	~descr:("HTTP to " ^ 
-		  Netsys.string_of_sockaddr peer)
-	s;
+	(* Add the handler and listen for read events *)
+	let timeout_value = !options.connection_timeout in
+	Unixqueue.add_resource esys g (Unixqueue.Wait_in fd, timeout_value);
+	Unixqueue.add_handler esys g (self # handler);
 
-      let t1 = Unix.gettimeofday() in
-      connect_time <- t1 -. connect_started;
-      connecting <- None;
+	if !options.verbose_events then
+	  dlog (sprintf 
+		  "FD %Ld - HTTP events: config input"
+		  (Netsys.int64_of_file_descr fd));
+	self # maintain_polling();
 
-      if options.verbose_connection then
-	dlog (sprintf "FD %Ld - HTTP connection to %s: Connected!"
-		(Netsys.int64_of_file_descr s) peer_host);
+      method reset() =
+	(* Compare also with after_eof! *)
+	self # abort ~reusable:false ~count:`Failed;
 
-      options.configure_socket s;
+	Q.iter
+	  (fun trans ->
+	     trans # cleanup();    (* release resources *)
+	     trans # error_if_unserved No_reply;
+	     self # drive_postprocessing trans
+	  )
+	  read_queue;
 
-      conn_cache # set_connection_state s (`Active conn_owner);
-      io <- new io_buffer options conn_cache s Up_rw;
-
-      let timeout_value = options.connection_timeout in
-      Unixqueue.add_resource esys g (Unixqueue.Wait_in s, timeout_value);
-      Unixqueue.add_handler esys g (self # handler);
-
-      if options.verbose_events then
-	dlog (sprintf 
-		"FD %Ld - HTTP events: config input (new fd)"
-		(Netsys.int64_of_file_descr s));
-      self # maintain_polling;
+      signal_queue `Aborted
 
 
-    method private connect_error peer_host g err =
-      connecting <- None;
-      (* We cannot call abort_connection, because the
-       * state is not fully initialized. So clean up everything
-       * manually.
-       *)
-      if options.verbose_connection then (
-	match err with
-	  | Unix.Unix_error(e,_,_) ->
-	      dlog(sprintf 
-		     "HTTP connection: Cannot connect to %s: Unix error %s"
-		     peer_host (Unix.error_message e))
-	  | _ ->
-	      dlog(sprintf 
-		     "HTTP connection: Cannot connect to %s: Exception %s"
-		     peer_host (Netexn.to_string err))
-      );
-      if options.verbose_events then
-	dlog "HTTP events: reset after connect error";
-      Unixqueue.clear esys g;         (* clean up esys *)
-      group <- None;
-      (* Continue with the regular error path: *)
-      counters.crashed_connections <- 
-	counters.crashed_connections + 1;
-      self # cleanup_on_eof ~force_total_failure:true err;
-      self # leave_critical_section
-	
+    (**********************************************************************)
+    (* End of interface.                                                  *)	
+    (**********************************************************************)
 
-    method private maintain_polling =
+    method private maintain_polling() =
 
       (* If one of the following conditions is true, we need not to poll
        * the write side of the socket:
@@ -2827,20 +2747,20 @@ class connection the_esys
        * - The write side of the socket is closed
        *)
 
-      if options.verbose_events then
+      if !options.verbose_events then
 	dlogr
 	  (fun () -> 
 	     sprintf "FD %s - HTTP events: maintain_polling"
 	     io#socket_str
 	  );
 
-      if group <> None && io # socket_state <> Down then (
-	let timeout_value = options.connection_timeout in
+      if io # socket_state <> Down then (
+	let timeout_value = !options.connection_timeout in
 	
 	let actual_max_drift =
 	  if inhibit_pipelining_byserver then 0 else
-	    match options.synchronization with
-		Pipeline drift -> min drift max_pipeline
+	    match !options.synchronization with
+	      | Pipeline drift -> min drift max_pipeline
 	      | _              -> 0
 		  (* 0: Allow no drift if pipelining is not allowed *)
 	in
@@ -2870,25 +2790,21 @@ class connection the_esys
 	  && ( ( have_requests && not waiting_for_handshake) ||
 	       do_close_output ) in
 
-      if options.verbose_events then
-	dlogr
-	  (fun () -> 
-	     sprintf "FD %s - HTTP events: maintain_polling \
-                      n_read=%d n_write=%d \
-                      actual_max_drift=%d have_requests=%B do_close_output=%B \
-                      waiting_for_handshake=%B do_poll_wr=%B"
-	       io#socket_str
-	       (Q.length read_queue) (Q.length write_queue)
-	       actual_max_drift have_requests do_close_output 
-	       waiting_for_handshake do_poll_wr
-	  );
+	if !options.verbose_events then
+	  dlogr
+	    (fun () -> 
+	       sprintf "FD %s - HTTP events: maintain_polling \
+                        n_read=%d n_write=%d \
+                        actual_max_drift=%d have_requests=%B do_close_output=%B \
+                        waiting_for_handshake=%B do_poll_wr=%B"
+		 io#socket_str
+		 (Q.length read_queue) (Q.length write_queue)
+		 actual_max_drift have_requests do_close_output 
+		 waiting_for_handshake do_poll_wr
+	    );
 	
 	if do_poll_wr && not polling_wr then (
-	  let g = match group with
-	      Some x -> x
-	    | None -> assert false
-	  in
-	  if options.verbose_events then
+	  if !options.verbose_events then
 	    dlogr
 	      (fun () -> 
 		 sprintf "FD %s - HTTP events: config output=enabled"
@@ -2900,11 +2816,7 @@ class connection the_esys
 	);
 	
 	if not do_poll_wr && polling_wr then (
-	  let g = match group with
-	      Some x -> x
-	    | None -> assert false
-	  in
-	  if options.verbose_events then
+	  if !options.verbose_events then
 	    dlogr
 	      (fun () -> 
 		 sprintf "FD %s - HTTP events: config output=disabled"
@@ -2927,10 +2839,8 @@ class connection the_esys
        * - waiting_for_status100 is not `Waiting
        *)
 
-
-
     method private clear_timeout group =
-      if options.verbose_events then
+      if !options.verbose_events then
 	dlogr
 	  (fun () -> 
 	     sprintf "FD %s - HTTP events: clear_timeout" io#socket_str);
@@ -2938,65 +2848,64 @@ class connection the_esys
       timeout_groups <- List.filter (fun x -> x <> group) timeout_groups;
 
 
-    method private abort_connection ~reusable =
+    method private abort ~reusable ~count =
       (* This method is called when the connection is in an errorneous
        * state, and the protocol handler decides to give it up.
        * 
        * reusable: whether it is possible to reuse this connection later
        *)
-      ( match connecting with
-	  | None -> ()
-	  | Some eng -> 
-	      if options.verbose_connection then
-		dlog "HTTP Connection: aborting connection attempt";
-	      eng # abort()
-      );
       if io # socket_state <> Down then (
-	match group with
-	  | Some g -> 
-	       if options.verbose_connection then 
-		 dlog (sprintf 
-			 "FD %s - HTTP connection: Shutdown!"
-			 io#socket_str);
-	      begin match io#socket_state with
-		  Down -> 
-		    (* We already closed/released io, so we do nothing here *)
-		    ()
-		| Up_r -> 
-		    io # close()
-		| Up_rw ->
-		    if reusable then
-		      io # release()
-		    else
-		      io # close()
-	      end;
-	      if options.verbose_events then
-		dlog (sprintf "FD %s - HTTP events: reset after shutdown"
-			io#socket_str);
-	      Unixqueue.clear esys g;
-	      polling_wr <- false;
-	      group <- None;
-	      List.iter (Unixqueue.clear esys) timeout_groups;
-	      timeout_groups <- []
-          | None -> 
-	      ()
+	if !options.verbose_connection then 
+	  dlog (sprintf 
+		  "FD %s - HTTP connection: Shutdown!"
+		  io#socket_str);
+	begin match io#socket_state with
+	    Down -> 
+	      assert false
+	  | Up_r -> 
+	      io # close();
+	      signal_connection(`Done())
+	  | Up_rw ->
+	      if reusable then
+		io # release()
+	      else
+		io # close();
+	      signal_connection(`Done())
+	end;
+	( match count with
+	    | `Timed_out ->
+		counters.timed_out_connections <- 
+		  counters.timed_out_connections + 1;
+	    | `Crashed ->
+		counters.crashed_connections <- 
+		  counters.crashed_connections + 1;
+	    | `Server_eof ->
+		counters.server_eof_connections <- 
+		  counters.server_eof_connections + 1;
+	    | `Successful ->
+		counters.successful_connections <- 
+		  counters.successful_connections + 1
+	    | `Failed ->
+		counters.failed_connections <- 
+		  counters.failed_connections + 1;
+	);
+	if !options.verbose_events then
+	  dlog (sprintf "FD %s - HTTP events: reset after shutdown"
+		  io#socket_str);
+	Unixqueue.clear esys g;
+	polling_wr <- false;
+	List.iter (Unixqueue.clear esys) timeout_groups;
+	timeout_groups <- []
       )
-
-
+ 
     method private handler _ _ ev =
-      let g = match group with
-	  Some x -> x
-	| None -> 
-	    (* This is possible while shutting down the socket *)
-	    raise Equeue.Reject
-      in
       match ev with
-	  Unixqueue.Input_arrived (g0,fd0) ->
-	    if g0 = g then self # handle_input else raise Equeue.Reject
-	| Unixqueue.Output_readiness (g0,fd0) ->
-	    if g0 = g then self # handle_output else raise Equeue.Reject
-	| Unixqueue.Timeout (g0, _) ->
-	    if g0 = g then self # handle_timeout else raise Equeue.Reject
+	  Unixqueue.Input_arrived (_,_) ->
+	    self # handle_input()
+	| Unixqueue.Output_readiness (_,_) ->
+	    self # handle_output()
+	| Unixqueue.Timeout (_, _) ->
+	    self # handle_timeout()
 	| _ ->
 	    raise Equeue.Reject
 
@@ -3004,23 +2913,23 @@ class connection the_esys
     (***                    THE TIMEOUT HANDLER                         ***)
     (**********************************************************************)
 
-    method private handle_timeout =
+    method private handle_timeout() =
       (* No network packet arrived for a period of time.
        * May only happen when a connection is already established
        *)
-      if options.verbose_events then
+      if !options.verbose_events then
 	dlogr (fun() -> 
 		 sprintf "FD %s - HTTP events: handle_timeout" io#socket_str);
       io # set_timeout;
-      self # handle_input;   (* timeout is similar to EOF *)
+      self # handle_input();   (* timeout is similar to EOF *)
 
 
     (**********************************************************************)
     (***                     THE OUTPUT HANDLER                         ***)
     (**********************************************************************)
 
-    method private handle_output =
-      if options.verbose_events then
+    method private handle_output() =
+      if !options.verbose_events then
 	dlogr (fun() -> 
 		 sprintf "FD %s - HTTP events: handle_output" io#socket_str);
 
@@ -3031,19 +2940,17 @@ class connection the_esys
       if io#socket_state <> Up_rw then
 	raise Equeue.Reject;
 
-      if options.verbose_connection then 
+      if !options.verbose_connection then 
 	dlogr
 	  (fun () ->
 	     sprintf "FD %s - HTTP connection: Output event!"
 	       io#socket_str);
-      let _g = match group with
-	  Some x -> x
-	| None -> assert false
-      in
 
       (* Leave the write_loop by exceptions:
        * - Q.Empty: No more request to write
        *)
+
+      let error = ref None in
 
       let rec write_loop () =
 	let this = Q.peek write_queue in  (* or Q.Empty *)
@@ -3054,7 +2961,7 @@ class connection the_esys
 
 	      (* if no_persistency, set 'connection: close' *)
 
-	      if options.inhibit_persistency && this # state = Unprocessed then
+	      if !options.inhibit_persistency && this # state = Unprocessed then
 		rh # update_field "connection" "close";
 
 	      (* If a "100 Continue" handshake is requested,
@@ -3072,7 +2979,7 @@ class connection the_esys
 		  not (this # message # private_api # continue) &&
 		  String.lowercase(rh # field "expect") = "100-continue"
 		with
-		    Not_found -> false 
+		  | Not_found -> false 
 	      in
 
 	      ( try
@@ -3083,7 +2990,7 @@ class connection the_esys
 		   *)
 		  if do_handshake  &&  this # state = Handshake
 		  then (
-		    let timeout = options.handshake_timeout in
+		    let timeout = !options.handshake_timeout in
 		    let tm = Unixqueue.new_group esys in
 		    timeout_groups <- tm :: timeout_groups;
 		    Unixqueue.once
@@ -3095,13 +3002,13 @@ class connection the_esys
 			       this == this' && this # state = Handshake in
 			     if still_waiting then (
 			       this # handshake_timeout();
-			       self # maintain_polling;
+			       self # maintain_polling();
 			     );
 			   with Q.Empty -> ()
 			 );
 			 self # clear_timeout tm;
 		      );
-		    if options.verbose_connection then
+		    if !options.verbose_connection then
 		      dlogr
 			(fun () ->
 			   sprintf "FD %s - HTTP connection: \
@@ -3110,7 +3017,7 @@ class connection the_esys
 		  );
 		  
 		with
-		    Unix.Unix_error(Unix.EPIPE,_,_) ->
+		  | Unix.Unix_error(Unix.EPIPE,_,_) as err ->
 		      (* Broken pipe: This can happen if the server decides
 		       * to close the connection in the same moment when the
 		       * client wants to send another request after the 
@@ -3126,24 +3033,23 @@ class connection the_esys
                        * The [read] syscall will get ECONNRESET, so we do
                        * nothing here.
 		       *)
-		      if options.verbose_connection then
+		      if !options.verbose_connection then
 			dlogr
 			  (fun () ->
 			     sprintf "FD %s - HTTP connection: broken pipe"
 			       io#socket_str);
-		      ()
+		      error := Some err
 
 		  | Unix.Unix_error(Unix.EAGAIN,_,_) ->
 		      ()
 		      
-		  | Unix.Unix_error(e,a,b) ->
-		      if options.verbose_connection then
+		  | err ->
+		      if !options.verbose_connection then
 			dlogr
 			  (fun () ->
-			     sprintf "FD %s - HTTP connection: Unix error %s"
-			       io#socket_str (Unix.error_message e));
-		      (* Hope the input handler will do the right thing *)
-		      ()
+			     sprintf "FD %s - HTTP connection: Exception %s"
+			       io#socket_str (Netexn.to_string err));
+		      error := Some err
 	      );
 	      if sending_first_message && this # state = Sent_request then
 		sending_first_message <- false;
@@ -3174,24 +3080,29 @@ class connection the_esys
 
       (* Release the connection if the queues have become empty *)
 
-      if (Q.length write_queue = 0 && Q.length read_queue = 0) then (
-	(* The connection is reusable for future messages - if anything
-	   did not allow persistency, we would already have closed the
-	   connection, and stopped processing.
-	 *)
-	self # abort_connection ~reusable:true;
-	counters.successful_connections <- counters.successful_connections + 1
-      );
-
-      self # maintain_polling;
+      match !error with
+	| None ->
+	    if (Q.length write_queue = 0 && Q.length read_queue = 0) then (
+	      (* The connection is reusable for future messages - if anything
+		 did not allow persistency, we would already have closed the
+		 connection, and stopped processing.
+	       *)
+	      self # abort ~reusable:true ~count:`Successful;
+	      self # after_eof None;
+	    )
+	    else
+	      self # maintain_polling()
+	| Some err ->
+	    self # abort ~reusable:false ~count:`Crashed;
+	    self # after_eof !error
 
 
     (**********************************************************************)
     (***                     THE INPUT HANDLER                          ***)
     (**********************************************************************)
 
-    method private handle_input =
-      (* Data have arrived on the 'socket'. First we receive as much as we
+    method private handle_input () =
+      (* Data have arrived on the socket. First we receive as much as we
        * can; then the data are interpreted as sequence of messages.
        * This method is also called when the connection times out. In
        * this case [io # timeout] is set.
@@ -3201,26 +3112,23 @@ class connection the_esys
        * if the input side is closed while there are still input
        * events in the queue):
        *)
-      if options.verbose_events then
+      if !options.verbose_events then
 	dlogr (fun() -> 
 		 sprintf "FD %s - HTTP events: handle_input" io#socket_str);
 
       if io#socket_state = Down then
 	raise Equeue.Reject;
 
-      if options.verbose_connection then 
+      if !options.verbose_connection then 
 	dlogr 
 	  (fun () ->
 	     sprintf "FD %s - HTTP connection: Input event!" io#socket_str);
 
-      let _g = match group with
-	  Some x -> x
-	| None -> assert false
-      in
-
       let end_of_queueing = ref false in
       (* 'end_of_queueing': stores whether there was an EOF or not *)
 
+      let error = ref None in
+      (* may be set at the same time with end_of_queueing *)
 
       (************ ACCEPT THE RECEIVED OCTETS ************)
 
@@ -3228,60 +3136,60 @@ class connection the_esys
 	begin try
 	  io # unix_read();
 	with
-	    Unix.Unix_error(Unix.EAGAIN,_,_) ->
+	  | Unix.Unix_error(Unix.EAGAIN,_,_) ->
 	      ();  (* Ignore! *)
-	  | Unix.Unix_error(Unix.ECONNRESET,_,_) ->
-	      if options.verbose_connection then
+	  | Unix.Unix_error(Unix.ECONNRESET,_,_) as err ->
+	      if !options.verbose_connection then
 		dlogr
 		  (fun () ->
 		     sprintf
 		       "FD %s - HTTP connection: Connection reset by peer"
 		       io#socket_str
 		  );
-	      self # abort_connection ~reusable:false;
+	      self # abort ~reusable:false ~count:`Crashed;
 	      end_of_queueing := true;
-	      counters.crashed_connections <-
-		counters.crashed_connections + 1;
+	      error := Some err;
 	  | Unix.Unix_error(e,a,b) as err ->
-	      if options.verbose_connection then
+	      if !options.verbose_connection then
 		dlogr 
 		  (fun () ->
 		     sprintf 
 		       "FD %s - HTTP connection: Unix error %s"
 		       io#socket_str (Unix.error_message e));
-	      counters.crashed_connections <- 
-		counters.crashed_connections + 1;
-	      self # abort_connection ~reusable:false;
+	      self # abort ~reusable:false ~count:`Crashed;
+	      error := Some err;
 	      end_of_queueing := true;
 	      (* This exception is reported to the message currently being read
                * only.
                *)
+(*
 	      if Q.length read_queue > 0 then (
 		let t = Q.peek read_queue in
 		t # message # private_api # set_error_exception err
 	      )
+ *)
 	end;
 
       if io # in_eof || io # timeout then begin
 	(* shutdown the connection, and clean up the event system: *)
 	if io # in_eof then (
-	  if options.verbose_connection	then
+	  if !options.verbose_connection	then
 	    dlogr
 	      (fun () ->
 		 sprintf "FD %s - HTTP connection: Got EOF!" io#socket_str);
-	  counters.server_eof_connections <- 
-	    counters.server_eof_connections + 1
+	  self # abort ~reusable:false ~count:`Server_eof;
+	  error := None;  (* regular situation so far *)
 	);
 	if io # timeout then (
-	  if options.verbose_connection then 
+	  if !options.verbose_connection then 
 	    dlogr
 	      (fun () ->
 		 sprintf "FD %s - HTTP connection: Connection timeout!" 
 		 io#socket_str);
-	  counters.timed_out_connections <- 
-	    counters.timed_out_connections + 1;
+	  self # abort ~reusable:false ~count:`Timed_out;
+	  error := Some(Timeout(sprintf "Existing connection to %s:%d"
+				  peer_host peer_port));
 	);
-	self # abort_connection ~reusable:false;
 	end_of_queueing := true
       end;
 
@@ -3292,23 +3200,26 @@ class connection the_esys
        * [read_queue]. It may raise the excepions:
        * - Q.Empty: No message is expected, but there is data to
        *   parse (or the connection is at EOF)
+       *
+       * Note that [error] is only applied to the remaining messages
+       * that cannot be processed by read_loop.
        *)
 
       let rec read_loop() =
 	if io # has_unparsed_data then begin
-	  let this = Q.peek read_queue in    (* may raise Q.Empty *)
+	  let trans = Q.peek read_queue in    (* may raise Q.Empty *)
 
-	  (*** Process 'this' ***)
+	  (*** Process 'trans' ***)
 
-	  this # receive io;
+	  trans # receive io;
 	  (* Parse received data for this message. Set this#state. *)
 
-	  ( match this # state with
+	  ( match trans # state with
 	      | Unprocessed ->
 		  (* We get response data before we even tried to send
                    * the request. We allow this for pragmatic reasons.
                    *)
-		  if options.verbose_connection then (
+		  if !options.verbose_connection then (
 		    if io # has_unparsed_bytes then
 		      dlogr
 			(fun () ->
@@ -3328,9 +3239,9 @@ class connection the_esys
 		  (* We get response data before we finished
                    * the request. We allow this for pragmatic reasons.
                    *)
-		  assert (try Q.peek write_queue == this
+		  assert (try Q.peek write_queue == trans
 			  with Q.Empty -> false);
-		  if options.verbose_connection then (
+		  if !options.verbose_connection then (
 		    if io # has_unparsed_bytes then
 		      dlogr
 			(fun () ->
@@ -3351,7 +3262,7 @@ class connection the_esys
 		  (* This is perfectly legal: We have sent the request header,
                    * and the server may directly reply with whatever.
                    *)
-		  assert (try Q.peek write_queue == this
+		  assert (try Q.peek write_queue == trans
 			  with Q.Empty -> false);
 		  ()
 
@@ -3373,7 +3284,7 @@ class connection the_esys
 		   *)
 		  let in_sync =
 		    if Q.length write_queue >= 1 &&
-		      Q.peek write_queue == this then (
+		      Q.peek write_queue == trans then (
 			ignore (Q.take write_queue);
 			false
 		      )
@@ -3382,7 +3293,7 @@ class connection the_esys
 		  (* Initialize for next request/response: *)
 
 		  let able_to_pipeline = 
-		    in_sync && this # indicate_pipelining in
+		    in_sync && trans # indicate_pipelining in
 		  (* able_to_pipeline: is true if we assume that the server
 		   * is HTTP/1.1-compliant and thus is able to manage pipelined
 		   * connections.
@@ -3394,7 +3305,7 @@ class connection the_esys
 
 		  let only_sequential_persistency =
 		    in_sync && not able_to_pipeline && 
-		    this # indicate_sequential_persistency in
+		    trans # indicate_sequential_persistency in
 		  (* only_sequential_persistency: is true if the connection is
 		   * HTTP/1.0, and the server indicated a persistent connection.
 		   * In this case, pipelining is disabled.
@@ -3403,7 +3314,7 @@ class connection the_esys
 		  if only_sequential_persistency then begin
 		    (* 'close_connection': not set.
 		     *)
-		    if options.verbose_connection then 
+		    if !options.verbose_connection then 
 		      dlogr
 			(fun () ->
 			   sprintf "FD %s - HTTP connection: \
@@ -3414,18 +3325,17 @@ class connection the_esys
 		  else
 		    close_connection  <- close_connection  || not able_to_pipeline;
 
-		  if close_connection || options.inhibit_persistency then (
-		    self # abort_connection ~reusable:false;
+		  if close_connection || !options.inhibit_persistency then (
+		    self # abort ~reusable:false ~count:`Successful;
 		    end_of_queueing := true;
-		    (* We do not count this event - it is regular! *)
 		  );
 
 		  (* Remember that the first request/reply round is over: *)
 		  done_first_message <- true;
 
-		  (* postprocess 'this' (may raise exceptions! (callbacks)) *)
-		  this # cleanup();
-		  self # postprocess_complete_message this;
+		  (* postprocess 'trans' (may raise exceptions! (callbacks)) *)
+		  trans # cleanup();
+		  self # postprocess_complete_message trans;
 
 		  read_loop()
 
@@ -3434,25 +3344,25 @@ class connection the_esys
                    * is in a problematic state, and must be aborted.
                    *)
 
-		  if options.verbose_connection then
+		  if !options.verbose_connection then
 		    dlogr
 		      (fun () ->
 			 sprintf "FD %s - HTTP connection: \
                             Aborting the invalidated connection"
 			   io#socket_str);
 
-		  self # abort_connection ~reusable:false;
+		  self # abort ~reusable:false ~count:`Crashed;
 		  end_of_queueing := true;
-		  counters.crashed_connections <-
-		    counters.crashed_connections + 1;
 
 		  (* If the response has a proper status, we can remove it
                    * from the queue. Otherwise leave it on the queue, so
                    * it can be scheduled again.
                    *)
-		  ( match this # message # status with
+		  ( match trans # message # status with
 		      | `Unserved
 		      | `Http_protocol_error _ ->
+			  if !error = None then
+			    error := Some(Bad_message "Protocol out of sync");
 			  ()    (* leave it *)
 		      | _ ->
 			  (* Remove the message from the queues: We must 
@@ -3462,26 +3372,30 @@ class connection the_esys
 			   *)
 			  ignore (Q.take read_queue);
 			  if Q.length write_queue >= 1 &&
-			     Q.peek write_queue == this then
+			     Q.peek write_queue == trans then
 			       ignore (Q.take write_queue);
-			  (* postprocess 'this' (Exceptions! (callbacks)) *)
-			  this # cleanup();
-			  self # postprocess_complete_message this;
+			  (* postprocess 'trans' (Exceptions! (callbacks)) *)
+			  trans # cleanup();
+			  self # postprocess_complete_message trans;
+
+			  (* We do not set [error]. The problematic message
+			     could eventually be processed.
+			   *)
 		  );
 
 		  (* Do not continue [read_loop] *)
 	      | Broken ->
 		  (* Simply stop here. *)
-		  if options.verbose_connection then
+		  if !options.verbose_connection then
 		    dlogr
 		      (fun () ->
 			 sprintf "FD %s - HTTP connection: \
                             Aborting the errorneuos connection"
 			   io#socket_str);
-		  self # abort_connection ~reusable:false;
+		  self # abort ~reusable:false ~count:`Crashed;
 		  end_of_queueing := true;
-		  counters.crashed_connections <-
-		    counters.crashed_connections + 1;
+		  if !error = None then
+		    error := Some(Bad_message "Protocol error");
 	  );
 	end
       in         (* of "let rec read_loop() = " *)
@@ -3500,242 +3414,79 @@ class connection the_esys
 	      (* No more responses expected, but still octets to interpret.
 	       * This is a protocol error, too.
 	       *)
-	      if options.verbose_connection then
+	      if !options.verbose_connection then
 		dlogr
 		  (fun () ->
 		     sprintf "FD %s - HTTP connection: \
                               Extra octets -- aborting connection"
 		       io#socket_str);
-	      self # abort_connection ~reusable:false;
+	      self # abort ~reusable:false ~count:`Crashed;
 	      end_of_queueing := true;
-	      counters.crashed_connections <-
-		counters.crashed_connections + 1;
+	      if !error = None then
+		error := Some(Bad_message "Extra octets");
 	    end
       end;
 
       (************** CLOSE THE CONNECTION IF NECESSARY, ****************)
       (************** AND PREPARE RECONNECTION           ****************)
 
-      if !end_of_queueing then begin
-	assert (group = None);
-	self # cleanup_on_eof (Bad_message "Incomplete or missing response")
-      end;
-
-      (*************** UPDATE THE POLLING STATE **************)
-
-      (* If there were 'add' invocations from callbacks, move these additions
-       * to the real queues now.
-       *)
-      self # leave_critical_section; 
-
-      (* Update polling state: *)
-      self # maintain_polling;
+      if !end_of_queueing then 
+	self # after_eof !error
+      else
+	(* Update polling state: *)
+	self # maintain_polling();
 
 
-    (************** CLOSE THE CONNECTION IF NECESSARY, ****************)
-    (************** AND PREPARE RECONNECTION           ****************)
+    method private after_eof err_opt =
+      (* Postprocess error information *)
+      if not after_eof then (
 
-    method private cleanup_on_eof ?(force_total_failure=false) err : unit =
-      assert (group = None);
-
-      (* If the socket is closed, it is necessary to check whether all 
-       * requests sent so far have got their replies. 
-       * Cases:
-       * - write_queue and read_queue are empty: all is done.
-       * - write_queue and read_queue have the same number of elements:
-       *   reconnect
-       * - else: some replies are missing. The requests are NOT tried again
-       *   by default because the operations might not be idempotent. 
-       *   The messages carry a flag with them indicating whether reconnection
-       *   is allowed or not.
-       * It is not possible that the write_queue is longer than the read_queue.
-       *)
-
-      (* First check if the connection was a total failure, i.e. if not
-       * even a status line was received. In this case
-       * increase the counter for totally failed connections. If the
-       * counter exceeeds a limit, all messages on the queues are discarded.
-       *)
-	
-      if force_total_failure || not io#status_seen then begin
-	(* It was a total failure. *)
-	totally_failed_connections <- totally_failed_connections + 1;
-	if options.verbose_connection then
-	  dlog "HTTP connection: total failure";
-	
-	if totally_failed_connections >= options.maximum_connection_failures then
-	  begin
-	    (* Set the error exception of all remaining messages, and
-	     * clear the queues.
-	     *)
-	    self # clear_read_queue err;
-	    self # clear_write_queue ();
-	    
-	    (* Reset state variables *)
-
-	    totally_failed_connections <- 0;
-
-	    (* Simply continue with the following piece of code, which will
-	     * no nothing.
-	     *)
-	  end
-	  
-      end
-      else (
-	(* This connection breaks the series of total failures (if there 
-	 * was such a series.
+	(* First check if the connection was a total failure, i.e. if not
+	 * even a status line was received. This is just reported to the
+	 * robust_pipeline, where the counter for totally failed connections
+	 * can be increased.
 	 *)
-	totally_failed_connections <- 0;
-
-	(* Turn pipelining off to be on the safe side: *)
-	inhibit_pipelining_byserver <- true;
-      );
-
-      (* Now examine the queues, and decide what to do. *)
 	
-      let n_read  = Q.length read_queue in
-      let n_write = Q.length write_queue in
-      if n_read > 0 || n_write > 0 then begin
-	assert (n_read >= n_write);
-	assert (group = None);
-	
-	connect_pause <- 1.0;
+	total_failure <- not io#status_seen;
 
-	if options.verbose_connection then
-	  dlogr (fun () ->
-		   sprintf "FD %s - HTTP connection: rescheduling %d calls"
-		     io#socket_str (n_read-n_write)
-		);
+	(* Assertions about queues: write queue is a suffix of read queue *)
 	
-	(* ASSERTION:
-	 *     read_queue  = q1 . q2
-	 *     write_queue =      q2
-	 * i.e. the extra elements of the read queue are at the beginning
-	 * of the read queue.
-	 * 
-	 * PLAN: Make that
-	 *     read_queue  = q2 . q1'
-	 *     write_queue = q2 . q1'
-	 * where q1' are the elements of q1 for which a reconnection is
-	 * allowed. Reset the error exception for these elements.
-	 * For the other elements (q1 \ q1') leave the error
-	 * exception as it is, but change every No_exception into 
-	 * No_reply.
-         *
-         * Note: q1 = empty is possible.
-	 *)
-	for i = 1 to n_read - n_write do
-	  let m_trans = Q.take read_queue in
-	  let m = m_trans # message in
-	  m_trans # cleanup();  (* release resources *)
-	  (* Increase error counter *)
-	  let e = m # private_api # get_error_counter in
-	  m # private_api # set_error_counter (e+1);
-	  (* Test: Are reconnections allowed? *)
-	  if e+1 <= options.maximum_message_errors then begin
-	    let do_reconnect =
-	      match m # get_reconnect_mode with
-		| Send_again -> true
-		| Request_fails -> false
-		| Send_again_if_idem -> m # is_idempotent
-		| Inquire f ->
-		    (* Ask the function 'f' whether to reconnect or not: *)
-		    begin 
-		      try f m    (* returns true or false *)
-		      with
-			  (* The invocation of 'f' may raise an exception.
-			   * It is printed to stderr (there is no other
-			   * way to report it).
-			   *)
-			  x ->
-			    dlog ("Exception caught in Http_client: " 
-				  ^ (Netexn.to_string x));
-			    false
-		    end
-	    in
-	    if do_reconnect then begin
-	      (* Ok, this request is tried again. *)
-	      if options.verbose_status then
-		dlogr (fun () -> 
-			 sprintf "Call %d - rescheduling" m_trans#call_id);
-	      m_trans # init();               (* Reinit call *)
-	      Q.add m_trans write_queue;  (* ... add it to the queue of open *)
-	      Q.add m_trans read_queue;   (* ...to the unfinished requests. *)
-	    end
-	    else begin
-	      (* Drop this message because reconnection is not allowed *)
-	      (* If status of the message is unset, change it into No_reply. 
-	       *)
-	      m_trans # error_if_unserved No_reply;
-	      (* We do not reconnect, so postprocess now. *)
-	      self # drive_postprocessing m_trans;
-	    end
-	  end
-	  else (
-	    (* drop this message because of too many errors *)
-	    (* We do not reconnect, so postprocess now. *)
-	    m_trans # error_if_unserved No_reply;
-	    self # drive_postprocessing m_trans;
-	  )
-	done;
-
 	let n_read  = Q.length read_queue in
 	let n_write = Q.length write_queue in
-	assert (n_read = n_write);
-	  
-	(* It is now possible that n_read = n_write = 0, in which case
-	 * no more is to do, or that there are remaining requests.
-	 *)
+	assert (n_read >= n_write);
+	
+	(* Clean up the transmitters: *)
+	
+	Q.iter
+	  (fun trans ->
+	     trans # cleanup();    (* release resources *)
+	     match err_opt with
+	       | None -> ()
+	       | Some err ->
+		   trans # error_if_unserved err
+	  )
+	  read_queue;
+	
+	(* Increase the error counter of the head of read_queue: *)
+	if n_read > 0 && err_opt <> None then (
+	  let trans = Q.peek read_queue in
+	  let m = trans # message in
+	  let e = m # private_api # get_error_counter in
+	  m # private_api # set_error_counter (e+1);
+	);
+	
+	(* We have reached the logical end: *)
+	signal_queue (`Done());
 
-	if n_write > 0 then begin
-	  assert (Q.peek read_queue == Q.peek write_queue);
-	  (* Force reinitialisation of all queue elements: *)
-	  Q.iter 
-	    (fun m -> 
-	       if options.verbose_status then
-		 dlogr
-		   (fun () -> sprintf "Call %d - init" m#call_id);
-	       m#init()
-	    )
-	    read_queue;
-	  (* Process the queues: *)
-	  self # attach_to_esys;
-	end
-	else (
-	  if options.verbose_connection then
-	    dlog "HTTP connection: Nothing left to do";
-	  counters.failed_connections <- counters.failed_connections + 1
-	)
-
-      end else (
-	(* n_read = 0 && n_write = 0 *)
-	counters.successful_connections <- counters.successful_connections + 1
+	after_eof <- true
       )
-      
-
-    method clear_read_queue err =
-      let q' = Q.create() in
-      Q.transfer read_queue q';
-      Q.iter 
-	(fun m ->
-	   m # error_if_unserved err;
-	   m # cleanup();
-	)
-	q';
-      (* Dropped message need to be postprocessed: *)
-      Q.iter self#drive_postprocessing q'
-
-
-    method clear_write_queue() =
-      Q.iter (fun m -> m # cleanup()) write_queue;
-      Q.clear write_queue
 
 
     (**********************************************************************)
     (***                     AUTHENTICATION                             ***)
     (**********************************************************************)
 
-    method private postprocess_complete_message msg_trans =
+    method private postprocess_complete_message trans =
       (* This method is invoked for every complete reply. The following
        * cases are handled at this stage of processing:
        *
@@ -3759,10 +3510,10 @@ class connection the_esys
        *)
 
       let default_action() =
-	self # drive_postprocessing msg_trans;
+	self # drive_postprocessing trans;
       in
 
-      let msg = msg_trans # message in
+      let msg = trans # message in
       let code = msg # private_api # response_code in
       let req_hdr = msg # request_header `Effective in
       let _resp_hdr = msg # private_api # response_header in
@@ -3772,11 +3523,11 @@ class connection the_esys
 	    if
 	      try 
 		let _ = req_hdr # field "proxy-authorization" in
-		if options.verbose_status then
+		if !options.verbose_status then
 		  dlogr
 		    (fun () ->
 		       sprintf "Call %d - HTTP auth: proxy authentication \
-                                required again" (Oo.id msg_trans));
+                                required again" (Oo.id trans));
 		false
 	      with Not_found -> true
 	    then begin
@@ -3785,11 +3536,11 @@ class connection the_esys
 	       * Otherwise, do the default action.
 	       *)
 	      if peer_is_proxy then begin
-		if options.verbose_status then
+		if !options.verbose_status then
 		  dlogr
 		    (fun () ->
 		       sprintf "Call %d - HTTP auth: proxy authentication \
-                                required" (Oo.id msg_trans));
+                                required" (Oo.id trans));
 		if proxy_user <> "" then begin
 		  (* We have a user/password pair: Enable proxy authentication
 		   * and add 'msg' again to the queue of messages to be
@@ -3804,20 +3555,20 @@ class connection the_esys
 		    proxy_credentials_required <- true;
 		    proxy_cookie <- "";
 		  end;
-		  if options.verbose_status then
+		  if !options.verbose_status then
 		    dlogr
 		      (fun () ->
 			 sprintf "Call %d - HTTP auth: proxy credentials \
-                                  added" (Oo.id msg_trans));
-		  ignore (self # add_again msg_trans);
+                                  added" (Oo.id trans));
+		  ignore (self # add true trans#message trans#f_done);
 		end
 		else (
 		  (* No user/password pair: We cannot authorize ourselves. *)
-		  if options.verbose_status then
+		  if !options.verbose_status then
 		    dlogr
 		      (fun () ->
 			 sprintf "Call %d - HTTP auth: user/password missing"
-			   (Oo.id msg_trans));
+			   (Oo.id trans));
 		  default_action()
 		)
 	      end
@@ -3825,11 +3576,11 @@ class connection the_esys
 		(* The server was not contacted as a proxy, but it demanded
 		 * proxy authorization. Regard this as an intrusion.
 		 *)
-		if options.verbose_status then
+		if !options.verbose_status then
 		  dlogr
 		    (fun () ->
 		       sprintf "Call %d - HTTP auth: intrusion by proxy \
-                                authentication" (Oo.id msg_trans));
+                                authentication" (Oo.id trans));
 		default_action()
 	      )
 	    end
@@ -3861,7 +3612,7 @@ class connection the_esys
 		| Some sess ->
 		    (* Remember the new session: *)
 		    msg # private_api # set_auth_state (`In_reply sess);
-		    ignore(self # add_again msg_trans)
+		    ignore (self # add true trans#message trans#f_done);
 	    )
 	    else
 	      default_action()
@@ -3880,61 +3631,297 @@ class connection the_esys
     (**********************************************************************)
     (***    POSTPROCESS = INVOKE USER CALLBACK FUNCTION                 ***)
     (**********************************************************************)
+	
+    method private drive_postprocessing trans =
+      trans#cleanup();
+      drive_postprocessing_msg esys options trans#message trans#f_done
+     
+    end
+  )
 
-    method drive_postprocessing m =
-      let do_callback () =
-	assert(not critical_section);
-	critical_section <- true;
+(**********************************************************************)
+
+let robust_pipeline 
+      esys 
+      peer_host peer_port 
+      peer_is_proxy (proxy_user,proxy_password) 
+      conn_cache conn_owner 
+      auth_cache
+      counters options =
+  (* Implements a pipeline that connects to the peer after the first
+     message is added, and that is able to reconnect as often as
+     necessary
+   *)
+
+  ( object(self)
+      val mutable fp_opt = None
+	(* The fragile_pipeline, if any *)
+
+      val queue = Q.create()
+	(* Queued requests before being connected *)
+
+      (* 'connecting' may be set to [Some e] where [e] is the connecting engine.
+       *)
+      val mutable connecting = None
+	
+      (* 'connect_pause': seconds to wait until the next connection is tried.
+       * There seems to be a problem with some operating systems (namely
+       * Linux 2.2) which do not like immediate reconnects if the previous
+       * connection did not end in a sane state.
+       * A value of 0.5 seems to be sufficient for reconnects (see below).
+       *)			      
+      val mutable connect_pause = 0.0
+	
+      (* no_pipelining: true if the server has somehow indicated that it
+	 is better not to rely on pipelining
+       *)
+      val mutable no_pipelining = false
+	
+      (* 'connect_time': how many seconds the last 'connect' took
+       *)
+      val mutable connect_time = 0.0
+	
+      (* If a connection does not lead to any type of response, the client 
+       * simply re-opens a new connection and tries again. The following 
+       * variables limit the number of attempts until the client gives up.
+       *
+       * 'totally_failed_connections': counts the number of failed connections
+       *      without any response from the server.
+       *)
+      val mutable totally_failed_connections = 0
+	
+    method length =
+      match fp_opt with
+	| None -> 0
+	| Some fp -> fp#length
+
+
+    method active =
+      match fp_opt with
+	| None -> false
+	| Some fp -> fp#active
+
+
+    method add urgent (m : http_call) f_done =
+      (* Check whether we can authenticate in advance: *)
+      if m # private_api # auth_state = `None then (
 	try
-	  if options.verbose_status then
-	    dlogr (fun () -> 
-		     sprintf "Call %d - postprocessing" m#call_id);
-	  m # postprocess;
-	  critical_section <- false
+	  let sess = auth_cache # find_session_in_advance m in
+	  m # private_api # set_auth_state (`In_advance sess)
 	with
-	    any ->
-	      critical_section <- false;
-	      raise any in
-      let g = Unixqueue.new_group esys in
-      Unixqueue.once esys g 0.0 do_callback
-		
+	    Not_found -> ()
+      );
+      match fp_opt with
+	| None ->
+	    Q.add (urgent,m,f_done) queue;
+	    if connecting = None then
+	      self # reconnect()
 
-    (**********************************************************************)
-    (***                   RESET COMPLETELY                             ***)
-    (**********************************************************************)
+	| Some fp ->
+	    (* Even if fp is already shut down! This only means that fp#finish_e
+	       has not yet signalled that we are actually finished. This will
+	       happen soon, though, and the added message will be picked up
+	       then
+	     *)
+	    fp # add urgent m f_done
 
-    (* [reset] is called by the pipeline object to shutdown any processing *)
 
-    method reset =
-      if options.verbose_connection then
+    method reset () =
+      if !options.verbose_connection then
 	dlog "HTTP connection: reset";
 
-      (* Close the socket; clear the Unixqueue *)
-      self # abort_connection ~reusable:false;
+      ( match connecting with
+	  | None -> ()
+	  | Some e ->
+	      e#abort();
+	      connecting <- None
+      );
 
-      (* Discard all messages on the queues. *)
-      self # clear_read_queue No_reply;
-      self # clear_write_queue();
+      ( match fp_opt with
+	  | None -> ()
+	  | Some fp ->
+	      fp # reset();
+	      fp_opt <- None
+		(* note that [fp#reset] causes that finished_e transitions
+		   to `Aborted. Hence, conn_is_done is not called 
 
-      (* Reset state variables *)
+		   The remaining messages in fp are already postprocessed.
+		 *)
+      );
 
-      totally_failed_connections <- 0;
-
-      (* If there were 'add' invocations from callbacks, delete these additions
-       * now
-       *)
-      let q = Queue.create() in
-      Queue.iter
-	(fun trans ->
-	   Queue.push trans q;
-	   trans # error_if_unserved No_reply
+      Q.iter
+	(fun (_,m,f_done) ->
+	   m # private_api # error_if_unserved 
+	     !options.verbose_connection No_reply;
+	   self # drive_postprocessing_msg m f_done
 	)
-	deferred_additions;
-      Queue.clear deferred_additions;
-      Queue.iter self#drive_postprocessing q
+	queue;
+      Q.clear queue;
 
-  end
-;;
+      totally_failed_connections <- 0
+
+
+
+    method private reconnect() =
+      assert(connecting = None);
+      assert(fp_opt = None);
+      let e =
+	Uq_engines.delay_engine
+	  connect_pause
+	  (fun () ->
+	     tcp_connect_e 
+	       esys peer_host peer_port conn_cache conn_owner options)
+	  esys in
+      connecting <- Some e;
+      Uq_engines.when_state
+	~is_error:(fun err ->
+		     connecting <- None;
+		     self#conn_is_error err
+		  )
+	~is_done:(fun (fd,t) ->
+		    Netlog.Debug.track_fd
+		      ~owner:"Http_client"
+		      ~descr:(sprintf 
+				"HTTP to %s:%d" peer_host peer_port)
+		      fd;
+		    (* The release_fd is in Http_client_conncache! *)
+
+		    connect_time <- t;
+		    connect_pause <- 0.0;
+		    connecting <- None;
+		    let fp =
+		      fragile_pipeline
+			esys peer_host peer_port
+			peer_is_proxy (proxy_user,proxy_password) 
+			fd t no_pipelining conn_cache
+			auth_cache
+			counters options in
+		    fp_opt <- Some fp;
+		    Q.iter
+		      (fun (urgent,m,f_done) -> 
+			 fp # add urgent m f_done
+		      )
+		      queue;
+		    Q.clear queue;
+		    fp # attach();
+		    Uq_engines.when_state
+		      ~is_done:(self#conn_is_done fp)
+		      fp#finished_e
+		 )
+	e
+
+    method private conn_is_error error =
+      (* It was not possible to reach the peer *)
+
+      counters.crashed_connections <- 
+	counters.crashed_connections + 1;
+
+      let q = Q.create() in
+      Q.transfer queue q;
+
+      self # conn_retry true error q;
+
+    method private conn_is_done fp () =
+      (* Check the result of fp, and move the requests back to [queue] that
+	 can be tried again
+       *)
+      fp_opt <- None;
+      no_pipelining <- fp#no_pipelining;  (* remember that *)
+
+      let q = Q.create() in
+      fp # iter_unserved_messages
+	(fun trans ->
+	   trans # cleanup();
+	   Q.add (false, trans#message, trans#f_done) q
+	);
+
+      self # conn_retry fp#is_total_failure No_reply q
+
+
+    method private conn_retry is_total_failure subst_error q =
+      (* Maybe we have a "total failure" - got no response from server *)
+      let too_many_total_failures =
+	if is_total_failure then (
+	  totally_failed_connections <- totally_failed_connections + 1;
+	  if !options.verbose_connection then
+	    dlog "HTTP connection: total failure";
+	  
+	  totally_failed_connections >= !options.maximum_connection_failures 
+	)
+	else (
+	  totally_failed_connections <- 0;
+	  false
+	) in
+
+      if !options.verbose_connection then
+	dlog "HTTP connection: checking remaining pipeline requests";
+
+      (* Check all requests individually *)
+      Q.iter
+	(fun (urgent,m,f_done) ->
+	   let e = m # private_api # get_error_counter in
+(*dlog (sprintf "e=%d idem=%B" e m#is_idempotent);*)
+	   let try_again =
+	     not too_many_total_failures &&
+	       e <= !options.maximum_message_errors &&
+	       ( match m # get_reconnect_mode with
+		| Send_again -> true
+		| Request_fails -> false
+		| Send_again_if_idem -> m # is_idempotent
+		| Inquire f ->
+		    (* Ask the function 'f' whether to reconnect or not: *)
+		    ( try f m    (* returns true or false *)
+		      with
+			  (* The invocation of 'f' may raise an exception.
+			   * It is printed to stderr (there is no other
+			   * way to report it).
+			   *)
+			  x ->
+			    dlog ("Exception caught in Http_client: " 
+				  ^ (Netexn.to_string x));
+			    false
+		    )
+	       ) in
+	   if try_again then (
+	     (* Ok, this request is tried again. *)
+	     if !options.verbose_status then
+	       dlogr (fun () -> 
+			sprintf "Call %d - rescheduling" (Oo.id m));
+	     Q.add (urgent,m,f_done) queue;
+	   )
+	   else (
+	     m # private_api # error_if_unserved
+	       !options.verbose_connection subst_error;
+	     self # drive_postprocessing_msg m f_done
+	   )
+	)
+	q;
+
+      (* Try again: *)
+      if Q.length queue > 0 then (
+
+	if !options.verbose_connection then
+	  dlog "HTTP connection: retrying after failure";
+	
+	connect_pause <- 1.0;
+	self#reconnect()      
+      )
+
+
+    (**********************************************************************)
+    (***    POSTPROCESS = INVOKE USER CALLBACK FUNCTION                 ***)
+    (**********************************************************************)
+
+    (* Same as for fragile_pipeline *)
+	
+    method private drive_postprocessing_msg m f_done =
+      drive_postprocessing_msg esys options m f_done
+
+    end
+  )
+
+
+(**********************************************************************)
 
 
 (**********************************************************************)
@@ -3969,26 +3956,27 @@ class pipeline =
 
     val mutable open_connections = 0
 
-    val mutable options =
-	    { (* Default values: *)
-	      synchronization = Pipeline 5;
-	      maximum_connection_failures = 2;
-	      maximum_message_errors = 2;
-	      inhibit_persistency = false;
-	      connection_timeout = 300.0;
-	      number_of_parallel_connections = 2;
-	      maximum_redirections = 10;
-	      handshake_timeout = 1.0;
-	      resolver = sync_resolver;
-	      configure_socket = (fun _ -> ());
-	      verbose_status = true;
-	      verbose_request_header = false;
-	      verbose_response_header = false;
-	      verbose_request_contents = false;
-	      verbose_response_contents = false;
-	      verbose_connection = true;
-	      verbose_events = false;
-	    }
+    val options =
+      ref
+	{ (* Default values: *)
+	  synchronization = Pipeline 5;
+	  maximum_connection_failures = 2;
+	  maximum_message_errors = 2;
+	  inhibit_persistency = false;
+	  connection_timeout = 300.0;
+	  number_of_parallel_connections = 2;
+	  maximum_redirections = 10;
+	  handshake_timeout = 1.0;
+	  resolver = sync_resolver;
+	  configure_socket = (fun _ -> ());
+	  verbose_status = true;
+	  verbose_request_header = false;
+	  verbose_response_header = false;
+	  verbose_request_contents = false;
+	  verbose_response_contents = false;
+	  verbose_connection = true;
+	  verbose_events = false;
+	}
 
     val auth_cache = new auth_cache
 
@@ -4072,7 +4060,7 @@ class pipeline =
 	(fun _ cl ->
 	   List.iter
 	     (fun c ->
-		c # reset)
+		c # reset())
 	     !cl)
 	connections;
 
@@ -4135,16 +4123,16 @@ class pipeline =
 		Hashtbl.add connections (peer, peer's_port, use_proxy) new_connlist;
 		new_connlist
 	in
-	if List.length !connlist < options.number_of_parallel_connections 
+	if List.length !connlist < !options.number_of_parallel_connections 
 	  then begin
-	    let new_conn = new connection
+	    let new_conn = robust_pipeline
 	                     esys
-	                     (peer, peer's_port)
+	                     peer peer's_port
 			     use_proxy
 	                     (proxy_user, proxy_password) 
-			     auth_cache
 			     conn_cache
 			     (self :> < >)
+			     auth_cache
 			     counters
 			     options in
 	    open_connections <- open_connections + 1;
@@ -4167,7 +4155,7 @@ class pipeline =
       
       (* Add the request to the queue of this connection: *)
 
-      conn # add request 
+      conn # add false request 
 	(fun m ->
 	   (* Update 'open_connections', 'connections', and 'open_messages' *)
 	   if not conn#active then begin
@@ -4243,7 +4231,7 @@ class pipeline =
 		   if do_redirection then begin
 		     (* Maybe the redirection limit is exceeded: *)
 		     let rc = m # private_api # get_redir_counter in
-		     if rc >= options.maximum_redirections
+		     if rc >= !options.maximum_redirections
 		     then (
 		       m # private_api # set_error_exception Too_many_redirections;
 		       f_done m
@@ -4324,17 +4312,10 @@ class pipeline =
 
 	 Unixqueue.run esys
 
-    method get_options = options
+    method get_options = !options
 
     method set_options p =
-      options <- p;
-      Hashtbl.iter
-	(fun _ cl ->
-	   List.iter
-	     (fun c ->
-		c # set_options p)
-	     !cl)
-	connections
+      options := p
 
     method number_of_open_messages = open_messages
 

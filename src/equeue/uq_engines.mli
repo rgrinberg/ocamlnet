@@ -413,6 +413,16 @@ val delay_engine : float -> (unit -> 'a #engine) ->
                      'a engine
   (** Same as function *)
 
+class ['a] timeout_engine : float -> exn -> 'a engine -> ['a] engine
+  (** [timeout_engine d x e]: If the engine [e] finishes within [d]
+      seconds, the result remains unchanged. If the engine takes longer,
+      though, it is aborted, and the state transitions to
+      [`Error x]
+   *)
+
+val timeout_engine : float -> exn -> 'a engine -> 'a engine
+  (** Same as function *)
+
 class watchdog : float -> 
                  'a #engine ->
                    [unit] engine

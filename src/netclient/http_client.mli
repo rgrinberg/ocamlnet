@@ -76,6 +76,11 @@ exception URL_syntax_error of string
   (** This URL cannot be parsed after a redirection has been followed.
    *)
 
+exception Timeout of string
+  (** A timeout. The string explains which connection is affected.
+      {b New since Ocamlnet-3.3.}
+   *)
+
 exception Http_protocol of exn;;
   (** The request could not be processed because the exception condition 
    * was raised. The inner exception is one of the above defined.

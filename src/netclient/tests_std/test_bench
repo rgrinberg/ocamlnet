@@ -15,7 +15,15 @@ EOF
 }
 
 
+failed=""
+
+
 run_test () {
+    if [ ! -f specs/helpers.sh ]; then
+	ln -s ../helpers.sh specs
+    fi
+    PATH=".:$PATH"
+    export PATH
     if [ -f specs/$1.sh ]; then
 	echo -n "Running test $1..."
 	rm -f client.out
@@ -29,6 +37,7 @@ run_test () {
 		echo " successful"
 	    else
 		echo " failure"
+		failed="$failed $1"
 		exitcode=1
 	    fi
 	else
@@ -131,6 +140,7 @@ if [ "$#" = "0" ]; then
     run_test unix-error
     run_test framed-no-persistency
     run_test timeout
+    run_test timeout-error
     run_test bad-request
     run_test head
     run_test head-extra
@@ -139,6 +149,15 @@ else
     while [ "$#" -gt 0 ]; do
 	run_test "$1"
 	shift
+    done
+fi
+
+if [ -n "$failed" ]; then
+    echo "****************************************************************"
+    echo "* There are failed tests!                                      *"
+    echo "****************************************************************"
+    for n in $failed; do
+	echo "Test $n: FAILED"
     done
 fi
 

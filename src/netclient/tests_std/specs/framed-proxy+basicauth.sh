@@ -2,11 +2,11 @@
 
 start_test_server \
   -line 1 -file data/require-proxyauth \
-  -line 8 -expect "proxy-authorization: Basic dGVzdHVzZXI6dGVzdHBhc3N3b3Jk" \
-  -line 9 -file data/require-basicauth \
-  -line 13 -expect "proxy-authorization: Basic dGVzdHVzZXI6dGVzdHBhc3N3b3Jk" \
-  -line 14 -expect "Authorization: Basic dGVzdHVzZXI6dGVzdHBhc3N3b3Jk" \
-  -line 15 -file data/framed
+  -line 9 -expect "proxy-authorization: Basic dGVzdHVzZXI6dGVzdHBhc3N3b3Jk" \
+  -line 10 -file data/require-basicauth \
+  -line 15 -expect "proxy-authorization: Basic dGVzdHVzZXI6dGVzdHBhc3N3b3Jk" \
+  -line 16 -expect "Authorization: Basic dGVzdHVzZXI6dGVzdHBhc3N3b3Jk" \
+  -line 17 -file data/framed
 trap "stop_test_server" EXIT
 request \
   -proxy -proxy-user testuser -proxy-password testpassword \

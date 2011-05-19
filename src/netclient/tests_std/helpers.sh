@@ -30,6 +30,13 @@ request () {
 	ocamldebug -I .. ./test_client -verbose -port "$server_port" "$@"
     elif [ -n "$GDB_CLIENT" ]; then
 	gdb --args ./run ./test_client -verbose -port "$server_port" "$@"
+    elif [ -n "$NETLOGGED_CLIENT" ]; then
+	# e.g. NETLOGGED_CLIENT="Http_client"
+	args=""
+	for arg in $NETLOGGED_CLIENT; do
+	    args="-debug $arg"
+	done
+	./test_client -verbose -port "$server_port" $args "$@" 2>client.out
     else
 	./test_client -verbose -port "$server_port" "$@" 2>client.out
     fi

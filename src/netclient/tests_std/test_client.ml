@@ -239,8 +239,18 @@ let main() =
 					 connection_timeout = float_of_int k }),
 	             " <n>     Sets the connection timeout to n seconds";
 				   
+	"-debug", Arg.String (fun s -> Netlog.Debug.enable_module s),
+	"<module>  Enable debug messages for <module>";
+	
+	"-debug-all", Arg.Unit (fun () -> Netlog.Debug.enable_all()),
+	"  Enable all debug messages";
+	
+	"-debug-list", Arg.Unit (fun () -> 
+                                   List.iter print_endline (Netlog.Debug.names());
+                                   exit 0),
+	"  Show possible modules for -debug, then exit"
       ]
-      (fun s -> if s <> "" then failwith ("Bad argument: " ^ s))
+    (fun s -> if s <> "" then failwith ("Bad argument: " ^ s))
       "usage: test_client [options]
 
 Executes the sequence of client operations which are specified by the

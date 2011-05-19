@@ -8,7 +8,6 @@ open Http_client;;
 let work1() =
   let g = new get "http://localhost/" in
   let p = new pipeline in
-  p # verbose [ Verbose_status ];
   p # add g;
   p # run();
   let (_,code,_) = g # dest_status() in
