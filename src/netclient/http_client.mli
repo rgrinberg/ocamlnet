@@ -1,5 +1,13 @@
 (* $Id$ *)
 
+(* More ideas:
+   - full SOCKS support
+   - maximum download size -> Http_client_util
+   - automatic gzip/gunzip -> Http_client_util
+   - upload also available as Uq_io - DONE
+   - document exceptions for upload/download
+ *)
+
 (** HTTP 1.1 client *)
 
 (**********************************************************************)
@@ -154,6 +162,7 @@ type response_body_storage =
     [ `Memory
     | `File of unit -> string
     | `Body of unit -> Netmime.mime_body
+    | `Device of unit -> Uq_io.out_device
     ]
   (** How to create the response body:
     * - [`Memory]: The response body is in-memory
@@ -161,8 +170,10 @@ type response_body_storage =
     *   is returned by [f()]
     * - [`Body f]: The response body is stored into the object returned
     *   by [f()]
+    * - [`Device f]: The response is directly forwarded to the device
+    *   obtained by [f()]
     *
-    * When the function [f] is called in the two latter cases the response
+    * When the function [f] is called in the latter cases the response
     * header has already been received, and can be retrieved with the
     * [response_header] method of the call object. Also, [response_status_text],
     * [response_status_code], and [response_status] return meaningful
@@ -298,30 +309,30 @@ type header_kind = [ `Base | `Effective ]
 class type http_call =
 object
   (** [http_call] is the runtime container for HTTP method calls. It contains
-    * the request message, the response message, and the current transmission
-    * status.
-    *
-    * In previous versions of netclient, this class type was called 
-    * [message]. This was quite inexact because this class embraces both
-    * messages that are part of a call.
-    *
-    * {b Incompatible changes}:
-    * - [using_proxy] has been removed. This simply isn't a property of
-    *   an individual call.
-    * - [get_req_uri] has been removed from the public interface for similar
-    *   reasons.
-    * - The request and response messages are now primarily stored as
-    *   [Netmime.mime_header] and [Netmime.mime_body] objects. The old
-    *   style access methods remain in the API for now. The advantage is
-    *   that it is possible to use external files as body containers.
-    * - There are two request headers, [`Base] and [`Effective].
+      * the request message, the response message, and the current transmission
+      * status.
+      *
+      * In previous versions of netclient, this class type was called 
+      * [message]. This was quite inexact because this class embraces both
+      * messages that are part of a call.
+      *
+      * {b Incompatible changes}:
+      * - [using_proxy] has been removed. This simply isn't a property of
+      *   an individual call.
+      * - [get_req_uri] has been removed from the public interface for similar
+      *   reasons.
+      * - The request and response messages are now primarily stored as
+      *   [Netmime.mime_header] and [Netmime.mime_body] objects. The old
+      *   style access methods remain in the API for now. The advantage is
+      *   that it is possible to use external files as body containers.
+      * - There are two request headers, [`Base] and [`Effective].
    *)
 
   (** {2 Call State} *)
 
   method is_served : bool
     (** [true] if request/response cycle(s) have been finished, i.e. the
-      * call was successful, or a final error state has been reached.
+	* call was successful, or a final error state has been reached.
      *)
 
   method status : status
@@ -334,7 +345,7 @@ object
 
   method request_uri : string
     (** The request URI as string. This is always an absolute URI in the
-      * form "http://server/path".
+	* form "http://server/path".
      *)
 
   method set_request_uri : string -> unit
@@ -342,48 +353,72 @@ object
 
   method request_header : header_kind -> Netmime.mime_header
     (** The whole header of the request. Users of this class should only
-     * modify the [`Base] header. After the call has been processed,
-     * the [`Effective] header contains the version of the header that has
-     * actually been transmitted.
-     *
-     * The user should set the following headers:
-     * - [Content-length]: Set this to the length of the request body
-     *   if known. (The client falls back to HTTP 1.0 if not set!)
-     * - [Content-type]: Set this to the media type of the request body
-     * - [Expect]: Set this to "100-continue" to enable a handshake before
-     *   the body is sent. Recommended for large bodies.
-     *
-     * The following headers may be set, but there are reasonable defaults:
-     * - [Date]
-     * - [User-agent]
-     *
-     * The following headers must not be set:
-     * - [Connection]
+	* modify the [`Base] header. After the call has been processed,
+	* the [`Effective] header contains the version of the header that has
+	* actually been transmitted.
+	*
+	* The user should set the following headers:
+	* - [Content-length]: Set this to the length of the request body
+	*   if known. (The client falls back to HTTP 1.0 if not set!)
+	* - [Content-type]: Set this to the media type of the request body
+	* - [Expect]: Set this to "100-continue" to enable a handshake before
+	*   the body is sent. Recommended for large bodies. (See also
+	*   [set_expect_handshake] below.)
+	*
+	* The following headers may be set, but there are reasonable defaults:
+	* - [Date]
+	* - [User-agent]
+	*
+	* The following headers must not be set:
+	* - [Connection]
      *)
 
   method set_request_header : Netmime.mime_header -> unit
     (** Replaces the whole [`Base] header object *)
 
+  method set_expect_handshake : unit -> unit
+    (** Configures that a handshake is done before sending the request body.
+	This is useful when the request body can be large, and
+	authentication or response indirections are possible.
+	{b New since Ocamlnet-3.3.}
+     *)
+
+  method set_chunked_request : unit -> unit
+    (** Configures that the request is transmitted using chunked encoding.
+	This has advantages when the size of the request is not known
+	in advance. However, this works only for true HTTP/1.1 servers.
+	{b New since Ocamlnet-3.3.}
+     *)
+
   method effective_request_uri : string
     (** The URI actually sent to the server in the request line of the
-      * protocol.
+	* protocol.
      *)
 
   method request_body : Netmime.mime_body
-    (** The whole body of the request *)
+    (** The whole body of the request. This method fails after
+	[set_request_device] has been called (no body then).
+     *)
 
   method set_request_body : Netmime.mime_body -> unit
     (** Replaces the whole body object *)
 
+  method set_request_device : (unit -> Uq_io.in_device) -> unit
+    (** Sets that the request data is read from the passed device instead
+	of taking it from a body object.  The device must be connected with
+	the same event loop as the HTTP client.
+     *)
+
+
   (** {2 Accessing the response message (new style) }
-    *
-    * These methods will fail if the call has not yet been served! 
-    * If the call has been finished, but a hard error (e.g. socket error)
-    * occurred, the
-    * exception [Http_protocol] is raised. When the server only
-    * sent an error code, no exception is raised - but the user can
-    * manually test for such codes (e.g. with [repsonse_status] or
-    * [status]).
+      *
+      * These methods will fail if the call has not yet been served! 
+      * If the call has been finished, but a hard error (e.g. socket error)
+      * occurred, the
+      * exception [Http_protocol] is raised. When the server only
+      * sent an error code, no exception is raised - but the user can
+      * manually test for such codes (e.g. with [repsonse_status] or
+      * [status]).
    *)
 
   method response_status_code : int
@@ -394,8 +429,8 @@ object
 
   method response_status : Nethttp.http_status
     (** The decoded code. Unknown codes are mapped to the generic status
-      * values [`Ok], [`Multiple_choices], [`Bad_request], and 
-      * [`Internal_server_error].
+	* values [`Ok], [`Multiple_choices], [`Bad_request], and 
+	* [`Internal_server_error].
      *)
 
   method response_protocol : string
@@ -403,13 +438,17 @@ object
 
   method response_header : Netmime.mime_header
     (** The whole header of the response. If the call has not succeeded, 
-      * [Http_protocol] will be raised.
+	* [Http_protocol] will be raised.
      *)
 
   method response_body : Netmime.mime_body
     (** The whole body of the response. If the call has not succeeded, 
-      * [Http_protocol] will be raised. If the call has succeeded, 
-      * but no body has been transmitted, the empty body is substituted.
+	* [Http_protocol] will be raised. If the call has succeeded, 
+	* but no body has been transmitted, the empty body is substituted.
+	*
+	* If the response is directly forwarded to a device (after
+	* calling [set_response_body_storage (`Device d)]), there is
+	* no accessible response body, and this method will fail.
      *)
 
 
@@ -423,8 +462,8 @@ object
 
   method get_reconnect_mode : http_call how_to_reconnect
     (** Get what to do if the server needs to be reconnected, i.e.
-      * if the request must be sent repeatedly.
-      * By default, this is [Send_again_if_idem].
+	* if the request must be sent repeatedly.
+	* By default, this is [Send_again_if_idem].
      *)
 
   method set_reconnect_mode : http_call how_to_reconnect -> unit
@@ -449,50 +488,50 @@ object
     (** {b Deprecated.} Same as [proxy_enabled] *)
 
   (** {2 Method characteristics}
-    *
-    * These properties describe the HTTP method 
-    *)
+      *
+      * These properties describe the HTTP method 
+   *)
 
   method empty_path_replacement : string
     (** The string to substitute in the request line for the empty
-      * path. This is usually "/", and for OPTIONS it is "*".
+	* path. This is usually "/", and for OPTIONS it is "*".
      *)
 
   method is_idempotent : bool
     (** Whether the method is to be considered as idempotent ( = repeated
-      * invocations have the same result and no side effect). This is
-      * true for GET and HEAD.
+	* invocations have the same result and no side effect). This is
+	* true for GET and HEAD.
      *)
 
   method has_req_body : bool
     (** Whether the method allows to send a request body *)
 
   method has_resp_body : bool
-      (** Whether the method allows to reply with a body. This is true
+    (** Whether the method allows to reply with a body. This is true
         * except for HEAD.
-       *)
+     *)
 
   (** {2 Repeating calls} *)
 
   method same_call : unit -> http_call
     (** This method returns a new object that will perform the same call
-      * as this object (this function is called "reload" in browsers).
-      * The new object is initialized as follows:
-      * - The state is set to [`Unserved]
-      * - The request method remains the same (the class of the returned
-      *   object remains the same)
-      * - The request URI is the same string as the original URI
-      * - The base request header is the same object
-      * - The request body is the same object
-      * - Options like reconnect, redirect mode, and proxy mode are
-      *   copied.
+	* as this object (this function is called "reload" in browsers).
+	* The new object is initialized as follows:
+	* - The state is set to [`Unserved]
+	* - The request method remains the same (the class of the returned
+	*   object remains the same)
+	* - The request URI is the same string as the original URI
+	* - The base request header is the same object
+	* - The request body is the same object
+	* - Options like reconnect, redirect mode, and proxy mode are
+	*   copied.
      *)
 
   (** {2 Old style access methods}
-    *
-    * These method were introduced in previous versions of netclient,
-    * but are quite limited. Some questionable methods are now deprecated
-    * and will be removed in future versions of netclient.
+      *
+      * These method were introduced in previous versions of netclient,
+      * but are quite limited. Some questionable methods are now deprecated
+      * and will be removed in future versions of netclient.
    *)
 
   method get_req_method : unit -> string
@@ -509,20 +548,20 @@ object
     
   method get_uri : unit -> string
     (** the full URI of this message: http://server:port/path. If the
-      * path is empty, it is omitted. - Same as [request_uri].
+	* path is empty, it is omitted. - Same as [request_uri].
      *)
 
   method get_req_body : unit -> string
     (** What has been sent as body in the (last) request. Same as
-      * [request_body # value].
+	* [request_body # value].
      *)
 
   method get_req_header : unit -> (string * string) list
     (** {b Deprecated.}
-      * What has been sent as header in the (last) request. Returns
-      * (key, value) pairs, where the keys are all in lowercase.
-      *
-      * In new code, the [request_header] object should be accessed instead.
+	* What has been sent as header in the (last) request. Returns
+	* (key, value) pairs, where the keys are all in lowercase.
+	*
+	* In new code, the [request_header] object should be accessed instead.
      *)
 
   method assoc_req_header : string -> string
@@ -530,8 +569,8 @@ object
 
   method assoc_multi_req_header : string -> string list
     (** Return all header values for a given field name (header entries
-      * which allow several values separated by commas can also be 
-      * transmitted by several header lines with the same name).
+	* which allow several values separated by commas can also be 
+	* transmitted by several header lines with the same name).
      *)
 
   method set_req_header : string -> string -> unit
@@ -539,8 +578,8 @@ object
 
   method get_resp_header : unit -> (string * string) list
     (** {b Deprecated.}
-      * Get the header of the last response. The keys are in lowercase 
-      * characters again.
+	* Get the header of the last response. The keys are in lowercase 
+	* characters again.
      *)
 
   method assoc_resp_header : string -> string
@@ -548,24 +587,24 @@ object
 
   method assoc_multi_resp_header : string -> string list
     (** Return all response header values for a given field name (header 
-      * entries which allow several values separated by commas can also be 
-      * transmitted by several header lines with the same name).
+	* entries which allow several values separated by commas can also be 
+	* transmitted by several header lines with the same name).
      *)
 
   method get_resp_body : unit -> string
     (** {b Deprecated.}
-     * Returns the body of the last response if the response status
-     * is OK (i.e. the code is in the range 200 to 299).
-     *
-     * Otherwise, Http_error (code, body) is raised where 'code' is
-     * the response code and 'body' is the body of the (errorneous)
-     * response.
+	* Returns the body of the last response if the response status
+	* is OK (i.e. the code is in the range 200 to 299).
+	*
+	* Otherwise, Http_error (code, body) is raised where 'code' is
+	* the response code and 'body' is the body of the (errorneous)
+	* response.
      *)
 
   method dest_status : unit -> (string * int * string)
     (** Returns the status line of the last response (but status lines
-     * with code 100 are ignored).
-     * The returned triple is (http_string, code, text)
+	* with code 100 are ignored).
+	* The returned triple is (http_string, code, text)
      *)
 
   (** {2 Private} *)

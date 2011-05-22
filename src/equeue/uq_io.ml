@@ -21,20 +21,21 @@ object
 end
 
 
-class type in_buffer =
+class type ['in_device] in_buffer_pre =
 object
   method buffer : obj_buffer
   method eof : bool
   method start_fill_e : unit -> bool Uq_engines.engine
   method fill_e_opt : bool Uq_engines.engine option
     (* The current fill engine, or None *)
+  method udevice : 'in_device
   method shutdown_e : unit -> unit Uq_engines.engine
   method inactivate : unit -> unit
   method event_system : Unixqueue.event_system
 end
 
 
-class type out_buffer =
+class type ['out_device] out_buffer_pre =
 object
   method buffer : obj_buffer
   method eof : bool
@@ -44,6 +45,7 @@ object
     (* The current flush engine, or None *)
   method write_eof_e : unit -> bool Uq_engines.engine
     (* The buffer must be empty before [write_eof_e] *)
+  method udevice : 'out_device
   method shutdown_e : float option -> unit Uq_engines.engine
   method inactivate : unit -> unit
   method event_system : Unixqueue.event_system
@@ -54,7 +56,7 @@ type in_device =
     [ `Polldescr of Netsys.fd_style * Unix.file_descr * Unixqueue.event_system
     | `Multiplex of Uq_engines.multiplex_controller
     | `Async_in of Uq_engines.async_in_channel * Unixqueue.event_system
-    | `Buffer_in of in_buffer
+    | `Buffer_in of in_device in_buffer_pre
     ]
 
 
@@ -62,12 +64,20 @@ type out_device =
     [ `Polldescr of Netsys.fd_style * Unix.file_descr * Unixqueue.event_system
     | `Multiplex of Uq_engines.multiplex_controller
     | `Async_out of Uq_engines.async_out_channel * Unixqueue.event_system
-    | `Buffer_out of out_buffer
+    | `Buffer_out of out_device out_buffer_pre
     ]
+
+
+type in_buffer = in_device in_buffer_pre
+type out_buffer = out_device out_buffer_pre
 
 
 type in_bdevice =
     [ `Buffer_in of in_buffer ]
+
+
+
+exception Line_too_long
 
 
 let device_esys =
@@ -78,6 +88,12 @@ let device_esys =
     | `Async_out(_,esys) -> esys
     | `Buffer_in b -> b#event_system
     | `Buffer_out b -> b#event_system
+
+
+let is_string =
+  function
+    | `String _ -> true
+    | `Memory _ -> false
 
 let device_supports_memory =
   function
@@ -159,16 +175,20 @@ let rec buf_input_e b ms pos len =
     eps_e (`Error End_of_file) b#event_system
   )
   else (
-    let fe =
-      match b#fill_e_opt with
-	| None -> b#start_fill_e ()
-	| Some fe -> fe in
-    fe ++ (fun _ -> buf_input_e b ms pos len)
+    (* Optimization: if len is quite large, bypass the buffer *)
+    let d = b#udevice in
+    if len >= 4096 && (device_supports_memory d || is_string ms) then
+      dev_input_e d ms pos len
+    else
+      let fe =
+	match b#fill_e_opt with
+	  | None -> b#start_fill_e ()
+	  | Some fe -> fe in
+      fe ++ (fun _ -> buf_input_e b ms pos len)
   )
 
 
-let input_e d0 ms pos len =
-  let d = (d0 :> in_device) in
+and dev_input_e (d : in_device) ms pos len =
   match d with
     | `Polldescr(style, fd, esys) ->
 	new Uq_engines.input_engine
@@ -237,6 +257,9 @@ let input_e d0 ms pos len =
     | `Buffer_in b ->
 	buf_input_e b ms pos len
 
+let input_e d0 ms pos len =
+  let d = (d0 :> in_device) in
+  dev_input_e d ms pos len
 
 let rec really_input_e d ms pos len =
   if len = 0 then
@@ -246,8 +269,9 @@ let rec really_input_e d ms pos len =
       (fun n -> really_input_e d ms (pos+n) (len-n))
 
 
-let input_line_e (`Buffer_in b) =
+let input_line_e ?(max_len = Sys.max_string_length) (`Buffer_in b) =
   let consume k1 k2 =
+    if k2 > max_len then raise Line_too_long;
     let s = String.create k1 in
     b#buffer#blit_out 0 (`String s) 0 k1;
     b#buffer#delete_hd k2;
@@ -270,12 +294,17 @@ let input_line_e (`Buffer_in b) =
 	  )
 	  else (
 	    assert(not b#eof);
-	    let fe =
-	      match b#fill_e_opt with
-		| None -> b#start_fill_e ()
-		| Some fe -> fe in
-	    fe ++ look_ahead
+	    if b#buffer#length > max_len then
+	      eps_e (`Error Line_too_long) b#event_system
+	    else
+	      let fe =
+		match b#fill_e_opt with
+		  | None -> b#start_fill_e ()
+		  | Some fe -> fe in
+	      fe ++ look_ahead
 	  )
+      | Line_too_long ->
+	   eps_e (`Error Line_too_long) b#event_system
   in
   look_ahead b#eof
 
@@ -312,26 +341,31 @@ let rec buf_output_e b ms pos len =
       b#event_system
   else (
     let bl = b#buffer#length in
-    let n =
-      match b # max with
-	| None -> len
-	| Some m -> max (min len (m - bl)) 0 in
-    if n > 0 || len = 0 then (
-      b#buffer#add ms pos n;
-      eps_e (`Done n) b#event_system
-    )
+    (* Optimization: if len is large, try to bypass the buffer *)
+    let d = b#udevice in
+    if bl=0 && len >= 4096 && (device_supports_memory d || is_string ms) then
+      dev_output_e d ms pos len
     else (
-      let fe =
-	match b#flush_e_opt with
-	  | None -> b#start_flush_e ()
-	  | Some fe -> fe in
-      fe ++ (fun _ -> buf_output_e b ms pos len)
+      let n =
+	match b # max with
+	  | None -> len
+	  | Some m -> max (min len (m - bl)) 0 in
+      if n > 0 || len = 0 then (
+	b#buffer#add ms pos n;
+	eps_e (`Done n) b#event_system
+      )
+      else (
+	let fe =
+	  match b#flush_e_opt with
+	    | None -> b#start_flush_e ()
+	    | Some fe -> fe in
+	fe ++ (fun _ -> buf_output_e b ms pos len)
+      )
     )
   )
 
 
-let output_e d0 ms pos len =
-  let d = (d0 :> out_device) in
+and dev_output_e (d : out_device) ms pos len =
   match d with
     | `Polldescr(style, fd, esys) ->
 	new Uq_engines.output_engine
@@ -394,6 +428,9 @@ let output_e d0 ms pos len =
 	
     | `Buffer_out b ->
 	buf_output_e b ms pos len
+
+let output_e d ms pos len =
+  dev_output_e (d :> out_device) ms pos len
 
 
 let rec really_output_e d ms pos len =
@@ -622,6 +659,7 @@ object
   method inactivate() =
     inactivate d
 
+  method udevice = d
   method event_system = esys
 end
 
@@ -694,11 +732,12 @@ let create_out_buffer ~max d0 =
   method inactivate () =
     inactivate d
 
+  method udevice = d
   method event_system = esys
 end
 
 
-let copy_e ?len d_in d_out =
+let copy_e ?len ?len64 d_in d_out =
   let d_in_esys = device_esys d_in in
   let d_out_esys = device_esys d_out in
   if d_in_esys <> d_out_esys then
@@ -711,7 +750,7 @@ let copy_e ?len d_in d_out =
       (`Memory m, Bigarray.Array1.dim m)
     )
     else (
-      let s = String.create 4096 in
+      let s = String.create 16384 in
       (`String s, String.length s)
     ) in
 
@@ -722,12 +761,20 @@ let copy_e ?len d_in d_out =
       output_e d_out ms p n ++ (fun k -> push_data (p+k) (n-k)) in
 
   let count = ref 0L in
+  let eff_len =
+    match len, len64 with
+      | None, None -> None
+      | Some n, None -> Some(Int64.of_int n)
+      | None, Some n -> Some n
+      | Some n1, Some n2 -> Some(min (Int64.of_int n1) n2) in
 
   let rec pull_data() =
     let n =
-      match len with
-	| None -> ms_len
-	| Some l -> min ms_len (l - Int64.to_int !count) in
+      match eff_len with
+	| None -> 
+	    ms_len
+	| Some l -> 
+	    Int64.to_int( min (Int64.of_int ms_len) (Int64.sub l !count)) in
 
     let ( >> ) = Uq_engines.fmap_engine in
     (* For a strange reason we need this - somewhere a generalization is
@@ -753,3 +800,9 @@ let copy_e ?len d_in d_out =
   pull_data()
 
   
+let eof_as_none =
+  function
+    | `Done x -> `Done(Some x)
+    | `Error End_of_file -> `Done None
+    | `Error e -> `Error e
+    | `Aborted -> `Aborted

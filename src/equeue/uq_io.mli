@@ -23,7 +23,12 @@ type in_device =
          used as device. 
        - [`Buffer buf]: Data comes from the buffer [buf] (which in turn
          is connected with a second device)
+
+      Generally, it is not well supported to read several times from the
+      same device.
    *)
+
+ (* Idea: `Serial of in_device *)
 
 type out_device =
     [ `Polldescr of Netsys.fd_style * Unix.file_descr * Unixqueue.event_system
@@ -40,6 +45,9 @@ type out_device =
          used as device. 
        - [`Buffer buf]: Data is written to the buffer [buf] (which in turn
          is connected with a second device)
+
+      Generally, it is not well supported to write several times to the
+      same device.
    *)
 
 type in_bdevice =
@@ -57,6 +65,9 @@ type string_like =
 
 val device_supports_memory : [ in_device | out_device ] -> bool
   (** Returns whether [`Memory] buffers are supported *)
+
+exception Line_too_long
+  (** May be raised by {!Uq_io.input_line_e} *)
 
 (** {2 Input} *)
 
@@ -82,13 +93,26 @@ val really_input_e : [< in_device ] -> string_like -> int -> int ->
      the engine transitions to [`Error End_of_file].
   *)
 
-val input_line_e : in_bdevice -> string Uq_engines.engine
+val input_line_e : ?max_len:int -> in_bdevice -> string Uq_engines.engine
   (** [let e = input_line_e d]: Reads the next line from [d] and transitions
       to [`Done line] when done. Note that this is only supported for a
       buffered device!
 
       If the end of the file is already reached when this function is 
       called, the engine transitions to [`Error End_of_file].
+
+      If [max_len] is set, this is the maximum length of the line
+      (including LF). If exceeded, the engine transitions to
+      [`Error Line_too_long].
+   *)
+
+val eof_as_none :
+       'a Uq_engines.final_state -> 'a option Uq_engines.final_state
+  (** Represents EOF as [None]. Useful in the combination
+      {[ input_e d s p l >> eof_as_none ]}
+      and 
+      {[ input_line_e d >> eof_as_none ]}
+      where [>>] is from {!Uq_engines.Operators}
    *)
 
 (** {2 Output} *)
@@ -138,13 +162,15 @@ val write_eof_e : [< out_device ] -> bool Uq_engines.engine
       implies the effect of [flush_e]).
    *)
 
-val copy_e : ?len:int -> [< in_device ] -> [< out_device ] -> 
+val copy_e : ?len:int -> ?len64:int64 ->
+                [< in_device ] -> [< out_device ] -> 
                 int64 Uq_engines.engine
   (** [let e = copy_e d_in d_out]: Copies data from [d_in] to [d_out],
       and transitions to [`Done n] when all data is copied (where
       [n] are the number of copied bytes).
       By default, [d_in] is read until end of file. If [len] is passed,
-      at most this number of bytes are copied.
+      at most this number of bytes are copied. The length can also be given
+      as [int64] in [len64].
    *)
 
 val flush_e : [< out_device ] -> unit Uq_engines.engine

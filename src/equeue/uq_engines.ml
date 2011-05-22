@@ -1103,6 +1103,34 @@ class ['a] output_engine f fd tmo esys =
     )
 
 
+class pseudo_async_in_channel ch : async_in_channel =
+object
+  method input = ch # input
+  method close_in = ch # close_in
+  method pos_in = ch # pos_in
+  method can_input = true
+  method request_notification _ = ()
+end
+
+
+let pseudo_async_in_channel = new pseudo_async_in_channel
+
+
+
+class pseudo_async_out_channel ch : async_out_channel =
+object
+  method output = ch # output
+  method close_out = ch # close_out
+  method pos_out = ch # pos_out
+  method flush = ch # flush
+  method can_output = true
+  method request_notification _ = ()
+end
+
+
+let pseudo_async_out_channel = new pseudo_async_out_channel
+
+
 (* TODO: Avoid the usage of Extra events here. Extra events are more
  * expensive than other events because all handlers see them.
  * Can be substituted with Timeout events.
@@ -2028,6 +2056,7 @@ class socket_multiplex_controller
          ?(close_inactive_descr = true)
          ?(preclose = fun () -> ())
          ?(supports_half_open_connection = false)
+	 ?timeout
          fd esys : datagram_multiplex_controller =
 
   let fd_style = Netsys.get_fd_style fd in
@@ -2047,6 +2076,22 @@ class socket_multiplex_controller
       | `Recv_send_implied -> true
       | _ -> false in
 
+  let start_timer f =
+    (* Call [f x] when the timer fires *)
+    match timeout with
+      | None ->
+	  None
+      | Some (tmo, x) ->
+	  let tmo_g = Unixqueue.new_group esys in
+	  Unixqueue.once esys tmo_g tmo (fun () -> f x);
+	  Some (tmo_g, f) in
+
+  let stop_timer r =
+    match !r with
+      | None -> ()
+      | Some (old_tmo_g, f) ->
+	  Unixqueue.clear esys old_tmo_g in
+
 (*
   let () =
     prerr_endline ("fd style: " ^ Netsys.string_of_fd_style fd_style) in
@@ -2057,9 +2102,12 @@ object(self)
   val mutable read_eof = false
   val mutable wrote_eof = false
   val mutable reading = `None
+  val mutable reading_tmo = ref None
   val mutable writing = `None
+  val mutable writing_tmo = ref None
   val mutable writing_eof = None
   val mutable shutting_down = None
+  val mutable shutting_down_tmo = ref None
   val mutable disconnecting = None
   val mutable need_linger = false
   val mutable have_handler = false
@@ -2103,6 +2151,22 @@ object(self)
 	       "new socket_multiplex_controller mplex=%d fd=%Ld"
 	       (Oo.id self) (Netsys.int64_of_file_descr fd))
 
+  method private restart_all_timers() =
+    match timeout with
+      | None ->
+	  ()
+      | Some (tmo, x) ->
+	  List.iter
+	    (fun r ->
+	       match !r with
+		 | None -> ()
+		 | Some (old_tmo_g, f) ->
+		     Unixqueue.clear esys old_tmo_g;
+		     r := start_timer f
+	    )
+	    [ reading_tmo; writing_tmo; shutting_down_tmo ]
+
+
   method start_reading ?(peek = fun ()->()) ~when_done s pos len =
     if pos < 0 || len < 0 || pos > String.length s - len then
       invalid_arg "#start_reading";
@@ -2115,6 +2179,7 @@ object(self)
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_in fd, -1.0);
     reading <- `String(when_done, peek, s, pos, len);
+    reading_tmo := start_timer self#cancel_reading_with;
     disconnecting <- None;
     dlogr (fun () ->
 	     sprintf
@@ -2135,6 +2200,7 @@ object(self)
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_in fd, -1.0);
     reading <- `Mem(when_done, peek, m, pos, len);
+    reading_tmo := start_timer self#cancel_reading_with;
     disconnecting <- None;
     dlogr (fun () ->
 	     sprintf
@@ -2143,6 +2209,9 @@ object(self)
 
 
   method cancel_reading () =
+    self # cancel_reading_with Cancelled
+
+  method private cancel_reading_with x =
     match reading with
       | `None ->
 	  ()
@@ -2150,12 +2219,12 @@ object(self)
 	  self # really_cancel_reading();
 	  anyway
 	    ~finally:self#check_for_disconnect
-	    (f_when_done (Some Cancelled)) 0
+	    (f_when_done (Some x)) 0
       | `Mem(f_when_done, _, _, _, _) ->
 	  self # really_cancel_reading();
 	  anyway
 	    ~finally:self#check_for_disconnect
-	    (f_when_done (Some Cancelled)) 0
+	    (f_when_done (Some x)) 0
 
   method private really_cancel_reading() =
     if reading <> `None then (
@@ -2181,6 +2250,7 @@ object(self)
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_out fd, -1.0);
     writing <- `String(when_done, s, pos, len);
+    writing_tmo := start_timer self#cancel_writing_with;
     disconnecting <- None;
     dlogr (fun () ->
 	     sprintf
@@ -2202,6 +2272,7 @@ object(self)
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_out fd, -1.0);
     writing <- `Mem(when_done, m, pos, len);
+    writing_tmo := start_timer self#cancel_writing_with;
     disconnecting <- None;
     dlogr (fun () ->
 	     sprintf
@@ -2223,6 +2294,7 @@ object(self)
     self # check_for_connect();
     Unixqueue.add_resource esys group (Unixqueue.Wait_out fd, -1.0);
     writing_eof <- Some when_done;
+    writing_tmo := start_timer self#cancel_writing_with;
     disconnecting <- None;
     dlogr (fun () ->
 	     sprintf
@@ -2231,6 +2303,9 @@ object(self)
 
 
   method cancel_writing () =
+    self # cancel_writing_with Cancelled
+
+  method private cancel_writing_with x =
     match writing, writing_eof with
       | `None, None ->
 	  ()
@@ -2238,12 +2313,12 @@ object(self)
 	  self # really_cancel_writing();
 	  anyway
 	    ~finally:self#check_for_disconnect
-	    (f_when_done (Some Cancelled)) 0
+	    (f_when_done (Some x)) 0
       | `None, Some f_when_done ->
 	  self # really_cancel_writing();
 	  anyway
 	    ~finally:self#check_for_disconnect
-	    f_when_done (Some Cancelled)
+	    f_when_done (Some x)
       | _ ->
 	  assert false
 
@@ -2277,6 +2352,7 @@ object(self)
 	(Unixqueue.Wait_in fd, linger_timeout) in
     Unixqueue.add_resource esys group (op,tmo);
     shutting_down <- Some(when_done, op);
+    shutting_down_tmo := start_timer self#cancel_shutting_down_with;
     disconnecting <- None;
     dlogr (fun () ->
 	     sprintf
@@ -2284,6 +2360,9 @@ object(self)
 	       (Oo.id self) (Netsys.int64_of_file_descr fd))
 
   method cancel_shutting_down () =
+    self # cancel_shutting_down_with Cancelled
+    
+  method private cancel_shutting_down_with x =
     match shutting_down with
       | None ->
 	  ()
@@ -2291,7 +2370,7 @@ object(self)
 	  self # really_cancel_shutting_down ();
 	  anyway
 	    ~finally:self#check_for_disconnect
-	    f_when_done (Some Cancelled)
+	    f_when_done (Some x)
 
 
   method private really_cancel_shutting_down () =
@@ -2327,6 +2406,8 @@ object(self)
 
   method private notify_rd f_when_done exn_opt n =
     self # really_cancel_reading();
+    stop_timer reading_tmo;
+    self # restart_all_timers();
     dlogr (fun () ->
 	     sprintf
 	       "input_done \
@@ -2338,6 +2419,8 @@ object(self)
 
   method private notify_wr f_when_done exn_opt n =
     self # really_cancel_writing();
+    stop_timer writing_tmo;
+    self # restart_all_timers();
     dlogr (fun () ->
 	     sprintf
 	       "output_done \
@@ -2428,6 +2511,7 @@ object(self)
 		  in
 		  if notify then (
 		    self # really_cancel_shutting_down();
+		    stop_timer shutting_down_tmo;
 		    read_eof <- true;
 		    wrote_eof <- true;
 		    dlogr (fun () ->
@@ -2554,6 +2638,7 @@ object(self)
 		  in
 		  if notify then (
 		    self # really_cancel_shutting_down();
+		    stop_timer shutting_down_tmo;
 		    read_eof <- true;
 		    wrote_eof <- true;
 		    dlogr (fun () ->
@@ -2592,6 +2677,9 @@ object(self)
       self # really_cancel_reading();
       self # really_cancel_writing();
       self # really_cancel_shutting_down();
+      stop_timer reading_tmo;
+      stop_timer writing_tmo;
+      stop_timer shutting_down_tmo;
       disconnecting <- None;
       have_handler <- false;
       Unixqueue.clear esys group;
@@ -2613,19 +2701,24 @@ end
 
 
 let create_multiplex_controller_for_connected_socket 
-       ?close_inactive_descr ?preclose ?supports_half_open_connection fd esys =
+       ?close_inactive_descr ?preclose ?supports_half_open_connection 
+       ?timeout
+       fd esys =
   let mplex = 
     new socket_multiplex_controller
-      ?close_inactive_descr ?preclose ?supports_half_open_connection fd esys in
+      ?close_inactive_descr ?preclose ?supports_half_open_connection 
+      ?timeout
+      fd esys in
   (mplex :> multiplex_controller)
 ;;
 
 
 let create_multiplex_controller_for_datagram_socket 
-       ?close_inactive_descr ?preclose fd esys =
+       ?close_inactive_descr ?preclose ?timeout fd esys =
   let mplex = 
     new socket_multiplex_controller
       ?close_inactive_descr ?preclose ~supports_half_open_connection:false 
+      ?timeout
       fd esys in
   (mplex :> datagram_multiplex_controller)
 ;;

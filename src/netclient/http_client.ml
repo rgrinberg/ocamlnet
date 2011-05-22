@@ -60,6 +60,7 @@ type response_body_storage =
     [ `Memory
     | `File of unit -> string
     | `Body of unit -> Netmime.mime_body
+    | `Device of unit -> Uq_io.out_device
     ]
 
 type 'message_class how_to_reconnect =
@@ -323,6 +324,16 @@ type 'session auth_state =  (* 'session = auth_session, defined below *)
          (* This session was tried after a 401 response was seen *)
     ]
 
+type out_channel_or_device =
+    [ `Channel of Netchannels.out_obj_channel
+    | `Device of Uq_io.out_device
+    ]
+
+type in_channel_or_device =
+    [ `Channel of Netchannels.in_obj_channel
+    | `Device of Uq_io.in_device
+    ]
+
 class type http_call =
 object
   method is_served : bool
@@ -332,9 +343,12 @@ object
   method set_request_uri : string -> unit
   method request_header : header_kind -> Netmime.mime_header
   method set_request_header : Netmime.mime_header -> unit
+  method set_expect_handshake : unit -> unit
+  method set_chunked_request : unit -> unit
   method effective_request_uri : string
   method request_body : Netmime.mime_body
   method set_request_body : Netmime.mime_body -> unit
+  method set_request_device : (unit -> Uq_io.in_device) -> unit
   method response_status_code : int
   method response_status_text : string
   method response_status : Nethttp.http_status
@@ -386,7 +400,12 @@ object
   method set_redir_counter : int -> unit
 
   method continue : bool
+    (* The value of the continue flag *)
   method set_continue : unit -> unit
+    (* Set the continue flag to [true] *)
+  method wait_continue_e : float -> Unixqueue.event_system -> 
+                                                         unit Uq_engines.engine
+    (* Waits until [set_continue] is called, or until the time is over *)
 
   method auth_state : auth_session auth_state
   method set_auth_state : auth_session auth_state -> unit
@@ -402,9 +421,13 @@ object
     (* code, text, proto *)
   method set_response_header : Netmime.mime_header -> unit
     (* Sets the response header *)
-  method response_body_open_wr : unit -> Netchannels.out_obj_channel
+  method response_body_open_wr : unit -> out_channel_or_device
     (* Opens the response body for writing *)
-  method finish : unit -> unit
+  method request_body_open_rd : unit -> in_channel_or_device
+    (* Opens the request body for reading *)
+  method finish_request_e : Unixqueue.event_system -> unit Uq_engines.engine
+    (* Finish the request part of the call *)
+  method finish_e : Unixqueue.event_system -> unit Uq_engines.engine
     (* The call is finished. The [status] is set to [`Successful], 
      * [`Redirection], [`Client_error], or [`Server_error] depending on
      * the response.
@@ -456,6 +479,7 @@ object(self)
   val mutable req_base_header = new Netmime.basic_mime_header []
   val mutable req_work_header = new Netmime.basic_mime_header []
   val mutable req_body = new Netmime.memory_mime_body ""
+  val mutable req_dev = None
 
   val mutable eff_req_uri = ""
 
@@ -473,10 +497,14 @@ object(self)
 
   val mutable private_api = None
 
+  val mutable resp_handle = None
+  val mutable req_handle = None
+
   val mutable continue = false   (* Whether 100-Continue has been seen *)    
+  val mutable continue_e = None
+
   val mutable error_counter = 0
   val mutable redir_counter = 0
-  val mutable resp_ch = None
   val mutable auth_state = `None
 
 
@@ -491,7 +519,10 @@ object(self)
 		  let name = f() in
 		  new Netmime.file_mime_body name
 	      | `Body f ->
-		  f () in
+		  f () 
+	      | `Device _ ->
+		  failwith "Http_client: response is forwarded to device - \
+                            no accessible response_body" in
 	  resp_body <- Some rbody;
 	  rbody
       | Some rbody -> rbody 
@@ -499,10 +530,28 @@ object(self)
 
   method private def_private_api fixup_request =
     ( object(pself) 
-	method private close_resp_ch() =
-	  match resp_ch with
-	    | None -> ()
-	    | Some ch -> ch # close_out(); resp_ch <- None
+	method private release_resources() =
+	  ( match req_handle with
+	      | None -> ()
+	      | Some (`Channel ch) -> 
+		  ch # close_in(); req_handle <- None
+	      | Some (`Device d) ->
+		  Uq_io.inactivate d; req_handle <- None
+	  );
+	  ( match resp_handle with
+	      | None -> ()
+	      | Some (`Channel ch) -> 
+		  ch # close_out(); resp_handle <- None
+	      | Some (`Device d) ->
+		  Uq_io.inactivate d; resp_handle <- None
+	  );
+	  ( match continue_e with
+	      | None -> ()
+	      | Some e -> 
+		  continue_e <- None;
+		  e#abort()
+		  
+	  )
 
 	method get_error_counter = error_counter
 	method set_error_counter n = error_counter <- n
@@ -510,7 +559,28 @@ object(self)
 	method set_redir_counter n = redir_counter <- n
 
 	method continue = continue
-	method set_continue() = continue <- true
+	method set_continue() = 
+	  continue <- true;
+	  match continue_e with
+	    | None -> ()
+	    | Some e -> 
+		continue_e <- None;
+		e#abort()
+
+	method wait_continue_e tmo esys =
+	  if continue then
+	    eps_e (`Done ()) esys
+	  else (
+	    assert(continue_e = None); (* cannot be called multiple times *)
+	    let e = 
+	      Uq_engines.delay_engine tmo
+		(fun () -> eps_e (`Done()) esys)
+		esys in
+	    continue_e <- Some e;
+	    ( e
+	      >> (fun _ -> continue_e <- None; `Done ())
+	    )
+	  )
 
 	method auth_state = auth_state
 	method set_auth_state s = auth_state <- s
@@ -519,7 +589,7 @@ object(self)
 
 
 	method prepare_transmission () =
-	  pself # close_resp_ch();
+	  pself # release_resources();
 	  status <- `Unserved;
 	  req_work_header <- new Netmime.basic_mime_header 
 	                             req_base_header#fields;
@@ -538,6 +608,20 @@ object(self)
 	    with Not_found ->
 	      req_work_header # update_field "User-agent" "Netclient"
 	  );
+	  continue <- false;
+	  continue_e <- None
+
+	method request_body_open_rd() =
+	  match req_dev with
+	    | Some f ->
+		let d = f() in
+		req_handle <- Some (`Device d);
+		`Device d
+	    | _ ->
+		let ch = req_body # open_value_rd() in
+		req_handle <- Some (`Channel ch);
+		`Channel ch
+
 
 	method set_response_status code text proto =
 	  resp_code <- code;
@@ -550,17 +634,36 @@ object(self)
 	  assert(resp_code <> 0);
 
 	method response_body_open_wr() =
-	  pself # close_resp_ch();
-	  let rbody = self#resp_body in
-	  let ch = rbody # open_value_wr() in
-	  resp_ch <- Some ch;
-	  ch
+	  match resp_body_storage with
+	    | `Device f ->
+		let d = f() in
+		resp_handle <- Some (`Device d);
+		`Device d
+	    | _ ->
+		let rbody = self#resp_body in
+		let ch = rbody # open_value_wr() in
+		resp_handle <- Some (`Channel ch);
+		`Channel ch
 
 	method response_code = resp_code
 	method response_proto = resp_proto
 	method response_header = resp_header
 
-	method finish() =
+
+	method finish_request_e esys =
+	  match req_handle with
+	    | None ->
+		eps_e (`Done ()) esys
+	    | Some (`Channel ch) ->
+		ch # close_in();
+		req_handle <- None;
+		eps_e (`Done ()) esys
+	    | Some (`Device d) ->
+		req_handle <- None;
+		Uq_io.shutdown_e d
+		>> (fun st -> Uq_io.inactivate d; st)
+
+	method finish_e esys =
 	  assert(resp_code <> 0);
 	  finished <- true;
 	  status <- (if resp_code >= 200 && resp_code <= 299 then
@@ -572,7 +675,20 @@ object(self)
 		     else
 		       `Server_error);
 	  (* do this last - it can trigger user callback functions: *)
-	  pself # close_resp_ch();
+	  pself # finish_request_e esys
+	  ++ (fun () ->
+		match resp_handle with
+		  | None ->
+		      eps_e (`Done ()) esys
+		  | Some (`Channel ch) ->
+		      ch # close_out();
+		      resp_handle <- None;
+		      eps_e (`Done ()) esys
+		  | Some (`Device d) ->
+		      resp_handle <- None;
+		      Uq_io.shutdown_e d
+		      >> (fun st -> Uq_io.inactivate d; st)
+	     )
 
 	method error_if_unserved verbose error =
 	  match status with
@@ -602,10 +718,10 @@ object(self)
 		  status <- (`Http_protocol_error x);
 	  );
 	  (* do this last - it can trigger user callback functions: *)
-	  pself # close_resp_ch();
+	  pself # release_resources();
 
 	method cleanup () =
-	  pself # close_resp_ch()
+	  pself # release_resources()
 
 	method dump_status () =
 	  dlog (sprintf
@@ -662,8 +778,16 @@ object(self)
       | `Effective -> req_work_header
   method set_request_header h =
     req_base_header <- h
-  method request_body = req_body
-  method set_request_body b = req_body <- b
+  method set_expect_handshake() =
+    req_base_header # update_field "Expect" "100-continue"
+  method set_chunked_request() =
+    req_base_header # update_field "Transfer-encoding" "chunked"
+  method request_body = 
+    if req_dev <> None then
+      failwith "Http_client: No request_body - using a device instead";
+    req_body
+  method set_request_body b = req_body <- b; req_dev <- None
+  method set_request_device f = req_dev <- Some f
 
   method effective_request_uri = eff_req_uri
 
@@ -727,7 +851,9 @@ object(self)
 	 error_counter = 0;
 	 redir_counter = 0;
 	 continue = false;
-	 resp_ch = None;
+	 continue_e = None;
+	 resp_handle = None;
+	 req_handle = None;
 	 auth_state = `None
       >} in
     (same : #http_call :> http_call)
@@ -1570,25 +1696,19 @@ exception Garbage_received of string
    *)
 
 
-let line_end_re = Netstring_str.regexp "[^\000\r\n]+\r?\n";;
-
-let line_end2_re = Netstring_str.regexp "\\([^\000\r\n]+\r?\n\\)*\r?\n";;
-
 let status_re = 
   Netstring_str.regexp "^\\([^ \t]+\\)\
                         [ \t]+\
                         \\([0-9][0-9][0-9]\\)\
-                        \\([ \t]+\\([^\r\n]*\\)\\)\
-                        ?\r?\n$" ;;
+                        \\([ \t]+\\([^\r\n]*\\)\\)?\
+                        \r?$" ;;
 
 let chunk_re = 
   Netstring_str.regexp "[ \t]*\
                         \\([0-9a-fA-F]+\\)\
                         [ \t]*\
-                        \\(;[^\r\n\000]*\\)\
-                        ?\r?\n" ;;
-
-let crlf_re = Netstring_str.regexp "\r?\n";;
+                        \\(;[^\r\n\000]*\\)?\
+                        \r?" ;;
 
 type sockstate =
     Down
@@ -1597,416 +1717,551 @@ type sockstate =
 ;;
 
 
-class io_buffer options conn_cache fd fd_state =
-  object (self)
+type send_token =
+  | Send_header of int * string * string * Netmime.mime_header_ro
+      (* call_id, method, url, header *)
+  | Send_body of in_channel_or_device * int64 option
+      (* data, length_opt *)
+  | Send_body_chunked of in_channel_or_device
+  | Send_eof
+
+
+let max_line_len = 65536
+
+let input_line_opt_e ?max_len dev =
+  Uq_io.input_line_e ?max_len dev >> Uq_io.eof_as_none >>
+    (fun st ->
+       match st with
+	 | `Error Uq_io.Line_too_long ->
+	     raise(Garbage_received "Line too long")
+	 | _ -> st
+    )
+
+let input_opt_e dev s p n =
+  Uq_io.input_e dev s p n >> Uq_io.eof_as_none
+
+
+class type io_buffer =
+object
+  method socket_state : sockstate
+  method socket : Unix.file_descr
+  method socket_str : string
+  method close : followup:(unit->unit) -> unit -> unit
+  method release : unit -> unit
+  method status_seen : bool
+  method configure_read : fetch_call:(unit -> http_call) -> unit -> unit
+  method read_e : Unixqueue.event_system -> http_call option Uq_engines.engine
+  method write_activity : bool
+  method add : send_token -> unit
+  method write_e : Unixqueue.event_system -> unit Uq_engines.engine
+end
+
+
+let io_buffer options conn_cache fd
+              mplex
+	      fd_state : io_buffer =
+  let dev = `Multiplex mplex in
+  let buf_in_dev = `Buffer_in(Uq_io.create_in_buffer dev) in
+
+  ( object (self)
 
     (****************************** SOCKET ********************************)
+      
+      val mutable socket_state = fd_state
+      val mutable status_seen = false
 
-    val mutable socket_state = fd_state
+      method socket_state = socket_state
 
-    method socket_state = socket_state
+      method socket = 
+	match socket_state with
+	  | Down -> failwith "Socket is down"
+	  | _ -> fd
+	      
+      method socket_str =
+	try
+	  Int64.to_string (Netsys.int64_of_file_descr self # socket)
+	with _ -> "n/a"
+	  
 
-    method socket = 
-      match socket_state with
-	| Down -> failwith "Socket is down"
-	| _ -> fd
+      method close ~followup () =
+	match socket_state with
+	  | Down  -> followup ()
+	  | _     -> 
+	      let fd_str = self # socket_str in
+	      if !options.verbose_connection then 
+		dlogr (fun () ->
+			 sprintf "FD %s - HTTP connection: Closing socket!"
+			   fd_str);
+	      mplex # cancel_reading();
+	      mplex # cancel_writing();
+	      mplex # start_shutting_down
+		~when_done:(function
+			      | None -> 
+				  followup ()
+			      | Some err ->
+				  if !options.verbose_connection then
+				    dlog(sprintf
+					   "FD %s - Shutdown error: %s"
+					   fd_str (Netexn.to_string err));
+				  mplex # inactivate();
+				  followup()
+			   )
+		();
+	      socket_state <- Down
 
-    method socket_str =
-      try
-	Int64.to_string (Netsys.int64_of_file_descr self # socket)
-      with _ -> "n/a"
-
-
-    method close_out() =
-      match socket_state with
-	| Down  -> ()
-	| Up_rw -> 
-	    if !options.verbose_connection then 
-	      dlogr (fun () ->
-		       sprintf "FD %Ld - HTTP connection: Sending EOF!"
-			 (Netsys.int64_of_file_descr fd));
-	    Unix.shutdown fd Unix.SHUTDOWN_SEND; 
-	    socket_state <- Up_r
-	| Up_r  -> 
-	    ()
-
-    method close() =
-      match socket_state with
-	| Down  -> ()
-	| _     -> 
-	    if !options.verbose_connection then 
-	      dlogr (fun () ->
-		       sprintf "FD %Ld - HTTP connection: Closing socket!"
-			 (Netsys.int64_of_file_descr fd));
-	    socket_state <- Down;
-	    conn_cache # close_connection fd
-
-    method release() =
-      (* Give socket back to cache: *)
-      match socket_state with
-	| Down  -> ()
-	| Up_r  -> self # close()
-	| Up_rw -> 
-	    conn_cache # set_connection_state fd `Inactive;
-	    socket_state <- Down  (* our view *)
+      method release() =
+	(* Give socket back to cache: *)
+	assert(socket_state = Up_rw);
+	conn_cache # set_connection_state fd `Inactive;
+	socket_state <- Down  (* our view *)
 
 
     (****************************** INPUT ********************************)
 
-    val mutable in_buf = B.create 8192
-    val mutable in_eof = false
-    val mutable in_eof_parsed = false (* whether eof has been seen by parser *)
-    val mutable in_pos = 0            (* parse position *)
-    val mutable status_seen = false
-    val mutable timeout = false
-    val mutable restart_parser = (fun _ -> assert false)
+    val mutable cfg_fetch_call = (fun () -> raise Not_found)
 
-    initializer
-      restart_parser <- self # parse_status_line;
-
-      (* Ensure the 0-byte invariant holds (see comment in unix_read): *)
-      let b = B.unsafe_buffer in_buf in
-      if B.length in_buf < String.length b then
-	b.[B.length in_buf] <- '\000'
-
-    method unix_read () =
-      if not in_eof && not timeout then (
-	let n = 
-	  B.add_inplace 
-	    in_buf
-	    (fun io_buf pos len ->
-	       syscall (fun() -> Unix.recv fd io_buf pos len []))
-	in
-	if n = 0 then
-	  in_eof <- true;
-	(* None of the regexps matches the null byte. So this byte can be
-         * used as guard that indicates the end of the buffer. We only
-         * have to make sure it is always there.
-         *)
-	let b = B.unsafe_buffer in_buf in
-	if B.length in_buf < String.length b then
-	  b.[B.length in_buf] <- '\000';
-      )
-	    
-    method timeout =
-      timeout
-
-    method set_timeout =
-      timeout <- true
-
-    method has_unparsed_data =
-      (* whether data has been received that must go through the parser *)
-      (in_eof && not in_eof_parsed) || (in_pos < B.length in_buf)
-
-    method has_unparsed_bytes =
-      (* whether there are unparsed data consisting of at least one byte *)
-      in_pos < B.length in_buf
 
     method status_seen =
       (* Whether at least one status line (incl. status 1XX) has been seen *)
       status_seen
 
-    method in_eof = 
-      (* end of stream indicator *)
-      in_eof
-
-    method parse_response (call : http_call) =
-      (* Parses the [in_buf] buffer and puts the parsed data into
-       * [call].
-       *
-       * This function must only be called if at least one additional
-       * byte has been received. The function returns when
-       * - not enough bytes are available, or
-       * - the response has been completely parsed. This latter case
-       *   can be recognized because the [call] is finished then.
+    method configure_read ~fetch_call () =
+      (* fetch_call: This is called when the status line is read to get
+	 the corresponding call. This function may raise [Not_found] in
+	 which case the status line is an error
        *)
-      try
-	restart_parser call;
-	assert(in_pos >= 0 && in_pos <= B.length in_buf);
-	   (* Many versions of Netbuffer do not check arguments of [delete]
-            * correctly.
-            *)
-	B.delete in_buf 0 in_pos;
-	in_pos <- 0;
-	in_eof_parsed <- in_eof;
-	(* Ensure the 0-byte invariant holds (see comment in unix_read): *)
-	let b = B.unsafe_buffer in_buf in
-	if B.length in_buf < String.length b then
-	  b.[B.length in_buf] <- '\000'
-      with
-	| Bad_message _ as err -> 
-	    call # private_api # set_error_exception err;
-	    assert(status_seen)  (* otherwise cleanup code will not work *)
-        (* Garbage_received not caught! *)
+      cfg_fetch_call <- fetch_call
+
+
+   (* TODO: shared timeouts -> do it in the multiplex controller *)
+
+    method read_e esys =
+      (* This engine returns the next call read from the input, or
+	 returns None for EOF.
+       *)
+
+      let cur_call = ref None in
+      (* remember the call - only for postprocessing on error *)
       
-
-    method private parse_status_line call =
-      (* Parses the status line. If 1XX: do XXX *)
-      restart_parser <- self # parse_status_line;
-      let b = B.unsafe_buffer in_buf in
-      match Netstring_str.string_match line_end_re b in_pos with
-	| None ->
-	    if B.length in_buf - in_pos > 500 then 
-	      raise (Garbage_received "Status line too long");
-	    if in_eof then 
-	      raise (Garbage_received "EOF where status line expected")
-	| Some m ->
-	    in_pos <- Netstring_str.match_end m;
-	    assert(in_pos <= B.length in_buf);
-	    let s = Netstring_str.matched_string m b in
-	    ( match Netstring_str.string_match status_re s 0 with
+      let rec read_status_line_e call_opt =
+	input_line_opt_e ~max_len:max_line_len buf_in_dev
+	++ (fun line_opt ->
+	      match line_opt with
 		| None ->
-		    raise (Garbage_received "Bad status line")
-		| Some m ->
-		    let proto = Netstring_str.matched_group m 1 s in
-		    let code_str = Netstring_str.matched_group m 2 s in
-		    let code = int_of_string code_str in
-		    let text =
-		      try Netstring_str.matched_group m 4 s 
-		      with Not_found -> "" in
-		    if code < 100 || code > 599 then 
-		      raise (Garbage_received "Bad status code");
-		    status_seen <- code >= 200;
-		    call # private_api # set_response_status code text proto;
-		    self # parse_header code call
-	    )
+		    eps_e (`Done None) esys
+		| Some line ->
+		    ( match Netstring_str.string_match status_re line 0 with
+			| None ->
+			    raise (Garbage_received "Bad status line")
+			| Some m ->
+			    let proto = Netstring_str.matched_group m 1 line in
+			    let code_str = Netstring_str.matched_group m 2 line in
+			    let code = int_of_string code_str in
+			    let text =
+			      try Netstring_str.matched_group m 4 line
+			      with Not_found -> "" in
+			    if code < 100 || code > 599 then 
+			      raise (Garbage_received "Bad status code");
+			    status_seen <- true (* code >= 200 *);
+			    let call_opt = 
+			      if call_opt = None then (
+				let call_opt' = 
+				  try Some(cfg_fetch_call())
+				  with Not_found -> None in
+				cur_call := call_opt';
+				call_opt'
+			      )
+			      else
+				call_opt in
+			    ( match call_opt with
+				| None ->
+				    raise(Garbage_received "Spontaneous data")
+				| Some call ->
+				    if code >= 200 then
+				      call # private_api # set_response_status
+					code text proto;
+				    let hdr_buf = Buffer.create 500 in
+				    read_header_e code call hdr_buf
+			    )
+		    )
+	   )
 
-    method private parse_header code call =
-      (* Parses the HTTP header following the status line *)
-      restart_parser <- self # parse_header code;
-      let b = B.unsafe_buffer in_buf in
-      match Netstring_str.string_match line_end2_re b in_pos with
-	| None ->
-	    if B.length in_buf - in_pos > 100000 then (
-	      if code < 200 then
-		raise (Garbage_received "Response header too long")
-	      else
-		raise (Bad_message "Response header too long")
-	    );
-	    if in_eof then (
-	      if code < 200 then
-		raise (Garbage_received "EOF where response header expected")
-	      else
-		raise (Bad_message "EOF where response header expected")
-	    )
-	| Some m ->
-	    let start = in_pos in
-	    in_pos <- Netstring_str.match_end m;
-	    assert(in_pos <= B.length in_buf);
-	    let _ch =
-	      new Netchannels.input_string ~pos:start ~len:(in_pos-start) b in
-	    let header_l, real_end_pos =
-	      try
-		Mimestring.scan_header
-	          ~downcase:false ~unfold:true ~strip:true b 
-		  ~start_pos:start ~end_pos:in_pos 
-	      with
-		| Failure _ ->
-		    if code < 200 then
-		      raise (Garbage_received "Bad response header")
-		    else
-		      raise (Bad_message "Bad response header")
-	    in
-	    assert(real_end_pos = in_pos);
-	    let header = new Netmime.basic_mime_header header_l in
-	    if code >= 100 && code <= 199 then (
-	      call # private_api # set_continue();
-	      self # parse_status_line call
-	    )
-	    else (
-	      call # private_api # set_response_header header;
-	      self # parse_body code header call
-	    )
-
-    method private parse_body code header call =
-      (* Parses the whole HTTP body *)
-      restart_parser <- self # parse_body code header;
-      (* First determine whether a body is expected: *)
-      let have_body =
-	call # has_resp_body && code <> 204 && code <> 304 in
-      if have_body then (
-	let ch = call # private_api # response_body_open_wr() in
-	(* Check if we have chunked encoding: *)
-	let is_chunked =
-	  try header # field "Transfer-encoding" <> "identity"
-	  with Not_found -> false in
-	if is_chunked then
-	  self # parse_chunked_body code header ch call
-	else (
-	  let length_opt =
-	    try 
-	      let l = Int64.of_string (header # field "Content-Length") in
-	      if l < 0L then raise (Bad_message "Bad Content-Length field");
-	      Some l
-	    with
-	      | Failure _ -> raise (Bad_message "Bad Content-Length field")
-	      | Not_found -> None in
-	  self # parse_plain_body code header ch length_opt call
+      and read_header_e code call hdr_buf =
+	input_line_opt_e ~max_len:max_line_len buf_in_dev
+	++ (fun line_opt ->
+	      match line_opt with
+		| None ->
+		    let msg = "EOF where response header expected" in
+		    raise (Garbage_received msg)
+		| Some line ->
+		    Buffer.add_string hdr_buf line;
+		    Buffer.add_string hdr_buf "\n";
+		    if line = "" || line = "\r" then (
+		      parse_header_e code call (Buffer.contents hdr_buf)
+		    )
+		    else (
+		      if Buffer.length hdr_buf > 100000 then (
+			let msg ="Response header too long" in
+			raise (Garbage_received msg)
+		      );
+		      read_header_e code call hdr_buf
+		    )
+	   )
+	
+      and parse_header_e code call hdr_str =
+	let header_l, real_end_pos =
+	  try
+	    Mimestring.scan_header
+	      ~downcase:false ~unfold:true ~strip:true hdr_str
+	      ~start_pos:0 ~end_pos:(String.length hdr_str)
+	  with
+	    | Failure _ ->
+		let msg = "Bad response header" in
+		raise (Garbage_received msg)
+	in
+	assert(real_end_pos = String.length hdr_str);
+	let header = new Netmime.basic_mime_header header_l in
+	if code < 200 then (
+	  call # private_api # set_continue();
+	    (* Calling set_continue may trigger that the send loop
+	       in [transmitter] resumes its send task
+	     *)
+	  read_status_line_e None
 	)
-      )
-      else
-	self # parse_end call
+	else (
+	  call # private_api # set_response_header header;
+	  read_body_e code header call
+	)
 
-    method private parse_plain_body code header ch length_opt call =
-      (* Parses a non-chunked HTTP body. If length_opt=None, the message
-       * is terminated by EOF. If length_opt=Some len, the message has
-       * this length.
-       *)
-      restart_parser <- self # parse_plain_body code header ch length_opt;
-      let av_len = B.length in_buf - in_pos in
-      match length_opt with
-	| None ->
-	    ch # really_output (B.unsafe_buffer in_buf) in_pos av_len;
-	    in_pos <- in_pos + av_len;
-	    assert(in_pos <= B.length in_buf);
-	    if in_eof then self # parse_end call
-
-	| Some len ->
-	    let l = Int64.to_int (min (Int64.of_int av_len) len) in
-	    ch # really_output (B.unsafe_buffer in_buf) in_pos l;
-	    in_pos <- in_pos + l;
-	    assert(in_pos <= B.length in_buf);
-	    let len' = Int64.sub len (Int64.of_int l) in
-	    if len' > 0L then (
-	      if in_eof then 
-		raise (Bad_message "Response body too short");
-	      restart_parser <- 
-		self # parse_plain_body code header ch (Some len');
-	    ) else (
-	      self # parse_end call
-	    )
-
-    method private parse_chunked_body code header ch call =
-      (* Parses a chunked HTTP body *)
-      restart_parser <- self # parse_chunked_body code header ch;
-      let b = B.unsafe_buffer in_buf in
-      match Netstring_str.string_match chunk_re b in_pos with
-	| None ->
-	    if B.length in_buf - in_pos > 5000 then 
-	      raise (Bad_message "Cannot parse chunk of response body");
-	    if in_eof then 
-	      raise (Bad_message "EOF where next response chunk expected")
-	| Some m ->
-	    in_pos <- Netstring_str.match_end m;
-	    assert(in_pos <= B.length in_buf);
-	    let hex_len = Netstring_str.matched_group m 1 b in
-	    let len =
-	      try Int64.of_string ("0x" ^ hex_len)
-	      with Failure _ -> 
-		raise (Bad_message "Chunk too large") in
-	    if len = 0L then
-	      self # parse_trailer code header ch call
-	    else
-	      self # parse_chunk_data code header ch len call
-
-    method private parse_chunk_data code header ch len call =
-      (* Parses the chunk data following the chunk size field *)
-      restart_parser <- self # parse_chunk_data code header ch len;
-      let av_len = B.length in_buf - in_pos in
-      let l = Int64.to_int (min (Int64.of_int av_len) len) in
-      ch # really_output (B.unsafe_buffer in_buf) in_pos l;
-      in_pos <- in_pos + l;
-      assert(in_pos <= B.length in_buf);
-      let len' = Int64.sub len (Int64.of_int l) in
-      if len' > 0L then (
-	if in_eof then 
-	  raise (Bad_message "Repsonse chunk terminated by EOF");
-	restart_parser <- 
-	  self # parse_chunk_data code header ch len'
-      ) else
-	self # parse_chunk_end code header ch call
-
-    method private parse_chunk_end code header ch call =
-      (* Parses the CRLF after the chunk, and the next chunks *)
-      restart_parser <- self # parse_chunk_end code header ch;
-      let b = B.unsafe_buffer in_buf in
-      match Netstring_str.string_match crlf_re b in_pos with
-	| None ->
-	    if B.length in_buf - in_pos > 2 then 
-	      raise (Bad_message "CR/LF after response chunk is missing");
-	    if in_eof then 
-	      raise (Bad_message "EOF where next response chunk expected")
-	| Some m ->
-	    in_pos <- Netstring_str.match_end m;
-	    assert(in_pos <= B.length in_buf);
-	    self # parse_chunked_body code header ch call
-
-    method private parse_trailer code header ch call =
-      (* Parses the trailer *)
-      restart_parser <- self # parse_trailer code header ch;
-      let b = B.unsafe_buffer in_buf in
-      match Netstring_str.string_match line_end2_re b in_pos with
-	| None ->
-	    if B.length in_buf - in_pos > 10000 then 
-	      raise (Bad_message "Response trailer too large");
-	    if in_eof then 
-	      raise (Bad_message "EOF where response trailer expected")
-	| Some m ->
-	    let start = in_pos in
-	    in_pos <- Netstring_str.match_end m;
-	    assert(in_pos <= B.length in_buf);
-	    let _ch =
-	      new Netchannels.input_string ~pos:start ~len:(in_pos-start) b in
-	    let trailer_l, real_end_pos = 
-	      try
-		Mimestring.scan_header
-	          ~downcase:false ~unfold:true ~strip:true b 
-		  ~start_pos:start ~end_pos:in_pos 
+      and read_body_e code header call =
+	(* First determine whether a body is expected: *)
+	let have_body =
+	  call # has_resp_body && code <> 204 && code <> 304 in
+	if have_body then (
+	  let out = call # private_api # response_body_open_wr() in
+	  let out_dev =
+	    match out with
+	      | `Channel ch ->
+		  `Async_out(new Uq_engines.pseudo_async_out_channel ch, esys)
+	      | `Device dev ->
+		  dev in
+	  (* Check if we have chunked encoding: *)
+	  let is_chunked =
+	    try header # field "Transfer-encoding" <> "identity"
+	    with Not_found -> false in
+	  if is_chunked then
+	    read_chunked_body_e code header out_dev call
+	  else (
+	    let length_opt =
+	      try 
+		let l = Int64.of_string (header # field "Content-Length") in
+		if l < 0L then raise (Bad_message "Bad Content-Length field");
+		Some l
 	      with
-		| Failure _ -> raise(Bad_message "Bad trailer") in
-	    assert(real_end_pos = in_pos);
-	    (* The trailer is simply added to the header: *)
-	    let new_header =
-	      new Netmime.basic_mime_header (header#fields @ trailer_l) in
-	    call # private_api # set_response_header new_header;
-	    self # parse_end call
-	      
-    method private parse_end call =
-      (* The message ends here! *)
-      restart_parser <- self # parse_status_line;  (* for the next message *)
-      call # private_api # finish()
+		| Failure _ -> raise (Bad_message "Bad Content-Length field")
+		| Not_found -> None in
+	    read_plain_body_e code header out_dev length_opt call
+	  )
+	) else
+	  read_end_e call
+	
+      and read_plain_body_e code header out_dev length_opt call =
+	(* Parses a non-chunked HTTP body. If length_opt=None, the message
+	 * is terminated by EOF. If length_opt=Some len, the message has
+	 * this length.
+	 *)
+	Uq_io.copy_e
+	  ?len64:length_opt
+	  buf_in_dev
+	  out_dev
+	++ (fun n ->
+	      ( match length_opt with
+		  | None -> ()
+		  | Some l ->
+		      if n <> l then
+			raise(Bad_message "EOF in response message")
+	      );
+	      ( Uq_io.shutdown_e out_dev 
+		>> (fun st -> Uq_io.inactivate out_dev; st)
+	      )
+	      ++ (fun () -> read_end_e call)
+	   )
 
+      and read_chunked_body_e code header out_dev call =
+	(* Parses a chunked HTTP body *)
+	input_line_opt_e ~max_len:max_line_len buf_in_dev
+	++ (function
+	      | Some line ->
+		  ( match Netstring_str.string_match chunk_re line 0 with
+		      | None ->
+			  raise
+			    (Bad_message "Cannot parse chunk of response body");
+		      | Some m ->
+			  let hex_len = Netstring_str.matched_group m 1 line in
+			  let len =
+			    try Int64.of_string ("0x" ^ hex_len)
+			    with Failure _ -> 
+			      raise (Bad_message "Chunk too large") in
+			  if len = 0L then
+			    let trl_buf = Buffer.create 100 in
+			    read_trailer_e code header out_dev call trl_buf
+			  else
+			    read_chunk_data_e code header out_dev len call
+		  )
+	      | None ->
+		  raise (Bad_message "EOF where next response chunk expected")
+	   )
+
+      and read_chunk_data_e code header out_dev len call =
+	(* Parses the chunk data following the chunk size field *)
+	Uq_io.copy_e
+	  ?len64:(Some len)
+	  buf_in_dev
+	  out_dev
+	++ (fun n ->
+	      if n <> len then
+		raise(Bad_message "EOF in response message");
+	      read_chunk_end_e code header out_dev call
+	   )
+
+      and read_chunk_end_e code header out_dev call =
+	input_line_opt_e ~max_len:max_line_len buf_in_dev
+	++ (function
+	      | Some line ->
+		  if line = "" || line = "\r" then
+		    read_chunked_body_e code header out_dev call
+		  else
+		    raise (Bad_message "CR/LF after response chunk is missing")
+	      | None ->
+		  raise (Bad_message "EOF where next response chunk expected")
+	   )
+
+      and read_trailer_e code header out_dev call trl_buf =
+	input_line_opt_e ~max_len:max_line_len buf_in_dev
+	++ (fun line_opt ->
+	      match line_opt with
+		| None ->
+		    let msg = "EOF where response trailer expected" in
+		    raise (Bad_message msg)
+		| Some line ->
+		    Buffer.add_string trl_buf line;
+		    Buffer.add_string trl_buf "\n";
+		    if line = "" || line = "\r" then (
+		      parse_trailer_e
+			code header out_dev call (Buffer.contents trl_buf)
+		    )
+		    else (
+		      if Buffer.length trl_buf > 10000 then (
+			let msg ="Response trailer too long" in
+			raise (Bad_message msg)
+		      );
+		      read_trailer_e code header out_dev call trl_buf
+		    )
+	   )
+	
+      and parse_trailer_e code header out_dev call trl_str =
+	let trailer_l, real_end_pos =
+	  try
+	    Mimestring.scan_header
+	      ~downcase:false ~unfold:true ~strip:true trl_str
+	      ~start_pos:0 ~end_pos:(String.length trl_str)
+	  with
+	    | Failure _ ->
+		let msg = "Bad response trailer" in
+		raise (Bad_message msg)
+	in
+	assert(real_end_pos = String.length trl_str);
+	let new_header =
+	  new Netmime.basic_mime_header (header#fields @ trailer_l) in
+	call # private_api # set_response_header new_header;
+	( Uq_io.shutdown_e out_dev 
+	  >> (fun st -> Uq_io.inactivate out_dev; st)
+	)
+	++ (fun () -> read_end_e call)
+
+      and read_end_e call =
+	call # private_api # finish_e esys
+	++ (fun () ->
+	      eps_e (`Done (Some call)) esys
+	   )
+      in
+
+      read_status_line_e None
+      >> (fun st ->
+	    let propagate_garbage = !cur_call <> None in
+	    let maybe_cleanup() =
+	      match !cur_call with
+		| None -> ()
+		| Some call -> 
+		    call # private_api # cleanup();
+		    cur_call := None in
+	    match st with
+	      | `Error (Garbage_received msg) when propagate_garbage ->
+		  maybe_cleanup();
+		  `Error (Bad_message msg)
+		    (* If we can associate a Garbage_received error with
+		       a certain call change the exception to Bad_message.
+		       The background is that Garbage_received is not
+		       attributed to a specific message by the higher layers.
+		     *)
+	      | `Error e ->
+		  maybe_cleanup();
+		  `Error e
+	      | _ ->
+		  st
+	 )
 
     (****************************** OUTPUT ********************************)
 
-    val mutable string_to_send = ""
-    val mutable send_buffer = String.create 8192
-    val mutable send_position = 0
-    val mutable send_length = 0
+    val send_queue = Q.create()
+    val send_buf = String.create 4096
 
-    method send_this_string s =
-      string_to_send <- s;
-      send_position <- 0;
-      send_length <- String.length s
+    val mutable sending = false
 
-    method send_by_buffer f =
-      string_to_send <- send_buffer;
-      send_position <- 0;
-      send_length <- 0;
-      let m = String.length send_buffer in
-      let n = f send_buffer 0 m in
-      send_length <- n;
-      n
 
-    method nothing_to_send =
-      send_position = send_length
+    method write_activity =
+      sending || not(Q.is_empty send_queue)
 
-    method unix_write() =
-      let n_to_send = send_length - send_position in
-      let n = 
-	syscall (fun () -> 
-		   Unix.send fd string_to_send send_position n_to_send [])
-      in
-      send_position <- send_position + n;
 
-    method dump_send_buffer () =
-      dlogr (fun () ->
-	       sprintf "FD %Ld - HTTP request body fragment:\n%s\n"
+    method add x =
+      Q.add x send_queue
+
+
+    method write_e esys =
+      (* Writes all contents of send_queue *)
+
+      let rec write_next_e() =
+	if Q.is_empty send_queue then
+	  eps_e (`Done()) esys
+	else (
+	  let token = Q.take send_queue in
+	  ( match token with
+	      | Send_header (call_id, meth, url, hdr) ->
+		  write_header_e call_id meth url hdr
+	      | Send_body (source,length_opt) ->
+		  write_body_e source length_opt
+	      | Send_body_chunked source ->
+		  write_body_chunked_e source
+	      | Send_eof ->
+		  write_eof_e ()
+	  ) 
+	  ++ write_next_e
+	)
+
+      and write_header_e call_id meth url hdr =
+	let buf = B.create 1000 in
+	B.add_string buf meth;
+	B.add_string buf " ";
+	B.add_string buf url;
+	B.add_string buf " HTTP/1.1";
+	
+	if !options.verbose_status then
+	  dlogr
+	    (fun () ->
+	       sprintf "FD %s - Call %d - HTTP request: %s"
+		 self#socket_str call_id (B.contents buf));
+	
+	B.add_string buf "\r\n";
+	let ch = new Netchannels.output_netbuffer buf in
+	Mimestring.write_header ch hdr#fields;
+	ch # close_out();
+	      
+	if !options.verbose_request_header then
+	  dump_header "HTTP request " hdr#fields;
+	      
+	Uq_io.output_netbuffer_e dev buf
+
+      and write_body_e source expected_length_opt =
+	let d =
+	  match source with
+	    | `Channel ch -> 
+		`Async_in(new Uq_engines.pseudo_async_in_channel ch,
+			  esys)
+	    | `Device d -> d in
+
+	if !options.verbose_request_contents then
+	  dlogr
+	    (fun () ->
+	       sprintf "FD %Ld - HTTP request body fragment %s"
 		 (Netsys.int64_of_file_descr fd)
-		 (String.sub send_buffer 0 send_length)
-	    )
+		 (match expected_length_opt with
+		    | None -> "(unknown length)"
+		    | Some n -> sprintf "(%Ld bytes)" n
+		 )
+	    );
 
-  end
+	Uq_io.copy_e ?len64:expected_length_opt d dev
+	++ (fun n ->
+	      ( match expected_length_opt with
+		  | None -> ()
+		  | Some exp_n ->
+		      if n <> exp_n then
+			failwith "Http_client: announced length of \
+                                  request body does not match actual length"
+	      );
+	      Uq_io.shutdown_e d
+	      >> (fun st -> Uq_io.inactivate d; st)
+	   )
+	  
+      and write_body_chunked_e source =
+	let d =
+	  match source with
+	    | `Channel ch -> 
+		`Async_in(new Uq_engines.pseudo_async_in_channel ch,
+			  esys)
+	    | `Device d -> d in
+	write_body_next_chunk_e d ()
+
+      and write_body_next_chunk_e d () =
+	input_opt_e d (`String send_buf) 0 (String.length send_buf)
+	++ (function
+	      | Some n ->
+		  if !options.verbose_request_contents then
+		    dlogr
+		      (fun () ->
+			 sprintf "FD %Ld - HTTP request body chunk (%d bytes)"
+			   (Netsys.int64_of_file_descr fd) n
+		      );
+		  let s = sprintf "%x\r\n" n in
+		  Uq_io.output_string_e dev s
+		  ++ (fun () -> 
+			Uq_io.really_output_e dev (`String send_buf) 0 n)
+		  ++ (fun () -> Uq_io.output_string_e dev "\r\n")
+		  ++ write_body_next_chunk_e d
+	      | None ->
+		  if !options.verbose_request_contents then
+		    dlogr
+		      (fun () ->
+			 sprintf "FD %Ld - HTTP request body chunk (last)"
+			   (Netsys.int64_of_file_descr fd)
+		      );
+		  let s = "0\r\n\r\n\r\n" in
+		  Uq_io.output_string_e dev s
+	   )
+
+      and write_eof_e () =
+	if !options.verbose_request_contents then
+	  dlogr (fun () ->
+		   sprintf "FD %Ld - HTTP request EOF" 
+		     (Netsys.int64_of_file_descr fd)
+		);
+	Uq_io.write_eof_e dev
+	++ (fun flag ->
+	      if not flag then
+		failwith "Http_client: \
+                          no support for closing the write side only";
+	      if socket_state = Up_rw then
+		socket_state <- Up_r;
+	      eps_e (`Done()) esys
+	   )
+      in
+      
+      sending <- true;
+      write_next_e()
+      >> (fun st -> sending <- false; st)
+
+    end
+  )
 ;;
 
 (**********************************************************************)
@@ -2029,377 +2284,283 @@ type message_state =
   | Sending_body    (* The header has been sent, now sending the body *)
   | Sent_request    (* The body has been sent; the reply is being received *)
   | Complete        (* The whole reply has been received *)
-  | Complete_broken (* The whole reply has been received, but the connection
-                     * is in a state that does not permit further requests
-                     *)
-  | Broken          (* Garbage was responded *)
 ;;
 
-(* Transitions:
- *
- * (1) Normal transitions:
- * 
- * Unprocessed -> Sending_hdr: Always done (a)
- * Sending_hdr -> Handshake: Only if we are handshaking (a)
- * Handshake -> Sending_body: When the 100 Continue status arrives (b)
- * Sending_hdr -> Sending_body: usually (a)
- * Sending_body -> Sent_request: usually (a)
- * Sending_hdr -> Sent_request: if no body is sent (a)
- * Sent_request -> Complete: when the response has arrived (b)
- * Handshake -> Complete_broken:  when the response arrives instead of 100 Continue (b)
- *
- * (2) Unusual transitions:
- *
- * (Unprocessed | Sending_hdr | Sending_body) -> Complete_broken: 
- *    The response arrives while/before sending the header/body (b)
- *    or: Parsing error in the response (b)
- *
- * (Unprocessed | Sending_hdr | Sending_body) -> Broken
- *    Garbage arrives (b)
- *
- *      (a) transition is done by the sending side of the transmitter
- *      (b) transition is done by the receiving side of the transmitter
+(* The states Unprocessed...Sent_request are only set by the request
+   sender. We enter Complete only if we can receive the corresponding
+   response.
+
+   In the case that the response arrives while we are still sending,
+   the processing of the response needs to be delayed until the sending
+   is done.
+
+   Errors are not reflected in the state.
  *)
 
 
+let test_conn_close hdr =
+  let conn_list = 
+    try Nethttp.Header.get_connection hdr
+    with _ (* incl. syntax error *) -> [] in
+  List.mem "close" conn_list
 
-class transmitter
+
+let test_conn_keep_alive hdr =
+  let conn_list = 
+    try Nethttp.Header.get_connection hdr
+    with _ (* incl. syntax error *) -> [] in
+  List.mem "keep-alive" conn_list
+
+
+let test_proxy_conn_keep_alive hdr =
+  let conn_list = 
+    try 
+      List.map String.lowercase
+	(hdr # multiple_field "proxy-connection")
+    with _ (* incl. syntax error *) -> [] in
+  List.mem "keep-alive" conn_list
+
+
+let test_http_1_1 proto_str =
+  try
+    let proto = Nethttp.protocol_of_string proto_str in
+    match proto with
+      | `Http((1,n),_) when n >= 1 ->  
+	  (* HTTP/1.1 <= proto < HTTP/2.0 *)
+	  true
+      | _ ->
+	  false
+  with _ -> false
+
+
+let transmitter
   peer_is_proxy
   (m : http_call) 
   (f_done : http_call -> unit)
   options
   =
-  object (self) 
-    val mutable state = Unprocessed
-    val indicate_done = f_done
-    val msg = m
+  ( object (self) 
+      val mutable state = Unprocessed
+      val indicate_done = f_done
+      val msg = m
+	
+      val mutable auth_headers = []
+	(* Additional header for _proxy_ authentication *)
 
-    val mutable auth_headers = []
-      (* Additional header for _proxy_ authentication *)
 
-    val mutable body = new Netchannels.input_string ""
-    val mutable body_length = None   (* Set after [init] *)
+      val mutable send_finish_e_opt = None
+	
+      method state = state
+	
+      method f_done = indicate_done
 
-    method state = state
-
-    method f_done = indicate_done
-
-    method init() =
-      (* Prepare for (re)transmission:
-       * - Set the `Effective request header
-       * - Reset the status info of the http_call
-       * - Initialize transmission state
-       *)
-      if !options.verbose_status then
-	dlogr (fun () -> sprintf "Call %d: initialize transmitter" 
-		 (Oo.id msg));
-      msg # private_api # prepare_transmission();
-      (* Set the effective URI. This must happen before authentication. *)
-      let eff_uri =
-	if peer_is_proxy then
-	   msg # request_uri
-	else
-	  let path = msg # get_path() in
-	  if path = "" then (
-	    msg # empty_path_replacement
+      method init() =
+	(* Prepare for (re)transmission:
+	 * - Set the `Effective request header
+	 * - Reset the status info of the http_call
+	 * - Initialize transmission state
+	 *)
+	if !options.verbose_status then
+	  dlogr (fun () -> sprintf "Call %d: initialize transmitter" 
+		   (Oo.id msg));
+	msg # private_api # prepare_transmission();
+	(* Set the effective URI. This must happen before authentication. *)
+	let eff_uri =
+	  if peer_is_proxy then
+	    msg # request_uri
+	  else
+	    let path = msg # get_path() in
+	    if path = "" then (
+	      msg # empty_path_replacement
+	    )
+	    else path
+	in
+	msg # private_api # set_effective_request_uri eff_uri;
+	let ah = 
+	  match msg # private_api # auth_state with
+	    | `None -> []
+	    | `In_advance session 
+	    | `In_reply session ->
+		session # authenticate msg in
+	let rh = msg # request_header `Effective in
+	List.iter
+	  (fun (n,v) ->
+	     rh # update_field n v
 	  )
-	  else path
-      in
-      msg # private_api # set_effective_request_uri eff_uri;
-      let ah = 
-	match msg # private_api # auth_state with
-	  | `None -> []
-	  | `In_advance session 
-	  | `In_reply session ->
-	      session # authenticate msg in
-      let rh = msg # request_header `Effective in
-      List.iter
-	(fun (n,v) ->
-	   rh # update_field n v
-	)
-	(auth_headers @ ah);
-      state <- Unprocessed;
-      body_length <- ( try
-			 let s = rh # field "Content-length" in
-			 Some(Int64.of_string s)
-		       with Not_found -> None
-		     );
-      self # close_body();
-      let have_body =
-	msg # has_req_body &&
-	  (body_length = None || body_length <> Some 0L) in
-      if not have_body then (
-	(* Remove certain headers *)
-	rh # delete_field "Expect";
-      );
+	  (auth_headers @ ah);
+	state <- Unprocessed;
+	if not (msg # has_req_body) then (
+	  (* Remove certain headers *)
+	  rh # delete_field "Expect";
+	);
+	send_finish_e_opt <- None
 
-    method cleanup() =
-      (* release resources *)
-      self # close_body();
-      msg # private_api # cleanup()
+      method cleanup() =
+	(* release resources *)
+	msg # private_api # cleanup()
 
-    method add_auth_header n v =
-      auth_headers <- (n,v) :: auth_headers
+      method add_auth_header n v =
+	auth_headers <- (n,v) :: auth_headers
+	  
+      method error_if_unserved error =
+	msg # private_api # error_if_unserved !options.verbose_status error
 
-    method private open_body() =
-      body <- msg # request_body # open_value_rd()
+      method send_e (io : io_buffer) 
+                    (handshake_cfg : float option)
+                    (close_flag : bool)
+		    esys =
+	(* handshake_cfg: if [Some t], it is waited after the header for the
+	   "100 Continue" handshake. [t] is the timeout. The [Expect]
+	   header is already set (by the user).
+	   close_flag: if true, the "connection:close" header is set
+	 *)
 
-    method close_body() =
-      try body # close_in() with _ -> ()
-      (* also called by [clear_write_queue] *)
+	assert (state = Unprocessed);
+	assert (not(io # write_activity));
+	assert (send_finish_e_opt = None);
 
-    method error_if_unserved error =
-      msg # private_api # error_if_unserved !options.verbose_status error
+	let rec send_header_e() =
+	  let rh = msg # request_header `Effective in
+	  let host = msg # get_host() in
+	  let port = msg # get_port() in
+	  let host_str = host ^ (if port = 80 then "" 
+				 else ":" ^ string_of_int port) in
+	  rh # update_field "Host" host_str;
+	  
+	  if close_flag then
+	    rh # update_field "Connection" "close";
 
-    method send (io : io_buffer) do_handshake =
-      (* do_handshake: If true, only the header is transmitted, and the
-       * state transitions to [Handshake]. This flag is ignored if we have
-       * already [Sending_body].
-       *)
+	  io # add (Send_header(self#call_id, 
+				msg#request_method,
+				msg#effective_request_uri,
+				(rh :> Netmime.mime_header_ro)));
+	  state <- (if handshake_cfg <> None then Handshake else Sending_hdr);
+	  
+	  io # write_e esys
+	  ++ (match handshake_cfg with
+		| Some t when not msg # private_api # continue ->
+		    send_handshake_e t
+		| _ -> 
+		    send_body_e
+	     )
 
-      assert 
-	(state = Unprocessed || state = Sending_hdr || state = Sending_body);
-
-      (* First check whether we have to refill [string_to_send]: *)
-
-      ( match state with
-	  | Unprocessed ->
-	      (* Fill [string_to_send] with the request line and the header. *)
-	
-	      let buf = Buffer.create 1000 in
-	      let req_meth = msg # request_method in
-	      
-	      Buffer.add_string buf req_meth;
-	      Buffer.add_string buf " ";
-	      Buffer.add_string buf msg#effective_request_uri;
-	      let rh = msg # request_header `Effective in
-	      if true (* not peer_is_proxy *) then (
-		(* Setting Host even for proxies does not harm, and some
-                   cheap proxy implementations require it
-		 *)
-		let host = msg # get_host() in
-		let port = msg # get_port() in
-		let host_str = host ^ (if port = 80 then "" 
-				       else ":" ^ string_of_int port) in
-		rh # update_field "Host" host_str;
-	      );
-	      Buffer.add_string buf " HTTP/1.1";
-	      
-	      if !options.verbose_status then
-		dlogr
-		  (fun () ->
-		     sprintf "FD %s - Call %d - HTTP request: %s"
-		       io#socket_str (Oo.id m) (Buffer.contents buf));
-	      
-	      Buffer.add_string buf "\r\n";
-	      
-	      let ch = new Netchannels.output_buffer buf in
-	      Mimestring.write_header ch rh#fields;
-	      ch # close_out();
-	      
-	      if !options.verbose_request_header then
-		dump_header "HTTP request " rh#fields;
-	      
-	      io # send_this_string (Buffer.contents buf);
-	      state <- Sending_hdr;
-
-	  | Sending_body when io # nothing_to_send ->
-	      ( try 
-		  let m =
-		    match body_length with
-		      | None -> 
-			  max_int
-		      | Some l -> 
-			  Int64.to_int
-			    (min (Int64.of_int max_int) l) in
-		  if m = 0 then raise End_of_file;
-		  let n = io # send_by_buffer body#input in
-		  ( match body_length with
-		      | None -> ()
-		      | Some l ->
-			  body_length <- Some(Int64.sub l (Int64.of_int n))
-		  );
-		  if !options.verbose_request_contents then
-		    io # dump_send_buffer()
-		with
-		  | End_of_file ->
-		      self # close_body();
-		      if body_length = None then (
-			io # close_out();
-		      );
-		      state <- Sent_request
-		  | error ->
-		      self # close_body();
-		      raise error
-	      )
-
-	  | _ ->
-	      ()
-      );
-
-      (* FIXME: unix_write should not be called here *)
-
-      (* Send: *)
-
-      if state = Sending_hdr || state = Sending_body then
-	io # unix_write();
-      
-      (* Update state: *)
-
-      if io # nothing_to_send then (
-	match state with
-	  | Sending_hdr ->
-	      let have_body =
-		msg # has_req_body &&
-		(body_length = None || body_length <> Some 0L) in
-
-	      if have_body then (
-		if do_handshake then
-		  state <- Handshake
-		else
-		  state <- Sending_body;
-		self # open_body();
-	      )
-	      else
-		state <- Sent_request
-
-	  | _ ->
-	      ()
-      )
-
-    (* FIXME. parse_response should go here (not in io_buffer) *)
-
-    method receive (io : io_buffer) =
-      (* This method is invoked if some additional octets have been received
-       * that 
-       * - may begin this reply
-       * - or continue this reply
-       * - or make this reply complete
-       * - or make this reply complete and begin another reply
-       * It is checked if the reply is complete, and if so, it is recorded
-       * and the octets forming the reply are removed from the input buffer.
-       * Raises Bad_message if the message is malformed.
-       *)
-      try
-	io # parse_response msg;
-             (* may raise Garbage_received but not Bad_message *)
-	match msg # status with
-	  | `Unserved -> 
-	      if state = Handshake && msg # private_api # continue then
-		state <- Sending_body
-	  | `Http_protocol_error e ->
-	      state <- Complete_broken;
-	      let e_msg =
-		match e with
-		  | Bad_message s -> ": Bad message: " ^ s
-		  | _ -> ": " ^ Netexn.to_string e in
-	      if !options.verbose_status then
-		dlogr
-		  (fun () ->
-		     sprintf "FD %s - Call %d - HTTP status: protocol error %s"
-		       io#socket_str (Oo.id m) e_msg);
-	  | _ -> 
-	      if state = Sent_request then 
-		state <- Complete 
-	      else (
-		if !options.verbose_status then
-		dlogr
-		  (fun () ->
-		     sprintf "FD %s - Call %d - HTTP status: Got response before request was completely sent"
-		       io#socket_str (Oo.id m));
-		state <- Complete_broken;
-		io # close_out()
-	      );
-	      if !options.verbose_status then
-		msg # private_api # dump_status();
-	      if !options.verbose_response_header then
-		msg # private_api # dump_response_header();
-	      if !options.verbose_response_contents then
-		msg # private_api # dump_response_body();
-      with
-	| Garbage_received s ->
-	    state <- Broken;
-	    if !options.verbose_status then
-		dlogr
-		  (fun () ->
-		     sprintf "FD %s - Call %d - HTTP status: Garbage received: %s"
-		       io#socket_str (Oo.id m) s);
+	and send_handshake_e tmo () =
+	  msg # private_api # wait_continue_e tmo esys
+	  ++ send_body_e
 	    
-    method handshake_timeout() =
-      if state = Handshake then
-	state <- Sending_body
+	and send_body_e () : unit Uq_engines.engine =
+	  if msg # has_req_body then (	  
+	    state <- Sending_body;
+	    let rh = msg # request_header `Effective in
+	    let is_chunked =
+	      try rh # field "Transfer-encoding" <> "identity"
+	      with Not_found -> false in
+	    let d = msg # private_api # request_body_open_rd() in
+	    let tok, need_eof =
+	      if is_chunked then
+		Send_body_chunked d, false
+	      else (
+		let length_opt =
+		  try 
+		    let l = 
+		      try Int64.of_string (rh # field "Content-Length") 
+		      with
+			| Failure _ -> 
+			    failwith "Http_client: Bad Content-Length field \
+                                      in request" in
+		    if l < 0L then
+		      failwith "Http_client: Bad Content-Length field in request";
+		    Some l
+		  with Not_found -> None in
+		Send_body(d, length_opt), length_opt = None
+	      ) in
+	    io # add tok;
+	    if need_eof then
+	      io # add Send_eof;
+	    io # write_e esys
+	    ++ (fun () ->
+		  state <- Sent_request;
+		  msg # private_api # finish_request_e esys
+	       )
+	  )
+	  else (
+	    state <- Sent_request;
+	    msg # private_api # finish_request_e esys
+	  )
+	in
 
-    method indicate_pipelining =
-      (* Return 'true' iff the reply is HTTP/1.1 compliant and does not
-       * contain the 'connection: close' header.
-       *)
-      let resp_header = msg # private_api # response_header in
-      let proto_str = msg # private_api # response_proto in
-      let b1 =
-	try
-	  let proto = Nethttp.protocol_of_string proto_str in
-	  match proto with
-	    | `Http((1,n),_) when n >= 1 ->  (* HTTP/1.1 <= proto < HTTP/2.0 *)
-		let conn_list = 
-		  try Nethttp.Header.get_connection resp_header 
-		  with _ (* incl. syntax error *) -> [] in
-		not (List.mem "close" conn_list)
-	    | _ ->
-		false
-	with _ -> false in
-      b1 && (
-	try
-	  let server = resp_header # field "Server" in
-	  not (List.exists 
-		 (fun re -> 
-		    Netstring_str.string_match re server 0 <> None
-		 ) 
-		 pipeline_blacklist)
-	with
-	  | Not_found -> true  (* Nothing known ... Assume the best! *)
-      )
+	let (e, signal) = Uq_engines.signal_engine esys in
+	send_finish_e_opt <- Some e;
+
+	send_header_e()
+	>> (fun st -> signal st; st)
+
+	  
+      method send_finish_e esys =
+	(* Wait here until the request is completely sent (synchronization with
+	   the sender)
+	 *)
+	match send_finish_e_opt with
+	  | None ->
+	      eps_e (`Done ()) esys
+	  | Some e ->
+	      e
+	  
+	  
+      method receive_complete () =
+	assert(state = Sent_request);
+	state <- Complete
+
+
+      method indicate_pipelining =
+	(* Return 'true' iff the reply is HTTP/1.1 compliant and does not
+	 * contain the 'connection: close' header.
+	 *)
+	let b0 = 
+	  not(test_conn_close (msg # request_header `Effective)) in
+	b0 && (
+	  let resp_header = msg # private_api # response_header in
+	  let proto_str = msg # private_api # response_proto in
+	  let b1 = 
+	    test_http_1_1 proto_str && not(test_conn_close resp_header) in
+	  b1 && (
+	    try
+	      let server = resp_header # field "Server" in
+	      not (List.exists 
+		     (fun re -> 
+			Netstring_str.string_match re server 0 <> None
+		     ) 
+		     pipeline_blacklist)
+	    with
+	      | Not_found -> true  (* Nothing known ... Assume the best! *)
+	  )
+	)
+	  
+      method indicate_sequential_persistency =
+	(* Returns 'true' if persistency without pipelining
+	 * is possible.
+	 *)
+	let b0 = 
+	  not(test_conn_close (msg # request_header `Effective)) in
+	b0 && (
+	  let resp_header = msg # private_api # response_header in
+	  let proto_str = msg # private_api # response_proto in
+	  let is_http_11 = test_http_1_1 proto_str in
+	  let normal_persistency =
+	    not peer_is_proxy && 
+	      (not (test_conn_close resp_header)) &&
+	      (is_http_11 || test_conn_keep_alive resp_header) in
+	  let proxy_persistency =
+	    peer_is_proxy && test_proxy_conn_keep_alive resp_header in
+	  normal_persistency || proxy_persistency
+	)
+	  
+      method message = msg
 	
-    method indicate_sequential_persistency =
-      (* Returns 'true' if persistency without pipelining
-       * is possible.
-       *)
-      let resp_header = msg # private_api # response_header in
-      let proto_str = msg # private_api # response_proto in
-      let is_http_11 =
-	try
-	  let proto = Nethttp.protocol_of_string proto_str in
-	  match proto with
-	    | `Http((1,n),_) when n >= 1 ->  (* HTTP/1.1 <= proto < HTTP/2.0 *)
-		true
-	    | _ ->
-		false
-	with _ -> false in
-      let proxy_connection =
-	List.map String.lowercase
-	  (resp_header # multiple_field "proxy-connection") in
-      let connection = 
-	try Nethttp.Header.get_connection resp_header 
-	with _ (* incl. syntax error *) -> [] in
-      let normal_persistency =
-	not peer_is_proxy && 
-	  (not (List.mem "close" connection)) &&
-	  (is_http_11 || List.mem "keep-alive" connection) in
-      let proxy_persistency =
-	peer_is_proxy && List.mem "keep-alive" proxy_connection in
-      normal_persistency || proxy_persistency
+      method call_id = Oo.id msg
 	
-
-(*
-    method postprocess =
-      self#cleanup();
-      indicate_done msg;
- *)
-
-    method message = msg
-
-    method call_id = Oo.id msg
-  
-  end
+    end
+  )
 ;;
 
 
@@ -2544,27 +2705,19 @@ let fragile_pipeline
 	  | `Error e -> `Error e
 	  | `Aborted -> `Aborted
        ) in
-  let g = Unixqueue.new_group esys in
-  (* See comments on method connection_e below *)
+
+  let mplex =
+    Uq_engines.create_multiplex_controller_for_connected_socket
+      ~close_inactive_descr:true
+      ~supports_half_open_connection:true
+      fd esys in
 
   ( object(self)
-      val mutable io = 
-	new io_buffer options conn_cache fd Up_rw
+      val mutable io = io_buffer options conn_cache fd mplex Up_rw
 
       val mutable write_queue = Q.create()
       val mutable read_queue = Q.create()
 	(* Invariant: write_queue is a suffix of read_queue *)
-
-      (* timeout_groups: Unixqueue groups that must be deleted when the 
-       * connection is closed. These groups represent timeout conditions.
-       *)
-      val mutable timeout_groups = []
-
-      (* polling_wr is 'true' iff the write side of the socket is currently
-       * polled. (The read side is always polled.)
-       *)
-
-      val mutable polling_wr = false
 
       (* The following two variables control whether pipelining is enabled or
        * not. The problem is that it is unclear how old servers react if we
@@ -2582,7 +2735,6 @@ let fragile_pipeline
        * done_first_message: 'true' means that the reply of the first request
        *    has been arrived.
        *)
-	
       val mutable sending_first_message = true
       val mutable done_first_message = false
 	
@@ -2590,7 +2742,6 @@ let fragile_pipeline
        * to keep persistent connections but is not able to use pipelining.
        * (HTTP/1.0 "keep alive" connections)
        *)
-	
       val mutable inhibit_pipelining_byserver = no_pipelining
  
       (* Proxy authorization: If 'proxy_user' is non-empty, the variables
@@ -2602,7 +2753,6 @@ let fragile_pipeline
        * If the proxy responds again with code 407, this reaction will not
        * be handled again but will be visible to the outside.
        *)
-	
       val mutable proxy_credentials_required = false
       val mutable proxy_cookie = ""
 
@@ -2618,6 +2768,10 @@ let fragile_pipeline
 	 once
        *)
       val mutable after_eof = false
+
+      (* The vars govern whether there is an engine writing/reading *)
+      val mutable drive_output_active = None
+      val mutable drive_input_active = None
 
       
       method length =
@@ -2670,7 +2824,7 @@ let fragile_pipeline
 	(* Create the transport container for the message and add it to the
 	 * queues:
 	 *)
-	let trans = new transmitter peer_is_proxy m f_done options in
+	let trans = transmitter peer_is_proxy m f_done options in
 	
 	(* If proxy authentication is enabled, and it is already known that
 	 * the proxy demands authentication, add the necessary header fields: 
@@ -2705,12 +2859,12 @@ let fragile_pipeline
 	sending_first_message <- true;
 	done_first_message <- false;
 	close_connection <- false;
-	polling_wr <- false;
 
-	(* Add the handler and listen for read events *)
-	let timeout_value = !options.connection_timeout in
-	Unixqueue.add_resource esys g (Unixqueue.Wait_in fd, timeout_value);
-	Unixqueue.add_handler esys g (self # handler);
+(* FIXME: reset other vars? *)
+
+	io # configure_read 
+	  ~fetch_call:self#drive_input_fetch ();
+	self # drive_input();
 
 	if !options.verbose_events then
 	  dlog (sprintf 
@@ -2720,7 +2874,7 @@ let fragile_pipeline
 
       method reset() =
 	(* Compare also with after_eof! *)
-	self # abort ~reusable:false ~count:`Failed;
+	self # abort ~reusable:false ~count:`Crashed;
 
 	Q.iter
 	  (fun trans ->
@@ -2755,8 +2909,6 @@ let fragile_pipeline
 	  );
 
       if io # socket_state <> Down then (
-	let timeout_value = !options.connection_timeout in
-	
 	let actual_max_drift =
 	  if inhibit_pipelining_byserver then 0 else
 	    match !options.synchronization with
@@ -2768,89 +2920,60 @@ let fragile_pipeline
 	let have_requests =
 	  Q.length read_queue - Q.length write_queue <= actual_max_drift
 	  && Q.length write_queue > 0 
+          && (Q.peek write_queue) # state = Unprocessed
 	  && (done_first_message || sending_first_message) in
 
 	(* Note: sending_first_message is true while the first request is sent.
          * done_first_message becomes true when the response arrived. In the
          * meantime both variables are false, and nothing is sent.
          *)
-	
-	let do_close_output =
-	  Q.length read_queue = 0 && Q.length write_queue = 0 in
+
+	let do_release =
+	  (io # socket_state = Up_rw &&
+	      Q.length read_queue = 0 && Q.length write_queue = 0) in
 	(* If the socket is still up, we must send EOF. Normally, this 
          * should have happened already, just to be sure we check this here.
 	 *)
-
-	let waiting_for_handshake =
-	  Q.length read_queue > 0 && 
-	    (Q.peek read_queue) # state = Handshake in
-
-	let do_poll_wr =
-	  io#socket_state = Up_rw 
-	  && ( ( have_requests && not waiting_for_handshake) ||
-	       do_close_output ) in
+	
+	let do_close_output = close_connection in
+	(* close_connection: this is set in update_characteristics after
+	 * receiving the first response 
+	 *)
 
 	if !options.verbose_events then
 	  dlogr
 	    (fun () -> 
 	       sprintf "FD %s - HTTP events: maintain_polling \
                         n_read=%d n_write=%d \
-                        actual_max_drift=%d have_requests=%B do_close_output=%B \
-                        waiting_for_handshake=%B do_poll_wr=%B"
+                        actual_max_drift=%d have_requests=%B \
+                        do_close_output=%B do_release=%B"
 		 io#socket_str
 		 (Q.length read_queue) (Q.length write_queue)
-		 actual_max_drift have_requests do_close_output 
-		 waiting_for_handshake do_poll_wr
+		 actual_max_drift have_requests do_close_output do_release
 	    );
 	
-	if do_poll_wr && not polling_wr then (
+	if drive_output_active = None && io#socket_state = Up_rw then (
 	  if !options.verbose_events then
 	    dlogr
 	      (fun () -> 
 		 sprintf "FD %s - HTTP events: config output=enabled"
 		   io#socket_str
 	      );
-	  Unixqueue.add_resource esys g (Unixqueue.Wait_out io#socket, 
-					 timeout_value
-					);
-	);
-	
-	if not do_poll_wr && polling_wr then (
-	  if !options.verbose_events then
-	    dlogr
-	      (fun () -> 
-		 sprintf "FD %s - HTTP events: config output=disabled"
-		   io#socket_str
-	      );
-	  Unixqueue.remove_resource esys g (Unixqueue.Wait_out io#socket);
-	);
-	
-	polling_wr <- do_poll_wr;
+	  if do_close_output then
+	    self # close_output()
+	  else
+	    if do_release then
+	      self # release_io ()
+	    else
+	      if have_requests then
+		self # drive_output()
+	)
       )
 
-      (* On the other hand, all of the following conditions must be true
-       * to enable polling again:
-       * - The write_queue is not empty, or
-       *   both the write_queue and the read_queue are empty !!!CHECK!!!
-       * - The difference between the read and the write queue is small enough
-       * - We send the first request to a server, or do pipelining
-       * - The write side of the socket is open
-       * - pe_waiting_for_status is false.
-       * - waiting_for_status100 is not `Waiting
-       *)
-
-    method private clear_timeout group =
-      if !options.verbose_events then
-	dlogr
-	  (fun () -> 
-	     sprintf "FD %s - HTTP events: clear_timeout" io#socket_str);
-      Unixqueue.clear esys group;
-      timeout_groups <- List.filter (fun x -> x <> group) timeout_groups;
-
-
     method private abort ~reusable ~count =
-      (* This method is called when the connection is in an errorneous
-       * state, and the protocol handler decides to give it up.
+      (* This method is called when the connection is in a final (maybe
+       *  errorneous) state, and the protocol handler decides to stop
+       * processing.
        * 
        * reusable: whether it is possible to reuse this connection later
        *)
@@ -2863,14 +2986,16 @@ let fragile_pipeline
 	    Down -> 
 	      assert false
 	  | Up_r -> 
-	      io # close();
-	      signal_connection(`Done())
+	      io # close
+		~followup:(fun () -> signal_connection(`Done())) ()
 	  | Up_rw ->
-	      if reusable then
-		io # release()
+	      if reusable then (
+		io # release();
+		signal_connection(`Done());
+	      )
 	      else
-		io # close();
-	      signal_connection(`Done())
+		io # close
+		  ~followup:(fun () -> signal_connection(`Done())) ()
 	end;
 	( match count with
 	    | `Timed_out ->
@@ -2886,560 +3011,363 @@ let fragile_pipeline
 		counters.successful_connections <- 
 		  counters.successful_connections + 1
 	    | `Failed ->
-		counters.failed_connections <- 
-		  counters.failed_connections + 1;
+		(* By definition of the counter, an abort cannot be failed *)
+		assert false;
 	);
 	if !options.verbose_events then
 	  dlog (sprintf "FD %s - HTTP events: reset after shutdown"
 		  io#socket_str);
-	Unixqueue.clear esys g;
-	polling_wr <- false;
-	List.iter (Unixqueue.clear esys) timeout_groups;
-	timeout_groups <- []
+
+	self # cancel_output();   (* FIXME: check whether sufficient *)
+	self # cancel_input();
       )
  
-    method private handler _ _ ev =
-      match ev with
-	  Unixqueue.Input_arrived (_,_) ->
-	    self # handle_input()
-	| Unixqueue.Output_readiness (_,_) ->
-	    self # handle_output()
-	| Unixqueue.Timeout (_, _) ->
-	    self # handle_timeout()
-	| _ ->
-	    raise Equeue.Reject
-
-    (**********************************************************************)
-    (***                    THE TIMEOUT HANDLER                         ***)
-    (**********************************************************************)
-
-    method private handle_timeout() =
-      (* No network packet arrived for a period of time.
-       * May only happen when a connection is already established
-       *)
-      if !options.verbose_events then
-	dlogr (fun() -> 
-		 sprintf "FD %s - HTTP events: handle_timeout" io#socket_str);
-      io # set_timeout;
-      self # handle_input();   (* timeout is similar to EOF *)
-
+(* FIXME: timeout *)
 
     (**********************************************************************)
     (***                     THE OUTPUT HANDLER                         ***)
     (**********************************************************************)
 
-    method private handle_output() =
+(* PLAN:
+  
+   maintain_polling:
+      no writer yet, but writer possible: drive_output
+      also check here io#socket_state=Up_rw
+
+   handle_output -> drive_output
+     - mainly: call trans#send_e
+     - check state
+     - compute flags like do_handshake
+     - postprocess errors
+     - interact with queue (when to take away)
+     - check whether connection is done
+
+   cancel_output: abort the current drive_output engine
+
+ *)
+
+
+    method private drive_output() =
       if !options.verbose_events then
 	dlogr (fun() -> 
-		 sprintf "FD %s - HTTP events: handle_output" io#socket_str);
+		 sprintf "FD %s - HTTP events: drive_output" io#socket_str);
 
-      (* Ignore this event if the socket is not Up_rw (this may happen
-       * if the output side is closed while there are still output
-       * events in the queue):
-       *)
-      if io#socket_state <> Up_rw then
-	raise Equeue.Reject;
+      let can_output =
+	drive_output_active = None &&
+	io#socket_state = Up_rw &&
+	not(Q.is_empty write_queue) in
 
-      if !options.verbose_connection then 
-	dlogr
-	  (fun () ->
-	     sprintf "FD %s - HTTP connection: Output event!"
-	       io#socket_str);
+      assert(can_output);
 
-      (* Leave the write_loop by exceptions:
-       * - Q.Empty: No more request to write
-       *)
+      if can_output then (
+	let trans = Q.peek write_queue in
+	assert(trans#state = Unprocessed);
+	
+	let close_flag =
+	  !options.inhibit_persistency in
 
-      let error = ref None in
+	let handshake_cfg =
+	  try
+	    (* Proper parsing not required, because [Expect] is
+             * set by the user.
+             * [continue]: Already seen status 100
+             *)
+	    let rh = trans # message # request_header `Effective in
+	    if (not (trans # message # private_api # continue) &&
+		  String.lowercase(rh # field "expect") = "100-continue")
+	    then Some !options.handshake_timeout
+	    else None
+	  with
+	    | Not_found -> None
+	in
 
-      let rec write_loop () =
-	let this = Q.peek write_queue in  (* or Q.Empty *)
-	begin match this # state with
-	    (Unprocessed | Sending_hdr | Sending_body) ->
-
-	      let rh = this # message # request_header `Effective in
-
-	      (* if no_persistency, set 'connection: close' *)
-
-	      if !options.inhibit_persistency && this # state = Unprocessed then
-		rh # update_field "connection" "close";
-
-	      (* If a "100 Continue" handshake is requested,
-	       * transmit only the header of the request, and set
-	       * waiting_for_status100. Furthermore, add a timeout
-	       * handler that resets this variable after some time.
-	       *)
-
-	      let do_handshake =
-		try
-		  (* Proper parsing not required, because [Expect] is
-                   * set by the user.
-                   * [continue]: Already seen status 100
-                   *)
-		  not (this # message # private_api # continue) &&
-		  String.lowercase(rh # field "expect") = "100-continue"
-		with
-		  | Not_found -> false 
-	      in
-
-	      ( try
-		  this # send io do_handshake;
-
-		  (* If a handshake is requested: set the variable and the
-		     * timer.
-		   *)
-		  if do_handshake  &&  this # state = Handshake
-		  then (
-		    let timeout = !options.handshake_timeout in
-		    let tm = Unixqueue.new_group esys in
-		    timeout_groups <- tm :: timeout_groups;
-		    Unixqueue.once
-		      esys tm timeout
-		      (fun () ->
-			 ( try
-			     let this' = Q.peek write_queue in
-			     let still_waiting =
-			       this == this' && this # state = Handshake in
-			     if still_waiting then (
-			       this # handshake_timeout();
-			       self # maintain_polling();
-			     );
-			   with Q.Empty -> ()
-			 );
-			 self # clear_timeout tm;
-		      );
-		    if !options.verbose_connection then
-		      dlogr
-			(fun () ->
-			   sprintf "FD %s - HTTP connection: \
-                                    waiting for 100 CONTINUE"
-			     io#socket_str);
-		  );
-		  
-		with
-		  | Unix.Unix_error(Unix.EPIPE,_,_) as err ->
-		      (* Broken pipe: This can happen if the server decides
-		       * to close the connection in the same moment when the
-		       * client wants to send another request after the 
-		       * connection has been idle for a period of time.
-		       * Reaction: Close our side of the connection, too,
-		       * and open a new connection. The current request will
-		       * be silently resent because it is sure that the
-		       * request was not received completely; it does not
-		       * matter whether the request is idempotent or not.
-		       *
-		       * Broken pipes are very unlikely because this must 
-		       * happen between the 'select' and 'write' system calls.
-                       * The [read] syscall will get ECONNRESET, so we do
-                       * nothing here.
-		       *)
-		      if !options.verbose_connection then
-			dlogr
-			  (fun () ->
-			     sprintf "FD %s - HTTP connection: broken pipe"
-			       io#socket_str);
-		      error := Some err
-
-		  | Unix.Unix_error(Unix.EAGAIN,_,_) ->
-		      ()
-		      
-		  | err ->
+	let e =
+	  trans # send_e io handshake_cfg close_flag esys
+	  >> (fun st ->
+		drive_output_active <- None;
+		match st with
+		  | `Done () ->
+		      assert(trans#state = Sent_request);
+		      sending_first_message <- false;
+		      ignore (Q.take write_queue);
+		      self # maintain_polling();
+		      st
+		  | `Error err ->
 		      if !options.verbose_connection then
 			dlogr
 			  (fun () ->
 			     sprintf "FD %s - HTTP connection: Exception %s"
 			       io#socket_str (Netexn.to_string err));
-		      error := Some err
-	      );
-	      if sending_first_message && this # state = Sent_request then
-		sending_first_message <- false;
-	      if this # state = Sent_request then
-		ignore (Q.take write_queue);
-	      (* Do not call write_loop: Otherwise other handlers would
-               * not have any chance to run
-               *)
-	  | Handshake ->
-	      (* Should normally not happen. *)
-	      ()
-	  | (Sent_request | Complete | Complete_broken) ->
-	      (* If Complete_broken, we also have Up_r. *)
-	      ignore (Q.take write_queue);
-	      if io # socket_state = Up_rw then
-		write_loop()        (* continue with the next message *)
-	  | Broken ->
-	      (* This case is fully handled by the input handler *)
-	      ()
-	end
-      in
+		      self # abort ~reusable:false ~count:`Crashed;
+		      self # after_eof (Some err);
+		      st
+		  | `Aborted -> 
+		      if !options.verbose_connection then
+			dlogr
+			  (fun () ->
+			     sprintf "FD %s - HTTP connection: Aborting"
+			       io#socket_str
+			  );
+		      st
+	     ) in
 
-      begin try
-	write_loop()
-      with
-	  Q.Empty -> ()
-      end;
+	drive_output_active <- Some e;
+      )
 
-      (* Release the connection if the queues have become empty *)
+    method private close_output() =
+      let can_close =
+	drive_output_active = None &&
+	io#socket_state = Up_rw in
 
-      match !error with
-	| None ->
-	    if (Q.length write_queue = 0 && Q.length read_queue = 0) then (
-	      (* The connection is reusable for future messages - if anything
-		 did not allow persistency, we would already have closed the
-		 connection, and stopped processing.
-	       *)
-	      self # abort ~reusable:true ~count:`Successful;
-	      self # after_eof None;
-	    )
-	    else
-	      self # maintain_polling()
-	| Some err ->
-	    self # abort ~reusable:false ~count:`Crashed;
-	    self # after_eof !error
+      assert(can_close);
+
+      if can_close then (
+	assert (not(io # write_activity));      
+	io # add Send_eof;
+	let e =
+	  io # write_e esys
+	  >> (fun st ->
+		drive_output_active <- None;
+		match st with
+		  | `Done () -> 
+		      (* The connection closure can be driven by several
+			 reasons, so there can still be messages on the
+			 queues!
+		       *)
+		      self # abort ~reusable:false ~count:`Successful;
+		      self # after_eof None;
+		      st
+		  | `Error err ->
+		      if !options.verbose_connection then
+			dlogr
+			  (fun () ->
+			     sprintf "FD %s - HTTP connection: Exception %s"
+			       io#socket_str (Netexn.to_string err));
+		      self # abort ~reusable:false ~count:`Crashed;
+		      self # after_eof (Some err);
+		      st
+		  | `Aborted -> 
+		      if !options.verbose_connection then
+			dlogr
+			  (fun () ->
+			     sprintf "FD %s - HTTP connection: Aborting"
+			       io#socket_str
+			  );
+		      st
+	     )
+	in
+	drive_output_active <- Some e;
+      )
+
+
+    method private cancel_output() =
+      match drive_output_active with
+	| None -> ()
+	| Some e -> 
+	    drive_output_active <- None; e # abort()
+      
+
+    method private release_io() =
+      (* Give fd/mplex back to the connection cache *)
+      assert(io # socket_state = Up_rw);
+      self # abort ~reusable:true ~count:`Successful;
+      self # after_eof None
+	(* FIXME: check whether sufficient *)
 
 
     (**********************************************************************)
     (***                     THE INPUT HANDLER                          ***)
     (**********************************************************************)
 
-    method private handle_input () =
-      (* Data have arrived on the socket. First we receive as much as we
-       * can; then the data are interpreted as sequence of messages.
-       * This method is also called when the connection times out. In
-       * this case [io # timeout] is set.
+(* PLAN: 
+
+   - drive_input: loops until EOF
+   - loop body:
+     * read_e
+       +-> None: EOF
+       +-> Some call: pop this call from read_queue
+           trans#receive_complete
+       +-> Error: garbage received; socket error
+
+   - drive_input_fetch: This is the fetch_call callback
+     check read_queue
+       +-> empty: error
+       +-> full: trans # receive_start
+
+   - trans # receive_complete
+     transition to Complete
+
+
+   - remove Broken (=> exception), Complete_broken
+   - new flag: unreliable_synch (when response arrives before request etc)
+      * forces send_eof in send loop
+ *)
+
+    method private drive_input() =
+      
+      let rec read_loop_e() =
+	io # read_e esys
+	++ (fun call_opt ->
+	      match call_opt with
+		| None ->
+		    if !options.verbose_connection then
+		      dlogr
+			(fun () ->
+			   sprintf "FD %s - HTTP connection: Got EOF!" 
+			     io#socket_str);
+		    self # abort ~reusable:false ~count:`Server_eof;
+		    eps_e (`Done()) esys
+		| Some call ->
+		    let trans =
+		      try Q.peek read_queue
+		      with Q.Empty -> assert false in
+		    assert(trans#message = call);
+		    (* It is possible that the write is still ongoing.
+		       We have to wait here until the write is done!
+
+		       Note that send_finish_e may also report errors
+		       of the sending side.
+		     *)
+		    trans # send_finish_e esys
+		    ++ (fun () ->
+			  trans # receive_complete();
+			  self # postprocess_complete_message trans;
+			  self # update_characteristics trans;
+			  self # maintain_polling();
+			  read_loop_e()
+		       )
+	   )
+      in
+
+      let e = 
+	read_loop_e() in
+      drive_input_active <- Some e;
+      ignore(e >> 
+	       (fun st -> 
+		  drive_input_active <- None;
+		  ( match st with
+		      | `Error err ->
+			  self # abort ~reusable:false ~count:`Crashed;
+			  self # after_eof (Some err)
+		      | _ -> ()
+		  );
+		  st
+	       )
+	    )
+
+    method cancel_input() =
+      match drive_input_active with
+	| None -> ()
+	| Some e -> 
+	    drive_input_active <- None; e # abort()
+
+
+    method drive_input_fetch() =
+      (* This is called by io when the next status line has been received *)
+      if Q.is_empty read_queue then (
+	if !options.verbose_connection then (
+	  dlogr
+	    (fun () ->
+	       sprintf 
+		 "FD %s - HTTP connection: \
+                  Got data of spontaneous response" io#socket_str);
+	);
+	raise Not_found
+      );
+      let trans = Q.peek read_queue in
+      match trans # state with
+	| Unprocessed ->
+	    (* We get response data before we even tried to send
+             * the request. We allow this, although this is weird.
+             *)
+	    if !options.verbose_connection then (
+	      dlogr
+		(fun () ->
+		   sprintf 
+		     "FD %s - HTTP connection: \
+                     Got response before sending request" io#socket_str);
+	    );
+	    trans#message
+
+	| Sending_hdr ->
+	    (* We get response data before we finished
+             * the request. We allow this for pragmatic reasons.
+             *)
+	    if !options.verbose_connection then (
+	      dlogr
+		(fun () ->
+		   sprintf
+		     "FD %s - HTTP connection: \
+                      Got response before finishing request" io#socket_str)
+	    );
+	    trans#message
+
+	| Handshake 
+	| Sending_body ->
+	    (* This is perfectly legal - we get the response after
+	       we sent at least the header
+	     *)
+	    trans#message
+
+	| Sent_request ->
+	    (* The normal case *)
+	    trans#message
+
+	| _ ->
+	    (* Should not happen *)
+	    assert false
+	    
+
+    method private update_characteristics trans =
+      (* After getting a response, check the type, and adapt the
+	 transmission style
+       *)
+
+      let able_to_pipeline = 
+	trans # indicate_pipelining in
+      (* able_to_pipeline: is true if we assume that the server
+       * is HTTP/1.1-compliant and thus is able to manage pipelined
+       * connections.
+       * Update first 'close_connection': This variable becomes
+       * true if the connection is not assumed to be pipelined
+       * which forces that the CLIENT closes the connection 
+       * immediately (this is tested in maintain_polling).
        *)
       
-      (* Ignore this event if the socket is Down (this may happen
-       * if the input side is closed while there are still input
-       * events in the queue):
+      let only_sequential_persistency =
+	not able_to_pipeline && 
+	  trans # indicate_sequential_persistency in
+      (* only_sequential_persistency: is true if the connection is
+       * HTTP/1.0, and the server indicated a persistent connection.
+       * In this case, pipelining is disabled.
        *)
-      if !options.verbose_events then
-	dlogr (fun() -> 
-		 sprintf "FD %s - HTTP events: handle_input" io#socket_str);
-
-      if io#socket_state = Down then
-	raise Equeue.Reject;
-
-      if !options.verbose_connection then 
-	dlogr 
-	  (fun () ->
-	     sprintf "FD %s - HTTP connection: Input event!" io#socket_str);
-
-      let end_of_queueing = ref false in
-      (* 'end_of_queueing': stores whether there was an EOF or not *)
-
-      let error = ref None in
-      (* may be set at the same time with end_of_queueing *)
-
-      (************ ACCEPT THE RECEIVED OCTETS ************)
-
-      if not io # timeout then
-	begin try
-	  io # unix_read();
-	with
-	  | Unix.Unix_error(Unix.EAGAIN,_,_) ->
-	      ();  (* Ignore! *)
-	  | Unix.Unix_error(Unix.ECONNRESET,_,_) as err ->
-	      if !options.verbose_connection then
-		dlogr
-		  (fun () ->
-		     sprintf
-		       "FD %s - HTTP connection: Connection reset by peer"
-		       io#socket_str
-		  );
-	      self # abort ~reusable:false ~count:`Crashed;
-	      end_of_queueing := true;
-	      error := Some err;
-	  | Unix.Unix_error(e,a,b) as err ->
-	      if !options.verbose_connection then
-		dlogr 
-		  (fun () ->
-		     sprintf 
-		       "FD %s - HTTP connection: Unix error %s"
-		       io#socket_str (Unix.error_message e));
-	      self # abort ~reusable:false ~count:`Crashed;
-	      error := Some err;
-	      end_of_queueing := true;
-	      (* This exception is reported to the message currently being read
-               * only.
-               *)
-(*
-	      if Q.length read_queue > 0 then (
-		let t = Q.peek read_queue in
-		t # message # private_api # set_error_exception err
-	      )
- *)
-	end;
-
-      if io # in_eof || io # timeout then begin
-	(* shutdown the connection, and clean up the event system: *)
-	if io # in_eof then (
-	  if !options.verbose_connection	then
-	    dlogr
-	      (fun () ->
-		 sprintf "FD %s - HTTP connection: Got EOF!" io#socket_str);
-	  self # abort ~reusable:false ~count:`Server_eof;
-	  error := None;  (* regular situation so far *)
-	);
-	if io # timeout then (
-	  if !options.verbose_connection then 
-	    dlogr
-	      (fun () ->
-		 sprintf "FD %s - HTTP connection: Connection timeout!" 
-		 io#socket_str);
-	  self # abort ~reusable:false ~count:`Timed_out;
-	  error := Some(Timeout(sprintf "Existing connection to %s:%d"
-				  peer_host peer_port));
-	);
-	end_of_queueing := true
-      end;
-
-
-      (************ TRY TO INTERPRET THE OCTETS AS MESSAGES **************)
-
-      (* The [read_loop] parses the data in [io] and fills the 
-       * [read_queue]. It may raise the excepions:
-       * - Q.Empty: No message is expected, but there is data to
-       *   parse (or the connection is at EOF)
-       *
-       * Note that [error] is only applied to the remaining messages
-       * that cannot be processed by read_loop.
-       *)
-
-      let rec read_loop() =
-	if io # has_unparsed_data then begin
-	  let trans = Q.peek read_queue in    (* may raise Q.Empty *)
-
-	  (*** Process 'trans' ***)
-
-	  trans # receive io;
-	  (* Parse received data for this message. Set this#state. *)
-
-	  ( match trans # state with
-	      | Unprocessed ->
-		  (* We get response data before we even tried to send
-                   * the request. We allow this for pragmatic reasons.
-                   *)
-		  if !options.verbose_connection then (
-		    if io # has_unparsed_bytes then
-		      dlogr
-			(fun () ->
-			   sprintf 
-			     "FD %s - HTTP connection: \
-                              Got data of spontaneous response" io#socket_str);
-		    if io # in_eof then
-		      dlogr
-			(fun () ->
-			   sprintf 
-			     "FD %s - HTTP connection: premature EOF"
-			     io#socket_str);
-		  );
-		  ()
-
-	      | Sending_hdr ->
-		  (* We get response data before we finished
-                   * the request. We allow this for pragmatic reasons.
-                   *)
-		  assert (try Q.peek write_queue == trans
-			  with Q.Empty -> false);
-		  if !options.verbose_connection then (
-		    if io # has_unparsed_bytes then
-		      dlogr
-			(fun () ->
-			   sprintf
-			     "FD %s - HTTP connection: \
-                              Got data of premature response" io#socket_str);
-		    if io # in_eof then
-		      dlogr
-			(fun () ->
-			   sprintf
-			     "FD %s - HTTP connection: premature EOF"
-			     io#socket_str)
-		  );
-		  ()
-
-	      | Handshake 
-	      | Sending_body ->
-		  (* This is perfectly legal: We have sent the request header,
-                   * and the server may directly reply with whatever.
-                   *)
-		  assert (try Q.peek write_queue == trans
-			  with Q.Empty -> false);
-		  ()
-
-	      | Sent_request ->
-		  (* Somewhere in the middle of the response... *)
-		  ()
-
-	      | Complete ->
-		  (* The response has been received, and the connection
-                   * is still usable
-                   *)
-		  ignore (Q.take read_queue);
-
-		  (* Generally it is possible that
-		     we get a response while we are still writing. However,
-		     we cannot just remove the message from the write queue.
-		     The connection is then in a bad state, at least,
-		     and we must close it.
-		   *)
-		  let in_sync =
-		    if Q.length write_queue >= 1 &&
-		      Q.peek write_queue == trans then (
-			ignore (Q.take write_queue);
-			false
-		      )
-		    else true in
-
-		  (* Initialize for next request/response: *)
-
-		  let able_to_pipeline = 
-		    in_sync && trans # indicate_pipelining in
-		  (* able_to_pipeline: is true if we assume that the server
-		   * is HTTP/1.1-compliant and thus is able to manage pipelined
-		   * connections.
-		   * Update first 'close_connection': This variable becomes
-		   * true if the connection is not assumed to be pipelined
-		   * which forces that the CLIENT closes the connection 
-		   * immediately (see the code in the output handler).
-		   *)
-
-		  let only_sequential_persistency =
-		    in_sync && not able_to_pipeline && 
-		    trans # indicate_sequential_persistency in
-		  (* only_sequential_persistency: is true if the connection is
-		   * HTTP/1.0, and the server indicated a persistent connection.
-		   * In this case, pipelining is disabled.
-		   *)
-
-		  if only_sequential_persistency then begin
-		    (* 'close_connection': not set.
-		     *)
-		    if !options.verbose_connection then 
-		      dlogr
-			(fun () ->
-			   sprintf "FD %s - HTTP connection: \
-                               using HTTP/1.0 style persistent connection"
-			     io#socket_str);
-		    inhibit_pipelining_byserver <- true;
-		  end
-		  else
-		    close_connection  <- close_connection  || not able_to_pipeline;
-
-		  if close_connection || !options.inhibit_persistency then (
-		    self # abort ~reusable:false ~count:`Successful;
-		    end_of_queueing := true;
-		  );
-
-		  (* Remember that the first request/reply round is over: *)
-		  done_first_message <- true;
-
-		  (* postprocess 'trans' (may raise exceptions! (callbacks)) *)
-		  trans # cleanup();
-		  self # postprocess_complete_message trans;
-
-		  read_loop()
-
-	      | Complete_broken ->
-		  (* The response has been received, but the connection
-                   * is in a problematic state, and must be aborted.
-                   *)
-
-		  if !options.verbose_connection then
-		    dlogr
-		      (fun () ->
-			 sprintf "FD %s - HTTP connection: \
-                            Aborting the invalidated connection"
-			   io#socket_str);
-
-		  self # abort ~reusable:false ~count:`Crashed;
-		  end_of_queueing := true;
-
-		  (* If the response has a proper status, we can remove it
-                   * from the queue. Otherwise leave it on the queue, so
-                   * it can be scheduled again.
-                   *)
-		  ( match trans # message # status with
-		      | `Unserved
-		      | `Http_protocol_error _ ->
-			  if !error = None then
-			    error := Some(Bad_message "Protocol out of sync");
-			  ()    (* leave it *)
-		      | _ ->
-			  (* Remove the message from the queues: We must 
-                           * also check write_queue, because we have the
-                           * invariant that write_queue is a suffix of
-                           * read_queue.
-			   *)
-			  ignore (Q.take read_queue);
-			  if Q.length write_queue >= 1 &&
-			     Q.peek write_queue == trans then
-			       ignore (Q.take write_queue);
-			  (* postprocess 'trans' (Exceptions! (callbacks)) *)
-			  trans # cleanup();
-			  self # postprocess_complete_message trans;
-
-			  (* We do not set [error]. The problematic message
-			     could eventually be processed.
-			   *)
-		  );
-
-		  (* Do not continue [read_loop] *)
-	      | Broken ->
-		  (* Simply stop here. *)
-		  if !options.verbose_connection then
-		    dlogr
-		      (fun () ->
-			 sprintf "FD %s - HTTP connection: \
-                            Aborting the errorneuos connection"
-			   io#socket_str);
-		  self # abort ~reusable:false ~count:`Crashed;
-		  end_of_queueing := true;
-		  if !error = None then
-		    error := Some(Bad_message "Protocol error");
-	  );
-	end
-      in         (* of "let rec read_loop() = " *)
-
-      begin try
-	(* Start the interpretation formulated in 'read_loop' and catch
-	 * exceptions.
+      
+      if only_sequential_persistency then begin
+	(* 'close_connection': not set.
 	 *)
-	read_loop();
-      with
-	| Q.Empty ->
-	    (* Either we hit EOF, or there are additional bytes but no
-             * message is expected:
-             *)
-	    if io # has_unparsed_bytes then begin
-	      (* No more responses expected, but still octets to interpret.
-	       * This is a protocol error, too.
-	       *)
-	      if !options.verbose_connection then
-		dlogr
-		  (fun () ->
-		     sprintf "FD %s - HTTP connection: \
-                              Extra octets -- aborting connection"
-		       io#socket_str);
-	      self # abort ~reusable:false ~count:`Crashed;
-	      end_of_queueing := true;
-	      if !error = None then
-		error := Some(Bad_message "Extra octets");
-	    end
-      end;
-
-      (************** CLOSE THE CONNECTION IF NECESSARY, ****************)
-      (************** AND PREPARE RECONNECTION           ****************)
-
-      if !end_of_queueing then 
-	self # after_eof !error
+	if !options.verbose_connection then 
+	  dlogr
+	    (fun () ->
+	       sprintf "FD %s - HTTP connection: \
+                               using HTTP/1.0 style persistent connection"
+		 io#socket_str);
+	inhibit_pipelining_byserver <- true;
+      end
       else
-	(* Update polling state: *)
-	self # maintain_polling();
+	close_connection  <- close_connection  || not able_to_pipeline;
+
+      (* Remember that the first request/reply round is over: *)
+      done_first_message <- true
+
 
 
     method private after_eof err_opt =
       (* Postprocess error information *)
       if not after_eof then (
+	(* THINK: We could here process Garbage_received exceptions differently.
+	   It is questionable to attribute such exceptions to specific 
+	   calls.
+	 *)
 
 	(* First check if the connection was a total failure, i.e. if not
 	 * even a status line was received. This is just reported to the
@@ -3855,6 +3783,10 @@ let robust_pipeline
 
       if !options.verbose_connection then
 	dlog "HTTP connection: checking remaining pipeline requests";
+
+      if too_many_total_failures then
+	counters.failed_connections <- 
+	  counters.failed_connections + 1;
 
       (* Check all requests individually *)
       Q.iter

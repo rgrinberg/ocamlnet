@@ -32,6 +32,16 @@ object
     (** Closes all descriptors known to the cache *)
 end
 
+(* TODO:
+   add:
+   - shutdown_connection_e : Unix.file_descr -> unit Uq_engines.engine
+   - shutdown_all_e : unit -> unit Uq_engines.engine
+     --> do the shutdown protocol
+
+    Later: 
+   - Add security context as another parameter
+ *)
+
 
 class restrictive_cache : unit -> connection_cache
   (** A restrictive cache closes connections as soon as there are no

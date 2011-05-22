@@ -740,11 +740,13 @@ class poll_process_engine : ?period:float ->
 (** {1 Transfer engines} *)
 
 (** Transfer engines copy data between file descriptors. This kind
-    of engine, as well as the types [async_out_channel] and 
-    [async_in_channel], are likely to be declared as deprecated in
+    of engine is likely to be declared as deprecated in
     the future. If possible, one should use multiplex controllers
     (see below), and for copying streams the generic copier 
     {!Uq_io.copy_e} is a better choice.
+
+    The pure types [async_in_channel] and [async_out_channel] have been
+    proven to be useful for bridging with {!Netchannels}.
  *)
 
 (** An asynchrounous output channel provides methods to output data to
@@ -847,6 +849,19 @@ class type async_in_channel = object
      *)
 end
 ;;
+
+
+class pseudo_async_out_channel : 
+         #Netchannels.raw_out_channel -> async_out_channel
+  (** Takes a {!Netchannels.raw_out_channel} as an asynchronous channel.
+      It is always possible to output to this channel.
+   *)
+
+class pseudo_async_in_channel : 
+         #Netchannels.raw_in_channel -> async_in_channel
+  (** Takes a {!Netchannels.raw_in_channel} as an asynchronous channel.
+      It is always possible to input from this channel.
+   *)
 
 
 class receiver : src:Unix.file_descr ->
@@ -1667,6 +1682,7 @@ val create_multiplex_controller_for_connected_socket :
       ?close_inactive_descr:bool ->
       ?preclose:(unit -> unit) ->
       ?supports_half_open_connection:bool ->
+      ?timeout:(float * exn) ->
       Unix.file_descr -> Unixqueue.unix_event_system -> multiplex_controller
   (** Creates a multiplex controller for a bidirectional socket (e.g.
     * a TCP socket). It is essential that the socket is in connected state.
@@ -1686,6 +1702,12 @@ val create_multiplex_controller_for_connected_socket :
     * You can simply set this boolean because of this. Defaults to [false].
     * You can set it to [true] for TCP connections and for Unix-domain
     * connections with stream semantics.
+    *
+    * [timeout]: If set to [(t, x)], a general timeout of [t] is set.
+    * When an operation has been started, and there is no I/O activity within
+    * [t] seconds, neither by the started operation nor by another operation,
+    * the connection times out. In this case, the operation returns the
+    * exception [x].
    *)
 
 
@@ -1708,6 +1730,7 @@ end
 val create_multiplex_controller_for_datagram_socket : 
       ?close_inactive_descr:bool ->
       ?preclose:(unit -> unit) ->
+      ?timeout:(float * exn) ->
       Unix.file_descr -> Unixqueue.unix_event_system -> 
         datagram_multiplex_controller
   (** Creates a multiplex controller for datagram sockets (e.g. UDP socket).
@@ -1720,6 +1743,12 @@ val create_multiplex_controller_for_datagram_socket :
     *
     * [preclose]: This function is called just before the descriptor is
     * closed.
+    *
+    * [timeout]: If set to [(t, x)], a general timeout of [t] is set.
+    * When an operation has been started, and there is no I/O activity within
+    * [t] seconds, neither by the started operation nor by another operation,
+    * the connection times out. In this case, the operation returns the
+    * exception [x].
    *)
 
 
