@@ -41,6 +41,7 @@ let main() =
   let pipeline = ref (new pipeline) in
   let messages = ref [] in
   let handshake = ref false in
+  let chreq = ref false in
 
   let setup () =
     if !verbose then begin
@@ -52,6 +53,7 @@ let main() =
 		   verbose_request_contents = true;
 		   verbose_response_contents = true;
 		   verbose_connection = true ;
+		   verbose_events = true;
 		   number_of_parallel_connections = 1;
 	};
     end;
@@ -95,6 +97,7 @@ let main() =
 	      ((String.make (size-1) 'x') ^ "\n")
     in
     if !handshake then demand_handshake m;
+    if !chreq then m#set_chunked_request();
     messages := !messages @ [m];
     !pipeline # add m
   in
@@ -106,6 +109,7 @@ let main() =
       ("http://" ^ !server ^ ":" ^ string_of_int !port ^ path);
     m # request_body # set_value ((String.make (size-1) 'x') ^ "\n");
     if !handshake then demand_handshake m;
+    if !chreq then m#set_chunked_request();
     messages := !messages @ [m];
     !pipeline # add m
   in
@@ -122,6 +126,7 @@ let main() =
 	      !b
     in
     if !handshake then demand_handshake m;
+    if !chreq then m#set_chunked_request();
     messages := !messages @ [m];
     !pipeline # add m
   in
@@ -210,6 +215,8 @@ let main() =
 	                " <pw> sets the proxy password (for proxy authentication)";
 	"-handshake", Arg.Set handshake,
 	           "           enable 100 CONTINUE handshake for POST/PUT";
+	"-chreq", Arg.Set chreq,
+	       "               send request body with chunked encoding";
 	"-get", Arg.String add_get_message,
 	     " <path>          adds a GET request to the current pipeline";
 	"-head", Arg.String add_head_message,

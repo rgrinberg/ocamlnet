@@ -145,6 +145,9 @@ if [ "$#" = "0" ]; then
     run_test head
     run_test head-extra
     run_test proxypersistency-1.0
+    run_test chreq-simple
+    run_test chreq-continue
+    run_test chreq-continue-error
 else
     while [ "$#" -gt 0 ]; do
 	run_test "$1"

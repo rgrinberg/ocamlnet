@@ -10,6 +10,12 @@
 # ./test_suite run
 #   --> run the tests
 
+# Debug Http_client:
+#   NETLOGGED_CLIENT="Http_client Uq_engines" \
+#   BENCH_ARGS=timeout-error \
+#   ./test_suite -d netclient/http_bench run
+
+
 top="$(dirname $PWD)"
 
 OCAMLPATH="$top/src"
@@ -72,18 +78,24 @@ run() {
 
 
 if [ $# -eq 0 ]; then
-    echo "usage: ./test_suite ( clean | make | run )"
+    echo "usage: ./test_suite [ -d <subdir> ] ( clean | make | run )"
     exit 0
 fi
 
-case "$1" in
-    clean)
-	clean ;;
-    make)
-	clean && build ;;
-    run)
-	run ;;
-    *)
-	echo "Illegal mode: $1" >&2;
-	exit 2 ;;
-esac
+while [ $# -gt 0 ]; do
+    case "$1" in
+	clean)
+	    shift; clean ;;
+	make)
+	    shift; clean && build ;;
+	run)
+	    shift; run ;;
+	-d)
+	    dirs="$2"
+	    shift 2 ;;
+	*)
+	    echo "Illegal mode: $1" >&2;
+	    exit 2 ;;
+    esac
+done
+

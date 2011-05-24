@@ -9,7 +9,7 @@ DEBUG  = -g
 build: test_server refuser test_client test_bad_request
 
 test: 
-	./test_bench
+	./test_bench $(BENCH_ARGS)
 
 #run:
 #	ocamlfind ocamlc -o run -make-runtime -package "$(STD_PACKAGES)" \

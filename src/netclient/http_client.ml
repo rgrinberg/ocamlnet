@@ -3,6 +3,11 @@
  *
  *)
 
+(* New tests:
+   - chunked request
+   - chunked request, wait for 100, early error (no new connection!)
+ *)
+
 (* Reference documents:
  * RFC 2068, 2616:      HTTP 1.1
  * RFC 2069, 2617:      Digest Authentication
@@ -401,11 +406,16 @@ object
 
   method continue : bool
     (* The value of the continue flag *)
-  method set_continue : unit -> unit
-    (* Set the continue flag to [true] *)
+  method set_continue : bool -> unit
+    (* Set the continue flag to [true]. The argument says whether a
+       "100" code was received or not. (In the latter case the reaction is
+       different.)
+     *)
   method wait_continue_e : float -> Unixqueue.event_system -> 
-                                                         unit Uq_engines.engine
-    (* Waits until [set_continue] is called, or until the time is over *)
+                                                         bool Uq_engines.engine
+    (* Waits until [set_continue] is called, or until the time is over.
+       The bool result says whether a "100" code was received or not.
+     *)
 
   method auth_state : auth_session auth_state
   method set_auth_state : auth_session auth_state -> unit
@@ -427,7 +437,7 @@ object
     (* Opens the request body for reading *)
   method finish_request_e : Unixqueue.event_system -> unit Uq_engines.engine
     (* Finish the request part of the call *)
-  method finish_e : Unixqueue.event_system -> unit Uq_engines.engine
+  method finish_response_e : Unixqueue.event_system -> unit Uq_engines.engine
     (* The call is finished. The [status] is set to [`Successful], 
      * [`Redirection], [`Client_error], or [`Server_error] depending on
      * the response.
@@ -502,6 +512,8 @@ object(self)
 
   val mutable continue = false   (* Whether 100-Continue has been seen *)    
   val mutable continue_e = None
+  val mutable continue_aborted = false
+  val mutable continue_100 = false
 
   val mutable error_counter = 0
   val mutable redir_counter = 0
@@ -531,6 +543,7 @@ object(self)
   method private def_private_api fixup_request =
     ( object(pself) 
 	method private release_resources() =
+(* eprintf "release_resources call=%d\n%!" (Oo.id self); *)
 	  ( match req_handle with
 	      | None -> ()
 	      | Some (`Channel ch) -> 
@@ -549,6 +562,7 @@ object(self)
 	      | None -> ()
 	      | Some e -> 
 		  continue_e <- None;
+		  continue_aborted <- true;
 		  e#abort()
 		  
 	  )
@@ -559,8 +573,9 @@ object(self)
 	method set_redir_counter n = redir_counter <- n
 
 	method continue = continue
-	method set_continue() = 
+	method set_continue code_100 = 
 	  continue <- true;
+	  continue_100 <- code_100;
 	  match continue_e with
 	    | None -> ()
 	    | Some e -> 
@@ -569,16 +584,19 @@ object(self)
 
 	method wait_continue_e tmo esys =
 	  if continue then
-	    eps_e (`Done ()) esys
+	    eps_e (`Done true) esys
 	  else (
 	    assert(continue_e = None); (* cannot be called multiple times *)
 	    let e = 
 	      Uq_engines.delay_engine tmo
-		(fun () -> eps_e (`Done()) esys)
+		(fun () -> eps_e (`Done ()) esys)
 		esys in
 	    continue_e <- Some e;
 	    ( e
-	      >> (fun _ -> continue_e <- None; `Done ())
+	      >> (fun _ -> 
+		    continue_e <- None; 
+		    if continue_aborted then `Aborted else  `Done continue_100
+		 )
 	    )
 	  )
 
@@ -609,7 +627,9 @@ object(self)
 	      req_work_header # update_field "User-agent" "Netclient"
 	  );
 	  continue <- false;
-	  continue_e <- None
+	  continue_e <- None;
+	  continue_aborted <- false;
+	  continue_100 <- false
 
 	method request_body_open_rd() =
 	  match req_dev with
@@ -651,19 +671,21 @@ object(self)
 
 
 	method finish_request_e esys =
+(* eprintf "finish_request call=%d\n%!" (Oo.id self); *)
 	  match req_handle with
 	    | None ->
 		eps_e (`Done ()) esys
 	    | Some (`Channel ch) ->
+ 		req_handle <- None;
 		ch # close_in();
-		req_handle <- None;
 		eps_e (`Done ()) esys
 	    | Some (`Device d) ->
 		req_handle <- None;
 		Uq_io.shutdown_e d
 		>> (fun st -> Uq_io.inactivate d; st)
 
-	method finish_e esys =
+	method finish_response_e esys =
+(* eprintf "finish_response call=%d\n%!" (Oo.id self); *)
 	  assert(resp_code <> 0);
 	  finished <- true;
 	  status <- (if resp_code >= 200 && resp_code <= 299 then
@@ -675,20 +697,17 @@ object(self)
 		     else
 		       `Server_error);
 	  (* do this last - it can trigger user callback functions: *)
-	  pself # finish_request_e esys
-	  ++ (fun () ->
-		match resp_handle with
-		  | None ->
-		      eps_e (`Done ()) esys
-		  | Some (`Channel ch) ->
-		      ch # close_out();
-		      resp_handle <- None;
-		      eps_e (`Done ()) esys
-		  | Some (`Device d) ->
-		      resp_handle <- None;
-		      Uq_io.shutdown_e d
-		      >> (fun st -> Uq_io.inactivate d; st)
-	     )
+	  match resp_handle with
+	    | None ->
+		eps_e (`Done ()) esys
+	    | Some (`Channel ch) ->
+		resp_handle <- None;
+		ch # close_out();
+		eps_e (`Done ()) esys
+	    | Some (`Device d) ->
+		resp_handle <- None;
+		Uq_io.shutdown_e d
+		>> (fun st -> Uq_io.inactivate d; st)
 
 	method error_if_unserved verbose error =
 	  match status with
@@ -851,6 +870,8 @@ object(self)
 	 error_counter = 0;
 	 redir_counter = 0;
 	 continue = false;
+	 continue_aborted = false;
+	 continue_100 = false;
 	 continue_e = None;
 	 resp_handle = None;
 	 req_handle = None;
@@ -1036,10 +1057,14 @@ class post query params =
       self # set_request_uri query
     method private fixup_request() =
       let rh = self # request_header `Effective in
+      let is_chunked =
+	try rh # field "Transfer-encoding" <> "identity"
+	with Not_found -> false in
       rh # update_field "Content-type" "application/x-www-form-urlencoded";
       let l = List.map (fun (n,v) -> n ^ "=" ^ Netencoding.Url.encode v) params in
       let s = String.concat "&" l in
-      rh # update_field "Content-length" (string_of_int (String.length s));
+      if not is_chunked then
+	rh # update_field "Content-length" (string_of_int (String.length s));
       self # request_body # set_value s
   end
 ;;
@@ -1052,8 +1077,12 @@ class post_raw the_query s =
       self # set_request_uri the_query
     method private fixup_request() =
       let rh = self # request_header `Effective in
+      let is_chunked =
+	try rh # field "Transfer-encoding" <> "identity"
+	with Not_found -> false in
       self # request_body # set_value s;
-      rh # update_field "Content-length" (string_of_int (String.length s));
+      if not is_chunked then
+	rh # update_field "Content-length" (string_of_int (String.length s));
   end
 ;;
 
@@ -1065,8 +1094,12 @@ class put the_query s =
       self # set_request_uri the_query
     method private fixup_request() =
       let rh = self # request_header `Effective in
+      let is_chunked =
+	try rh # field "Transfer-encoding" <> "identity"
+	with Not_found -> false in
       self # request_body # set_value s;
-      rh # update_field "Content-length" (string_of_int (String.length s));
+      if not is_chunked then
+	rh # update_field "Content-length" (string_of_int (String.length s));
   end
 ;;
 
@@ -1839,6 +1872,7 @@ let io_buffer options conn_cache fd
       (* This engine returns the next call read from the input, or
 	 returns None for EOF.
        *)
+      assert (socket_state = Up_r || socket_state = Up_rw);
 
       let cur_call = ref None in
       (* remember the call - only for postprocessing on error *)
@@ -1877,6 +1911,7 @@ let io_buffer options conn_cache fd
 				| None ->
 				    raise(Garbage_received "Spontaneous data")
 				| Some call ->
+(* eprintf "code=%d text=%s proto=%s\n%!" code text proto; *)
 				    if code >= 200 then
 				      call # private_api # set_response_status
 					code text proto;
@@ -1921,11 +1956,17 @@ let io_buffer options conn_cache fd
 	in
 	assert(real_end_pos = String.length hdr_str);
 	let header = new Netmime.basic_mime_header header_l in
+	call # private_api # set_continue (code < 200);
+	(* Calling set_continue may trigger that the send loop
+	   in [transmitter] resumes its send task. We need to do it
+	   whatever code we see here - not only for code=100.
+	 *)
 	if code < 200 then (
-	  call # private_api # set_continue();
-	    (* Calling set_continue may trigger that the send loop
-	       in [transmitter] resumes its send task
-	     *)
+	  if !options.verbose_events then
+	    dlogr (fun () ->
+		     sprintf "FD %s - HTTP events: Got 100 Continue line"
+		       self#socket_str
+		  );
 	  read_status_line_e None
 	)
 	else (
@@ -1970,22 +2011,23 @@ let io_buffer options conn_cache fd
 	 * is terminated by EOF. If length_opt=Some len, the message has
 	 * this length.
 	 *)
-	Uq_io.copy_e
-	  ?len64:length_opt
-	  buf_in_dev
-	  out_dev
-	++ (fun n ->
-	      ( match length_opt with
-		  | None -> ()
-		  | Some l ->
-		      if n <> l then
-			raise(Bad_message "EOF in response message")
-	      );
-	      ( Uq_io.shutdown_e out_dev 
-		>> (fun st -> Uq_io.inactivate out_dev; st)
-	      )
-	      ++ (fun () -> read_end_e call)
-	   )
+	( Uq_io.copy_e
+	    ?len64:length_opt
+	    buf_in_dev
+	    out_dev
+	  >> (function
+		| `Done n ->
+		    ( match length_opt with
+			| None -> ()
+			| Some l ->
+			    if n <> l then
+			      raise(Bad_message "EOF in response message")
+		    );
+		    `Done n
+		| st -> st
+	     )   (* out_dev is closed in read_end_e *)
+	)
+	++ (fun n -> read_end_e call)
 
       and read_chunked_body_e code header out_dev call =
 	(* Parses a chunked HTTP body *)
@@ -2074,13 +2116,11 @@ let io_buffer options conn_cache fd
 	let new_header =
 	  new Netmime.basic_mime_header (header#fields @ trailer_l) in
 	call # private_api # set_response_header new_header;
-	( Uq_io.shutdown_e out_dev 
-	  >> (fun st -> Uq_io.inactivate out_dev; st)
-	)
-	++ (fun () -> read_end_e call)
-
+	(* out_dev is closed in read_end_e *)
+	read_end_e call
+	  
       and read_end_e call =
-	call # private_api # finish_e esys
+	call # private_api # finish_response_e esys  (* will close out_dev *)
 	++ (fun () ->
 	      eps_e (`Done (Some call)) esys
 	   )
@@ -2129,7 +2169,10 @@ let io_buffer options conn_cache fd
 
     method write_e esys =
       (* Writes all contents of send_queue *)
-
+      (* It is the task of the caller to close the request body, by
+	 calling finish_request_e at the right moment
+       *)
+      
       let rec write_next_e() =
 	if Q.is_empty send_queue then
 	  eps_e (`Done()) esys
@@ -2190,17 +2233,20 @@ let io_buffer options conn_cache fd
 		 )
 	    );
 
+	(* N.B. We do not close [d] here - task of caller *)
 	Uq_io.copy_e ?len64:expected_length_opt d dev
-	++ (fun n ->
-	      ( match expected_length_opt with
-		  | None -> ()
-		  | Some exp_n ->
-		      if n <> exp_n then
-			failwith "Http_client: announced length of \
-                                  request body does not match actual length"
-	      );
-	      Uq_io.shutdown_e d
-	      >> (fun st -> Uq_io.inactivate d; st)
+	>> (function
+	      | `Done n ->
+		  ( match expected_length_opt with
+		      | None -> ()
+		      | Some exp_n ->
+			  if n <> exp_n then
+			    failwith "Http_client: announced length of \
+                                      request body does not match actual length"
+		  );
+		  `Done ()
+	      | `Error e -> `Error e
+	      | `Aborted -> `Aborted
 	   )
 	  
       and write_body_chunked_e source =
@@ -2235,8 +2281,9 @@ let io_buffer options conn_cache fd
 			 sprintf "FD %Ld - HTTP request body chunk (last)"
 			   (Netsys.int64_of_file_descr fd)
 		      );
-		  let s = "0\r\n\r\n\r\n" in
+		  let s = "0\r\n\r\n" in
 		  Uq_io.output_string_e dev s
+		    (* N.B. We do not close [d] here - task of caller *)
 	   )
 
       and write_eof_e () =
@@ -2255,10 +2302,17 @@ let io_buffer options conn_cache fd
 	      eps_e (`Done()) esys
 	   )
       in
-      
-      sending <- true;
-      write_next_e()
-      >> (fun st -> sending <- false; st)
+
+      (* If the socket is already closed for writing, do nothing. This
+	 can happen if the read side decides to close the socket.
+       *)
+      if socket_state = Up_rw then (
+        sending <- true;
+	write_next_e()
+	>> (fun st -> sending <- false; st)
+      )
+      else 
+	eps_e (`Done ()) esys
 
     end
   )
@@ -2282,6 +2336,7 @@ type message_state =
   | Sending_hdr     (* Sending currently the header *)
   | Handshake       (* The header has been sent, now waiting for status 100 *)
   | Sending_body    (* The header has been sent, now sending the body *)
+  | Finishing       (* The body is almost sent - about to finish *)
   | Sent_request    (* The body has been sent; the reply is being received *)
   | Complete        (* The whole reply has been received *)
 ;;
@@ -2292,10 +2347,28 @@ type message_state =
 
    In the case that the response arrives while we are still sending,
    the processing of the response needs to be delayed until the sending
-   is done.
+   is done. What can happen then:
+   - We get the status while waiting for "100". This is handled in send_e,
+     and the status is set to Finishing.
+   - We get the status line later while still sending. This is detected
+     by the reader, and send_interrupt is called.
+   - If we get the status line when already in state Finishing, the 
+     request is not aborted, and the remaining bytes are sent.
 
    Errors are not reflected in the state.
  *)
+
+
+let string_of_state =
+  function
+    | Unprocessed  -> "Unprocessed"
+    | Sending_hdr  -> "Sending_hdr"
+    | Handshake    -> "Handshake"
+    | Sending_body -> "Sending_body"
+    | Finishing    -> "Finishing"
+    | Sent_request -> "Sent_request"
+    | Complete     -> "Complete"
+
 
 
 let test_conn_close hdr =
@@ -2347,8 +2420,9 @@ let transmitter
       val mutable auth_headers = []
 	(* Additional header for _proxy_ authentication *)
 
-
+      val mutable send_e_opt = None
       val mutable send_finish_e_opt = None
+      val mutable send_interrupted = false
 	
       method state = state
 	
@@ -2445,8 +2519,22 @@ let transmitter
 	     )
 
 	and send_handshake_e tmo () =
+	  if !options.verbose_events then
+	    dlogr (fun () ->
+		     sprintf "Call %d - HTTP events: Waiting for 100 Continue"
+		       (Oo.id msg)
+		  );
 	  msg # private_api # wait_continue_e tmo esys
-	  ++ send_body_e
+	  ++ (fun code_100 ->
+		if code_100 then
+		  send_body_e()
+		else
+		  (* We got a non-100 response after waiting for 100.
+		     We suppress the request body, and instead close the
+		     connection on the sender side.
+		   *)
+		  send_no_body_e()
+	     )
 	    
 	and send_body_e () : unit Uq_engines.engine =
 	  if msg # has_req_body then (	  
@@ -2487,13 +2575,101 @@ let transmitter
 	    state <- Sent_request;
 	    msg # private_api # finish_request_e esys
 	  )
+
+	and send_no_body_e () =
+	  (* This is only used if we announced a body in the header, but
+	     finally do not send it (because we got an error from the server).
+
+	     Normally we just close the connection for writing.
+	     If we use the chunked encoding, a better way to indicate
+	     the end of the body is to send an empty body 
+	   *)
+	  state <- Finishing;
+	  let rh = msg # request_header `Effective in
+	  let is_chunked =
+	    try rh # field "Transfer-encoding" <> "identity"
+	    with Not_found -> false in
+	  if is_chunked then (
+	    let ch = new Netchannels.input_string "" in
+	    io # add (Send_body_chunked (`Channel ch));
+	  )
+	  else
+	    io # add Send_eof;
+	  io # write_e esys
+	  ++ (fun () ->
+		state <- Sent_request;
+		eps_e (`Done ()) esys
+	     )
 	in
 
-	let (e, signal) = Uq_engines.signal_engine esys in
-	send_finish_e_opt <- Some e;
+	let (fin_e, signal) = Uq_engines.signal_engine esys in
+	send_finish_e_opt <- Some fin_e;
 
-	send_header_e()
-	>> (fun st -> signal st; st)
+	let e = send_header_e() in
+	send_e_opt <- Some e;
+
+	let e' =
+	  (* This engine handles send interrupts, and returns [true] if an
+	     EOF needs to be written
+	   *)
+	  e >> (fun st ->
+		  send_e_opt <- None;
+		  match st with
+		    | `Aborted when send_interrupted ->
+			if !options.verbose_events then
+			  dlogr
+			    (fun () ->
+			       sprintf "Call %d - HTTP event: Send interrupted" 
+				 (Oo.id msg));
+			`Done true
+		    | `Aborted -> `Aborted
+		    | `Error err -> `Error err
+		    | `Done () -> `Done false
+	       ) in
+	let e'' =
+	  (* This engine writes the EOF if needed *)
+	  e' 
+	  ++ (fun flag ->
+		if flag then (
+		  io # add Send_eof;
+		  io # write_e esys
+		)
+		else eps_e (`Done ()) esys
+	     ) in
+
+	(* Finally catch errors and signal termination: *)
+	e''
+	>> (fun st ->
+	      ( match st with
+		  | `Error err ->
+		      if !options.verbose_events then
+			dlogr
+			  (fun () ->
+			     sprintf "Call %d - HTTP event: Send exception: %s" 
+			       (Oo.id msg) (Netexn.to_string err)
+			  );
+		  | _ -> ()
+	      );
+	      signal st; st
+	   )
+
+
+
+      method send_interrupt() =
+	(* Stop sending immediately. This method is called by the reader
+	   when an error status is received while we are still writing
+	   the request. The reaction is to close the write side of the
+	   connection.
+
+	   For chunked encoding, we could also finish the current chunk,
+	   and send an empty chunk. However, this is complicated to
+	   get done here, so we always use the close method.
+	 *)
+	match send_e_opt with
+	  | None -> ()
+	  | Some e ->
+	      send_interrupted <- true;
+	      e # abort()
 
 	  
       method send_finish_e esys =
@@ -2508,7 +2684,15 @@ let transmitter
 	  
 	  
       method receive_complete () =
-	assert(state = Sent_request);
+	assert(state = Handshake || state = Sending_body || state = Finishing ||
+	    state = Sent_request);
+	(* Handshake: this is possible when we were waiting for a 100 response,
+	   but got a non-100 instead. In this case, the request is not sent,
+	   hence the state remains at Handshake.
+
+	   Sending_body: this is possible when we get a server status while
+	   sending the reqest, and stopping the request because of this.
+	 *)
 	state <- Complete
 
 
@@ -2564,23 +2748,30 @@ let transmitter
 ;;
 
 
+let drive_postprocessing_e esys options m f_done =
+  Uq_engines.delay_engine 0.0
+    (fun () ->
+       ( try
+	   if !options.verbose_status then
+	     dlogr (fun () -> 
+		      sprintf "Call %d - postprocessing" (Oo.id m));
+	   let () = f_done m in ()
+	 with
+	   | any ->
+	       if !options.verbose_status then
+		 dlogr (fun () -> 
+			  sprintf "Call %d - Exception in postprocessing: %s"
+			    (Oo.id m) (Netexn.to_string any));
+	       let g = Unixqueue.new_group esys in
+	       Unixqueue.once esys g 0.0 (fun () -> raise any);
+       );
+       eps_e (`Done ()) esys
+    )
+    esys
+
 
 let drive_postprocessing_msg esys options m f_done =
-  let do_callback () =
-    try
-      if !options.verbose_status then
-	dlogr (fun () -> 
-		 sprintf "Call %d - postprocessing" (Oo.id m));
-      f_done m
-    with
-      | any ->
-	  if !options.verbose_status then
-	    dlogr (fun () -> 
-		     sprintf "Call %d - Exception in postprocessing: %s"
-		       (Oo.id m) (Netexn.to_string any));
-	  raise any in
-  let g = Unixqueue.new_group esys in
-  Unixqueue.once esys g 0.0 do_callback
+  ignore(drive_postprocessing_e esys options m f_done)
 
 
 (**********************************************************************)
@@ -2710,7 +2901,14 @@ let fragile_pipeline
     Uq_engines.create_multiplex_controller_for_connected_socket
       ~close_inactive_descr:true
       ~supports_half_open_connection:true
+      ~timeout:( !options.connection_timeout,
+		 Timeout (sprintf "Existing connection to %s:%d"
+			    peer_host peer_port)
+	       )
       fd esys in
+
+  let fd_str =
+    Int64.to_string (Netsys.int64_of_file_descr fd) in
 
   ( object(self)
       val mutable io = io_buffer options conn_cache fd mplex Up_rw
@@ -2891,6 +3089,12 @@ let fragile_pipeline
     (* End of interface.                                                  *)	
     (**********************************************************************)
 
+(* FIXME:
+   The postprocessing operation is now also a concurrent thing. Before
+   finally closing/releasing the connection we need to check that 
+   postprocessing is done
+ *)
+
     method private maintain_polling() =
 
       (* If one of the following conditions is true, we need not to poll
@@ -2905,7 +3109,7 @@ let fragile_pipeline
 	dlogr
 	  (fun () -> 
 	     sprintf "FD %s - HTTP events: maintain_polling"
-	     io#socket_str
+	     fd_str
 	  );
 
       if io # socket_state <> Down then (
@@ -2947,7 +3151,7 @@ let fragile_pipeline
                         n_read=%d n_write=%d \
                         actual_max_drift=%d have_requests=%B \
                         do_close_output=%B do_release=%B"
-		 io#socket_str
+		 fd_str
 		 (Q.length read_queue) (Q.length write_queue)
 		 actual_max_drift have_requests do_close_output do_release
 	    );
@@ -2956,8 +3160,13 @@ let fragile_pipeline
 	  if !options.verbose_events then
 	    dlogr
 	      (fun () -> 
-		 sprintf "FD %s - HTTP events: config output=enabled"
-		   io#socket_str
+		 sprintf "FD %s - HTTP events: config output=%s"
+		   fd_str
+		   (if do_close_output then "close" else
+		      if do_release then "release" else
+			if have_requests then "enabled" else
+			  "none"
+		   )
 	      );
 	  if do_close_output then
 	    self # close_output()
@@ -2981,21 +3190,29 @@ let fragile_pipeline
 	if !options.verbose_connection then 
 	  dlog (sprintf 
 		  "FD %s - HTTP connection: Shutdown!"
-		  io#socket_str);
+		  fd_str);
+	let followup() =
+	  signal_connection(`Done());
+	  if !options.verbose_events then
+	    dlogr
+	      (fun () ->
+		 sprintf "FD %s - HTTP event: Connection processing done" 
+		   fd_str) in
+
 	begin match io#socket_state with
 	    Down -> 
 	      assert false
 	  | Up_r -> 
 	      io # close
-		~followup:(fun () -> signal_connection(`Done())) ()
+		~followup ()
 	  | Up_rw ->
 	      if reusable then (
 		io # release();
-		signal_connection(`Done());
+		followup()
 	      )
 	      else
 		io # close
-		  ~followup:(fun () -> signal_connection(`Done())) ()
+		  ~followup ()
 	end;
 	( match count with
 	    | `Timed_out ->
@@ -3016,7 +3233,7 @@ let fragile_pipeline
 	);
 	if !options.verbose_events then
 	  dlog (sprintf "FD %s - HTTP events: reset after shutdown"
-		  io#socket_str);
+		  fd_str);
 
 	self # cancel_output();   (* FIXME: check whether sufficient *)
 	self # cancel_input();
@@ -3050,7 +3267,7 @@ let fragile_pipeline
     method private drive_output() =
       if !options.verbose_events then
 	dlogr (fun() -> 
-		 sprintf "FD %s - HTTP events: drive_output" io#socket_str);
+		 sprintf "FD %s - HTTP events: drive_output" fd_str);
 
       let can_output =
 	drive_output_active = None &&
@@ -3085,9 +3302,17 @@ let fragile_pipeline
 	  trans # send_e io handshake_cfg close_flag esys
 	  >> (fun st ->
 		drive_output_active <- None;
+		if !options.verbose_events then
+		  dlogr (fun() -> 
+			   sprintf "FD %s - HTTP events: done with output \
+                                    state=%s"
+			     fd_str (string_of_state trans#state));
 		match st with
 		  | `Done () ->
-		      assert(trans#state = Sent_request);
+		      assert
+			(trans#state = Sent_request || trans#state = Complete
+			  || trans#state = Handshake
+			);
 		      sending_first_message <- false;
 		      ignore (Q.take write_queue);
 		      self # maintain_polling();
@@ -3097,7 +3322,7 @@ let fragile_pipeline
 			dlogr
 			  (fun () ->
 			     sprintf "FD %s - HTTP connection: Exception %s"
-			       io#socket_str (Netexn.to_string err));
+			       fd_str (Netexn.to_string err));
 		      self # abort ~reusable:false ~count:`Crashed;
 		      self # after_eof (Some err);
 		      st
@@ -3106,7 +3331,7 @@ let fragile_pipeline
 			dlogr
 			  (fun () ->
 			     sprintf "FD %s - HTTP connection: Aborting"
-			       io#socket_str
+			       fd_str
 			  );
 		      st
 	     ) in
@@ -3115,6 +3340,10 @@ let fragile_pipeline
       )
 
     method private close_output() =
+      if !options.verbose_events then
+	dlogr (fun() -> 
+		 sprintf "FD %s - HTTP events: close_output" fd_str);
+
       let can_close =
 	drive_output_active = None &&
 	io#socket_state = Up_rw in
@@ -3128,6 +3357,10 @@ let fragile_pipeline
 	  io # write_e esys
 	  >> (fun st ->
 		drive_output_active <- None;
+		if !options.verbose_events then
+		  dlogr (fun() -> 
+			   sprintf "FD %s - HTTP events: close_output done"
+			     fd_str);
 		match st with
 		  | `Done () -> 
 		      (* The connection closure can be driven by several
@@ -3142,7 +3375,7 @@ let fragile_pipeline
 			dlogr
 			  (fun () ->
 			     sprintf "FD %s - HTTP connection: Exception %s"
-			       io#socket_str (Netexn.to_string err));
+			       fd_str (Netexn.to_string err));
 		      self # abort ~reusable:false ~count:`Crashed;
 		      self # after_eof (Some err);
 		      st
@@ -3151,7 +3384,7 @@ let fragile_pipeline
 			dlogr
 			  (fun () ->
 			     sprintf "FD %s - HTTP connection: Aborting"
-			       io#socket_str
+			       fd_str
 			  );
 		      st
 	     )
@@ -3213,38 +3446,78 @@ let fragile_pipeline
 		    if !options.verbose_connection then
 		      dlogr
 			(fun () ->
-			   sprintf "FD %s - HTTP connection: Got EOF!" 
-			     io#socket_str);
+			   sprintf "FD %s - HTTP connection: Got EOF!"  fd_str);
+		    (* The sender may be still writing, so try to stop it *)
+		    if Q.length write_queue > 0 then
+		      (Queue.peek write_queue) # send_interrupt();
 		    self # abort ~reusable:false ~count:`Server_eof;
+		    self # after_eof None;
 		    eps_e (`Done()) esys
 		| Some call ->
+		    if !options.verbose_connection then
+		      dlogr
+			(fun () ->
+			   sprintf "FD %s - HTTP connection: Got Call %d!" 
+			     fd_str (Oo.id call));
 		    let trans =
 		      try Q.peek read_queue
 		      with Q.Empty -> assert false in
 		    assert(trans#message = call);
 		    (* It is possible that the write is still ongoing.
-		       We have to wait here until the write is done!
+		       By calling send_interrupt we try to stop this,
+		       but nevertheless we have to wait until the
+		       writer is done! The special state Finishing
+		       indicates that it is not worth-while to stop
+		       sending because it will end soon anyway.
 
 		       Note that send_finish_e may also report errors
 		       of the sending side.
 		     *)
+		    if trans#state <> Finishing then
+		      trans # send_interrupt();
 		    trans # send_finish_e esys
 		    ++ (fun () ->
 			  trans # receive_complete();
-			  self # postprocess_complete_message trans;
 			  self # update_characteristics trans;
-			  self # maintain_polling();
-			  read_loop_e()
+			  ignore(Q.take read_queue);
+			  (* Note that postprocessing may imply a
+			     re-initialization of [trans]! So don't access
+			     [trans] later than this point.
+			   *)
+			  self # postprocess_complete_message_e trans
+			  ++ (fun () ->
+				self # maintain_polling();
+				if io#socket_state <> Down then
+				  read_loop_e()
+				else
+				  eps_e (`Done()) esys
+			     )
 		       )
 	   )
       in
 
+      if !options.verbose_events then
+	dlogr
+	  (fun () ->
+	     sprintf "FD %s - HTTP event: Starting read loop" 
+	       fd_str);
       let e = 
 	read_loop_e() in
       drive_input_active <- Some e;
       ignore(e >> 
 	       (fun st -> 
 		  drive_input_active <- None;
+		  if !options.verbose_events then
+		    dlogr
+		      (fun () ->
+			 sprintf "FD %s - HTTP event: Leaving read loop: %s" 
+			   fd_str
+			   ( match st with
+			       | `Done _ -> "regular"
+			       | `Error e -> "exception " ^ Netexn.to_string e
+			       | `Aborted -> "aborted"
+			   )
+		      );
 		  ( match st with
 		      | `Error err ->
 			  self # abort ~reusable:false ~count:`Crashed;
@@ -3270,7 +3543,7 @@ let fragile_pipeline
 	    (fun () ->
 	       sprintf 
 		 "FD %s - HTTP connection: \
-                  Got data of spontaneous response" io#socket_str);
+                  Got data of spontaneous response" fd_str);
 	);
 	raise Not_found
       );
@@ -3285,7 +3558,7 @@ let fragile_pipeline
 		(fun () ->
 		   sprintf 
 		     "FD %s - HTTP connection: \
-                     Got response before sending request" io#socket_str);
+                     Got response before sending request" fd_str);
 	    );
 	    trans#message
 
@@ -3298,7 +3571,7 @@ let fragile_pipeline
 		(fun () ->
 		   sprintf
 		     "FD %s - HTTP connection: \
-                      Got response before finishing request" io#socket_str)
+                      Got response before finishing request" fd_str)
 	    );
 	    trans#message
 
@@ -3322,6 +3595,8 @@ let fragile_pipeline
       (* After getting a response, check the type, and adapt the
 	 transmission style
        *)
+
+      let old_close_connection = close_connection in
 
       let able_to_pipeline = 
 	trans # indicate_pipelining in
@@ -3350,11 +3625,19 @@ let fragile_pipeline
 	    (fun () ->
 	       sprintf "FD %s - HTTP connection: \
                                using HTTP/1.0 style persistent connection"
-		 io#socket_str);
+		 fd_str);
 	inhibit_pipelining_byserver <- true;
       end
       else
 	close_connection  <- close_connection  || not able_to_pipeline;
+
+      if !options.verbose_connection then 
+	dlogr
+	  (fun () ->
+	     sprintf "FD %s - HTTP connection: pipelining=%B persistency=%B close_connection=%B->%B"
+	       fd_str able_to_pipeline only_sequential_persistency
+	       old_close_connection close_connection
+	  );
 
       (* Remember that the first request/reply round is over: *)
       done_first_message <- true
@@ -3389,9 +3672,18 @@ let fragile_pipeline
 	  (fun trans ->
 	     trans # cleanup();    (* release resources *)
 	     match err_opt with
-	       | None -> ()
+	       | None ->
+		   if total_failure then
+		     trans # error_if_unserved (Bad_message "Protocol error")
 	       | Some err ->
-		   trans # error_if_unserved err
+		   let err' =
+		     match err with
+		       | Garbage_received _ ->
+			   Bad_message "Protocol error"
+		       | No_reply ->
+			   Bad_message "Protocol error"
+		       | err -> err in
+		   trans # error_if_unserved err'
 	  )
 	  read_queue;
 	
@@ -3405,6 +3697,11 @@ let fragile_pipeline
 	
 	(* We have reached the logical end: *)
 	signal_queue (`Done());
+	if !options.verbose_events then
+	  dlogr
+	    (fun () ->
+	       sprintf "FD %s - HTTP event: Queue processing done" 
+		 fd_str);
 
 	after_eof <- true
       )
@@ -3414,7 +3711,7 @@ let fragile_pipeline
     (***                     AUTHENTICATION                             ***)
     (**********************************************************************)
 
-    method private postprocess_complete_message trans =
+    method private postprocess_complete_message_e trans =
       (* This method is invoked for every complete reply. The following
        * cases are handled at this stage of processing:
        *
@@ -3437,9 +3734,9 @@ let fragile_pipeline
        * all the intelligence not coded here.
        *)
 
-      let default_action() =
-	self # drive_postprocessing trans;
-      in
+      let default_action_e() =
+	trans#cleanup();
+	drive_postprocessing_e esys options trans#message trans#f_done in
 
       let msg = trans # message in
       let code = msg # private_api # response_code in
@@ -3489,6 +3786,7 @@ let fragile_pipeline
 			 sprintf "Call %d - HTTP auth: proxy credentials \
                                   added" (Oo.id trans));
 		  ignore (self # add true trans#message trans#f_done);
+		  eps_e (`Done()) esys
 		end
 		else (
 		  (* No user/password pair: We cannot authorize ourselves. *)
@@ -3497,7 +3795,7 @@ let fragile_pipeline
 		      (fun () ->
 			 sprintf "Call %d - HTTP auth: user/password missing"
 			   (Oo.id trans));
-		  default_action()
+		  default_action_e()
 		)
 	      end
 	      else (
@@ -3509,12 +3807,12 @@ let fragile_pipeline
 		    (fun () ->
 		       sprintf "Call %d - HTTP auth: intrusion by proxy \
                                 authentication" (Oo.id trans));
-		default_action()
+		default_action_e()
 	      )
 	    end
 	    else 
 	      (* The request did already contain "proxy-authenticate". *)
-	      default_action()
+	      default_action_e()
 	      
 	| 401 ->
 	    (* -------- Content server authorization required: ---------- *)
@@ -3536,14 +3834,15 @@ let fragile_pipeline
 	      match auth_cache # create_session msg with
 		| None ->
 		    (* Authentication failed immediately *)
-		    default_action()
+		    default_action_e()
 		| Some sess ->
 		    (* Remember the new session: *)
 		    msg # private_api # set_auth_state (`In_reply sess);
 		    ignore (self # add true trans#message trans#f_done);
-	    )
+		    eps_e (`Done()) esys
+    	    )
 	    else
-	      default_action()
+	      default_action_e()
 	| n when n >= 200 && n < 400 ->
 	    (* Check whether authentication was successful *)
 	    ( match msg # private_api # auth_state with
@@ -3552,9 +3851,9 @@ let fragile_pipeline
 		| `In_reply session ->
 		    auth_cache # tell_successful_session session
 	    );
-	    default_action()
+	    default_action_e()
 	| _ ->
-	    default_action()
+	    default_action_e()
 
     (**********************************************************************)
     (***    POSTPROCESS = INVOKE USER CALLBACK FUNCTION                 ***)

@@ -17,8 +17,9 @@ start_test_server () {
 
 
 stop_test_server () {
-    if [ -f "server.pid" ]; then
-        kill `cat server.pid`
+    pid="$( cat server.pid 2>/dev/null )"
+    if [ $? -eq 0 ]; then
+        kill $pid
     fi
 }
 
@@ -34,7 +35,7 @@ request () {
 	# e.g. NETLOGGED_CLIENT="Http_client"
 	args=""
 	for arg in $NETLOGGED_CLIENT; do
-	    args="-debug $arg"
+	    args="$args -debug $arg"
 	done
 	./test_client -verbose -port "$server_port" $args "$@" 2>client.out
     else

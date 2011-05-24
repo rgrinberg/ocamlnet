@@ -1,6 +1,7 @@
 (* $Id$ *)
 
 open Uq_engines.Operators
+open Printf
 
 type string_like =
     [ `String of string
@@ -25,6 +26,7 @@ class type ['in_device] in_buffer_pre =
 object
   method buffer : obj_buffer
   method eof : bool
+  method set_eof : unit -> unit
   method start_fill_e : unit -> bool Uq_engines.engine
   method fill_e_opt : bool Uq_engines.engine option
     (* The current fill engine, or None *)
@@ -179,6 +181,10 @@ let rec buf_input_e b ms pos len =
     let d = b#udevice in
     if len >= 4096 && (device_supports_memory d || is_string ms) then
       dev_input_e d ms pos len
+      >> (function
+	    | `Error End_of_file -> b#set_eof(); `Error End_of_file
+	    | st -> st
+	 )
     else
       let fe =
 	match b#fill_e_opt with
@@ -208,13 +214,14 @@ and dev_input_e (d : in_device) ms pos len =
     | `Multiplex mplex ->
 	let (e, signal) = Uq_engines.signal_engine mplex#event_system in
 	let cancel() =
-	  if not mplex#reading then mplex # cancel_reading() in
+	  if mplex#reading then mplex # cancel_reading() in
 	( match ms with
 	    | `String s ->
 		mplex # start_reading
 		  ~when_done:(fun xopt n ->
 				match xopt with
-				  | None -> signal (`Done n)
+				  | None -> 
+				      signal (`Done n)
 				  | Some Uq_engines.Cancelled ->
 				      cancel(); signal `Aborted
 				  | Some err -> signal (`Error err)
@@ -225,7 +232,8 @@ and dev_input_e (d : in_device) ms pos len =
 		  mplex # start_mem_reading
 		    ~when_done:(fun xopt n ->
 				  match xopt with
-				    | None -> signal (`Done n)
+				    | None -> 
+					signal (`Done n)
 				    | Some Uq_engines.Cancelled ->
 					cancel(); signal `Aborted
 				    | Some err -> signal (`Error err)
@@ -381,7 +389,7 @@ and dev_output_e (d : out_device) ms pos len =
     | `Multiplex mplex ->
 	let (e, signal) = Uq_engines.signal_engine mplex#event_system in
 	let cancel() =
-	  if not mplex#writing then mplex # cancel_writing() in
+	  if mplex#writing then mplex # cancel_writing() in
 	( match ms with
 	    | `String s ->
 		mplex # start_writing
@@ -468,7 +476,7 @@ let write_eof_e d0 =
     | `Multiplex mplex ->
 	let (e, signal) = Uq_engines.signal_engine mplex#event_system in
 	let cancel() =
-	  if not mplex#writing then mplex # cancel_writing() in
+	  if mplex#writing then mplex # cancel_writing() in
 	if mplex # supports_half_open_connection then
 	  mplex # start_writing_eof 
 	    ~when_done:(fun xopt ->
@@ -624,6 +632,7 @@ let create_in_buffer d0 =
 object
   method buffer = buf
   method eof = !eof
+  method set_eof() = eof := true
 
   method start_fill_e () =
     assert(!fill_e_opt = None);
@@ -781,22 +790,25 @@ let copy_e ?len ?len64 d_in d_out =
        missing
      *)
 
-    ( input_e d_in ms 0 n
-      >> (function
-	    | `Done n -> `Done(`Good n)
-	    | `Error End_of_file -> `Done `Eof
-	    | `Error error -> `Error error
-	    | `Aborted -> `Aborted
-	 )
-      : [`Good of int | `Eof] Uq_engines.engine
-    ) ++
-    (function
-       | `Good n ->
-	   count := Int64.add !count (Int64.of_int n);
-	   push_data 0 n ++ (fun () -> pull_data())
-       | `Eof ->
-	   eps_e (`Done !count) esys
-    ) in
+    if n=0 then
+      eps_e (`Done !count) esys
+    else
+      ( input_e d_in ms 0 n
+	>> (function
+	      | `Done n -> `Done(`Good n)
+	      | `Error End_of_file -> `Done `Eof
+	      | `Error error -> `Error error
+	      | `Aborted -> `Aborted
+	   )
+	: [`Good of int | `Eof] Uq_engines.engine
+      ) ++
+	(function
+	   | `Good n ->
+	       count := Int64.add !count (Int64.of_int n);
+	       push_data 0 n ++ (fun () -> pull_data())
+	   | `Eof ->
+	       eps_e (`Done !count) esys
+	) in
   pull_data()
 
   

@@ -208,6 +208,14 @@ without connection.
 	  | Expect line ->
 	      let actual_line =
 		List.nth !lines (!n_lines - lineno) in
+	      let l_actual_line =
+		String.length actual_line in
+	      let actual_line =
+		if actual_line <> "" && actual_line.[l_actual_line - 1] = '\r'
+		then
+		  String.sub actual_line 0 (l_actual_line-1)
+		else
+		  actual_line in
 	      if !protocol then
 		prerr_endline ("EXPECTING LINE '" ^ line ^ "'");
 	      if actual_line = line then begin
@@ -298,7 +306,9 @@ end;
 
 Unix.sleep 1;
 
-if Sys.file_exists !pidfile then
-  Sys.remove !pidfile
+if Sys.file_exists !pidfile then (
+  Sys.remove !pidfile;
+  Netsys.sleep 0.05;   (* makes a race unlikely - between regular termination and kill *)
+)
 ;;
 

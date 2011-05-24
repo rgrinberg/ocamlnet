@@ -2090,7 +2090,8 @@ class socket_multiplex_controller
     match !r with
       | None -> ()
       | Some (old_tmo_g, f) ->
-	  Unixqueue.clear esys old_tmo_g in
+	  Unixqueue.clear esys old_tmo_g;
+	  r := None in
 
 (*
   let () =
@@ -2227,6 +2228,7 @@ object(self)
 	    (f_when_done (Some x)) 0
 
   method private really_cancel_reading() =
+    stop_timer reading_tmo;
     if reading <> `None then (
       Unixqueue.remove_resource esys group (Unixqueue.Wait_in fd);
       reading <- `None;
@@ -2323,6 +2325,7 @@ object(self)
 	  assert false
 
   method private really_cancel_writing() =
+    stop_timer writing_tmo;
     if writing <> `None || writing_eof <> None then (
       Unixqueue.remove_resource esys group (Unixqueue.Wait_out fd);
       writing <- `None;
@@ -2374,6 +2377,7 @@ object(self)
 
 
   method private really_cancel_shutting_down () =
+    stop_timer shutting_down_tmo;
     match shutting_down with
       | None -> 
 	  ()
@@ -2406,7 +2410,6 @@ object(self)
 
   method private notify_rd f_when_done exn_opt n =
     self # really_cancel_reading();
-    stop_timer reading_tmo;
     self # restart_all_timers();
     dlogr (fun () ->
 	     sprintf
@@ -2419,7 +2422,6 @@ object(self)
 
   method private notify_wr f_when_done exn_opt n =
     self # really_cancel_writing();
-    stop_timer writing_tmo;
     self # restart_all_timers();
     dlogr (fun () ->
 	     sprintf
@@ -2638,7 +2640,6 @@ object(self)
 		  in
 		  if notify then (
 		    self # really_cancel_shutting_down();
-		    stop_timer shutting_down_tmo;
 		    read_eof <- true;
 		    wrote_eof <- true;
 		    dlogr (fun () ->
