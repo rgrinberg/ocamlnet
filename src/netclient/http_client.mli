@@ -41,6 +41,10 @@
  * (1) These features can be implemented on top of this module if really needed,
  *     but there is no special support for them.
  *
+ * HTTPS is now also supported (since Ocamlnet-3.3). Please see the
+ * instructions documented in
+ * the {!Https_client} module (part of [equeue-ssl]).
+ * 
  * If you are looking for WebDAV there is an extension of this module:
  * {{:http://oss.wink.com/webdav/} Webdav}, which is separately available.
  *)
@@ -171,7 +175,7 @@ type response_body_storage =
     * - [`Body f]: The response body is stored into the object returned
     *   by [f()]
     * - [`Device f]: The response is directly forwarded to the device
-    *   obtained by [f()]
+    *   obtained by [f()] (new since Ocamlnet-3.3)
     *
     * When the function [f] is called in the latter cases the response
     * header has already been received, and can be retrieved with the
@@ -298,6 +302,18 @@ type http_options =
 ;;
 
 
+type channel_binding_id = int
+    (** A channel binding identifies a requirement for the transport
+	channel, especially whether plain HTTP is sufficient, or HTTPS
+	needs to be used, and if so, whether there are further requirements
+	for the SSL context. There are the predefined IDs:
+
+	- {!Http_client.http_cb_id} for HTTP connections
+	- {!Http_client.https_cb_id} for HTTPS connections without user
+	  certificates
+     *)
+
+
 type header_kind = [ `Base | `Effective ]
   (** The [`Base] header is set by the user of [http_call] and is never
     * changed during processing the call. The [`Effective] header is a copy
@@ -345,11 +361,16 @@ object
 
   method request_uri : string
     (** The request URI as string. This is always an absolute URI in the
-	* form "http://server/path".
+	* form "http://server/path" or "https://server/path".
      *)
 
   method set_request_uri : string -> unit
-    (** Sets the request URI *)
+    (** Sets the request URI. This implicitly also sets the channel binding
+	ID (see below).
+     *)
+
+  method is_https : bool
+    (** Whether the request URI starts with "https://". *)
 
   method request_header : header_kind -> Netmime.mime_header
     (** The whole header of the request. Users of this class should only
@@ -511,6 +532,32 @@ object
         * except for HEAD.
      *)
 
+  (** {2 Channel bindings} 
+
+      Channel bindings are used to distinguish between security requirements.
+      There are normally only two types of requirements:
+
+      - The ID {!Http_client.http_cb_id} is used for messages that can only
+        be sent over HTTP connections, i.e. unencrypted TCP. It is automatically
+        set when the URL of the message starts with "http://".
+      - The ID {!Http_client.https_cb_id} describes the requirement that the
+        message can only be sent over HTTPS connections, i.e. TLS-protected
+        TCP. It is automatically  set when the URL of the message starts with
+        "https://".
+
+      It is possible to change the channel binding to establish further
+      types of security requirements (e.g. that certain client certificates
+      are used), or even other details of the transport connection.
+   *)
+
+  method channel_binding : channel_binding_id
+    (** Reports the current channel binding *)
+
+  method set_channel_binding : channel_binding_id -> unit
+    (** Sets the channel binding. Note that [set_request_uri] also sets
+	the channel binding, but always to the default for the type of URL.
+     *)
+
   (** {2 Repeating calls} *)
 
   method same_call : unit -> http_call
@@ -521,6 +568,7 @@ object
 	* - The request method remains the same (the class of the returned
 	*   object remains the same)
 	* - The request URI is the same string as the original URI
+	* - The channel binding ID is the same
 	* - The base request header is the same object
 	* - The request body is the same object
 	* - Options like reconnect, redirect mode, and proxy mode are
@@ -612,6 +660,34 @@ object
   method private_api : private_api
 end
 ;;
+
+
+class type transport_channel_type =
+object
+  method setup_e : Unix.file_descr -> channel_binding_id -> float ->
+                   string -> int -> Unixqueue.event_system ->
+                   Uq_engines.multiplex_controller Uq_engines.engine
+  (** [setup fd cb tmo host port esys]: Create or configure a communication
+      circuit over the file descriptor [fd] that can be driven by the
+      returned multiplex controller object.
+
+      [tmo] is the timeout. After inactivity the {!Http_client.Timeout}
+      exception must be raised.
+
+      [host] is the name of the machine to connect to. [port] is the port
+      number. The descriptor [fd] is already connected to this port, directly
+      or via a proxy.
+   *)
+
+  method continue : Unix.file_descr -> channel_binding_id -> float ->
+                   string -> int -> Unixqueue.event_system ->
+                   Uq_engines.multiplex_controller
+  (** [continue] is called when an already established circuit needs to
+      be continued.
+
+      Note that the event system can be different now.
+   *)
+end
 
 
 (** {1 HTTP methods} *)
@@ -839,7 +915,7 @@ class basic_auth_method :
 class digest_auth_method : basic_auth_method
 
 
-(** {1 Pipelines} *)
+(** {1 Transport} *)
 
 (** A connection cache is an object that keeps connections open that
   * are currently unused. A connection cache can be shared by several
@@ -862,6 +938,23 @@ val create_aggressive_cache : unit -> connection_cache
     * closing the descriptors (by calling [close_connection_cache]) when the
     * cache is no longer in use.
    *)
+
+val http_cb_id : channel_binding_id
+  (** Identifies a channel binding to pure HTTP (without SSL) *)
+
+val https_cb_id : channel_binding_id
+  (** Identifies a channel binding to anonymous HTTPS (i.e. no client
+      certificates)
+   *)
+
+val new_cb_id : unit -> channel_binding_id
+  (** Allocates and returns a new ID *)
+
+val http_transport_channel_type : transport_channel_type
+  (** Transport via HTTP *)
+
+
+(** {1 Pipelines} *)
 
 (** A pipeline is a queue of HTTP calls to perform *)
 class pipeline :
@@ -949,6 +1042,14 @@ class pipeline :
 	 * and set the proxy options from them.
 	 *)
 
+    method configure_transport : 
+             channel_binding_id -> transport_channel_type -> unit
+       (** [configure_transport id transport]: Configures that messages with
+	   channel binding ID [id] are exchanged on [transport].
+
+	   By default, there is only a configuration for
+	   {!Http_client.http_cb_id}, i.e. for normal unencrypted channels.
+	*)
 
     method reset : unit -> unit
 	(** Empties the pipeline and inactivates any open connection.

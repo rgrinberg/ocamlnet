@@ -6,10 +6,16 @@
     by deriving from the official ones
  *)
 
-type conn_state = [ `Inactive | `Active of < > ]
+type channel_binding_id = int
+    (** Same as in {!Http_client.channel_binding_id} *)
+
+type conn_state = [ `Inactive of channel_binding_id | `Active of < > ]
   (** A TCP connection may be either [`Inactive], i.e. it is not used
     * by any pipeline, or [`Active obj], i.e. it is in use by the pipeline
     * [obj] (this is the {!Http_client.pipeline} coerced to [< >]).
+    *
+    * Since Ocamlnet-3.3, [`Inactive] connections carry the channel binding
+    * ID as argument.
    *)
 
 class type connection_cache =
@@ -20,9 +26,11 @@ object
     (** Sets the state of the file descriptor. It is allowed that
       * inactive descriptors are simply closed and forgotten.
      *)
-  method find_inactive_connection : Unix.sockaddr -> Unix.file_descr
+  method find_inactive_connection : Unix.sockaddr -> channel_binding_id ->
+                                     Unix.file_descr
     (** Returns an inactive connection to the passed peer, or raise
-      * [Not_found].
+      * [Not_found]. Since Ocamlnet-3.3, the required channel binding ID
+      * is also an argument of this method.
      *)
   method find_my_connections : < > -> Unix.file_descr list
     (** Returns all active connections owned by the object *)
@@ -31,16 +39,6 @@ object
   method close_all : unit -> unit
     (** Closes all descriptors known to the cache *)
 end
-
-(* TODO:
-   add:
-   - shutdown_connection_e : Unix.file_descr -> unit Uq_engines.engine
-   - shutdown_all_e : unit -> unit Uq_engines.engine
-     --> do the shutdown protocol
-
-    Later: 
-   - Add security context as another parameter
- *)
 
 
 class restrictive_cache : unit -> connection_cache

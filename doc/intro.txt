@@ -212,7 +212,9 @@ made with lablgtk and lablgtk2
 Extensions for [equeue] to support SSL
 
 {!modules:
-   Uq_ssl}
+   Uq_ssl
+   Https_client
+}
 
 {3:equeue_tcl The [equeue-tcl] extension}
 

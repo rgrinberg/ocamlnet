@@ -51,6 +51,7 @@ let string_of_tag =
 
 class ssl_mplex_ctrl ?(close_inactive_descr=true)
                      ?(preclose = fun () -> ())
+		     ?(initial_state = `Unset)
                      fd ssl_sock esys : ssl_multiplex_controller =
   let () = Unix.set_nonblock fd in
   let fdi = Netsys.int64_of_file_descr fd in
@@ -59,7 +60,7 @@ object(self)
   val mutable read_eof = false
   val mutable wrote_eof = false
 
-  val mutable state = (`Unset : ssl_socket_state)
+  val mutable state = (initial_state : ssl_socket_state)
 
   val mutable connecting = false   (* true only in state `Unset *)
   val mutable accepting = false    (* true only in state `Unset *)
@@ -591,7 +592,7 @@ end
 
 
 let create_ssl_multiplex_controller
-       ?close_inactive_descr ?preclose fd ctx esys =
+       ?close_inactive_descr ?preclose ?initial_state fd ctx esys =
   let () = Unix.set_nonblock fd in
   let s = Ssl.embed_socket fd ctx in
   let m = Ssl_exts.get_mode s in
@@ -599,7 +600,7 @@ let create_ssl_multiplex_controller
     { m with
 	Ssl_exts.enable_partial_write = true; 
 	accept_moving_write_buffer = true } in
-  new ssl_mplex_ctrl ?close_inactive_descr ?preclose fd s esys
+  new ssl_mplex_ctrl ?close_inactive_descr ?preclose ?initial_state fd s esys
 ;;
 
 

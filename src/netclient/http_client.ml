@@ -3,9 +3,9 @@
  *
  *)
 
-(* New tests:
-   - chunked request
-   - chunked request, wait for 100, early error (no new connection!)
+(* - CHECK: fd tracking
+   - CONNECT
+   - HTTPS in Convenience
  *)
 
 (* Reference documents:
@@ -180,9 +180,11 @@ type http_options =
 
 type header_kind = [ `Base | `Effective ]
 
+type channel_binding_id = int
+
 let http_re =
   Netstring_str.regexp
-    "^http://\
+    "^https?://\
      \\(\
        \\([^/:@]+\\)\
        \\(:\\([^/:@]+\\)\\)?@\
@@ -196,6 +198,8 @@ let parse_http_url url =
     | None ->
 	raise Not_found
     | Some m ->
+	let is_https =
+	  String.sub url 0 5 = "https" in
 	let user =
 	  try Some(Netstring_str.matched_group m 2 url) 
 	  with Not_found -> None in
@@ -206,10 +210,10 @@ let parse_http_url url =
 	  Netstring_str.matched_group m 5 url in
 	let port =
 	  try int_of_string(Netstring_str.matched_group m 7 url)
-	  with Not_found -> 80 in
+	  with Not_found -> (if is_https then 443 else 80) in
 	let path =
 	  try Netstring_str.matched_group m 8 url with Not_found -> "" in
-	(user,password,host,port,path)
+	(is_https,user,password,host,port,path)
 ;;
 
 
@@ -346,6 +350,7 @@ object
   method request_method : string
   method request_uri : string
   method set_request_uri : string -> unit
+  method is_https : bool
   method request_header : header_kind -> Netmime.mime_header
   method set_request_header : Netmime.mime_header -> unit
   method set_expect_handshake : unit -> unit
@@ -374,6 +379,8 @@ object
   method is_idempotent : bool
   method has_req_body : bool
   method has_resp_body : bool
+  method channel_binding : channel_binding_id
+  method set_channel_binding : channel_binding_id -> unit
   method same_call : unit -> http_call
   method get_req_method : unit -> string
   method get_host : unit -> string
@@ -477,12 +484,21 @@ object
 end
 
 
+let new_cb_id () =
+  Oo.id (object end)
+
+let http_cb_id = new_cb_id()
+let https_cb_id = new_cb_id()
+
+
 class virtual generic_call : gen_call =
 object(self)
   val mutable status = (`Unserved : status)
   val mutable finished = false
 
   val mutable req_uri = ""
+  val mutable req_cb = http_cb_id
+  val mutable req_secure = false
   val mutable req_host = ""   (* derived from req_uri *)
   val mutable req_port = 80   (* derived from req_uri *)
   val mutable req_path = ""   (* derived from req_uri *)
@@ -779,16 +795,23 @@ object(self)
   method request_uri = req_uri
   method set_request_uri uri = 
     try
-      let u, pw, h, pt, ph = parse_http_url uri in
+      let is_https, u, pw, h, pt, ph = parse_http_url uri in
       if u <> None || pw <> None then
 	failwith "Http_client, set_request_uri: URL must not contain user or password";
+      req_secure <- is_https;
       req_uri <- uri;
       req_host <- h;
       req_port <- pt;
-      req_path <- ph
+      req_path <- ph;
+      req_cb <- if is_https then https_cb_id else http_cb_id;
     with
 	Not_found ->
 	  failwith "Http_client: bad URL"
+
+  method is_https = req_secure
+
+  method channel_binding = req_cb
+  method set_channel_binding cb = req_cb <- cb
 
 
   method request_header (k:header_kind) =
@@ -1299,8 +1322,9 @@ class digest_auth_session enable_auth_in_advance
       "http://" ^ host ^ ":" ^ string_of_int port ^ s
     else
       ( try
-	  let (_,_,host,port,path) = parse_http_url s in
-	  "http://" ^ host ^ ":" ^ string_of_int port ^ path
+	  let (is_https,_,_,host,port,path) = parse_http_url s in
+	  let scheme = if is_https then "https" else "http" in
+	  scheme ^ "://" ^ host ^ ":" ^ string_of_int port ^ path
 	with
 	    Not_found -> s
       )
@@ -1502,6 +1526,7 @@ let only_http =
   let http_syntax = Hashtbl.find Neturl.common_url_syntax "http" in
   let schemes = Hashtbl.create 1 in
   Hashtbl.add schemes "http" http_syntax;
+  Hashtbl.add schemes "https" http_syntax;
   schemes
 
 let parse_http_neturl s =
@@ -1790,7 +1815,7 @@ object
 end
 
 
-let io_buffer options conn_cache fd
+let io_buffer options conn_cache fd cb
               mplex
 	      fd_state : io_buffer =
   let dev = `Multiplex mplex in
@@ -1828,16 +1853,17 @@ let io_buffer options conn_cache fd
 	      mplex # cancel_reading();
 	      mplex # cancel_writing();
 	      mplex # start_shutting_down
-		~when_done:(function
-			      | None -> 
-				  followup ()
-			      | Some err ->
-				  if !options.verbose_connection then
-				    dlog(sprintf
-					   "FD %s - Shutdown error: %s"
-					   fd_str (Netexn.to_string err));
-				  mplex # inactivate();
-				  followup()
+		~when_done:(fun x_opt ->
+			      mplex # inactivate();
+			      match x_opt with
+				| None -> 
+				    followup ()
+				| Some err ->
+				    if !options.verbose_connection then
+				      dlog(sprintf
+					     "FD %s - Shutdown error: %s"
+					     fd_str (Netexn.to_string err));
+				    followup()
 			   )
 		();
 	      socket_state <- Down
@@ -1845,7 +1871,7 @@ let io_buffer options conn_cache fd
       method release() =
 	(* Give socket back to cache: *)
 	assert(socket_state = Up_rw);
-	conn_cache # set_connection_state fd `Inactive;
+	conn_cache # set_connection_state fd (`Inactive cb);
 	socket_state <- Down  (* our view *)
 
 
@@ -1865,8 +1891,6 @@ let io_buffer options conn_cache fd
        *)
       cfg_fetch_call <- fetch_call
 
-
-   (* TODO: shared timeouts -> do it in the multiplex controller *)
 
     method read_e esys =
       (* This engine returns the next call read from the input, or
@@ -2297,6 +2321,14 @@ let io_buffer options conn_cache fd
 	      if not flag then
 		failwith "Http_client: \
                           no support for closing the write side only";
+	      (* It is better to set the new state after a successful
+		 write_eof operation than before. It is possible that the whole
+		 chain of write operations is aborted. In this case
+		 an EOF also needs to be written. If we abort between write_eof
+		 and the following assignment, the EOF will just be
+		 written twice (which is unproblematic). Otherwise, the EOF
+		 could be forgotten, and the client would hang.
+	       *)
 	      if socket_state = Up_rw then
 		socket_state <- Up_r;
 	      eps_e (`Done()) esys
@@ -2784,7 +2816,7 @@ let drive_postprocessing_msg esys options m f_done =
 (**********************************************************************)
 (**********************************************************************)
 
-let tcp_connect_e esys peer_host peer_port conn_cache conn_owner options =
+let tcp_connect_e esys tp cb peer_host peer_port conn_cache conn_owner options =
   (* An engine connecting to peer_host:peer_port. If a connection is still
      available in conn_cache, use this instead.
 
@@ -2817,14 +2849,17 @@ let tcp_connect_e esys peer_host peer_port conn_cache conn_owner options =
   ++ (fun addr ->
 	let peer = Unix.ADDR_INET(addr, peer_port) in
 	try
-	  let fd = conn_cache # find_inactive_connection peer in
+	  let fd = conn_cache # find_inactive_connection peer cb in
 	  (* Case: reuse old connection *)
 	  conn_cache # set_connection_state fd (`Active conn_owner);
 	  if !options.verbose_events then
 	    dlog (sprintf 
 		    "FD %Ld - HTTP events: config input (reused fd)"
 		    (Netsys.int64_of_file_descr fd));
-	  eps_e (`Done(fd, 0.0)) esys
+	  let mplex = 
+	    tp # continue 
+	      fd cb !options.connection_timeout peer_host peer_port esys in
+	  eps_e (`Done(fd, mplex, 0.0)) esys
 	with
 	  | Not_found ->
 	      if !options.verbose_connection then
@@ -2836,29 +2871,38 @@ let tcp_connect_e esys peer_host peer_port conn_cache conn_owner options =
 				      addr,
 				      peer_port),
 			   Uq_engines.default_connect_options))
-		  esys in
+		  esys 
+		++ (function
+		      | `Socket(fd,_) ->
+			  !options.configure_socket fd;
+			  tp # setup_e
+			    fd cb !options.connection_timeout
+			    peer_host peer_port esys
+			  >> (function
+				| `Done mplex -> `Done(fd,mplex)
+				| `Error err -> `Error err
+				| `Aborted -> `Aborted
+			     )
+		      | _ -> assert false
+		   ) in
 
 	      Uq_engines.timeout_engine 
 		timeout_value
 		(Timeout (sprintf
 			    "Connect to %s:%d" peer_host peer_port))
 		eng
-	      ++ (function
-		    | `Socket(fd,_) ->
-			let t1 = Unix.gettimeofday() in
-			let d = t1 -. t0 in
+	      ++ (fun (fd,mplex) ->
+		    let t1 = Unix.gettimeofday() in
+		    let d = t1 -. t0 in
 
-			if !options.verbose_connection then
-			  dlog (sprintf 
-				  "FD %Ld - HTTP connection to %s: Connected!"
-				  (Netsys.int64_of_file_descr fd) peer_host);
+		    if !options.verbose_connection then
+		      dlog (sprintf 
+			      "FD %Ld - HTTP connection to %s: Connected!"
+			      (Netsys.int64_of_file_descr fd) peer_host);
 
-			!options.configure_socket fd;
-			conn_cache # set_connection_state
-			  fd (`Active conn_owner);
-			eps_e (`Done(fd, d)) esys
-		    | _ ->
-			assert false
+		    conn_cache # set_connection_state
+		      fd (`Active conn_owner);
+		    eps_e (`Done(fd, mplex, d)) esys
 		 )
 	      >> (function
 		    | `Error err ->
@@ -2875,11 +2919,41 @@ let tcp_connect_e esys peer_host peer_port conn_cache conn_owner options =
 
 (**********************************************************************)
 
+class type transport_channel_type =
+object
+  method setup_e : Unix.file_descr -> channel_binding_id -> float ->
+                   string -> int -> Unixqueue.event_system ->
+                   Uq_engines.multiplex_controller Uq_engines.engine
+  method continue : Unix.file_descr -> channel_binding_id -> float ->
+                   string -> int -> Unixqueue.event_system ->
+                   Uq_engines.multiplex_controller
+end
+
+let http_transport_channel_type : transport_channel_type =
+  ( object(self)
+      method continue fd cb tmo host port esys =
+	Uq_engines.create_multiplex_controller_for_connected_socket
+	  ~close_inactive_descr:true
+	  ~supports_half_open_connection:true
+	  ~timeout:( tmo,
+		     Timeout (sprintf "Existing connection to %s:%d"
+				host port)
+		   )
+	  fd esys
+      method setup_e fd cb tmo host port esys =
+	let mplex = self # continue fd cb tmo host port esys in
+	eps_e (`Done mplex) esys
+    end
+  )
+
+
+(**********************************************************************)
+
 let fragile_pipeline 
-       esys 
+       esys  cb
        peer_host peer_port
        peer_is_proxy (proxy_user,proxy_password) 
-       fd connect_time no_pipelining conn_cache
+       fd mplex connect_time no_pipelining conn_cache
        auth_cache
        counters options =
   (* Implements a pipeline for an existing connection [fd]. This object
@@ -2897,21 +2971,11 @@ let fragile_pipeline
 	  | `Aborted -> `Aborted
        ) in
 
-  let mplex =
-    Uq_engines.create_multiplex_controller_for_connected_socket
-      ~close_inactive_descr:true
-      ~supports_half_open_connection:true
-      ~timeout:( !options.connection_timeout,
-		 Timeout (sprintf "Existing connection to %s:%d"
-			    peer_host peer_port)
-	       )
-      fd esys in
-
   let fd_str =
     Int64.to_string (Netsys.int64_of_file_descr fd) in
 
   ( object(self)
-      val mutable io = io_buffer options conn_cache fd mplex Up_rw
+      val mutable io = io_buffer options conn_cache fd cb mplex Up_rw
 
       val mutable write_queue = Q.create()
       val mutable read_queue = Q.create()
@@ -3089,12 +3153,6 @@ let fragile_pipeline
     (* End of interface.                                                  *)	
     (**********************************************************************)
 
-(* FIXME:
-   The postprocessing operation is now also a concurrent thing. Before
-   finally closing/releasing the connection we need to check that 
-   postprocessing is done
- *)
-
     method private maintain_polling() =
 
       (* If one of the following conditions is true, we need not to poll
@@ -3239,30 +3297,9 @@ let fragile_pipeline
 	self # cancel_input();
       )
  
-(* FIXME: timeout *)
-
     (**********************************************************************)
     (***                     THE OUTPUT HANDLER                         ***)
     (**********************************************************************)
-
-(* PLAN:
-  
-   maintain_polling:
-      no writer yet, but writer possible: drive_output
-      also check here io#socket_state=Up_rw
-
-   handle_output -> drive_output
-     - mainly: call trans#send_e
-     - check state
-     - compute flags like do_handshake
-     - postprocess errors
-     - interact with queue (when to take away)
-     - check whether connection is done
-
-   cancel_output: abort the current drive_output engine
-
- *)
-
 
     method private drive_output() =
       if !options.verbose_events then
@@ -3411,30 +3448,6 @@ let fragile_pipeline
     (**********************************************************************)
     (***                     THE INPUT HANDLER                          ***)
     (**********************************************************************)
-
-(* PLAN: 
-
-   - drive_input: loops until EOF
-   - loop body:
-     * read_e
-       +-> None: EOF
-       +-> Some call: pop this call from read_queue
-           trans#receive_complete
-       +-> Error: garbage received; socket error
-
-   - drive_input_fetch: This is the fetch_call callback
-     check read_queue
-       +-> empty: error
-       +-> full: trans # receive_start
-
-   - trans # receive_complete
-     transition to Complete
-
-
-   - remove Broken (=> exception), Complete_broken
-   - new flag: unreliable_synch (when response arrives before request etc)
-      * forces send_eof in send loop
- *)
 
     method private drive_input() =
       
@@ -3869,7 +3882,7 @@ let fragile_pipeline
 (**********************************************************************)
 
 let robust_pipeline 
-      esys 
+      esys tp cb
       peer_host peer_port 
       peer_is_proxy (proxy_user,proxy_password) 
       conn_cache conn_owner 
@@ -3997,7 +4010,8 @@ let robust_pipeline
 	  connect_pause
 	  (fun () ->
 	     tcp_connect_e 
-	       esys peer_host peer_port conn_cache conn_owner options)
+	       esys tp cb peer_host peer_port conn_cache conn_owner options
+	  )
 	  esys in
       connecting <- Some e;
       Uq_engines.when_state
@@ -4005,7 +4019,7 @@ let robust_pipeline
 		     connecting <- None;
 		     self#conn_is_error err
 		  )
-	~is_done:(fun (fd,t) ->
+	~is_done:(fun (fd,mplex,t) ->
 		    Netlog.Debug.track_fd
 		      ~owner:"Http_client"
 		      ~descr:(sprintf 
@@ -4018,9 +4032,9 @@ let robust_pipeline
 		    connecting <- None;
 		    let fp =
 		      fragile_pipeline
-			esys peer_host peer_port
+			esys cb peer_host peer_port
 			peer_is_proxy (proxy_user,proxy_password) 
-			fd t no_pipelining conn_cache
+			fd mplex t no_pipelining conn_cache
 			auth_cache
 			counters options in
 		    fp_opt <- Some fp;
@@ -4222,6 +4236,12 @@ class pipeline =
 	failed_connections = 0;
       }
 
+    val transports = Hashtbl.create 5
+
+    initializer (
+      Hashtbl.add transports http_cb_id http_transport_channel_type
+    )
+
     method event_system = esys
 
     method set_event_system new_esys =
@@ -4261,13 +4281,15 @@ class pipeline =
       let http_proxy =
 	try Sys.getenv "http_proxy" with Not_found -> "" in
       begin try
-	let (user,password,host,port,path) = parse_http_url http_proxy in
+	let (is_https,user,password,host,port,path) = parse_http_url http_proxy in
 	self # set_proxy (Netencoding.Url.decode host) port;
 	match user with
 	  Some user_s ->
 	    begin match password with
 	      Some password_s ->
-		self # set_proxy_auth (Netencoding.Url.decode user_s) (Netencoding.Url.decode password_s)
+		self # set_proxy_auth
+		  (Netencoding.Url.decode user_s)
+		  (Netencoding.Url.decode password_s)
 	    | None -> ()
 	    end
 	| None -> ()
@@ -4282,6 +4304,9 @@ class pipeline =
 	split_words_by_commas no_proxy in
       self # avoid_proxy_for no_proxy_list;
 
+
+    method configure_transport (cb:int) (tp:transport_channel_type) =
+      Hashtbl.replace transports cb tp
 
     method reset () =
       (* deletes all pending requests; closes connection *)
@@ -4312,6 +4337,7 @@ class pipeline =
 
       let host = request # get_host() in
       let port = request # get_port() in
+      let cb = request # channel_binding in
 
       let use_proxy = 
 	proxy <> "" &&
@@ -4347,17 +4373,22 @@ class pipeline =
       let conn = 
 	let connlist = 
 	  try
-	    Hashtbl.find connections (peer, peer's_port, use_proxy) 
+	    Hashtbl.find connections (peer, peer's_port, use_proxy, cb) 
 	  with
 	      Not_found ->
 		let new_connlist = ref [] in
-		Hashtbl.add connections (peer, peer's_port, use_proxy) new_connlist;
+		Hashtbl.add
+		  connections (peer, peer's_port, use_proxy, cb) new_connlist;
 		new_connlist
 	in
 	if List.length !connlist < !options.number_of_parallel_connections 
 	  then begin
+	    let tp =
+	      try Hashtbl.find transports cb
+	      with Not_found ->
+		failwith "Http_client: No transport for this channel binding" in
 	    let new_conn = robust_pipeline
-	                     esys
+	                     esys tp cb
 	                     peer peer's_port
 			     use_proxy
 	                     (proxy_user, proxy_password) 
@@ -4396,7 +4427,7 @@ class pipeline =
 
 	     let connlist =
 	       try
-		 Hashtbl.find connections (peer, peer's_port, use_proxy);
+		 Hashtbl.find connections (peer, peer's_port, use_proxy, cb);
 	       with
 		   Not_found -> ref []
 	     in
@@ -4404,7 +4435,7 @@ class pipeline =
 	       open_connections <- open_connections - 1;
 	       connlist := List.filter (fun c -> c != conn) !connlist;
 	       if !connlist = [] then
-		 Hashtbl.remove connections (peer, peer's_port, use_proxy);
+		 Hashtbl.remove connections (peer, peer's_port, use_proxy, cb);
 	     )
 	   end;
 	   self # update_open_messages;
@@ -4478,9 +4509,11 @@ class pipeline =
 			    *)
 			   let host = m # get_host() in
 			   let port = m # get_port() in
+			   let scheme, dport = 
+			     if m#is_https then "https", 443 else "http", 80 in
 			   let prefix =
-			     "http://" ^ host ^ 
-			       (if port = 80 then "" else ":" ^ string_of_int port)
+			     scheme ^ "://" ^ host ^ 
+			       (if port = dport then "" else ":" ^ string_of_int port)
 			   in
 			   prefix ^ location
 			 else
@@ -4518,29 +4551,6 @@ class pipeline =
       self # add_with_callback request (fun _ -> ())
 
     method run () =
-      (* Runs through the requests in the pipeline. If a request can be
-       * fulfilled, i.e. the server sends a response, the status of the
-       * request is set and the request is removed from the pipeline.
-       * If a request cannot be fulfilled (no response, bad response,
-       * network error), an exception is raised and the request remains in
-       * the pipeline (and is even the head of the pipeline).
-       *
-       * Exception Broken_connection:
-       *  - The server has closed the connection before the full request
-       *    could be sent. It is unclear if something happened or not.
-       *    The application should figure out the current state and
-       *    retry the request.
-       *  - Also raised if only parts of the response have been received
-       *    and the server closed the connection. This is the same problem.
-       *    Note that this can only be detected if a "content-length" has
-       *    been sent or "chunked encoding" was chosen. Should normally
-       *    work for persistent connections.
-       *  - NOT raised if the server forces a "broken pipe" (normally
-       *    indicates a serious server problem). The intention of
-       *    Broken_connection is that retrying the request will probably
-       *    succeed.
-       *)
-
 	 Unixqueue.run esys
 
     method get_options = !options
@@ -4555,7 +4565,7 @@ class pipeline =
     method connections =
       let l = ref [] in
       Hashtbl.iter
-	(fun (peer, port, _) conns ->
+	(fun (peer, port, _, _) conns ->
 	   List.iter
 	     (fun conn ->
 		l := (peer, port, conn#length) :: !l
@@ -4694,7 +4704,7 @@ module Convenience =
 	(fun url ->
 	   try
 	     this_user := "";
-    	     let (user,password,host,port,path) = parse_http_url url in
+    	     let (is_https,user,password,host,port,path) = parse_http_url url in
 	     begin match user with
 		 Some user_s ->
 		   this_user := Netencoding.Url.decode user_s;
@@ -4706,7 +4716,8 @@ module Convenience =
 		   end
 	       | None -> ()
 	     end;
-	     "http://" ^ host ^ ":" ^ string_of_int port ^ path
+	     let scheme = if is_https then "https" else "http" in
+	     scheme ^ "://" ^ host ^ ":" ^ string_of_int port ^ path
 	   with
 	       Not_found -> 
 		 url

@@ -6,6 +6,9 @@ exception Ssl_error of Ssl.ssl_error
   (** Used in [when_done] callbacks to indicate an SSL-specific error code *)
 
 
+type ssl_socket_state =
+    [ `Unset | `Client | `Server | `Unclean | `Clean ]
+
 (** The [ssl_multiplex_controller] is an extended multiplex controller
   * which can also control SSL handshakes.
   *
@@ -20,7 +23,7 @@ object
 
   method ssl_socket : Ssl.socket
 
-  method ssl_socket_state : [ `Unset | `Client | `Server | `Unclean | `Clean ]
+  method ssl_socket_state : ssl_socket_state
     (** Returns the socket state:
       * - [`Unset]: A fresh socket
       * - [`Client]: A socket playing the SSL client role
@@ -77,6 +80,7 @@ end
 val create_ssl_multiplex_controller : 
        ?close_inactive_descr:bool ->
        ?preclose:(unit -> unit) ->
+       ?initial_state:ssl_socket_state ->
        Unix.file_descr -> Ssl.context -> Unixqueue.event_system ->
          ssl_multiplex_controller
   (** Creates a multiplex controller for an SSL socket. The descriptor must
@@ -87,6 +91,9 @@ val create_ssl_multiplex_controller :
     *
     * [preclose]: This function is called immediately before closing
     * the descriptor
+    *
+    * [socket_state]: can be set to [`Client] or [`Server] if the context
+    * is already established. Defaults to [`Unset]
    *)
 
 val ssl_connect_engine : 
