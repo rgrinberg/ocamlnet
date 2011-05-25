@@ -3,9 +3,13 @@
  *
  *)
 
-(* - CHECK: fd tracking
+(* - CHECK: fd tracking - OK
+   - half-open connections and https - OK
+   - Timeout for https - OK
+   - suite - OK
    - CONNECT
    - HTTPS in Convenience
+   - Netfs
  *)
 
 (* Reference documents:
@@ -1854,6 +1858,7 @@ let io_buffer options conn_cache fd cb
 	      mplex # cancel_writing();
 	      mplex # start_shutting_down
 		~when_done:(fun x_opt ->
+			      Netlog.Debug.release_fd fd;
 			      mplex # inactivate();
 			      match x_opt with
 				| None -> 
@@ -1871,8 +1876,13 @@ let io_buffer options conn_cache fd cb
       method release() =
 	(* Give socket back to cache: *)
 	assert(socket_state = Up_rw);
-	conn_cache # set_connection_state fd (`Inactive cb);
-	socket_state <- Down  (* our view *)
+	try
+	  conn_cache # set_connection_state fd (`Inactive cb);
+	  socket_state <- Down  (* our view *)
+	with
+	  | Not_found ->
+	      (* We can do an orderly shutdown: *)
+	      self # close ~followup:(fun () -> ()) ()
 
 
     (****************************** INPUT ********************************)
@@ -2845,6 +2855,9 @@ let tcp_connect_e esys tp cb peer_host peer_port conn_cache conn_owner options =
 	   signal_res (`Done addr)
     );
 
+  let tmo_x =
+    Timeout (sprintf "Existing connection to %s:%d"
+	       peer_host peer_port) in
   resolve_e
   ++ (fun addr ->
 	let peer = Unix.ADDR_INET(addr, peer_port) in
@@ -2858,7 +2871,8 @@ let tcp_connect_e esys tp cb peer_host peer_port conn_cache conn_owner options =
 		    (Netsys.int64_of_file_descr fd));
 	  let mplex = 
 	    tp # continue 
-	      fd cb !options.connection_timeout peer_host peer_port esys in
+	      fd cb !options.connection_timeout tmo_x 
+	      peer_host peer_port esys in
 	  eps_e (`Done(fd, mplex, 0.0)) esys
 	with
 	  | Not_found ->
@@ -2876,7 +2890,7 @@ let tcp_connect_e esys tp cb peer_host peer_port conn_cache conn_owner options =
 		      | `Socket(fd,_) ->
 			  !options.configure_socket fd;
 			  tp # setup_e
-			    fd cb !options.connection_timeout
+			    fd cb !options.connection_timeout tmo_x
 			    peer_host peer_port esys
 			  >> (function
 				| `Done mplex -> `Done(fd,mplex)
@@ -2900,6 +2914,13 @@ let tcp_connect_e esys tp cb peer_host peer_port conn_cache conn_owner options =
 			      "FD %Ld - HTTP connection to %s: Connected!"
 			      (Netsys.int64_of_file_descr fd) peer_host);
 
+		    Netlog.Debug.track_fd
+		      ~owner:"Http_client"
+		      ~descr:(sprintf 
+				"HTTP to %s:%d" peer_host peer_port)
+		      fd;
+		    (* The release_fd is in Http_client_conncache! *)
+
 		    conn_cache # set_connection_state
 		      fd (`Active conn_owner);
 		    eps_e (`Done(fd, mplex, d)) esys
@@ -2921,27 +2942,24 @@ let tcp_connect_e esys tp cb peer_host peer_port conn_cache conn_owner options =
 
 class type transport_channel_type =
 object
-  method setup_e : Unix.file_descr -> channel_binding_id -> float ->
+  method setup_e : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
                    Uq_engines.multiplex_controller Uq_engines.engine
-  method continue : Unix.file_descr -> channel_binding_id -> float ->
+  method continue : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
                    Uq_engines.multiplex_controller
 end
 
 let http_transport_channel_type : transport_channel_type =
   ( object(self)
-      method continue fd cb tmo host port esys =
+      method continue fd cb tmo tmo_x host port esys =
 	Uq_engines.create_multiplex_controller_for_connected_socket
 	  ~close_inactive_descr:true
 	  ~supports_half_open_connection:true
-	  ~timeout:( tmo,
-		     Timeout (sprintf "Existing connection to %s:%d"
-				host port)
-		   )
+	  ~timeout:( tmo, tmo_x )
 	  fd esys
-      method setup_e fd cb tmo host port esys =
-	let mplex = self # continue fd cb tmo host port esys in
+      method setup_e fd cb tmo tmo_x host port esys =
+	let mplex = self # continue fd cb tmo tmo_x host port esys in
 	eps_e (`Done mplex) esys
     end
   )
@@ -4020,13 +4038,6 @@ let robust_pipeline
 		     self#conn_is_error err
 		  )
 	~is_done:(fun (fd,mplex,t) ->
-		    Netlog.Debug.track_fd
-		      ~owner:"Http_client"
-		      ~descr:(sprintf 
-				"HTTP to %s:%d" peer_host peer_port)
-		      fd;
-		    (* The release_fd is in Http_client_conncache! *)
-
 		    connect_time <- t;
 		    connect_pause <- 0.0;
 		    connecting <- None;

@@ -42,6 +42,9 @@ let main() =
   let messages = ref [] in
   let handshake = ref false in
   let chreq = ref false in
+  let ssl = ref false in
+
+  Ssl.init();
 
   let setup () =
     if !verbose then begin
@@ -56,6 +59,9 @@ let main() =
 		   verbose_events = true;
 		   number_of_parallel_connections = 1;
 	};
+      let ctx = Ssl.create_context Ssl.TLSv1 Ssl.Client_context in
+      let tct = Https_client.https_transport_channel_type ctx in
+      !pipeline # configure_transport Http_client.https_cb_id tct
     end;
 (*
     if !handshake then begin
@@ -72,19 +78,22 @@ let main() =
     end;
   in
 
+  let scheme() =
+    if !ssl then "https" else "http" in
+
   let demand_handshake m =
     (m # request_header `Base) # update_field "Expect" "100-continue" in
 
   let add_get_message path =
     setup();
-    let m = new get ("http://" ^ !server ^ ":" ^ string_of_int !port ^ path) in
+    let m = new get (scheme() ^ "://" ^ !server ^ ":" ^ string_of_int !port ^ path) in
     messages := !messages @ [m];
     !pipeline # add m
   in
 
   let add_head_message path =
     setup();
-    let m = new head ("http://" ^ !server ^ ":" ^ string_of_int !port ^ path) in
+    let m = new head (scheme() ^ "://" ^ !server ^ ":" ^ string_of_int !port ^ path) in
     if !handshake then demand_handshake m;
     messages := !messages @ [m];
     !pipeline # add m
@@ -93,7 +102,7 @@ let main() =
   let add_put_message size path =
     setup();
     let m = new put 
-	      ("http://" ^ !server ^ ":" ^ string_of_int !port ^ path) 
+	      (scheme() ^ "://" ^ !server ^ ":" ^ string_of_int !port ^ path) 
 	      ((String.make (size-1) 'x') ^ "\n")
     in
     if !handshake then demand_handshake m;
@@ -106,7 +115,7 @@ let main() =
     setup();
     let m = new put_call in
     m # set_request_uri 
-      ("http://" ^ !server ^ ":" ^ string_of_int !port ^ path);
+      (scheme() ^ "://" ^ !server ^ ":" ^ string_of_int !port ^ path);
     m # request_body # set_value ((String.make (size-1) 'x') ^ "\n");
     if !handshake then demand_handshake m;
     if !chreq then m#set_chunked_request();
@@ -122,7 +131,7 @@ let main() =
       b := !b ^ line 
     done;
     let m = new put 
-	      ("http://" ^ !server ^ ":" ^ string_of_int !port ^ path) 
+	      (scheme() ^ "://" ^ !server ^ ":" ^ string_of_int !port ^ path) 
 	      !b
     in
     if !handshake then demand_handshake m;
@@ -217,6 +226,8 @@ let main() =
 	           "           enable 100 CONTINUE handshake for POST/PUT";
 	"-chreq", Arg.Set chreq,
 	       "               send request body with chunked encoding";
+	"-ssl", Arg.Set ssl,
+	     "                 use SSL to connect to server";
 	"-get", Arg.String add_get_message,
 	     " <path>          adds a GET request to the current pipeline";
 	"-head", Arg.String add_head_message,
@@ -255,7 +266,10 @@ let main() =
 	"-debug-list", Arg.Unit (fun () -> 
                                    List.iter print_endline (Netlog.Debug.names());
                                    exit 0),
-	"  Show possible modules for -debug, then exit"
+	"  Show possible modules for -debug, then exit";
+	
+	"-track-fd", Arg.Set Netlog.Debug.enable_fd_tracking,
+	"  Enables messages for tracking file descriptors";
       ]
     (fun s -> if s <> "" then failwith ("Bad argument: " ^ s))
       "usage: test_client [options]

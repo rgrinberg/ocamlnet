@@ -3,11 +3,13 @@
 start_test_server () {
     rm -f server.port
     mkfifo server.port
+    args=""
+    if [ -n "$SSL" ]; then args="-ssl"; fi
     # Start the server in the background:
     if [ -n "$TRACED_SERVER" ]; then
-	strace ./test_server -protocol "$@" 2>server.out &
+	strace ./test_server -protocol $args "$@" 2>server.out &
     else
-	./test_server -protocol "$@" 2>server.out &
+	./test_server -protocol $args "$@" 2>server.out &
     fi
     # Get the first line of the server.port file, which is
     # the port number the server listens on:
@@ -25,21 +27,23 @@ stop_test_server () {
 
 
 request () {
+    args=""
+    if [ -n "$SSL" ]; then args="-ssl"; fi
     if [ -n "$TRACED_CLIENT" ]; then
-	strace ./test_client -verbose -port "$server_port" "$@" 2>client.out
+	strace ./test_client -verbose -port "$server_port" $args "$@" 2>client.out
     elif [ -n "$DEBUGGED_CLIENT" ]; then
-	ocamldebug -I .. ./test_client -verbose -port "$server_port" "$@"
+	ocamldebug -I .. ./test_client -verbose -port "$server_port" $args "$@"
     elif [ -n "$GDB_CLIENT" ]; then
-	gdb --args ./run ./test_client -verbose -port "$server_port" "$@"
+	gdb --args ./run ./test_client -verbose -port "$server_port" $args "$@"
     elif [ -n "$NETLOGGED_CLIENT" ]; then
 	# e.g. NETLOGGED_CLIENT="Http_client"
-	args=""
+	args="$args -track-fd"
 	for arg in $NETLOGGED_CLIENT; do
 	    args="$args -debug $arg"
 	done
 	./test_client -verbose -port "$server_port" $args "$@" 2>client.out
     else
-	./test_client -verbose -port "$server_port" "$@" 2>client.out
+	./test_client -verbose -port "$server_port" $args "$@" 2>client.out
     fi
 }
 

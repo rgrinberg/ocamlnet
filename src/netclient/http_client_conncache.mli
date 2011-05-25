@@ -21,10 +21,12 @@ type conn_state = [ `Inactive of channel_binding_id | `Active of < > ]
 class type connection_cache =
 object
   method get_connection_state : Unix.file_descr -> conn_state
-    (** Returns the state of the file descriptor *)
+    (** Returns the state of the file descriptor, or raises [Not_found] *)
   method set_connection_state : Unix.file_descr -> conn_state -> unit
     (** Sets the state of the file descriptor. It is allowed that
-      * inactive descriptors are simply closed and forgotten.
+      * inactive descriptors are simply closed and forgotten. It is
+      * also possible that this method raises [Not_found], leaving it
+      * to the caller to close the connection.
      *)
   method find_inactive_connection : Unix.sockaddr -> channel_binding_id ->
                                      Unix.file_descr

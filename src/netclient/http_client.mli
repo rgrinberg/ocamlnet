@@ -664,22 +664,22 @@ end
 
 class type transport_channel_type =
 object
-  method setup_e : Unix.file_descr -> channel_binding_id -> float ->
+  method setup_e : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
                    Uq_engines.multiplex_controller Uq_engines.engine
-  (** [setup fd cb tmo host port esys]: Create or configure a communication
+  (** [setup fd cb tmo tmo_x host port esys]: Create or configure a communication
       circuit over the file descriptor [fd] that can be driven by the
       returned multiplex controller object.
 
-      [tmo] is the timeout. After inactivity the {!Http_client.Timeout}
-      exception must be raised.
+      [tmo] is the timeout. After inactivity the  exception [tmo_x] must be
+      raised.
 
       [host] is the name of the machine to connect to. [port] is the port
       number. The descriptor [fd] is already connected to this port, directly
       or via a proxy.
    *)
 
-  method continue : Unix.file_descr -> channel_binding_id -> float ->
+  method continue : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
                    Uq_engines.multiplex_controller
   (** [continue] is called when an already established circuit needs to

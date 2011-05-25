@@ -1,3 +1,4 @@
+open Printf
 
 type reaction =
     Print_file of string
@@ -9,6 +10,7 @@ type reaction =
   | Sleep of int
   | Expect_end
   | Reconnect
+  | Message_or_reconnect of int
 ;;
 
 
@@ -57,6 +59,7 @@ let main() =
   let spec = ref [] in
   let protocol = ref false in
   let portfile = ref "server.port" in
+  let ssl = ref false in
   Arg.parse
       [ "-portfile", Arg.String
 	              (fun s -> portfile := s),
@@ -93,11 +96,18 @@ let main() =
 	                (fun _ -> spec := !spec @ [ !line, Reconnect ];
                                   line := 0),
 	           "        -expect-end + Allow another connection after EOF";
+	"-message-or-reconnect", 
+	   Arg.Int (fun n ->
+		      spec := !spec @ [ !line, Message_or_reconnect n ];
+		      line := 0),
+	"<n>  Either get a message of exactly n bytes, or assume -reconnect";
 	"-sleep", Arg.Int 
  	                (fun i -> spec := !spec @ [ !line, Sleep i ]),
 	       " <n>        Sleeps <n> seconds";
 	"-protocol", Arg.Set protocol,
                   "         turn protocol on stderr on";
+	"-ssl", Arg.Set ssl,
+	     "              enable SSL";
 	               
       ]
       (fun s -> failwith ("Bad argument: " ^ s))
@@ -141,6 +151,18 @@ without connection.
   close_out f_pidfile;
   let wait_for_connection = ref true in
   let thisspec = ref !spec in
+
+  Ssl.init();
+
+  let ctx_opt =
+    if !ssl then (
+      let ctx = Ssl.create_context Ssl.TLSv1 Ssl.Server_context in
+      Ssl.use_certificate ctx "ssl-cert-snakeoil.pem" "ssl-cert-snakeoil.key";
+      Some ctx
+    )
+    else
+      None in
+
   while !wait_for_connection do
     wait_for_connection := false;   (* set to 'true' by Reconnect reaction *)
 
@@ -153,6 +175,40 @@ without connection.
 
     if !protocol then 
       prerr_endline "! ACCEPTED NEW CONNECTION";
+
+    let ops =
+      match ctx_opt with
+	| Some ctx ->
+	    let ssl_sock = Ssl.embed_socket conn ctx in
+	    Ssl.accept ssl_sock;
+	    if !protocol then 
+	      prerr_endline "! ACCEPTED SSL SESSION";
+	    ( object
+		method read s p n = 
+		  try Ssl.read ssl_sock s p n
+		  with Ssl.Read_error Ssl.Error_zero_return -> 0
+		    | Ssl.Read_error Ssl.Error_syscall ->
+			if !protocol then
+			  prerr_endline "! UNCLEAN SSL STATE";
+			0
+		method write s p n = Ssl.write ssl_sock s p n
+		method shutdown_in () = Ssl.shutdown ssl_sock
+		method shutdown_out () = 
+		  let (flag_in, flag_out) = Ssl_exts.get_shutdown ssl_sock in
+		  if not flag_out then
+		    Ssl_exts.single_shutdown ssl_sock
+		method close() = Ssl.shutdown ssl_sock; Unix.close conn
+	      end
+	    )
+	| None ->
+	    ( object
+		method read s p n = Unix.read conn s p n
+		method write s p n = Unix.single_write conn s p n
+		method shutdown_in () = Unix.shutdown conn Unix.SHUTDOWN_RECEIVE
+		method shutdown_out () = Unix.shutdown conn Unix.SHUTDOWN_SEND
+		method close() = Unix.close conn
+	      end
+	    ) in
 
     let connopen = ref true in
     let eof_sent = ref false in  (* i.e. write side closed *)
@@ -177,7 +233,7 @@ without connection.
 	      let l = String.length fstring in
               begin try
 	        while !m < l do
-		  m := !m + Unix.write conn fstring !m (l - !m)
+		  m := !m + ops#write fstring !m (l - !m)
 	        done
               with
                  Unix.Unix_error(Unix.EPIPE,_,_) ->
@@ -188,23 +244,23 @@ without connection.
 	  | End ->
 	      if !protocol then
 		prerr_endline "SENDING EOF";
-	      Unix.shutdown conn Unix.SHUTDOWN_SEND;
+	      ops#shutdown_out();
 	      eof_sent := true;
 	  | Break_and_reconnect ->
 	      if !protocol then
 		prerr_endline "BREAKING CONNECTION";
-	      Unix.close conn;
+	      ops#close();
 	      broken := true;
 	      wait_for_connection := true;
 	      connopen := false;
 	  | Close_input ->
 	      if !protocol then
 		prerr_endline "CLOSING INPUT SIDE";
-	      Unix.shutdown conn Unix.SHUTDOWN_RECEIVE;
+	      ops#shutdown_in();
 	  | Close_output ->
 	      if !protocol then
 		prerr_endline "CLOSING OUTPUT SIDE";
-	      Unix.shutdown conn Unix.SHUTDOWN_SEND;
+	      ops#shutdown_out();
 	  | Expect line ->
 	      let actual_line =
 		List.nth !lines (!n_lines - lineno) in
@@ -227,7 +283,7 @@ without connection.
 		  prerr_endline ("! GOT LINE '" ^ actual_line ^ "'");
 		  prerr_endline ("! THE LINE DOES NOT MATCH. SENDING EOF");
 		end;
-		Unix.shutdown conn Unix.SHUTDOWN_SEND;
+		ops#shutdown_out();
 		eof_sent := true;
 		failwith "Test failure";
 	      end
@@ -240,21 +296,43 @@ without connection.
 		prerr_endline "! IGNORING INPUT UNTIL GETTING EOF";
 	      let k = ref 1 in
 	      while !k <> 0 do
-		k := Unix.read conn buff 0 buffsize;
+		k := ops#read buff 0 buffsize;
 		if !k > 0 & !protocol then
 		  prerr_endline ("! IGNORING " ^ string_of_int !k ^ " BYTES");
 	      done;
 	      if react = Reconnect then
 		wait_for_connection := true;
 	      connopen := false;
+	  | Message_or_reconnect n ->
+	      if !protocol then
+		eprintf "! WILL IGNORE %d BYTES, OR ANY BYTES UNTIL EOF\n%!" n;
+	      let k = ref n in
+	      let eof = ref false in
+	      while !k > 0 do
+		let p = ops#read buff 0 (min buffsize !k) in
+		if p > 0 && !protocol then
+		  prerr_endline ("! IGNORING " ^ string_of_int p ^ " BYTES");
+		if p = 0 then (
+		  if !protocol then
+		    prerr_endline "! GOT EOF";
+		  k := 0;
+		  eof := true
+		)
+		else k := !k - p
+	      done;
+	      if !eof then (
+		connopen := false;
+		wait_for_connection := true;
+	      );
+	      n0 := 1    (* The next line has always number 1 *)
       done;
 
       (* read as much as immediately possible *)
 
       if not !broken then begin
 
-	let _ = Unix.select [ conn ] [] [] (-1.0) in
-	let k = Unix.read conn buff 0 buffsize in
+	(* let _ = Unix.select [ conn ] [] [] (-1.0) in*)
+	let k = ops#read buff 0 buffsize in
       
 	if k = 0 then begin
 	  (* got EOF *)
@@ -285,11 +363,11 @@ without connection.
     if not !broken then begin
       if not !eof_sent then begin
 	if !protocol then prerr_endline "! IMMEDIATELY REPLYING EOF";
-	Unix.shutdown conn Unix.SHUTDOWN_SEND;
+	ops#shutdown_out();
 	eof_sent := true;
       end;
       if !protocol then prerr_endline "! CLOSING SOCKET";
-      Unix.close conn;
+      ops#close();
     end;
 
   done (* while !wait_for_connection *)

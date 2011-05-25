@@ -9,6 +9,8 @@
 #   --> re-make all tests (implies prior "clean")
 # ./test_suite run
 #   --> run the tests
+# ./test_suite run_ssl
+#   --> run the tests for SSL
 
 # Debug Http_client:
 #   NETLOGGED_CLIENT="Http_client Uq_engines" \
@@ -37,6 +39,9 @@ dirs="netclient/hhamsters \
       rpc/basic \
       rpc/bench \
       shell"
+
+dirs_ssl="netclient/http_bench"
+
 
 clean() {
     echo "****************************************"
@@ -72,7 +77,20 @@ run() {
 	echo "----------------------------------------"
 	echo ">>> Directory $d"
 	echo "----------------------------------------"
+	unset SSL
 	( cd $d && make test ) || exit
+    done
+}
+
+run_ssl() {
+    echo "****************************************"
+    echo "Testing (w/ SSL)"
+    echo "****************************************"
+    for d in $dirs_ssl; do
+	echo "----------------------------------------"
+	echo ">>> Directory $d"
+	echo "----------------------------------------"
+	( cd $d && SSL=1 make test ) || exit
     done
 }
 
@@ -90,6 +108,8 @@ while [ $# -gt 0 ]; do
 	    shift; clean && build ;;
 	run)
 	    shift; run ;;
+	run_ssl)
+	    shift; run_ssl ;;
 	-d)
 	    dirs="$2"
 	    shift 2 ;;

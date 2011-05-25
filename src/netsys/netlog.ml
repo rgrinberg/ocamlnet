@@ -192,7 +192,7 @@ module Debug = struct
 	     if Hashtbl.mem fd_tab fd then (
 	       let (_, _, old_sn_opt, _) = Hashtbl.find fd_tab fd in
 	       if old_sn_opt <> None && old_sn_opt <> sn then (
-		 logf tracker "WARNING track_fd: escriptor already tracked \
+		 logf tracker "WARNING track_fd: descriptor already tracked \
                                with different sn as %s"
 		   (fd_string_1 ~owner:true ~descr:true fd);
 		 true

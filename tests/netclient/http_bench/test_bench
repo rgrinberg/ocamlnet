@@ -10,13 +10,15 @@ with the expected results.
 
 -init:            Initializes the file containing the expected result with the
 	          actual result.
+-ssl:             Run with SSL enabled
 -help:            Print this message
 EOF
 }
 
+# Also, $SSL may already be set in the environment to enable -ssl.
+
 
 failed=""
-
 
 run_test () {
     if [ ! -f specs/helpers.sh ]; then
@@ -64,6 +66,9 @@ while [ -n "$x" ]; do
 	-init)     INIT=1
 	           shift
 	           ;;
+	-ssl)      SSL=1
+	           shift
+		   ;;
 	-h|-help)  usage
 		   exit 0
 		   ;;
@@ -141,7 +146,9 @@ if [ "$#" = "0" ]; then
     run_test framed-no-persistency
     run_test timeout
     run_test timeout-error
-    run_test bad-request
+    if [ -z "$SSL" ]; then     # does not work with ssl
+	run_test bad-request
+    fi
     run_test head
     run_test head-extra
     run_test proxypersistency-1.0

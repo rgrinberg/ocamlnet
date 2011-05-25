@@ -34,7 +34,8 @@ object(self)
 	    Hashtbl.replace rev_active_conns owner (fd :: fd_list);
 	  
       | `Inactive _ ->
-	  self # close_connection fd
+	  self # remove_connection fd;
+	  raise Not_found
 
   method find_inactive_connection _ _ = raise Not_found
 
@@ -44,7 +45,7 @@ object(self)
     with
 	Not_found -> []
 
-  method close_connection fd =
+  method private remove_connection fd =
     ( try
 	let owner = Hashtbl.find active_conns fd in
 	let fd_list = 
@@ -56,6 +57,10 @@ object(self)
 	  Not_found -> ()
     );
     Hashtbl.remove active_conns fd;
+
+
+  method close_connection fd =
+    self # remove_connection fd;
     Netlog.Debug.release_fd fd;
     Unix.close fd
 

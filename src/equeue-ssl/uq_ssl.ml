@@ -17,6 +17,144 @@ exception Ssl_error of Ssl.ssl_error
 
 type ssl_socket_state = [ `Unset | `Client | `Server | `Unclean | `Clean ]
 
+
+let string_of_ssl_error e =
+  match e with
+    | Ssl.Error_none ->
+	"Ssl.Error_none"
+    | Ssl.Error_ssl ->
+	"Ssl.Error_ssl"
+    | Ssl.Error_want_read ->
+	"Ssl.Error_want_read"
+    | Ssl.Error_want_write ->
+	"Ssl.Error_want_write"
+    | Ssl.Error_want_x509_lookup ->
+	"Ssl.Error_want_x509_lookup"
+    | Ssl.Error_syscall ->
+	"Ssl.Error_syscall"
+    | Ssl.Error_zero_return ->
+	"Ssl.Error_zero_return"
+    | Ssl.Error_want_connect ->
+	"Ssl.Error_want_connect"
+    | Ssl.Error_want_accept ->
+	"Ssl.Error_want_accept"
+
+let string_of_verify_error e =
+  match e with
+    | Ssl.Error_v_unable_to_get_issuer_cert ->
+	"Ssl.Error_v_unable_to_get_issuer_cert"
+    | Ssl.Error_v_unable_to_get_ctl -> 
+	"Ssl.Error_v_unable_to_get_ctl"
+    | Ssl.Error_v_unable_to_decrypt_cert_signature -> 
+	"Ssl.Error_v_unable_to_decrypt_cert_signature"
+    | Ssl.Error_v_unable_to_decrypt_CRL_signature -> 
+	"Ssl.Error_v_unable_to_decrypt_CRL_signature"
+    | Ssl.Error_v_unable_to_decode_issuer_public_key -> 
+	"Ssl.Error_v_unable_to_decode_issuer_public_key"
+    | Ssl.Error_v_cert_signature_failure -> 
+	"Ssl.Error_v_cert_signature_failure"
+    | Ssl.Error_v_CRL_signature_failure -> 
+	"Ssl.Error_v_CRL_signature_failure"
+    | Ssl.Error_v_cert_not_yet_valid -> 
+	"Ssl.Error_v_cert_not_yet_valid"
+    | Ssl.Error_v_cert_has_expired -> 
+	"Ssl.Error_v_cert_has_expired" 
+    | Ssl.Error_v_CRL_not_yet_valid -> 
+	"Ssl.Error_v_CRL_not_yet_valid" 
+    | Ssl.Error_v_CRL_has_expired -> 
+	"Ssl.Error_v_CRL_has_expired" 
+    | Ssl.Error_v_error_in_cert_not_before_field -> 
+	"Ssl.Error_v_error_in_cert_not_before_field"
+    | Ssl.Error_v_error_in_cert_not_after_field -> 
+	"Ssl.Error_v_error_in_cert_not_after_field" 
+    | Ssl.Error_v_error_in_CRL_last_update_field -> 
+	"Ssl.Error_v_error_in_CRL_last_update_field"
+    | Ssl.Error_v_error_in_CRL_next_update_field -> 
+	"Ssl.Error_v_error_in_CRL_next_update_field" 
+    | Ssl.Error_v_out_of_mem -> 
+	"Ssl.Error_v_out_of_mem"
+    | Ssl.Error_v_depth_zero_self_signed_cert -> 
+	"Ssl.Error_v_depth_zero_self_signed_cert"
+    | Ssl.Error_v_self_signed_cert_in_chain -> 
+	"Ssl.Error_v_self_signed_cert_in_chain" 
+    | Ssl.Error_v_unable_to_get_issuer_cert_locally -> 
+	"Ssl.Error_v_unable_to_get_issuer_cert_locally"
+    | Ssl.Error_v_unable_to_verify_leaf_signature -> 
+	"Ssl.Error_v_unable_to_verify_leaf_signature" 
+    | Ssl.Error_v_cert_chain_too_long -> 
+	"Ssl.Error_v_cert_chain_too_long"
+    | Ssl.Error_v_cert_revoked -> 
+	"Ssl.Error_v_cert_revoked"
+    | Ssl.Error_v_invalid_CA -> 
+	"Ssl.Error_v_invalid_CA" 
+    | Ssl.Error_v_path_length_exceeded -> 
+	"Ssl.Error_v_path_length_exceeded"
+    | Ssl.Error_v_invalid_purpose -> 
+	"Ssl.Error_v_invalid_purpose"
+    | Ssl.Error_v_cert_untrusted -> 
+	"Ssl.Error_v_cert_untrusted" 
+    | Ssl.Error_v_cert_rejected -> 
+	"Ssl.Error_v_cert_rejected" 
+    | Ssl.Error_v_subject_issuer_mismatch -> 
+	"Ssl.Error_v_subject_issuer_mismatch"
+    | Ssl.Error_v_akid_skid_mismatch -> 
+	"Ssl.Error_v_akid_skid_mismatch"
+    | Ssl.Error_v_akid_issuer_serial_mismatch -> 
+	"Ssl.Error_v_akid_issuer_serial_mismatch"
+    | Ssl.Error_v_keyusage_no_certsign -> 
+	"Ssl.Error_v_keyusage_no_certsign"
+    | Ssl.Error_v_application_verification -> 
+	"Ssl.Error_v_application_verification"
+	
+
+let () =
+  Netexn.register_printer
+    (Ssl_error Ssl.Error_none)
+    (fun x ->
+       match x with
+	 | Ssl_error e -> "Uq_ssl.Ssl_error(" ^ string_of_ssl_error e ^ ")"
+	 | _ -> assert false
+    );
+  Netexn.register_printer
+    (Ssl.Connection_error Ssl.Error_none)
+    (fun x ->
+       match x with
+	 | Ssl.Connection_error e -> 
+	     "Ssl.Connection_error(" ^ string_of_ssl_error e ^ ")"
+	 | _ -> assert false
+    );
+  Netexn.register_printer
+    (Ssl.Accept_error Ssl.Error_none)
+    (fun x ->
+       match x with
+	 | Ssl.Accept_error e -> 
+	     "Ssl.Accept_error(" ^ string_of_ssl_error e ^ ")"
+	 | _ -> assert false
+    );
+  Netexn.register_printer
+    (Ssl.Read_error Ssl.Error_none)
+    (fun x ->
+       match x with
+	 | Ssl.Read_error e -> "Ssl.Read_error(" ^ string_of_ssl_error e ^ ")"
+	 | _ -> assert false
+    );
+  Netexn.register_printer
+    (Ssl.Write_error Ssl.Error_none)
+    (fun x ->
+       match x with
+	 | Ssl.Write_error e -> "Ssl.Write_error(" ^ string_of_ssl_error e ^ ")"
+	 | _ -> assert false
+    );
+  Netexn.register_printer
+    (Ssl.Verify_error Ssl.Error_v_out_of_mem)
+    (fun x ->
+       match x with
+	 | Ssl.Verify_error e ->
+	     "Ssl.Verify_error(" ^ string_of_verify_error e ^ ")"
+	 | _ -> assert false
+    )
+
+
 let string_of_socket_state =
   function
     | `Unset -> "Unset"
@@ -46,12 +184,20 @@ let string_of_tag =
     | `Accepting -> "Accepting"
     | `Reading -> "Reading"
     | `Writing -> "Writing"
+    | `Writing_eof -> "Writing_eof"
     | `Shutting_down -> "Shutting_down"
+
+
+let string_of_exn_opt =
+  function
+    | None -> "successful"
+    | Some x -> Netexn.to_string x
 
 
 class ssl_mplex_ctrl ?(close_inactive_descr=true)
                      ?(preclose = fun () -> ())
 		     ?(initial_state = `Unset)
+		     ?timeout
                      fd ssl_sock esys : ssl_multiplex_controller =
   let () = Unix.set_nonblock fd in
   let fdi = Netsys.int64_of_file_descr fd in
@@ -66,6 +212,7 @@ object(self)
   val mutable accepting = false    (* true only in state `Unset *)
   val mutable reading = None       (* <> None only in states `Client/`Server *)
   val mutable writing = None       (* <> None only in states `Client/`Server *)
+  val mutable writing_eof = None   (* <> None only in states `Client/`Server *)
   val mutable shutting_down = None (* <> None only in states `Client/`Server *)
   val mutable disconnecting = None
 
@@ -76,6 +223,8 @@ object(self)
 
   val mutable expecting_input = false
   val mutable expecting_output = false
+
+  val mutable timers = Hashtbl.create 7
 
   val group = Unixqueue.new_group esys
 
@@ -91,7 +240,7 @@ object(self)
   method read_eof = read_eof
   method wrote_eof = wrote_eof
 
-  method supports_half_open_connection = false
+  method supports_half_open_connection = true
 
   method mem_supported = false
 
@@ -105,11 +254,13 @@ object(self)
     dlogr
       (fun () ->
 	 sprintf "FD %Ld: start_ssl_connecting" fdi);
-    let when_done arg =
+    let when_done exn_opt =
       dlogr
 	(fun () ->
-	   sprintf "FD %Ld: done start_ssl_connecting" fdi);
-      when_done arg in
+	   sprintf "FD %Ld: done start_ssl_connecting: %s" 
+	     fdi (string_of_exn_opt exn_opt)
+	);
+      when_done exn_opt in
     self # nonblock_operation
       (ref false)
       `Connecting
@@ -132,7 +283,8 @@ object(self)
 	       state <- `Unclean;
 	       connecting <- false;
 	       (false, false, fun () -> when_done (Some err))
-      );
+      )
+      (fun x -> when_done (Some x));
     connecting <- true
 
 
@@ -144,11 +296,13 @@ object(self)
     dlogr
       (fun () ->
 	 sprintf "FD %Ld: start_ssl_accepting" fdi);
-    let when_done arg =
+    let when_done exn_opt =
       dlogr
 	(fun () ->
-	   sprintf "FD %Ld: done start_ssl_accepting" fdi);
-      when_done arg in
+	   sprintf "FD %Ld: done start_ssl_accepting: %s" 
+	     fdi (string_of_exn_opt exn_opt)
+	);
+      when_done exn_opt in
     self # nonblock_operation
       (ref false)
       `Accepting
@@ -171,7 +325,8 @@ object(self)
 	       state <- `Unclean;
 	       accepting <- false;
 	       (false, false, fun () -> when_done (Some err);)
-      );
+      )
+      (fun x -> when_done (Some x));
     accepting <- true;
 
 
@@ -187,11 +342,13 @@ object(self)
     dlogr
       (fun () ->
 	 sprintf "FD %Ld: start_reading" fdi);
-    let when_done arg =
+    let when_done exn_opt =
       dlogr
 	(fun () ->
-	   sprintf "FD %Ld: done start_reading" fdi);
-      when_done arg in
+	   sprintf "FD %Ld: done start_reading: %s" 
+	     fdi (string_of_exn_opt exn_opt)
+	);
+      when_done exn_opt in
     let cancel_flag = ref false in
     self # nonblock_operation
       cancel_flag
@@ -222,13 +379,17 @@ object(self)
 	       state <- `Unclean;
 	       reading <- None;
 	       (false, false, fun () -> when_done (Some err) 0)
-      );
+      )
+      (fun x -> self # cancel_reading_with x);
     reading <- Some (when_done, cancel_flag)
 
   method start_mem_reading ?(peek = fun() -> ()) ~when_done m pos len =
     raise Uq_engines.Mem_not_supported
 
   method cancel_reading () =
+    self # cancel_reading_with Uq_engines.Cancelled
+
+  method private cancel_reading_with x =
     dlogr
       (fun () ->
 	 sprintf "FD %Ld: cancel_reading" fdi);
@@ -240,7 +401,7 @@ object(self)
 	  self # cancel_operation `Reading;
 	  cancel_flag := true;
 	  reading <- None;
-	  f_when_done (Some Uq_engines.Cancelled) 0
+	  f_when_done (Some x) 0
 
 
   method start_writing ~when_done s pos len =
@@ -248,8 +409,8 @@ object(self)
       invalid_arg "#start_writing";
     if state <> `Client && state <> `Server then
       failwith "#start_writing: bad state";
-    if writing <> None then
-      failwith "#start_writing: already reading";
+    if writing <> None || writing_eof <> None then
+      failwith "#start_writing: already writing";
     if shutting_down <> None then
       failwith "#start_writing: already shutting down";
     if wrote_eof then
@@ -257,11 +418,13 @@ object(self)
     dlogr
       (fun () ->
 	 sprintf "FD %Ld: start_writing" fdi);
-    let when_done arg =
+    let when_done exn_opt =
       dlogr
 	(fun () ->
-	   sprintf "FD %Ld: done start_writing" fdi);
-      when_done arg in
+	   sprintf "FD %Ld: done start_writing: %s" 
+	     fdi (string_of_exn_opt exn_opt)
+	);
+      when_done exn_opt in
     let cancel_flag = ref false in
     self # nonblock_operation
       cancel_flag
@@ -286,7 +449,8 @@ object(self)
 	       state <- `Unclean;
 	       writing <- None;
 	       (false, false, fun () -> when_done (Some err) 0)
-      );
+      )
+      (fun x -> self # cancel_writing_with x);
     writing <- Some (when_done, cancel_flag)
 
 
@@ -295,26 +459,112 @@ object(self)
 
 
   method start_writing_eof ~when_done () =
-    failwith "#start_writing_eof: operation not supported";
+    if state <> `Client && state <> `Server && state <> `Unclean then
+      failwith "#start_writing_eof: bad state";
+    (* N.B. We accept here Unclean because there is still a chance that we
+       can at least close the tunnel
+     *)
+    if writing <> None then
+      failwith "#start_writing_eof: already writing";
+    if shutting_down <> None then
+      failwith "#start_writing_eof: already shutting down";
+    if wrote_eof then
+      Unixqueue.once esys group 0.0 (fun () -> when_done None)
+    else (
+      dlogr
+	(fun () ->
+	   sprintf "FD %Ld: start_writing_eof" fdi);
+      let when_done exn_opt =
+	dlogr
+	  (fun () ->
+	     sprintf "FD %Ld: done start_writing_eof: %s" 
+	       fdi (string_of_exn_opt exn_opt)
+	  );
+	when_done exn_opt in
+      let n = ref 0 in
+      let cancel_flag = ref false in
+      self # nonblock_operation
+	cancel_flag
+	`Writing_eof
+	(fun () ->
+	   try
+	     let (_, sent_shutdown_0) =
+	       Ssl_exts.get_shutdown ssl_sock in
+	     
+	     if not sent_shutdown_0 then
+	       Ssl_exts.single_shutdown ssl_sock;
+
+	     let (rcvd_shutdown, sent_shutdown) =
+	       Ssl_exts.get_shutdown ssl_sock in
+
+	     if rcvd_shutdown then
+	       read_eof <- true;
+	     if sent_shutdown then
+	       wrote_eof <- true;
+
+	     if !n=1 && not sent_shutdown then (
+	       (* Unclean crash *)
+	       writing_eof <- None;
+	       state <- `Unclean;
+	       (false, false, 
+		fun () -> when_done(Some(Failure "Unclean SSL shutdown")))
+	     )
+	     else
+	       match sent_shutdown with
+		 | false ->
+		     (* strange *)
+		     (false, true, fun () -> ())
+		 | true ->
+		     writing_eof <- None;
+		     (false, false, fun () -> when_done None)
+	   with
+	     | Ssl_exts.Shutdown_error Ssl.Error_want_read ->
+		 (true, false, fun () -> ())
+	     | Ssl_exts.Shutdown_error Ssl.Error_want_write ->
+		 (false, true, fun () -> ())
+	     | Ssl_exts.Shutdown_error ssl_err ->
+		 state <- `Unclean;
+		 shutting_down <- None;
+		 (false, false, fun () -> when_done (Some (Ssl_error ssl_err)))
+	     | err ->
+		 state <- `Unclean;
+		 shutting_down <- None;
+		 (false, false, fun () -> when_done (Some err))
+	)
+	(fun x -> self # cancel_writing_with x);
+      writing_eof <- Some(when_done, cancel_flag)
+    )
     
 
   method cancel_writing () =
+    self # cancel_writing_with Uq_engines.Cancelled
+
+  method private cancel_writing_with x =
     dlogr
       (fun () ->
 	 sprintf "FD %Ld: cancel_writing" fdi);
     match writing with
-      | None ->
-	  ()
       | Some (f_when_done, cancel_flag) ->
 	  assert(not !cancel_flag);
 	  self # cancel_operation `Writing;
 	  cancel_flag := true;
 	  writing <- None;
-	  f_when_done (Some Uq_engines.Cancelled) 0
+	  f_when_done (Some x) 0
+      | None ->
+	  ( match writing_eof with
+	      | Some(f_when_done, cancel_flag) ->
+		  assert(not !cancel_flag);
+		  self # cancel_operation `Writing_eof;
+		  cancel_flag := true;
+		  writing_eof <- None;
+		  f_when_done (Some x)
+	      | None ->
+		  ()
+	  )
 
 
   method start_shutting_down ?(linger = 60.0) ~when_done () =
-    if state <> `Client && state <> `Server then
+    if state <> `Client && state <> `Server && state <> `Unclean then
       failwith "#start_shutting_down: bad state";
     if reading <> None || writing <> None then
       failwith "#start_shutting_down: still reading or writing";
@@ -323,11 +573,13 @@ object(self)
     dlogr
       (fun () ->
 	 sprintf "FD %Ld: start_shutting_down" fdi);
-    let when_done arg =
+    let when_done exn_opt =
       dlogr
 	(fun () ->
-	   sprintf "FD %Ld: done start_shutting_down" fdi);
-      when_done arg in
+	   sprintf "FD %Ld: done start_shutting_down: %s" 
+	     fdi (string_of_exn_opt exn_opt)
+	);
+      when_done exn_opt in
     let n = ref 0 in
     let cancel_flag = ref false in
     self # nonblock_operation
@@ -382,10 +634,14 @@ object(self)
 	       state <- `Unclean;
 	       shutting_down <- None;
 	       (false, false, fun () -> when_done (Some err))
-      );
+      )
+      (fun x -> self # cancel_shutting_down_with x);
     shutting_down <- Some(when_done, cancel_flag)
 
   method cancel_shutting_down () =
+    self # cancel_shutting_down_with Uq_engines.Cancelled
+
+  method private cancel_shutting_down_with x =
     dlogr
       (fun () ->
 	 sprintf "FD %Ld: cancel_shutting_down" fdi);
@@ -397,14 +653,52 @@ object(self)
 	  self # cancel_operation `Shutting_down;
 	  cancel_flag := true;
 	  shutting_down <- None;
-	  f_when_done (Some Uq_engines.Cancelled)
+	  f_when_done (Some x)
 
 
-  method private nonblock_operation cancel_flag tag f =
+  method private start_timer tag f_tmo =
+    (* Call f_tmo when operation for tag times out *)
+    match timeout with
+      | None ->
+	  ()
+      | Some (tmo, x) ->
+	  let tmo_g = Unixqueue.new_group esys in
+	  Hashtbl.replace timers tag (tmo_g, f_tmo);
+	  Unixqueue.once esys tmo_g tmo 
+	    (fun () -> 
+	       Hashtbl.remove timers tag;
+	       f_tmo x
+	    )
+	  
+  method private stop_timer tag =
+    try
+      let tmo_g, _ = Hashtbl.find timers tag in
+      Unixqueue.clear esys tmo_g;
+      Hashtbl.remove timers tag
+    with Not_found -> ()
+
+  method private restart_all_timers () =
+    let ht = Hashtbl.copy timers in
+    Hashtbl.clear timers;
+    Hashtbl.iter
+      (fun tag (tmo_g, f_tmo) ->
+	 Unixqueue.clear esys tmo_g;
+	 self # start_timer tag f_tmo
+      )
+      ht
+
+  method private nonblock_operation cancel_flag tag f f_tmo =
+    (* We use here min_float instead of 0.0 because the latter is handled
+       in an optimized way in Unixqueue - and this gets here in the way.
+       The optimization implies that it is normally not checked whether
+       there are other socket events. However, we exactly want this here -
+       so other events can be processed while we are doing our sequence
+       of operations.
+     *)
     Unixqueue.once
       esys
       group
-      0.0
+      (* 0.0 *) min_float
       (fun () ->
 	 if not !cancel_flag then (
 	   dlogr
@@ -417,8 +711,12 @@ object(self)
 		  fdi (string_of_tag tag) want_rd want_wr
 		  (if want_rd || want_wr then "- queuing op and retrying later"
 		   else ""));
-	   if want_rd || want_wr then
+	   if want_rd || want_wr then (
+	     self # start_timer tag f_tmo;
 	     pending <- (tag, want_rd, want_wr, f) :: pending;
+	   )
+	   else
+	     self # restart_all_timers();
 	   ( try
 	       action();
 	       self # setup_queue();
@@ -431,6 +729,7 @@ object(self)
 
 
   method private cancel_operation tag =
+    self # stop_timer tag;
     pending <-
       List.filter (fun (t, _, _, _) -> t <> tag) pending;
     self # setup_queue()
@@ -464,8 +763,10 @@ object(self)
 		actions := action :: !actions;
 		if want_rd' || want_wr' then
 		  [ tag, want_rd', want_wr', f ]   (* try again later *)
-		else
+		else (
+		  self # stop_timer tag;
 		  []
+		)
 	      )		      
 	      else
 		[ tag, want_rd, want_wr, f ]   (* just keep *)
@@ -473,6 +774,8 @@ object(self)
 	   cur_pending
 	) in
     pending <- pending @ pending';
+
+    self # restart_all_timers();
 
     (* Be careful: We can only return the first error *)
     let first_error = ref None in
@@ -592,7 +895,7 @@ end
 
 
 let create_ssl_multiplex_controller
-       ?close_inactive_descr ?preclose ?initial_state fd ctx esys =
+       ?close_inactive_descr ?preclose ?initial_state ?timeout fd ctx esys =
   let () = Unix.set_nonblock fd in
   let s = Ssl.embed_socket fd ctx in
   let m = Ssl_exts.get_mode s in
@@ -600,7 +903,8 @@ let create_ssl_multiplex_controller
     { m with
 	Ssl_exts.enable_partial_write = true; 
 	accept_moving_write_buffer = true } in
-  new ssl_mplex_ctrl ?close_inactive_descr ?preclose ?initial_state fd s esys
+  new ssl_mplex_ctrl ?close_inactive_descr ?preclose ?initial_state ?timeout
+    fd s esys
 ;;
 
 
