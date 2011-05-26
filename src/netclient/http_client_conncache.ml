@@ -4,11 +4,18 @@ type channel_binding_id = int
  
 type conn_state = [ `Inactive of channel_binding_id | `Active of < > ]
 
+type peer =
+    [ `Direct of string * int
+    | `Http_proxy of string * int
+    | `Http_proxy_connect of (string * int) * (string * int)
+    | `Socks5 of (string * int) * (string * int)
+    ]
+
 class type connection_cache =
 object
   method get_connection_state : Unix.file_descr -> conn_state
-  method set_connection_state : Unix.file_descr -> conn_state -> unit
-  method find_inactive_connection : Unix.sockaddr -> channel_binding_id -> Unix.file_descr
+  method set_connection_state : Unix.file_descr -> peer -> conn_state -> unit
+  method find_inactive_connection : peer -> channel_binding_id -> Unix.file_descr
   method find_my_connections : < > -> Unix.file_descr list
   method close_connection : Unix.file_descr -> unit
   method close_all : unit -> unit
@@ -24,7 +31,7 @@ object(self)
   method get_connection_state fd =
     `Active(Hashtbl.find active_conns fd)
 
-  method set_connection_state fd state =
+  method set_connection_state fd peer state =
     match state with
       | `Active owner ->
 	  Hashtbl.replace active_conns fd owner;
@@ -95,7 +102,7 @@ object(self)
 	  let (cb,_) = Hashtbl.find inactive_conns fd in
 	  `Inactive cb
 
-  method set_connection_state fd state =
+  method set_connection_state fd peer state =
     match state with
       | `Active owner ->
 	  self # forget_inactive_connection fd;
@@ -106,7 +113,6 @@ object(self)
 	    Hashtbl.replace rev_active_conns owner (fd :: fd_list);
       | `Inactive cb ->
 	  ( try
-	      let peer = Netsys.getpeername fd in
 	      self # forget_active_connection fd;
 	      Hashtbl.replace inactive_conns fd (cb,peer);
 	      let fd_list =

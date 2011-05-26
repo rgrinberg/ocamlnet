@@ -116,8 +116,6 @@ if [ "$#" = "0" ]; then
     run_test framed-basicauth
     run_test framed-basicauth-fails
     #run_test framed-digestauth    # cnonce cannot be predicted!
-    run_test framed-proxyauth
-    run_test framed-proxy+basicauth
     run_test three-messages
     run_test three-messages-incl-simple
     run_test continue
@@ -146,15 +144,20 @@ if [ "$#" = "0" ]; then
     run_test framed-no-persistency
     run_test timeout
     run_test timeout-error
-    if [ -z "$SSL" ]; then     # does not work with ssl
-	run_test bad-request
-    fi
     run_test head
     run_test head-extra
-    run_test proxypersistency-1.0
     run_test chreq-simple
     run_test chreq-continue
     run_test chreq-continue-error
+    if [ -z "$SSL" ]; then     # does not work with ssl
+	run_test framed-proxyauth
+	run_test framed-proxy+basicauth
+	run_test proxypersistency-1.0
+	run_test bad-request
+    fi
+    if [ -n "$SSL" ]; then
+	run_test proxy-connect     # only ssl
+    fi
 else
     while [ "$#" -gt 0 ]; do
 	run_test "$1"

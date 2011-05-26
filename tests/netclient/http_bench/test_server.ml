@@ -9,8 +9,9 @@ type reaction =
   | Close_output
   | Sleep of int
   | Expect_end
-  | Reconnect
-  | Message_or_reconnect of int
+  | Reconnect of bool option
+  | Message_or_reconnect of int * bool option
+  | Starttls
 ;;
 
 
@@ -60,6 +61,7 @@ let main() =
   let protocol = ref false in
   let portfile = ref "server.port" in
   let ssl = ref false in
+  let rssl = ref None in
   Arg.parse
       [ "-portfile", Arg.String
 	              (fun s -> portfile := s),
@@ -93,21 +95,32 @@ let main() =
 	                 (fun _ -> spec := !spec @ [ !line, Expect_end ]),
 	            "       Ignore input until EOF is read";
 	"-reconnect", Arg.Unit 
-	                (fun _ -> spec := !spec @ [ !line, Reconnect ];
-                                  line := 0),
+	                (fun _ -> 
+			   spec := !spec @ [ !line, Reconnect !rssl ];
+			   rssl := None;
+                           line := 0),
 	           "        -expect-end + Allow another connection after EOF";
 	"-message-or-reconnect", 
 	   Arg.Int (fun n ->
-		      spec := !spec @ [ !line, Message_or_reconnect n ];
+		      spec := !spec @ [ !line, Message_or_reconnect(n,!rssl) ];
+		      rssl := None;
 		      line := 0),
 	"<n>  Either get a message of exactly n bytes, or assume -reconnect";
 	"-sleep", Arg.Int 
  	                (fun i -> spec := !spec @ [ !line, Sleep i ]),
 	       " <n>        Sleeps <n> seconds";
+	"-starttls", Arg.Unit (fun () -> spec := !spec @ [ !line, Starttls ]),
+	          "         Enables TLS at this point of the connection";
 	"-protocol", Arg.Set protocol,
                   "         turn protocol on stderr on";
 	"-ssl", Arg.Set ssl,
-	     "              enable SSL";
+	     "              enable SSL as default";
+	"-no-ssl", Arg.Clear ssl,
+	     "              disable SSL as default";
+	"-reconnect-ssl", Arg.Unit(fun () -> rssl := Some true),
+	     "              enable SSL for next -reconnect";
+	"-reconnect-no-ssl", Arg.Unit(fun () -> rssl := Some false),
+	     "              disable SSL for next -reconnect";
 	               
       ]
       (fun s -> failwith ("Bad argument: " ^ s))
@@ -154,14 +167,10 @@ without connection.
 
   Ssl.init();
 
-  let ctx_opt =
-    if !ssl then (
-      let ctx = Ssl.create_context Ssl.TLSv1 Ssl.Server_context in
-      Ssl.use_certificate ctx "ssl-cert-snakeoil.pem" "ssl-cert-snakeoil.key";
-      Some ctx
-    )
-    else
-      None in
+  let ctx = Ssl.create_context Ssl.TLSv1 Ssl.Server_context in
+  Ssl.use_certificate ctx "ssl-cert-snakeoil.pem" "ssl-cert-snakeoil.key";
+
+  let use_ssl = ref !ssl in
 
   while !wait_for_connection do
     wait_for_connection := false;   (* set to 'true' by Reconnect reaction *)
@@ -176,40 +185,43 @@ without connection.
     if !protocol then 
       prerr_endline "! ACCEPTED NEW CONNECTION";
 
-    let ops =
-      match ctx_opt with
-	| Some ctx ->
-	    let ssl_sock = Ssl.embed_socket conn ctx in
-	    Ssl.accept ssl_sock;
-	    if !protocol then 
-	      prerr_endline "! ACCEPTED SSL SESSION";
-	    ( object
-		method read s p n = 
-		  try Ssl.read ssl_sock s p n
-		  with Ssl.Read_error Ssl.Error_zero_return -> 0
-		    | Ssl.Read_error Ssl.Error_syscall ->
-			if !protocol then
-			  prerr_endline "! UNCLEAN SSL STATE";
-			0
-		method write s p n = Ssl.write ssl_sock s p n
-		method shutdown_in () = Ssl.shutdown ssl_sock
-		method shutdown_out () = 
-		  let (flag_in, flag_out) = Ssl_exts.get_shutdown ssl_sock in
-		  if not flag_out then
-		    Ssl_exts.single_shutdown ssl_sock
-		method close() = Ssl.shutdown ssl_sock; Unix.close conn
-	      end
-	    )
-	| None ->
-	    ( object
-		method read s p n = Unix.read conn s p n
-		method write s p n = Unix.single_write conn s p n
-		method shutdown_in () = Unix.shutdown conn Unix.SHUTDOWN_RECEIVE
-		method shutdown_out () = Unix.shutdown conn Unix.SHUTDOWN_SEND
-		method close() = Unix.close conn
-	      end
-	    ) in
+    let upgrade() =
+      let ssl_sock = Ssl.embed_socket conn ctx in
+      Ssl.accept ssl_sock;
+      if !protocol then 
+	prerr_endline "! ACCEPTED SSL SESSION";
+      ( object
+	  method read s p n = 
+	    try Ssl.read ssl_sock s p n
+	    with Ssl.Read_error Ssl.Error_zero_return -> 0
+	      | Ssl.Read_error Ssl.Error_syscall ->
+		  if !protocol then
+		    prerr_endline "! UNCLEAN SSL STATE";
+		  0
+	  method write s p n = Ssl.write ssl_sock s p n
+	  method shutdown_in () = Ssl.shutdown ssl_sock
+	  method shutdown_out () = 
+	    let (flag_in, flag_out) = Ssl_exts.get_shutdown ssl_sock in
+	    if not flag_out then
+		Ssl_exts.single_shutdown ssl_sock
+	  method close() = Ssl.shutdown ssl_sock; Unix.close conn
+	end
+      ) in
 
+    let ops =
+      if !use_ssl then 
+	ref(upgrade())
+      else
+	ref
+	  ( object
+	      method read s p n = Unix.read conn s p n
+	      method write s p n = Unix.single_write conn s p n
+	      method shutdown_in () = Unix.shutdown conn Unix.SHUTDOWN_RECEIVE
+	      method shutdown_out () = Unix.shutdown conn Unix.SHUTDOWN_SEND
+	      method close() = Unix.close conn
+	    end
+	  ) in
+    
     let connopen = ref true in
     let eof_sent = ref false in  (* i.e. write side closed *)
     let broken = ref false in    (* i.e. read side closed *)
@@ -233,7 +245,7 @@ without connection.
 	      let l = String.length fstring in
               begin try
 	        while !m < l do
-		  m := !m + ops#write fstring !m (l - !m)
+		  m := !m + !ops#write fstring !m (l - !m)
 	        done
               with
                  Unix.Unix_error(Unix.EPIPE,_,_) ->
@@ -244,23 +256,23 @@ without connection.
 	  | End ->
 	      if !protocol then
 		prerr_endline "SENDING EOF";
-	      ops#shutdown_out();
+	      !ops#shutdown_out();
 	      eof_sent := true;
 	  | Break_and_reconnect ->
 	      if !protocol then
 		prerr_endline "BREAKING CONNECTION";
-	      ops#close();
+	      !ops#close();
 	      broken := true;
 	      wait_for_connection := true;
 	      connopen := false;
 	  | Close_input ->
 	      if !protocol then
 		prerr_endline "CLOSING INPUT SIDE";
-	      ops#shutdown_in();
+	      !ops#shutdown_in();
 	  | Close_output ->
 	      if !protocol then
 		prerr_endline "CLOSING OUTPUT SIDE";
-	      ops#shutdown_out();
+	      !ops#shutdown_out();
 	  | Expect line ->
 	      let actual_line =
 		List.nth !lines (!n_lines - lineno) in
@@ -283,7 +295,7 @@ without connection.
 		  prerr_endline ("! GOT LINE '" ^ actual_line ^ "'");
 		  prerr_endline ("! THE LINE DOES NOT MATCH. SENDING EOF");
 		end;
-		ops#shutdown_out();
+		!ops#shutdown_out();
 		eof_sent := true;
 		failwith "Test failure";
 	      end
@@ -291,25 +303,42 @@ without connection.
 	      if !protocol then
 		prerr_endline "SLEEPING";
 	      Unix.sleep i
-	  | (Expect_end | Reconnect) ->
+	  | Starttls ->
+	      if !protocol then
+		prerr_endline "STARTTLS";
+	      ops := upgrade()
+	  | Expect_end ->
 	      if !protocol then
 		prerr_endline "! IGNORING INPUT UNTIL GETTING EOF";
 	      let k = ref 1 in
 	      while !k <> 0 do
-		k := ops#read buff 0 buffsize;
+		k := !ops#read buff 0 buffsize;
 		if !k > 0 & !protocol then
 		  prerr_endline ("! IGNORING " ^ string_of_int !k ^ " BYTES");
 	      done;
-	      if react = Reconnect then
-		wait_for_connection := true;
 	      connopen := false;
-	  | Message_or_reconnect n ->
+	  | Reconnect rssl ->
+	      if !protocol then
+		prerr_endline "! IGNORING INPUT UNTIL GETTING EOF";
+	      let k = ref 1 in
+	      while !k <> 0 do
+		k := !ops#read buff 0 buffsize;
+		if !k > 0 & !protocol then
+		  prerr_endline ("! IGNORING " ^ string_of_int !k ^ " BYTES");
+	      done;
+	      wait_for_connection := true;
+	      connopen := false;
+	      ( match rssl with
+		  | None -> use_ssl := !ssl
+		  | Some flag -> use_ssl := flag
+	      )
+	  | Message_or_reconnect (n,rssl) ->
 	      if !protocol then
 		eprintf "! WILL IGNORE %d BYTES, OR ANY BYTES UNTIL EOF\n%!" n;
 	      let k = ref n in
 	      let eof = ref false in
 	      while !k > 0 do
-		let p = ops#read buff 0 (min buffsize !k) in
+		let p = !ops#read buff 0 (min buffsize !k) in
 		if p > 0 && !protocol then
 		  prerr_endline ("! IGNORING " ^ string_of_int p ^ " BYTES");
 		if p = 0 then (
@@ -323,6 +352,10 @@ without connection.
 	      if !eof then (
 		connopen := false;
 		wait_for_connection := true;
+		( match rssl with
+		    | None -> use_ssl := !ssl
+		    | Some flag -> use_ssl := flag
+		)
 	      );
 	      n0 := 1    (* The next line has always number 1 *)
       done;
@@ -332,7 +365,7 @@ without connection.
       if not !broken then begin
 
 	(* let _ = Unix.select [ conn ] [] [] (-1.0) in*)
-	let k = ops#read buff 0 buffsize in
+	let k = !ops#read buff 0 buffsize in
       
 	if k = 0 then begin
 	  (* got EOF *)
@@ -363,11 +396,11 @@ without connection.
     if not !broken then begin
       if not !eof_sent then begin
 	if !protocol then prerr_endline "! IMMEDIATELY REPLYING EOF";
-	ops#shutdown_out();
+	!ops#shutdown_out();
 	eof_sent := true;
       end;
       if !protocol then prerr_endline "! CLOSING SOCKET";
-      ops#close();
+      !ops#close();
     end;
 
   done (* while !wait_for_connection *)

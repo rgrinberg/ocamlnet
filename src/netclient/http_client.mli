@@ -1023,7 +1023,7 @@ class pipeline :
 
     method set_proxy : string -> int -> unit
 	(** [set_proxy name port]:
-	 * sets that a proxy [name] listening on [port] is to be used
+	 * sets that an HTTP proxy [name] listening on [port] is to be used
 	 *)
 
     method set_proxy_auth : string -> string -> unit
@@ -1041,6 +1041,12 @@ class pipeline :
 	(** Inspect the environment variables [http_proxy] and [no_proxy]
 	 * and set the proxy options from them.
 	 *)
+
+    method set_socks5_proxy : string -> int -> unit
+      (** Sets that a SOCKS version 5 proxy is used at this host and port.
+	  There is no authentication. The [avoid_proxy_for] setting is
+	  honoured.
+       *)
 
     method configure_transport : 
              channel_binding_id -> transport_channel_type -> unit
