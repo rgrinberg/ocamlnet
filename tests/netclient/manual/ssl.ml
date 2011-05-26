@@ -12,10 +12,12 @@ let doit ?(proxy=false) () =
   let tct = Https_client.https_transport_channel_type ctx in
   p # configure_transport Http_client.https_cb_id tct ;
 
-  if proxy then
-    p # set_socks5_proxy "127.0.0.1" 1080;
+  if proxy then (
+    p # set_proxy "voip.camlcity.org" 3128;
+    p # set_proxy_auth "gerd" "BadNauHeimer"
+  );
 
-  let m1 = new get "https://godirepo.camlcity.org/" in
+  let m1 = new get "https://www.camlcity.org/" in
   p#add m1;
   p#run();
   m1

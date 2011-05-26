@@ -10,6 +10,9 @@
    - CONNECT - OK
      * localhost als proxy konfigurieren - OK
    - SOCKS - OK
+   - Always include "Proxy-Connection: keep-alive" headers
+   - CONNECT + auth in test suite
+   - check: upper/lowercase for "close" tokens etc.
    - HTTPS in Convenience
    - Netfs
    - Http_util stuff
@@ -17,6 +20,7 @@
    - Look for all "80" defaults
    - basic auth for CONNECT
    - Proxy: digest auth, also for CONNECT
+   - Proxy: allow foreign schemes, e.g. ftp: URLs
  *)
 
 (* Reference documents:
@@ -42,6 +46,7 @@ open Uq_engines.Operators
 exception Bad_message of string;;
 exception Http_error of (int * string);;
 exception Http_protocol of exn;;
+exception Proxy_error of int
 exception No_reply;;
 exception Too_many_redirections;;
 exception Name_resolution_error of string
@@ -1182,6 +1187,16 @@ object
 end
 
 
+let key ~user ~password ~realm ~domain =
+  ( object
+      method user = user
+      method password = password
+      method realm = realm
+      method domain = domain
+    end
+  )
+
+
 class type key_handler =
 object
   method inquire_key :
@@ -1250,10 +1265,23 @@ object(self)
 end
 
 
+class proxy_key_handler user password : key_handler =
+object
+  method inquire_key ~domain ~realms ~auth =
+    try
+      let realm = List.hd realms in
+      key ~domain ~realm ~user ~password
+    with _ -> raise Not_found
+  method invalidate_key _ = ()
+  
+end
+
+
 
 class type auth_handler =
 object
   method create_session : http_call -> auth_session option
+  method create_proxy_session : http_call -> auth_session option
 end
 
 
@@ -1262,18 +1290,22 @@ exception Not_applicable
 let get_domain_uri call =
   let h = call # get_host() in
   let p = call # get_port() in
-  "http://" ^ h ^ ":" ^ string_of_int p ^ "/"
+  let scheme = if call#is_https then "https" else "http" in
+  scheme ^ "://" ^ h ^ ":" ^ string_of_int p ^ "/"
 
 
 class basic_auth_session enable_auth_in_advance 
-                         key_handler init_call
+                         key_handler init_call for_proxy
                          : auth_session =
-  let domain = [ get_domain_uri init_call ] in
+  let domain = if for_proxy then [] else [ get_domain_uri init_call ] in
   let basic_realms =
     (* Return all "Basic" realms in www-authenticate, or raise Not_applicable *)
     let auth_list = 
       try
-	Nethttp.Header.get_www_authenticate init_call#response_header
+	if for_proxy then
+	  Nethttp.Header.get_proxy_authenticate init_call#response_header
+	else
+	  Nethttp.Header.get_www_authenticate init_call#response_header
       with
 	| Not_found -> raise Not_applicable
 	| Nethttp.Bad_header_field _ -> raise Not_applicable in
@@ -1320,7 +1352,9 @@ object(self)
       Netencoding.Base64.encode 
 	(key#user ^ ":" ^ key#password) in
     let cred = "Basic " ^ basic_cookie in
-    [ "Authorization", cred ]
+    let field_name = 
+      if for_proxy then "Proxy-Authorization" else "Authorization" in
+    [ field_name, cred ]
   method invalidate call =
     key_handler # invalidate_key key;
     false
@@ -1333,7 +1367,13 @@ class basic_auth_handler ?(enable_auth_in_advance=false)
 object(self)
   method create_session call =
     try
-      Some(new basic_auth_session enable_auth_in_advance key_handler call)
+      Some(new basic_auth_session enable_auth_in_advance key_handler call false)
+    with
+	Not_applicable ->
+	  None
+  method create_proxy_session call =
+    try
+      Some(new basic_auth_session enable_auth_in_advance key_handler call true)
     with
 	Not_applicable ->
 	  None
@@ -1346,7 +1386,7 @@ let contains_auth v =
 
 
 class digest_auth_session enable_auth_in_advance 
-                          key_handler init_call
+                          key_handler init_call for_proxy
                           : auth_session =
   let normalize_domain s =
     if s <> "" && s.[0] = '/' then
@@ -1367,7 +1407,10 @@ class digest_auth_session enable_auth_in_advance
     (* Return the "Digest" params in www-authenticate, or raise Not_applicable *)
     let auth_list = 
       try
-	Nethttp.Header.get_www_authenticate init_call#response_header
+	if for_proxy then
+	  Nethttp.Header.get_proxy_authenticate init_call#response_header
+	else
+	  Nethttp.Header.get_www_authenticate init_call#response_header
       with
 	| Not_found -> raise Not_applicable
 	| Nethttp.Bad_header_field _ -> raise Not_applicable in
@@ -1391,12 +1434,13 @@ class digest_auth_session enable_auth_in_advance
 	  params
   in
   let domain =
-    try 
-      List.map
-	normalize_domain
-	(split_words (List.assoc "domain" digest_request))
-    with
-	Not_found -> [ get_domain_uri init_call ] in
+    if for_proxy then [] else
+      try 
+	List.map
+	  normalize_domain
+	  (split_words (List.assoc "domain" digest_request))
+      with
+	  Not_found -> [ get_domain_uri init_call ] in
   let realm =
     try List.assoc "realm" digest_request
     with Not_found -> assert false in
@@ -1421,8 +1465,14 @@ class digest_auth_session enable_auth_in_advance
   let nonce =
     try List.assoc "nonce" digest_request
     with Not_found -> assert false in
+  let cnonce_init0 = 
+    try 
+      let s = String.make 8 'X' in
+      let () = Netsys_rng.fill_random s in
+      s
+    with _ -> string_of_float (Unix.gettimeofday()) in
 object(self)
-  val mutable cnonce_init = string_of_float (Unix.time())
+  val mutable cnonce_init = cnonce_init0
   val mutable cnonce_incr = 0
   val mutable nc = 0
   val mutable opaque = None
@@ -1508,7 +1558,9 @@ object(self)
 	   | "auth" -> "qop=auth,"
 	   | _ -> assert false)
 	nc in
-    [ "Authorization", creds ]
+    let field_name =
+      if for_proxy then "Proxy-Authorization" else "Authorization" in
+    [ field_name, creds ]
 
   method auth_scheme = "digest"
   method auth_domain = domain
@@ -1549,11 +1601,35 @@ class digest_auth_handler ?(enable_auth_in_advance=false)
 object(self)
   method create_session call =
     try
-      Some(new digest_auth_session enable_auth_in_advance key_handler call)
+      Some(new digest_auth_session enable_auth_in_advance key_handler call false)
+    with
+	Not_applicable ->
+	  None
+  method create_proxy_session call =
+    try
+      Some(new digest_auth_session enable_auth_in_advance key_handler call true)
     with
 	Not_applicable ->
 	  None
 end
+
+
+class unified_auth_handler (key_handler : #key_handler) : auth_handler =
+object(self)
+  method create_session call =
+    try Some(new digest_auth_session false key_handler call false)
+    with Not_applicable ->
+      try Some(new basic_auth_session false key_handler call false)
+      with Not_applicable ->
+	None
+  method create_proxy_session call =
+    try Some(new digest_auth_session false key_handler call true)
+    with Not_applicable ->
+      try Some(new basic_auth_session false key_handler call true)
+      with Not_applicable ->
+	None
+end
+
 
 
 let only_http =
@@ -2446,6 +2522,15 @@ let test_conn_keep_alive hdr =
   List.mem "keep-alive" conn_list
 
 
+let test_proxy_conn_close hdr =
+  let conn_list = 
+    try 
+      List.map String.lowercase
+	(hdr # multiple_field "proxy-connection")
+    with _ (* incl. syntax error *) -> [] in
+  List.mem "close" conn_list
+
+
 let test_proxy_conn_keep_alive hdr =
   let conn_list = 
     try 
@@ -2469,6 +2554,7 @@ let test_http_1_1 proto_str =
 
 let transmitter
   peer_is_proxy
+  proxy_auth_state
   (m : http_call) 
   (f_done : http_call -> unit)
   options
@@ -2478,8 +2564,10 @@ let transmitter
       val indicate_done = f_done
       val msg = m
 	
+(*
       val mutable auth_headers = []
 	(* Additional header for _proxy_ authentication *)
+ *)
 
       val mutable send_e_opt = None
       val mutable send_finish_e_opt = None
@@ -2511,8 +2599,14 @@ let transmitter
 	    else path
 	in
 	msg # private_api # set_effective_request_uri eff_uri;
-	let ah = 
+	let cah = 
 	  match msg # private_api # auth_state with
+	    | `None -> []
+	    | `In_advance session 
+	    | `In_reply session ->
+		session # authenticate msg in
+	let pah =
+	  match !proxy_auth_state with
 	    | `None -> []
 	    | `In_advance session 
 	    | `In_reply session ->
@@ -2522,7 +2616,7 @@ let transmitter
 	  (fun (n,v) ->
 	     rh # update_field n v
 	  )
-	  (auth_headers @ ah);
+	  (cah @ pah);
 	state <- Unprocessed;
 	if not (msg # has_req_body) then (
 	  (* Remove certain headers *)
@@ -2534,9 +2628,11 @@ let transmitter
 	(* release resources *)
 	msg # private_api # cleanup()
 
+(*
       method add_auth_header n v =
 	auth_headers <- (n,v) :: auth_headers
-	  
+ *)	
+  
       method error_if_unserved error =
 	msg # private_api # error_if_unserved !options.verbose_status error
 
@@ -2558,7 +2654,6 @@ let transmitter
 	  let rh = msg # request_header `Effective in
 	  let host = msg # get_host() in
 	  let port = msg # get_port() in
-	  (* FIXME: 443 for https? *)
 	  let host_str = host ^ (if port = 80 then "" 
 				 else ":" ^ string_of_int port) in
 	  rh # update_field "Host" host_str;
@@ -2762,13 +2857,22 @@ let transmitter
 	(* Return 'true' iff the reply is HTTP/1.1 compliant and does not
 	 * contain the 'connection: close' header.
 	 *)
+	let req_hdr = msg # request_header `Effective in
 	let b0 = 
-	  not(test_conn_close (msg # request_header `Effective)) in
+	  if peer_is_proxy then
+	    not(test_proxy_conn_close req_hdr) &&
+	      not(test_conn_close req_hdr)
+	  else
+	    not(test_conn_close req_hdr)  in
 	b0 && (
 	  let resp_header = msg # private_api # response_header in
 	  let proto_str = msg # private_api # response_proto in
 	  let b1 = 
-	    test_http_1_1 proto_str && not(test_conn_close resp_header) in
+	    if peer_is_proxy then
+	      test_http_1_1 proto_str && not(test_proxy_conn_close resp_header) 
+		&& not(test_conn_close resp_header) 
+	    else
+	      test_http_1_1 proto_str && not(test_conn_close resp_header) in
 	  b1 && (
 	    try
 	      let server = resp_header # field "Server" in
@@ -2797,7 +2901,10 @@ let transmitter
 	      (not (test_conn_close resp_header)) &&
 	      (is_http_11 || test_conn_keep_alive resp_header) in
 	  let proxy_persistency =
-	    peer_is_proxy && test_proxy_conn_keep_alive resp_header in
+	    peer_is_proxy && 
+	      (not (test_conn_close resp_header)) &&
+	      (not (test_proxy_conn_close resp_header)) &&
+	      (is_http_11 || test_proxy_conn_keep_alive resp_header) in
 	  normal_persistency || proxy_persistency
 	)
 	  
@@ -2878,7 +2985,7 @@ let rewrite_first_hop s =
 	`Socks5 ((s,port1),(host2,port2))
 
 
-let proxy_connect_e esys fd host port options =
+let proxy_connect_e esys fd host port options proxy_auth_handler_opt =
   (* Send the CONNECT line plus header, and wait for 200 *)
   (* FIXME: Handle authentication *)
   let mplex =
@@ -2893,38 +3000,72 @@ let proxy_connect_e esys fd host port options =
   let msg = new connect host_url in
   let hdr = msg # request_header `Effective in
   hdr # update_field "Host" host_url;
-  io#add (Send_header(0, msg#request_method, msg#effective_request_uri, 
-		      ( hdr :> Netmime.mime_header_ro )
-		      ));
-  io#configure_read ~fetch_call:(fun () -> msg) ();
-  io#write_e esys
-  ++ (fun () ->
-	io#read_e esys
-	++ (function
-	      | None ->
-		  failwith "EOF from proxy server"
-	      | Some m ->
-		  assert(m = msg);
-		  ( match m#status with
-		      | `Unserved ->
-			  assert false
-		      | `Http_protocol_error err ->
-			  failwith ("Exception from proxy connection: " ^ 
-				      Netexn.to_string err)
-		      | `Redirection
-		      | `Client_error
-		      | `Server_error ->
-			  failwith ("Unexpected status code from proxy: " ^ 
-				      string_of_int m#response_status_code)
-		      | `Successful ->
-			  eps_e (`Done ()) esys
-		  )
+  hdr # update_field "Proxy-Connection" "keep-alive";
+  hdr # update_field "Connection" "keep-alive";
+
+  let rec request_e proxy_session_opt =
+    io#add (Send_header(0, msg#request_method, msg#effective_request_uri, 
+			( hdr :> Netmime.mime_header_ro )
+		       ));
+    io#configure_read ~fetch_call:(fun () -> msg) ();
+    io#write_e esys
+    ++ (fun () ->
+	  io#read_e esys
+	  ++ (function
+		| None ->
+		    failwith "EOF from proxy server"
+		| Some m ->
+		    assert(m = msg);
+		    ( try
+			if m#response_status_code = 407 && 
+			  proxy_session_opt = None &&
+			  proxy_auth_handler_opt <> None
+			then (
+			  let ah =
+			    match proxy_auth_handler_opt with
+			      | None -> assert false
+			      | Some ah -> ah in
+			  let sess =
+			    match ah # create_proxy_session msg with
+			      | None -> raise Not_found
+			      | Some sess -> sess in
+			  let pah = sess # authenticate msg in
+			  List.iter
+			    (fun (n,v) ->
+			       hdr # update_field n v
+			    )
+			    pah;
+			  request_e (Some sess)
+			)
+			else 
+			  raise Not_found
+		      with Not_found ->
+			match m#status with
+			  | `Unserved ->
+			      assert false
+			  | `Http_protocol_error err ->
+			      failwith ("Exception from proxy connection: " ^ 
+					  Netexn.to_string err)
+			  | `Redirection
+			  | `Client_error
+			  | `Server_error ->
+			      raise(Proxy_error m#response_status_code)
+			  | `Successful ->
+			      eps_e (`Done ()) esys
+		    )
 	   )
+       )
+  in
+  request_e None
+  >> (function
+	| `Error (Garbage_received msg) ->
+	    `Error (Bad_message msg)
+	| st -> st
      )
-  
 
 
-let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options =
+let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options 
+                  proxy_auth_handler_opt =
   (* An engine connecting to peer_host:peer_port. If a connection is still
      available in conn_cache, use this instead.
 
@@ -3033,7 +3174,8 @@ let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options =
 			  ( match peer with
 			      | `Http_proxy_connect(_,(host2,port2)) ->
 				  proxy_connect_e
-				    esys fd host2 port2 options
+				    esys fd host2 port2 options 
+				    proxy_auth_handler_opt
 				  ++ setup_e
 			      | _ ->
 				  setup_e()
@@ -3111,7 +3253,7 @@ let http_transport_channel_type : transport_channel_type =
 let fragile_pipeline 
        esys  cb
        peer
-       (proxy_user,proxy_password) 
+       proxy_auth_state proxy_auth_handler_opt
        fd mplex connect_time no_pipelining conn_cache
        auth_cache
        counters options =
@@ -3170,6 +3312,7 @@ let fragile_pipeline
        *)
       val mutable inhibit_pipelining_byserver = no_pipelining
  
+(*
       (* Proxy authorization: If 'proxy_user' is non-empty, the variables
        * 'proxy_user' and 'proxy_password' are interpreted as user and
        * password for proxy authentication. More precisely, once the proxy
@@ -3181,6 +3324,7 @@ let fragile_pipeline
        *)
       val mutable proxy_credentials_required = false
       val mutable proxy_cookie = ""
+ *)
 
       (* Whether this connection never proves to exchange a message: *)
       val mutable total_failure = false
@@ -3250,13 +3394,15 @@ let fragile_pipeline
 	(* Create the transport container for the message and add it to the
 	 * queues:
 	 *)
-	let trans = transmitter peer_is_proxy m f_done options in
+	let trans = 
+	  transmitter peer_is_proxy proxy_auth_state m f_done options in
 	
 	(* If proxy authentication is enabled, and it is already known that
 	 * the proxy demands authentication, add the necessary header fields: 
 	 * (See also the code and the comments in method 
 	 * 'postprocess_complete_message')
 	 *)
+(*
 	if proxy_credentials_required  &&  peer_is_proxy then begin
 	  (* If the cookie is not yet computed, do this now: *)
 	  if proxy_cookie = "" then
@@ -3265,7 +3411,22 @@ let fragile_pipeline
 	  (* Add the "proxy-authorization" header: *)
 	  trans # add_auth_header "proxy-authorization" ("Basic " ^ proxy_cookie)
 	end;
+ *)
 	
+(* (* would not work, so leave disabled *)
+	if !proxy_auth_state = `None then (
+	  match proxy_auth_handler_opt with
+	    | None -> ()
+	    | Some ah ->
+		(* enable in-advance authentication *)
+		( match ah # create_proxy_session m with
+		    | None -> ()
+		    | Some sess ->
+			proxy_auth_state := `In_advance sess
+		)
+	);
+ *)
+
 	(* Initialize [trans] for transmission: *)
 	trans # init();
 	
@@ -3924,80 +4085,41 @@ let fragile_pipeline
 
       let msg = trans # message in
       let code = msg # private_api # response_code in
-      let req_hdr = msg # request_header `Effective in
+      let _req_hdr = msg # request_header `Effective in
       let _resp_hdr = msg # private_api # response_header in
       match code with
-	| 407 ->
+	| 407 when peer_is_proxy ->
 	    (* --------- Proxy authorization required: ---------- *)
-	    if
-	      try 
-		let _ = req_hdr # field "proxy-authorization" in
-		if !options.verbose_status then
-		  dlogr
-		    (fun () ->
-		       sprintf "Call %d - HTTP auth: proxy authentication \
-                                required again" (Oo.id trans));
-		false
-	      with Not_found -> true
-	    then begin
-	      (* The request did not contain the "proxy-authorization" header.
-	       * Enable proxy authentication if there is a user/password pair.
-	       * Otherwise, do the default action.
-	       *)
-	      if peer_is_proxy then begin
-		if !options.verbose_status then
-		  dlogr
-		    (fun () ->
-		       sprintf "Call %d - HTTP auth: proxy authentication \
-                                required" (Oo.id trans));
-		if proxy_user <> "" then begin
-		  (* We have a user/password pair: Enable proxy authentication
-		   * and add 'msg' again to the queue of messages to be
-		   * processed.
-		   * Note: Following the HTTP protocol standard, the header
-		   * of the response contains a 'proxy-authenticate' field
-		   * with the authentication method and the realm. This is
-		   * not supported; the method is always "basic" and realms
-		   * are not distinguished.
-		   *)
-		  if not proxy_credentials_required then begin
-		    proxy_credentials_required <- true;
-		    proxy_cookie <- "";
-		  end;
-		  if !options.verbose_status then
-		    dlogr
-		      (fun () ->
-			 sprintf "Call %d - HTTP auth: proxy credentials \
-                                  added" (Oo.id trans));
-		  ignore (self # add true trans#message trans#f_done);
-		  eps_e (`Done()) esys
-		end
-		else (
-		  (* No user/password pair: We cannot authorize ourselves. *)
-		  if !options.verbose_status then
-		    dlogr
-		      (fun () ->
-			 sprintf "Call %d - HTTP auth: user/password missing"
-			   (Oo.id trans));
-		  default_action_e()
-		)
-	      end
-	      else (
-		(* The server was not contacted as a proxy, but it demanded
-		 * proxy authorization. Regard this as an intrusion.
-		 *)
-		if !options.verbose_status then
-		  dlogr
-		    (fun () ->
-		       sprintf "Call %d - HTTP auth: intrusion by proxy \
-                                authentication" (Oo.id trans));
-		default_action_e()
-	      )
-	    end
-	    else 
-	      (* The request did already contain "proxy-authenticate". *)
+	    let try_again =
+	      match !proxy_auth_state with
+		| `None
+		| `In_advance _ -> 
+		    true
+		| `In_reply sess ->
+		    (* A previous attempt failed. *)
+		    let continue = sess # invalidate msg in
+		    if not continue then proxy_auth_state := `None;
+		    continue
+	    in
+	    if try_again then (
+	      match proxy_auth_handler_opt with
+		| None ->
+		    default_action_e()
+		| Some ah ->
+		    (match ah # create_proxy_session msg with
+		       | None ->
+			   (* Authentication failed immediately *)
+			   proxy_auth_state := `None;
+			   default_action_e()
+		       | Some sess ->
+			   (* Remember the new session: *)
+			   proxy_auth_state := `In_reply sess;
+			   ignore (self # add true trans#message trans#f_done);
+			   eps_e (`Done()) esys
+		    )
+    	    )
+	    else
 	      default_action_e()
-	      
 	| 401 ->
 	    (* -------- Content server authorization required: ---------- *)
 	    (* Unless a previous authentication attempt failed, just create
@@ -4055,7 +4177,7 @@ let fragile_pipeline
 let robust_pipeline 
       esys tp cb
       peer
-      (proxy_user,proxy_password) 
+      proxy_auth_handler_opt
       conn_cache conn_owner 
       auth_cache
       counters options =
@@ -4063,6 +4185,8 @@ let robust_pipeline
      message is added, and that is able to reconnect as often as
      necessary
    *)
+
+  let proxy_auth_state =  ref `None in
 
   ( object(self)
       val mutable fp_opt = None
@@ -4181,7 +4305,8 @@ let robust_pipeline
 	  connect_pause
 	  (fun () ->
 	     tcp_connect_e 
-	       esys tp cb peer conn_cache conn_owner options
+	       esys tp cb peer conn_cache conn_owner options 
+	       proxy_auth_handler_opt
 	  )
 	  esys in
       connecting <- Some e;
@@ -4197,7 +4322,7 @@ let robust_pipeline
 		    let fp =
 		      fragile_pipeline
 			esys cb peer
-			(proxy_user,proxy_password) 
+			proxy_auth_state proxy_auth_handler_opt
 			fd mplex t no_pipelining conn_cache
 			auth_cache
 			counters options in
@@ -4568,10 +4693,16 @@ class pipeline =
 	      try Hashtbl.find transports cb
 	      with Not_found ->
 		failwith "Http_client: No transport for this channel binding" in
+	    let proxy_auth_handler_opt =
+	      if proxy_auth then
+		let kh = new proxy_key_handler proxy_user proxy_password in
+		Some(new unified_auth_handler kh)
+	      else
+		None in
 	    let new_conn = robust_pipeline
 	                     esys tp cb
 	                     peer
-	                     (proxy_user, proxy_password) 
+	                     proxy_auth_handler_opt
 			     conn_cache
 			     (self :> < >)
 			     auth_cache

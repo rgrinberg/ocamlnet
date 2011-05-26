@@ -115,7 +115,8 @@ if [ "$#" = "0" ]; then
     run_test unframed-request
     run_test framed-basicauth
     run_test framed-basicauth-fails
-    #run_test framed-digestauth    # cnonce cannot be predicted!
+    run_test framed-digestauth    # cnonce is hard set by manipulating rng
+    run_test framed-digestauth-close
     run_test three-messages
     run_test three-messages-incl-simple
     run_test continue
@@ -126,6 +127,7 @@ if [ "$#" = "0" ]; then
     run_test three-continued-messages
     run_test three-very-continued-messages
     run_test three-big-messages
+    run_test quick-200
     run_test early-error
     run_test pipeline-phantasy
     run_test nopersistency-1.0
@@ -152,8 +154,10 @@ if [ "$#" = "0" ]; then
     if [ -z "$SSL" ]; then     # does not work with ssl
 	run_test framed-proxyauth
 	run_test framed-proxy+basicauth
+	run_test framed-proxyauth-digest
+	run_test framed-proxyauth-digest-close
 	run_test proxypersistency-1.0
-	run_test bad-request
+	run_test bad-request   # server test function not ported to ssl
     fi
     if [ -n "$SSL" ]; then
 	run_test proxy-connect     # only ssl

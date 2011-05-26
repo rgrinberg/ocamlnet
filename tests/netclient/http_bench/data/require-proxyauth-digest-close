@@ -1,0 +1,7 @@
+HTTP/1.1 407 Proxy Authentication Required
+content-type: text/plain
+content-length: 30
+proxy-authenticate: Digest realm="testrealm", nonce="948647427"
+proxy-connection: close
+
+Proxy Authentication Required

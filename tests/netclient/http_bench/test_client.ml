@@ -46,6 +46,14 @@ let main() =
 
   Ssl.init();
 
+  Netsys_rng.set_rng
+    (fun s ->
+       (* Make this predictable *)
+       for k = 0 to String.length s - 1 do
+	 s.[k] <- Char.chr (k land 255)
+       done
+    );
+
   let setup () =
     if !verbose then begin
       let opt = !pipeline # get_options in

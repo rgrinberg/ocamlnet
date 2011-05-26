@@ -93,6 +93,11 @@ exception Timeout of string
       {b New since Ocamlnet-3.3.}
    *)
 
+exception Proxy_error of int
+  (** An error status from a proxy. This is only used when extra proxy messages
+      are used to configure the proxy (e.g. the CONNECT message).
+   *)
+
 exception Http_protocol of exn;;
   (** The request could not be processed because the exception condition 
    * was raised. The inner exception is one of the above defined.
@@ -778,9 +783,15 @@ object
     (** The realm *)
   method domain : string list
     (** The domain URIs defining the protection space. The domain URIs
-     * are absolute URIs. The list must not be empty.
+     * are absolute URIs. The list must not be empty for content accesses.
+     * For proxy keys the list must be empty.
      *)
 end
+
+
+val key : user:string -> password:string -> realm:string -> 
+          domain:string list -> key
+  (** Create a key object *)
 
 
 class type key_handler =
@@ -867,6 +878,8 @@ object
   method create_session : http_call -> auth_session option
     (** Create a new authentication session. The passed call has status 401.
      *)
+  method create_proxy_session : http_call -> auth_session option
+    (** Same for proxy authentication *)
 end
 
 class basic_auth_handler : 
@@ -897,6 +910,14 @@ class digest_auth_handler :
     * done in advance, i.e. before the server requests authentication.
     * This reduces the number of messages exchanged with the server, but
     * may be an additional security risk.
+   *)
+
+class unified_auth_handler : #key_handler -> auth_handler
+  (** Support both digest and basic authentication, with preference to
+      digest.
+
+      Note that there is no way of authenticating in advance, as it is
+      not known in advance which mechanism is used.
    *)
 
 
@@ -1027,8 +1048,8 @@ class pipeline :
 	 *)
 
     method set_proxy_auth : string -> string -> unit
-	(** sets user and password for the proxy. Only the "basic" 
-         * authentication method is implemented.
+	(** sets user and password for the proxy. Works for both "digest"
+	    and "basic" mechanisms. Any realm is acceptable.
 	 *)
 
     method avoid_proxy_for : string list -> unit

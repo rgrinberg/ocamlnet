@@ -3,6 +3,7 @@ open Printf
 type reaction =
     Print_file of string
   | Expect of string
+  | Expect_re of string
   | End
   | Break_and_reconnect
   | Close_input
@@ -91,6 +92,8 @@ let main() =
         "                   Close only the output side of the connection; continue";
 	"-expect", Arg.String (fun s -> spec := !spec @ [ !line, Expect s ]),
 	        " <string>  Expect that the last input line has these contents";
+	"-expect-re", Arg.String (fun s -> spec := !spec @ [ !line, Expect_re s ]),
+	        " <regexp>  Expect that the last input line has these contents";
 	"-expect-end", Arg.Unit 
 	                 (fun _ -> spec := !spec @ [ !line, Expect_end ]),
 	            "       Ignore input until EOF is read";
@@ -181,6 +184,8 @@ without connection.
 
     let conn, peer = Unix.accept s in
     n0 := 1;
+    lines := [];
+    n_lines := 0;
 
     if !protocol then 
       prerr_endline "! ACCEPTED NEW CONNECTION";
@@ -221,6 +226,7 @@ without connection.
 	      method close() = Unix.close conn
 	    end
 	  ) in
+
     
     let connopen = ref true in
     let eof_sent = ref false in  (* i.e. write side closed *)
@@ -232,6 +238,18 @@ without connection.
       while !connopen & !thisspec <> [] & fst(List.hd !thisspec) < !n0 do
 	let (lineno, react) :: rest_spec = !thisspec in
 	thisspec := rest_spec;
+
+	let get_current_line() =
+	  let actual_line =
+	    List.nth !lines (!n_lines - lineno) in
+	  let l_actual_line =
+	    String.length actual_line in
+	  if actual_line <> "" && actual_line.[l_actual_line - 1] = '\r'
+	  then
+	    String.sub actual_line 0 (l_actual_line-1)
+	  else
+	    actual_line in
+
 	if !protocol then
 	  prerr_string ("! EVENT ON #" ^ string_of_int lineno ^ ": ");
 	match react with
@@ -274,19 +292,27 @@ without connection.
 		prerr_endline "CLOSING OUTPUT SIDE";
 	      !ops#shutdown_out();
 	  | Expect line ->
-	      let actual_line =
-		List.nth !lines (!n_lines - lineno) in
-	      let l_actual_line =
-		String.length actual_line in
-	      let actual_line =
-		if actual_line <> "" && actual_line.[l_actual_line - 1] = '\r'
-		then
-		  String.sub actual_line 0 (l_actual_line-1)
-		else
-		  actual_line in
+	      let actual_line = get_current_line() in
 	      if !protocol then
 		prerr_endline ("EXPECTING LINE '" ^ line ^ "'");
 	      if actual_line = line then begin
+		if !protocol then
+		  prerr_endline ("! THE LINE MATCHED")
+	      end
+	      else begin
+		if !protocol then begin
+		  prerr_endline ("! GOT LINE '" ^ actual_line ^ "'");
+		  prerr_endline ("! THE LINE DOES NOT MATCH. SENDING EOF");
+		end;
+		!ops#shutdown_out();
+		eof_sent := true;
+		failwith "Test failure";
+	      end
+	  | Expect_re line ->
+	      let actual_line = get_current_line() in
+	      if !protocol then
+		prerr_endline ("EXPECTING LINE MATCHING '" ^ line ^ "'");
+	      if Pcre.pmatch ~pat:line actual_line then begin
 		if !protocol then
 		  prerr_endline ("! THE LINE MATCHED")
 	      end

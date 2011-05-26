@@ -1,1 +1,1 @@
-Http_protocol: Http_client.Timeout("Existing connection to localhost:X")
+Http_protocol: Http_client.Timeout("direct connection to localhost:X")

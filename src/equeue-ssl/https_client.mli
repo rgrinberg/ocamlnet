@@ -43,3 +43,30 @@ val https_transport_channel_type : Ssl.context -> transport_channel_type
     For each message needing a specific context, just set the
     channel binding ID (method [set_channel_binding] of the message).
  *)
+
+(** {2 Features and limitations} 
+
+    We only implement RFC 2618, i.e. secure connections on a separate
+    port (443 instead of 80). There is no support (yet) for RFC 2617,
+    i.e. upgrading an existing insecure connection to a secure one.
+
+    If an HTTP proxy server is configured, the TLS connection is established
+    via the CONNECT method (documented in RFC 2617).
+
+    There is a limitation if the CONNECT method needs to be
+    authenticated: During authentication the connection must not be
+    closed. As a rule of thumb, a proxy with HTTP/1.1 support will act
+    fine (like Apache). If the proxy supports only HTTP/1.0 (as the
+    whole 2.x line of Squid, for instance), things may go wrong. Many
+    versions of Squid seem to always close the connection after sending
+    out a 407 status code. The client would have then to reconnect, and
+    retry CONNECT with the right authentication data. Because of the
+    structure of {!Http_client} this is hard to implement for us,
+    and it would only be done to support ancient protocol versions.
+    Better upgrade your proxy to a recent version (which will also improve
+    speed).
+    
+    Alternatively, it is also possible to connect via SOCKS version 5
+    proxies.
+
+ *)
