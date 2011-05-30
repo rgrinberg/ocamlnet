@@ -117,6 +117,7 @@ if [ "$#" = "0" ]; then
     run_test framed-basicauth-fails
     run_test framed-digestauth    # cnonce is hard set by manipulating rng
     run_test framed-digestauth-close
+    run_test framed-gzip
     run_test three-messages
     run_test three-messages-incl-simple
     run_test continue
@@ -161,6 +162,8 @@ if [ "$#" = "0" ]; then
     fi
     if [ -n "$SSL" ]; then
 	run_test proxy-connect     # only ssl
+	run_test proxy-connect-digestauth
+	run_test proxy-connect-digestauth-close
     fi
 else
     while [ "$#" -gt 0 ]; do

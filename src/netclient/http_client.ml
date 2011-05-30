@@ -9,19 +9,31 @@
    - suite - OK
    - CONNECT - OK
      * localhost als proxy konfigurieren - OK
+     * basic auth for CONNECT -OK
+     * Proxy: digest auth, also for CONNECT - OK
+   - CONNECT + auth in test suite - OK
    - SOCKS - OK
-   - Always include "Proxy-Connection: keep-alive" headers
-   - CONNECT + auth in test suite
-   - check: upper/lowercase for "close" tokens etc.
-   - HTTPS in Convenience
-   - Netfs
+   - Always include "Proxy-Connection: keep-alive" headers - OK
+   - check: upper/lowercase for "close" tokens etc. - OK
+   - Look for all "80" defaults - OK
+   - Netfs - OK
+   - HTTPS in Convenience - OK
+   - GZIP response - OK
    - Http_util stuff
-   - Channel bindings: messages can define list!
-   - Look for all "80" defaults
-   - basic auth for CONNECT
-   - Proxy: digest auth, also for CONNECT
    - Proxy: allow foreign schemes, e.g. ftp: URLs
  *)
+
+(* TODO:
+   - Also support automatic compression of uploads. Be prepared to get
+     a 415 response, and fall back to [identity] (or whatever is available)
+     Plan:
+     * message: set_content_encoding
+     * message, private-api: allow automatic compression in open_value_rd
+     * Uq_io: implement filter_in_buffer
+     * postprocess: intercept 415 responses, and choose a different
+       encoding
+ *)
+
 
 (* Reference documents:
  * RFC 2068, 2616:      HTTP 1.1
@@ -52,6 +64,7 @@ exception Too_many_redirections;;
 exception Name_resolution_error of string
 exception URL_syntax_error of string
 exception Timeout of string
+exception Response_too_large
 
 let () =
   Netexn.register_printer
@@ -349,16 +362,6 @@ type 'session auth_state =  (* 'session = auth_session, defined below *)
          (* This session was tried after a 401 response was seen *)
     ]
 
-type out_channel_or_device =
-    [ `Channel of Netchannels.out_obj_channel
-    | `Device of Uq_io.out_device
-    ]
-
-type in_channel_or_device =
-    [ `Channel of Netchannels.in_obj_channel
-    | `Device of Uq_io.in_device
-    ]
-
 class type http_call =
 object
   method is_served : bool
@@ -375,6 +378,7 @@ object
   method request_body : Netmime.mime_body
   method set_request_body : Netmime.mime_body -> unit
   method set_request_device : (unit -> Uq_io.in_device) -> unit
+  method set_accept_encoding : unit -> unit
   method response_status_code : int
   method response_status_text : string
   method response_status : Nethttp.http_status
@@ -383,6 +387,8 @@ object
   method response_body : Netmime.mime_body
   method response_body_storage : response_body_storage
   method set_response_body_storage : response_body_storage -> unit
+  method max_response_body_length : int64
+  method set_max_response_body_length : int64 -> unit
   method get_reconnect_mode : http_call how_to_reconnect
   method set_reconnect_mode : http_call how_to_reconnect -> unit
   method get_redirect_mode : http_call how_to_redirect
@@ -421,6 +427,7 @@ object
   method get_error_counter : int
   method set_error_counter : int -> unit
   method set_error_exception : exn -> unit
+  method error_exception : exn option
 
   method error_if_unserved : bool -> exn -> unit
 
@@ -454,9 +461,9 @@ object
     (* code, text, proto *)
   method set_response_header : Netmime.mime_header -> unit
     (* Sets the response header *)
-  method response_body_open_wr : unit -> out_channel_or_device
+  method response_body_open_wr : Unixqueue.event_system -> Uq_io.out_device
     (* Opens the response body for writing *)
-  method request_body_open_rd : unit -> in_channel_or_device
+  method request_body_open_rd : Unixqueue.event_system -> Uq_io.in_device
     (* Opens the request body for reading *)
   method finish_request_e : Unixqueue.event_system -> unit Uq_engines.engine
     (* Finish the request part of the call *)
@@ -471,6 +478,9 @@ object
   method response_code : int
   method response_proto : string
   method response_header : Netmime.mime_header
+
+  method decompression_enabled : bool
+
   method dump_status : unit -> unit
   method dump_response_header : unit -> unit
   method dump_response_body : unit -> unit
@@ -531,6 +541,8 @@ object(self)
   val mutable resp_header = new Netmime.basic_mime_header []
   val mutable resp_header_set = false
   val mutable resp_body = None
+  val mutable resp_body_max = Int64.max_int
+  val mutable resp_decompress = false
 
   val mutable resp_body_storage = (`Memory : response_body_storage)
   val mutable reconn_mode = Send_again_if_idem
@@ -578,16 +590,12 @@ object(self)
 (* eprintf "release_resources call=%d\n%!" (Oo.id self); *)
 	  ( match req_handle with
 	      | None -> ()
-	      | Some (`Channel ch) -> 
-		  ch # close_in(); req_handle <- None
-	      | Some (`Device d) ->
+	      | Some d ->
 		  Uq_io.inactivate d; req_handle <- None
 	  );
 	  ( match resp_handle with
 	      | None -> ()
-	      | Some (`Channel ch) -> 
-		  ch # close_out(); resp_handle <- None
-	      | Some (`Device d) ->
+	      | Some d ->
 		  Uq_io.inactivate d; resp_handle <- None
 	  );
 	  ( match continue_e with
@@ -637,6 +645,8 @@ object(self)
 
 	method set_effective_request_uri s = eff_req_uri <- s
 
+	method decompression_enabled = resp_decompress
+
 
 	method prepare_transmission () =
 	  pself # release_resources();
@@ -663,16 +673,18 @@ object(self)
 	  continue_aborted <- false;
 	  continue_100 <- false
 
-	method request_body_open_rd() =
+	method request_body_open_rd esys =
 	  match req_dev with
 	    | Some f ->
 		let d = f() in
-		req_handle <- Some (`Device d);
-		`Device d
+		req_handle <- Some d;
+		d
 	    | _ ->
 		let ch = req_body # open_value_rd() in
-		req_handle <- Some (`Channel ch);
-		`Channel ch
+		let d = 
+		  `Async_in(new Uq_engines.pseudo_async_in_channel ch,esys) in
+		req_handle <- Some d;
+		d
 
 
 	method set_response_status code text proto =
@@ -685,17 +697,48 @@ object(self)
 	  resp_header_set <- true;
 	  assert(resp_code <> 0);
 
-	method response_body_open_wr() =
-	  match resp_body_storage with
-	    | `Device f ->
-		let d = f() in
-		resp_handle <- Some (`Device d);
-		`Device d
-	    | _ ->
-		let rbody = self#resp_body in
-		let ch = rbody # open_value_wr() in
-		resp_handle <- Some (`Channel ch);
-		`Channel ch
+	method response_body_open_wr esys =
+	  let d0 =
+	    match resp_body_storage with
+	      | `Device f ->
+		  f()
+	      | _ ->
+		  let rbody = self#resp_body in
+		  let ch = rbody # open_value_wr() in
+		  `Async_out(new Uq_engines.pseudo_async_out_channel ch,esys) in
+	  (* Check for maximum response length: *)
+	  let c = ref 0L in
+	  let c_max = self # max_response_body_length in
+	  let out_count n =
+	    c := Int64.add !c (Int64.of_int n);
+eprintf "out_count n=%d c=%Ld\n%!" n !c;
+	    if !c > c_max then raise Response_too_large in
+	  let d1 = `Count_out(out_count, d0) in
+	  (* Check for decompression: *)
+	  let d2 =
+	    if pself#decompression_enabled then
+	      let algos = 
+		try Nethttp.Header.get_content_encoding resp_header
+		with Not_found -> [] in
+	      match algos with
+		| [ algo ] ->
+		    ( try 
+			let decoder = 
+			  Netcompression.lookup_decoder ~iana_name:algo () in
+			resp_header # delete_field "Content-Encoding";
+			let b = 
+			  Uq_io.filter_out_buffer
+			    ~max:(Some 4096) decoder d1 in
+			`Buffer_out b
+		      with
+			| Not_found -> d1
+		    )
+		| _ -> 
+		    d1
+	    else
+	      d1 in
+	  resp_handle <- Some d2;
+	  d2
 
 	method response_code = resp_code
 	method response_proto = resp_proto
@@ -707,11 +750,7 @@ object(self)
 	  match req_handle with
 	    | None ->
 		eps_e (`Done ()) esys
-	    | Some (`Channel ch) ->
- 		req_handle <- None;
-		ch # close_in();
-		eps_e (`Done ()) esys
-	    | Some (`Device d) ->
+	    | Some d ->
 		req_handle <- None;
 		Uq_io.shutdown_e d
 		>> (fun st -> Uq_io.inactivate d; st)
@@ -732,11 +771,8 @@ object(self)
 	  match resp_handle with
 	    | None ->
 		eps_e (`Done ()) esys
-	    | Some (`Channel ch) ->
-		resp_handle <- None;
-		ch # close_out();
-		eps_e (`Done ()) esys
-	    | Some (`Device d) ->
+	    | Some d ->
+(* prerr_endline "Http_cllent SHUTDOWN"; *)
 		resp_handle <- None;
 		Uq_io.shutdown_e d
 		>> (fun st -> Uq_io.inactivate d; st)
@@ -770,6 +806,11 @@ object(self)
 	  );
 	  (* do this last - it can trigger user callback functions: *)
 	  pself # release_resources();
+
+	method error_exception =
+	  match status with
+	    | `Http_protocol_error x -> Some x
+	    | _ -> None
 
 	method cleanup () =
 	  pself # release_resources()
@@ -849,6 +890,15 @@ object(self)
 
   method effective_request_uri = eff_req_uri
 
+  method set_accept_encoding() =
+    let all_algos =
+      Netcompression.all_decoders() in
+    Nethttp.Header.set_accept_encoding
+      req_base_header
+      (if all_algos = [] then ["identity",[]] else
+	 (List.map (fun token -> (token,[])) all_algos));
+    resp_decompress <- true
+
   (* Accessing the response message (new style) *)
 
   method private check_response() =
@@ -879,6 +929,8 @@ object(self)
 
   method response_body_storage = resp_body_storage
   method set_response_body_storage s = resp_body_storage <- s
+  method max_response_body_length = resp_body_max
+  method set_max_response_body_length n = resp_body_max <- n
   method get_reconnect_mode = reconn_mode
   method set_reconnect_mode m = reconn_mode <- m
   method get_redirect_mode = redir_mode
@@ -1060,7 +1112,10 @@ object(self)
   method private def_request_method = "CONNECT"
   method private def_is_idempotent = false
   method private def_has_req_body = false
-  method private def_has_resp_body = false
+  method private def_has_resp_body = true
+    (* This is broken to some degree. See the comment below on when
+       CONNECT has a response body
+     *)
   method private def_empty_path_replacement = "/"
 end
 
@@ -1888,9 +1943,9 @@ type sockstate =
 type send_token =
   | Send_header of int * string * string * Netmime.mime_header_ro
       (* call_id, method, url, header *)
-  | Send_body of in_channel_or_device * int64 option
+  | Send_body of Uq_io.in_device * int64 option
       (* data, length_opt *)
-  | Send_body_chunked of in_channel_or_device
+  | Send_body_chunked of Uq_io.in_device
   | Send_eof
 
 
@@ -2104,17 +2159,19 @@ let io_buffer options fd mplex fd_state : io_buffer =
 	)
 
       and read_body_e code header call =
-	(* First determine whether a body is expected: *)
+	(* First determine whether a body is expected: 
+	   - Normally, the call has either always a body (like GET), or
+	     it does not (like HEAD). Exceptions are only the codes 204
+	     and 304
+	   - The CONNECT method is broken in this respect. If a 200
+	     response is emitted, the response body is missing. Any
+	     error response includes a body, though.
+	 *)
 	let have_body =
-	  call # has_resp_body && code <> 204 && code <> 304 in
+	  call # has_resp_body && code <> 204 && code <> 304 &&
+	    (call # request_method <> "CONNECT" || code >= 300) in
 	if have_body then (
-	  let out = call # private_api # response_body_open_wr() in
-	  let out_dev =
-	    match out with
-	      | `Channel ch ->
-		  `Async_out(new Uq_engines.pseudo_async_out_channel ch, esys)
-	      | `Device dev ->
-		  dev in
+	  let out_dev = call # private_api # response_body_open_wr esys in
 	  (* Check if we have chunked encoding: *)
 	  let is_chunked =
 	    try header # field "Transfer-encoding" <> "identity"
@@ -2310,10 +2367,10 @@ let io_buffer options fd mplex fd_state : io_buffer =
 	  ( match token with
 	      | Send_header (call_id, meth, url, hdr) ->
 		  write_header_e call_id meth url hdr
-	      | Send_body (source,length_opt) ->
-		  write_body_e source length_opt
-	      | Send_body_chunked source ->
-		  write_body_chunked_e source
+	      | Send_body (dev,length_opt) ->
+		  write_body_e dev length_opt
+	      | Send_body_chunked dev ->
+		  write_body_chunked_e dev
 	      | Send_eof ->
 		  write_eof_e ()
 	  ) 
@@ -2343,14 +2400,7 @@ let io_buffer options fd mplex fd_state : io_buffer =
 	      
 	Uq_io.output_netbuffer_e dev buf
 
-      and write_body_e source expected_length_opt =
-	let d =
-	  match source with
-	    | `Channel ch -> 
-		`Async_in(new Uq_engines.pseudo_async_in_channel ch,
-			  esys)
-	    | `Device d -> d in
-
+      and write_body_e d expected_length_opt =
 	if !options.verbose_request_contents then
 	  dlogr
 	    (fun () ->
@@ -2378,13 +2428,7 @@ let io_buffer options fd mplex fd_state : io_buffer =
 	      | `Aborted -> `Aborted
 	   )
 	  
-      and write_body_chunked_e source =
-	let d =
-	  match source with
-	    | `Channel ch -> 
-		`Async_in(new Uq_engines.pseudo_async_in_channel ch,
-			  esys)
-	    | `Device d -> d in
+      and write_body_chunked_e d =
 	write_body_next_chunk_e d ()
 
       and write_body_next_chunk_e d () =
@@ -2512,14 +2556,14 @@ let test_conn_close hdr =
   let conn_list = 
     try Nethttp.Header.get_connection hdr
     with _ (* incl. syntax error *) -> [] in
-  List.mem "close" conn_list
+  List.mem "close" (List.map String.lowercase conn_list)
 
 
 let test_conn_keep_alive hdr =
   let conn_list = 
     try Nethttp.Header.get_connection hdr
     with _ (* incl. syntax error *) -> [] in
-  List.mem "keep-alive" conn_list
+  List.mem "keep-alive" (List.map String.lowercase conn_list)
 
 
 let test_proxy_conn_close hdr =
@@ -2528,7 +2572,7 @@ let test_proxy_conn_close hdr =
       List.map String.lowercase
 	(hdr # multiple_field "proxy-connection")
     with _ (* incl. syntax error *) -> [] in
-  List.mem "close" conn_list
+  List.mem "close" (List.map String.lowercase conn_list)
 
 
 let test_proxy_conn_keep_alive hdr =
@@ -2537,7 +2581,7 @@ let test_proxy_conn_keep_alive hdr =
       List.map String.lowercase
 	(hdr # multiple_field "proxy-connection")
     with _ (* incl. syntax error *) -> [] in
-  List.mem "keep-alive" conn_list
+  List.mem "keep-alive" (List.map String.lowercase conn_list)
 
 
 let test_http_1_1 proto_str =
@@ -2617,6 +2661,8 @@ let transmitter
 	     rh # update_field n v
 	  )
 	  (cah @ pah);
+	if peer_is_proxy then
+	  rh # update_field "Proxy-Connection" "keep-alive";
 	state <- Unprocessed;
 	if not (msg # has_req_body) then (
 	  (* Remove certain headers *)
@@ -2700,7 +2746,7 @@ let transmitter
 	    let is_chunked =
 	      try rh # field "Transfer-encoding" <> "identity"
 	      with Not_found -> false in
-	    let d = msg # private_api # request_body_open_rd() in
+	    let d = msg # private_api # request_body_open_rd esys in
 	    let tok, need_eof =
 	      if is_chunked then
 		Send_body_chunked d, false
@@ -2748,7 +2794,8 @@ let transmitter
 	    with Not_found -> false in
 	  if is_chunked then (
 	    let ch = new Netchannels.input_string "" in
-	    io # add (Send_body_chunked (`Channel ch));
+	    let d = `Async_in(new Uq_engines.pseudo_async_in_channel ch,esys) in
+	    io # add (Send_body_chunked d);
 	  )
 	  else
 	    io # add Send_eof;
@@ -2985,9 +3032,14 @@ let rewrite_first_hop s =
 	`Socks5 ((s,port1),(host2,port2))
 
 
-let proxy_connect_e esys fd host port options proxy_auth_handler_opt =
-  (* Send the CONNECT line plus header, and wait for 200 *)
-  (* FIXME: Handle authentication *)
+let proxy_connect_e esys fd fd_open host port options proxy_auth_handler_opt
+                    cur_proxy_session tcp_real_connect_e setup_e =
+  (* Send the CONNECT line plus header, and wait for 200.
+
+     The continuation of this engine is either setup_e() if successful,
+     or tcp_real_connect_e() if another connection to the proxy needs to
+     be opened.
+   *)
   let mplex =
     Uq_engines.create_multiplex_controller_for_connected_socket
       ~supports_half_open_connection:true
@@ -3001,9 +3053,18 @@ let proxy_connect_e esys fd host port options proxy_auth_handler_opt =
   let hdr = msg # request_header `Effective in
   hdr # update_field "Host" host_url;
   hdr # update_field "Proxy-Connection" "keep-alive";
-  hdr # update_field "Connection" "keep-alive";
 
-  let rec request_e proxy_session_opt =
+  let rec request_e () =
+    ( match !cur_proxy_session with   (* authentication *)
+	| None -> ()
+	| Some sess ->
+	    let pah = sess # authenticate msg in
+	    List.iter
+	      (fun (n,v) ->
+		 hdr # update_field n v
+	      )
+	      pah
+    );
     io#add (Send_header(0, msg#request_method, msg#effective_request_uri, 
 			( hdr :> Netmime.mime_header_ro )
 		       ));
@@ -3018,7 +3079,7 @@ let proxy_connect_e esys fd host port options proxy_auth_handler_opt =
 		    assert(m = msg);
 		    ( try
 			if m#response_status_code = 407 && 
-			  proxy_session_opt = None &&
+			  !cur_proxy_session = None &&
 			  proxy_auth_handler_opt <> None
 			then (
 			  let ah =
@@ -3029,13 +3090,29 @@ let proxy_connect_e esys fd host port options proxy_auth_handler_opt =
 			    match ah # create_proxy_session msg with
 			      | None -> raise Not_found
 			      | Some sess -> sess in
-			  let pah = sess # authenticate msg in
-			  List.iter
-			    (fun (n,v) ->
-			       hdr # update_field n v
-			    )
-			    pah;
-			  request_e (Some sess)
+			  cur_proxy_session := Some sess;
+			  (* It is now possible that the proxy closes the
+			     connection. If so, we do this too, and reopen
+			     another one. Otherwise, just go on.
+			   *)
+			  let rh = m#response_header in
+			  let ps = m#response_protocol in
+			  let close_flag =
+			    test_conn_close rh || test_proxy_conn_close rh ||
+			      (not (test_http_1_1 ps) && 
+				 not (test_conn_keep_alive rh) &&
+				 not (test_proxy_conn_keep_alive rh)) in
+			  if close_flag then (
+			    Unix.close fd;
+			    fd_open := false;
+			    tcp_real_connect_e()
+			      (* The value of !cur_proxy_session is kept,
+				 so we will use the authentication knowlege
+				 we already gathered
+			       *)
+			  )
+			  else
+			    request_e ()
 			)
 			else 
 			  raise Not_found
@@ -3051,12 +3128,12 @@ let proxy_connect_e esys fd host port options proxy_auth_handler_opt =
 			  | `Server_error ->
 			      raise(Proxy_error m#response_status_code)
 			  | `Successful ->
-			      eps_e (`Done ()) esys
+			      setup_e()
 		    )
 	   )
        )
   in
-  request_e None
+  request_e ()
   >> (function
 	| `Error (Garbage_received msg) ->
 	    `Error (Bad_message msg)
@@ -3154,13 +3231,17 @@ let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options
 		      `Sock_inet(Unix.SOCK_STREAM, hop1_ip, hop1_port)
 		  | `Socks5 (_,(host2,port2)) ->
 		      `Sock_inet_byname(Unix.SOCK_STREAM, host2, port2) in
-	      let eng =
+
+	      let cur_proxy_session = ref None in
+
+	      let rec tcp_real_connect_e () =
 		Uq_engines.connector 
 		  ?proxy:proxy_opt
 		  (`Socket(sockspec, Uq_engines.default_connect_options))
 		  esys 
 		++ (function
 		      | `Socket(fd,_) ->
+			  let fd_open = ref true in
 			  !options.configure_socket fd;
 			  let setup_e() =
 			    tp # setup_e
@@ -3174,14 +3255,26 @@ let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options
 			  ( match peer with
 			      | `Http_proxy_connect(_,(host2,port2)) ->
 				  proxy_connect_e
-				    esys fd host2 port2 options 
+				    esys fd fd_open host2 port2 options 
 				    proxy_auth_handler_opt
-				  ++ setup_e
+				    cur_proxy_session
+				    tcp_real_connect_e
+				    setup_e
 			      | _ ->
 				  setup_e()
 			  )
+			  >> (fun st ->
+				match st with
+				  | `Error _ | `Aborted ->
+				      if !fd_open then Unix.close fd;
+				      fd_open := false;
+				      st
+				  | _ -> st
+			     )
 		      | _ -> assert false
 		   ) in
+
+	      let eng = tcp_real_connect_e() in
 
 	      Uq_engines.timeout_engine 
 		timeout_value
@@ -4398,6 +4491,7 @@ let robust_pipeline
 	   let try_again =
 	     not too_many_total_failures &&
 	       e <= !options.maximum_message_errors &&
+	       (m # private_api # error_exception <> Some Response_too_large) &&
 	       ( match m # get_reconnect_mode with
 		| Send_again -> true
 		| Request_fails -> false
@@ -5000,10 +5094,16 @@ module Convenience =
     let pipe = lazy (get_default_pipe())
     let pipe_empty = ref true
 
+
+    let configure_pipeline f =
+      let p = Lazy.force pipe in
+      f p
+
     let request m =
       serialize
 	(fun trials ->
 	   let p = Lazy.force pipe in
+	   m # set_accept_encoding();
 	   p # add m;
 	   try
 	     p # run()

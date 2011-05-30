@@ -163,6 +163,7 @@ for other libraries.
    Netfs
    Netglob
    Netauth
+   Netcompression
    Netstring_str
    Netstring_pcre
    Netmappings

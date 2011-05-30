@@ -43,8 +43,11 @@ let main() =
   let handshake = ref false in
   let chreq = ref false in
   let ssl = ref false in
+  let gzip = ref false in
+  let response_test = ref None in
 
   Ssl.init();
+  Netgzip.init();
 
   Netsys_rng.set_rng
     (fun s ->
@@ -95,8 +98,19 @@ let main() =
   let add_get_message path =
     setup();
     let m = new get (scheme() ^ "://" ^ !server ^ ":" ^ string_of_int !port ^ path) in
+    if !gzip then m # set_accept_encoding();
     messages := !messages @ [m];
-    !pipeline # add m
+    ( match !response_test with
+	| Some t ->
+	    !pipeline # add_with_callback m
+	      (fun m ->
+		 let r = m#response_body#value in
+		 if r <> t then
+		   failwith "Unexpected response"
+	      )
+	| None ->
+	    !pipeline # add m
+    )
   in
 
   let add_head_message path =
@@ -236,6 +250,10 @@ let main() =
 	       "               send request body with chunked encoding";
 	"-ssl", Arg.Set ssl,
 	     "                 use SSL to connect to server";
+	"-gzip", Arg.Set gzip,
+	      "                accept gzip'ed responses (for -get)";
+	"-response", Arg.String (fun s -> response_test := Some s),
+	          " <str>      the response is equal to this string (only -get)";
 	"-get", Arg.String add_get_message,
 	     " <path>          adds a GET request to the current pipeline";
 	"-head", Arg.String add_head_message,

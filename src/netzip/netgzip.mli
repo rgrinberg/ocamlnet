@@ -47,3 +47,8 @@ class output_deflate :
 
       Note that [ch] isn't closed when [ch'] is closed.
    *)
+
+val init : unit -> unit
+  (** By calling this function it is enforced that the (de)-compression
+      algorithms are registered at {!Netcompression}.
+   *)

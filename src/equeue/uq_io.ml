@@ -47,7 +47,7 @@ object
     (* The current flush engine, or None *)
   method write_eof_e : unit -> bool Uq_engines.engine
     (* The buffer must be empty before [write_eof_e] *)
-  method udevice : 'out_device
+  method udevice : 'out_device option
   method shutdown_e : float option -> unit Uq_engines.engine
   method inactivate : unit -> unit
   method event_system : Unixqueue.event_system
@@ -59,6 +59,7 @@ type in_device =
     | `Multiplex of Uq_engines.multiplex_controller
     | `Async_in of Uq_engines.async_in_channel * Unixqueue.event_system
     | `Buffer_in of in_device in_buffer_pre
+    | `Count_in of (int -> unit) * in_device
     ]
 
 
@@ -67,6 +68,7 @@ type out_device =
     | `Multiplex of Uq_engines.multiplex_controller
     | `Async_out of Uq_engines.async_out_channel * Unixqueue.event_system
     | `Buffer_out of out_device out_buffer_pre
+    | `Count_out of (int -> unit) * out_device
     ]
 
 
@@ -77,12 +79,14 @@ type out_buffer = out_device out_buffer_pre
 type in_bdevice =
     [ `Buffer_in of in_buffer ]
 
+type inout_device = [ in_device | out_device ]
+
 
 
 exception Line_too_long
 
 
-let device_esys =
+let rec device_esys0 =
   function
     | `Polldescr(_,_,esys) -> esys
     | `Multiplex mplex -> mplex#event_system
@@ -90,6 +94,12 @@ let device_esys =
     | `Async_out(_,esys) -> esys
     | `Buffer_in b -> b#event_system
     | `Buffer_out b -> b#event_system
+    | `Count_in(_,d) -> device_esys0 (d :> inout_device)
+    | `Count_out(_,d) -> device_esys0 (d :> inout_device)
+
+
+let device_esys d =
+  device_esys0 (d :> inout_device)
 
 
 let is_string =
@@ -97,7 +107,7 @@ let is_string =
     | `String _ -> true
     | `Memory _ -> false
 
-let device_supports_memory =
+let rec device_supports_memory0 =
   function
     | `Polldescr(style,_,_) -> 
 	( match style with
@@ -116,6 +126,11 @@ let device_supports_memory =
 	true
     | `Buffer_out b -> 
 	true
+    | `Count_in(_,d) -> device_supports_memory0 (d : in_device :> inout_device)
+    | `Count_out(_,d) -> device_supports_memory0 (d : out_device :> inout_device)
+
+let device_supports_memory d =
+  device_supports_memory0 (d :> inout_device)
 
 
 let mem_gread style fd m pos len =
@@ -265,6 +280,13 @@ and dev_input_e (d : in_device) ms pos len =
     | `Buffer_in b ->
 	buf_input_e b ms pos len
 
+    | `Count_in(c,d) ->
+	dev_input_e d ms pos len 
+	>> (function
+	      | `Done n -> c n; `Done n
+	      | st -> st
+	   )
+
 let input_e d0 ms pos len =
   let d = (d0 :> in_device) in
   dev_input_e d ms pos len
@@ -350,28 +372,29 @@ let rec buf_output_e b ms pos len =
   else (
     let bl = b#buffer#length in
     (* Optimization: if len is large, try to bypass the buffer *)
-    let d = b#udevice in
-    if bl=0 && len >= 4096 && (device_supports_memory d || is_string ms) then
-      dev_output_e d ms pos len
-    else (
-      let n =
-	match b # max with
-	  | None -> len
-	  | Some m -> max (min len (m - bl)) 0 in
-      if n > 0 || len = 0 then (
-	b#buffer#add ms pos n;
-	eps_e (`Done n) b#event_system
-      )
-      else (
-	let fe =
-	  match b#flush_e_opt with
-	    | None -> b#start_flush_e ()
-	    | Some fe -> fe in
-	fe ++ (fun _ -> buf_output_e b ms pos len)
-      )
-    )
+    match b#udevice with
+      | Some d when (
+	  bl=0 && len >= 4096 && (device_supports_memory d || is_string ms)
+	) ->
+	  dev_output_e d ms pos len
+      | _ ->
+	  let n =
+	    match b # max with
+	      | None -> len
+	      | Some m -> max (min len (m - bl)) 0 in
+	  if n > 0 || len = 0 then (
+	    b#buffer#add ms pos n;
+	    eps_e (`Done n) b#event_system
+	  )
+	  else (
+	    let fe =
+	      match b#flush_e_opt with
+		| None -> b#start_flush_e ()
+		| Some fe -> fe in
+	    fe ++ (fun _ -> buf_output_e b ms pos len)
+	  )
   )
-
+    
 
 and dev_output_e (d : out_device) ms pos len =
   match d with
@@ -437,6 +460,13 @@ and dev_output_e (d : out_device) ms pos len =
     | `Buffer_out b ->
 	buf_output_e b ms pos len
 
+    | `Count_out(c,d) ->
+	dev_output_e d ms pos len 
+	>> (function
+	      | `Done n -> c n; `Done n
+	      | st -> st
+	   )
+
 let output_e d ms pos len =
   dev_output_e (d :> out_device) ms pos len
 
@@ -468,8 +498,7 @@ let flush_e d =
     | _ ->
 	eps_e (`Done()) (device_esys d)
 
-let write_eof_e d0 =
-  let d = (d0 :> out_device) in
+let rec write_eof0_e d =
   match d with
     | `Polldescr(style, fd, esys) ->
 	eps_e (`Done false) esys
@@ -499,9 +528,15 @@ let write_eof_e d0 =
     | `Buffer_out b ->
 	flush_e d ++
 	  (fun () -> b#write_eof_e())
+    | `Count_out(_,d) ->
+	write_eof0_e d
 
-let shutdown_e ?linger d0 =
-  let d = (d0 :> [in_device | out_device]) in
+let write_eof_e d =
+  write_eof0_e (d :> out_device)
+
+
+
+let rec shutdown0_e ?linger d =
   match d with
     | `Polldescr(style, fd, esys) ->
 	Netsys.gclose style fd;
@@ -542,8 +577,15 @@ let shutdown_e ?linger d0 =
 	b # shutdown_e ()
     | `Buffer_out b ->
 	flush_e (`Buffer_out b) ++ (fun _ -> b # shutdown_e linger)
+    | `Count_in(_,d) ->
+	shutdown0_e ?linger (d :> [in_device | out_device])
+    | `Count_out(_,d) ->
+	shutdown0_e ?linger (d :> [in_device | out_device])
 
-let inactivate d =
+let shutdown_e ?linger d =
+  shutdown0_e ?linger (d :> [in_device | out_device])
+
+let rec inactivate0 d =
   match d with
     | `Polldescr(style, fd, esys) ->
 	Netsys.gclose style fd
@@ -557,6 +599,13 @@ let inactivate d =
 	b # inactivate ()
     | `Buffer_out b ->
 	b # inactivate ()
+    | `Count_in(_,d) ->
+	inactivate0 (d :> inout_device)
+    | `Count_out(_,d) ->
+	inactivate0 (d :> inout_device)
+
+let inactivate d =
+  inactivate0 (d :> inout_device)
 
 let mem_obj_buffer() =
   let psize = Netsys_mem.pagesize in
@@ -709,10 +758,8 @@ let create_out_buffer ~max d0 =
 	   flush_e (n-k)
 	)
     )
-    else (
-      flush_e_opt := None;
-      eps_e (`Done ()) esys
-    ) in
+    else
+      eps_e (`Done ()) esys in
 
  object
   method buffer = buf
@@ -721,7 +768,9 @@ let create_out_buffer ~max d0 =
 
   method start_flush_e() =
     assert (!flush_e_opt = None);
-    let e = flush_e (buf#length) in
+    let e = 
+      flush_e (buf#length)
+      >> (fun st -> flush_e_opt := None; st) in
     flush_e_opt := Some e;
     e
 
@@ -741,7 +790,7 @@ let create_out_buffer ~max d0 =
   method inactivate () =
     inactivate d
 
-  method udevice = d
+  method udevice = Some d
   method event_system = esys
 end
 
@@ -818,3 +867,110 @@ let eof_as_none =
     | `Error End_of_file -> `Done None
     | `Error e -> `Error e
     | `Aborted -> `Aborted
+
+
+let filter_out_buffer ~max (p : Netchannels.io_obj_channel) d0 : out_buffer =
+  let d = (d0 :> out_device) in
+  let esys =
+    device_esys d in
+  let buf = str_obj_buffer() in
+  let eof = 
+    ref false in
+  let flush_e_opt =
+    ref None in
+
+  let rec do_flush_e() =
+    let q = ref 0 in
+    if buf#length > 0 then (
+      assert(not !eof);
+      (* First copy everything from buf to p: *)
+      let (ms,pos,len) = buf # page_for_consumption in
+      let s =
+	match ms with
+	  | `String s -> s 
+	  | `Memory _ -> assert false in
+      q := 1;
+      let n = p # output s pos len in
+      q := 2;
+      buf # delete_hd n;
+      (* Copy from p to d: *)
+      let p_dev =
+	`Async_in(new Uq_engines.pseudo_async_in_channel p, esys) in
+      ( copy_e p_dev d
+	>> (function
+	      | `Done _ -> `Done ()
+	      | `Error Netchannels.Buffer_underrun -> `Done ()
+	      | `Error err -> `Error err
+	      | `Aborted -> `Aborted
+	   )
+      ) ++ do_flush_e
+    )
+    else 
+      if !eof then (
+	q := 3;
+	p # close_out();
+	q := 4;
+	let p_dev =
+	  `Async_in(new Uq_engines.pseudo_async_in_channel p, esys) in
+	copy_e p_dev d
+	>> (fun st -> 
+	      p#close_in();
+	      match st with
+		| `Done _ -> `Done()
+		| `Error err -> `Error err
+		| `Aborted -> `Aborted
+	   )
+      )
+      else (
+	eps_e (`Done()) esys
+      ) 
+  in
+
+object(self)
+  method buffer = buf
+  method eof = !eof
+  method max = max
+
+  method start_flush_e() =
+    assert (!flush_e_opt = None);
+    let e = 
+      do_flush_e ()
+      >> (fun st ->
+	    flush_e_opt := None; 
+	    st
+	 ) in
+    flush_e_opt := Some e;
+    e
+
+  method flush_e_opt = 
+    match !flush_e_opt with
+      | None -> None
+      | Some e ->
+	  assert(match e#state with
+		   | `Done _ -> false
+		   | _ -> true
+		);
+	  Some e
+
+  method write_eof_e () =
+    eof := true;
+    flush_e (`Buffer_out self)
+    ++ (fun () ->
+	  write_eof_e d
+       )
+
+  method shutdown_e linger =
+    eof := true;
+    flush_e (`Buffer_out self)
+    ++ (fun () ->
+	  shutdown_e ?linger d
+       )
+    
+  method inactivate () =
+    p#close_in();
+    inactivate d
+
+  method udevice = None
+    (* It is not allowed to bypass this buffer *)
+  method event_system = esys
+end

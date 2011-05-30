@@ -11,6 +11,7 @@ type in_device =
     | `Multiplex of Uq_engines.multiplex_controller
     | `Async_in of Uq_engines.async_in_channel * Unixqueue.event_system
     | `Buffer_in of in_buffer
+    | `Count_in of (int -> unit) * in_device
     ]
   (** Currently supported devices for input:
        - [`Polldescr(st,fd,esys)]: The [poll] system call is used with file
@@ -23,9 +24,12 @@ type in_device =
          used as device. 
        - [`Buffer buf]: Data comes from the buffer [buf] (which in turn
          is connected with a second device)
+       - [`Count_in(f,d)]: Data is read from [d], and every time a few
+         bytes [n] are read the function [f n] is called (which may raise
+         an exception)
 
-      Generally, it is not well supported to read several times from the
-      same device.
+      Generally, it is not well supported to read in parallel several times
+      from the same device.
    *)
 
  (* Idea: `Serial of in_device *)
@@ -35,6 +39,7 @@ type out_device =
     | `Multiplex of Uq_engines.multiplex_controller
     | `Async_out of Uq_engines.async_out_channel * Unixqueue.event_system
     | `Buffer_out of out_buffer
+    | `Count_out of (int -> unit) * out_device
     ]
   (** Currently supported devices for output:
        - [`Polldescr(fd,esys)]: The [poll] system call is used with file
@@ -45,9 +50,12 @@ type out_device =
          used as device. 
        - [`Buffer buf]: Data is written to the buffer [buf] (which in turn
          is connected with a second device)
+       - [`Count_out(f,d)]: Data is written to [d], and every time a few
+         bytes [n] are written the function [f n] is called (which may raise
+         an exception)
 
-      Generally, it is not well supported to write several times to the
-      same device.
+      Generally, it is not well supported to write in parallel several times
+      to the same device.
    *)
 
 type in_bdevice =
@@ -238,4 +246,12 @@ val create_out_buffer : max:int option -> [< out_device ] -> out_buffer
   (** Provides a buffered version of the [out_device]. The argument
       [max] is the maximum number of bytes to buffer. This can also be
       set to [None] meaning no limit.
+   *)
+
+val filter_out_buffer : 
+       max:int option -> 
+       Netchannels.io_obj_channel ->
+       [< out_device ] -> out_buffer
+  (** [filter_out_buffer ~max p d]: The data written to this device is
+      redirected via pipe [p] and finally written to [d].
    *)

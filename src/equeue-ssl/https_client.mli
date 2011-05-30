@@ -44,6 +44,49 @@ val https_transport_channel_type : Ssl.context -> transport_channel_type
     channel binding ID (method [set_channel_binding] of the message).
  *)
 
+(** {2 How to configure the Convenience module}
+
+    Just do once:
+
+    {[
+    Ssl.init();
+    Http_client.Convenience.configure_pipeline
+      (fun p ->
+         let ctx = Ssl.create_context Ssl.TLSv1 Ssl.Client_context in
+         let tct = Https_client.https_transport_channel_type ctx in
+         p # configure_transport Http_client.https_cb_id tct
+      )
+    ]}
+
+    This will enable "https" for the functions in {!Http_client.Convenience},
+    e.g. {[ let data = Http_client.Convenience.http_get "https://url" ]}
+
+ *)
+
+(** {2 How to configure [!Http_fs}}
+
+    Just do once:
+
+    {[
+    Ssl.init()
+    ]}
+
+    and create the [http_fs] object with
+
+    {[
+    Http_fs.http_fs 
+      ~config_pipeline:(
+        fun p ->
+	  let ctx = Ssl.create_context Ssl.TLSv1 Ssl.Client_context in
+	  let tct = Https_client.https_transport_channel_type ctx in
+	  p # configure_transport Http_client.https_cb_id tct
+      )
+      "https://root-url"
+    ]}
+
+ *)
+
+
 (** {2 Features and limitations} 
 
     We only implement RFC 2618, i.e. secure connections on a separate
@@ -53,20 +96,9 @@ val https_transport_channel_type : Ssl.context -> transport_channel_type
     If an HTTP proxy server is configured, the TLS connection is established
     via the CONNECT method (documented in RFC 2617).
 
-    There is a limitation if the CONNECT method needs to be
-    authenticated: During authentication the connection must not be
-    closed. As a rule of thumb, a proxy with HTTP/1.1 support will act
-    fine (like Apache). If the proxy supports only HTTP/1.0 (as the
-    whole 2.x line of Squid, for instance), things may go wrong. Many
-    versions of Squid seem to always close the connection after sending
-    out a 407 status code. The client would have then to reconnect, and
-    retry CONNECT with the right authentication data. Because of the
-    structure of {!Http_client} this is hard to implement for us,
-    and it would only be done to support ancient protocol versions.
-    Better upgrade your proxy to a recent version (which will also improve
-    speed).
-    
     Alternatively, it is also possible to connect via SOCKS version 5
     proxies.
 
+    There is, so far, no support for reusing TLS sessions across connections.
+    For every connection a new TLS session is created.
  *)

@@ -1,7 +1,7 @@
 (* $Id$ *)
 
 (* More ideas:
-   - full SOCKS support
+   - full SOCKS support - OK
    - maximum download size -> Http_client_util
    - automatic gzip/gunzip -> Http_client_util
    - upload also available as Uq_io - DONE
@@ -19,14 +19,22 @@
   * {!Http_client.Convenience}.
  *)
 
-(** Implements much of HTTP/1.1.
+(** 
  * Implements the following advanced features:
- *  - chunked messages
+ *  - chunked message transport
  *  - persistent connections
  *  - connections in pipelining mode ("full duplex" connections)
  *  - modular authentication methods, currently Basic and Digest
  *  - event-driven implementation; allows concurrent service for
  *    several network connections 
+ *  - HTTP proxy support, also with Basic and Digest
+ *    authentication
+ *  - SOCKS proxy support
+ *  - HTTPS support via extension module {!Https_client} (in library
+ *    [equeue-ssl]). HTTPS proxies are also supported (CONNECT method)
+ *  - Automatic and configurable retry of failed idempotent requests
+ *  - Redirections can be followed automatically 
+ *  - Compressed bodies can be automatically decoded (gzip only)
  *
  * Left out:
  *  - multipart messages, including multipart/byterange
@@ -34,7 +42,6 @@
  *  - content digests specified by RFC 2068 and 2069   (1)
  *  - content negotiation   (1)
  *  - conditional and partial GET   (1)
- *  - following code 303 redirections automatically    (1)
  *  - client-side caching   (1)
  *  - HTTP/0.9 compatibility
  *
@@ -97,6 +104,9 @@ exception Proxy_error of int
   (** An error status from a proxy. This is only used when extra proxy messages
       are used to configure the proxy (e.g. the CONNECT message).
    *)
+
+exception Response_too_large
+  (** The length of the response exceeds the configured maximum *)
 
 exception Http_protocol of exn;;
   (** The request could not be processed because the exception condition 
@@ -435,6 +445,18 @@ object
 	the same event loop as the HTTP client.
      *)
 
+  method set_accept_encoding : unit -> unit
+    (** Sets the [Accept-Encoding] field in the request header, and 
+	includes all decompression algorithms registered in
+	{!Netcompression}. Additionally, the automatic decompression of
+	the response body is enabled.
+
+	Note that you need to ensure that the algorithms are really
+	registered at {!Netcompression}. For example, to get [gzip]
+	support, run {[ Netgzip.init() ]}, and include [netzip] as
+	library.
+     *)
+
 
   (** {2 Accessing the response message (new style) }
       *
@@ -485,6 +507,16 @@ object
 
   method set_response_body_storage : response_body_storage -> unit
     (** Sets how to create the response body *)
+
+  method max_response_body_length : int64
+    (** Returns the current maximum length (initially [Int64.max_int]) *)
+
+  method set_max_response_body_length : int64 -> unit
+    (** Sets a new maximum length. When the body exceeds this maximum
+	by more than the size of the internal buffer, the reception of
+	the response is interrupted, and the error is set to
+	[Response_too_large].
+     *)
 
   method get_reconnect_mode : http_call how_to_reconnect
     (** Get what to do if the server needs to be reconnected, i.e.
@@ -1274,6 +1306,11 @@ sig
 
   val http_password : string ref
     (** The default password if authentication is required *)
+
+  val configure_pipeline : (pipeline -> unit) -> unit
+    (** This function will be called before the pipeline is used. This
+	is intended for fine-grained configuration.
+     *)
 
   val http_get_message : string -> http_call
     (** Does a "GET" request with the given URL and returns the message *)

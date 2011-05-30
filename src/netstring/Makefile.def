@@ -5,7 +5,7 @@ OBJECTS  = netconst.cmo netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
 	   mimestring.cmo \
            nethtml_scanner.cmo nethtml.cmo \
 	   neturl.cmo \
-	   netaddress.cmo \
+	   netaddress.cmo netcompression.cmo \
 	   netmime.cmo netsendmail.cmo nethttp.cmo \
 	   netpagebuffer.cmo netfs.cmo netglob_lex.cmo netglob.cmo \
 	   netauth.cmo netnumber.cmo rtypes.cmo xdr_mstring.cmo xdr.cmo 

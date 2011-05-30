@@ -1,0 +1,7 @@
+HTTP/1.0 407 Unauthorized
+content-type: text/plain
+content-length: 14
+proxy-authenticate: Digest realm="testrealm", nonce="948647427"
+proxy-connection: close
+
+Unauthorized.

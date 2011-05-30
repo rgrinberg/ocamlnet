@@ -317,3 +317,14 @@ class output_deflate ?level ch =
   Netchannels.output_filter
     (new deflating_pipe ?level ())
     ch
+
+
+let () =
+  Netcompression.register
+    ~iana_name:"gzip"
+    ~decoder:(new inflating_pipe)
+    ~encoder:(new deflating_pipe)
+    ()
+
+
+let init() = ()

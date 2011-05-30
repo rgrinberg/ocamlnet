@@ -1,7 +1,7 @@
 # Run with:
 # OCAMLPATH=../../../src/ CAML_LD_LIBRARY_PATH=../../../src/netsys make
 
-STD_PACKAGES = unix pcre str findlib netstring equeue-ssl
+STD_PACKAGES = unix pcre str findlib netstring equeue-ssl netzip
 
 DEBUG  = -g
 # Invoke with: make DEBUG=-g
