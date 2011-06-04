@@ -1,5 +1,7 @@
 #! /bin/sh
 
+#set -x
+
 usage () {
     cat <<'EOF' 1>&2
 usage: test_bench [options] 

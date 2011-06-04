@@ -1,13 +1,5 @@
 (* $Id$ *)
 
-(* More ideas:
-   - full SOCKS support - OK
-   - maximum download size -> Http_client_util
-   - automatic gzip/gunzip -> Http_client_util
-   - upload also available as Uq_io - DONE
-   - document exceptions for upload/download
- *)
-
 (** HTTP 1.1 client *)
 
 (**********************************************************************)
@@ -29,31 +21,31 @@
  *    several network connections 
  *  - HTTP proxy support, also with Basic and Digest
  *    authentication
- *  - SOCKS proxy support
+ *  - SOCKS proxy support (1)
  *  - HTTPS support via extension module {!Https_client} (in library
- *    [equeue-ssl]). HTTPS proxies are also supported (CONNECT method)
+ *    [equeue-ssl]). HTTPS proxies are also supported (CONNECT method) (1)
  *  - Automatic and configurable retry of failed idempotent requests
  *  - Redirections can be followed automatically 
- *  - Compressed bodies can be automatically decoded (gzip only)
+ *  - Compressed message bodies can be automatically decoded (gzip only,
+ *    method [set_accept_encoding]) (1)
  *
  * Left out:
  *  - multipart messages, including multipart/byterange
- *  - content encoding (compression)    (1)
- *  - content digests specified by RFC 2068 and 2069   (1)
- *  - content negotiation   (1)
- *  - conditional and partial GET   (1)
- *  - client-side caching   (1)
+ *  - content digests specified by RFC 2068 and 2069   (2)
+ *  - content negotiation   (2)
+ *  - conditional and partial GET   (2)
+ *  - client-side caching   (2)
  *  - HTTP/0.9 compatibility
  *
- * (1) These features can be implemented on top of this module if really needed,
+ * (1) Since Ocamlnet-3.3
+ *
+ * (2) These features can be implemented on top of this module if really needed,
  *     but there is no special support for them.
  *
- * HTTPS is now also supported (since Ocamlnet-3.3). Please see the
- * instructions documented in
- * the {!Https_client} module (part of [equeue-ssl]).
- * 
- * If you are looking for WebDAV there is an extension of this module:
- * {{:http://oss.wink.com/webdav/} Webdav}, which is separately available.
+ * Related modules/software:
+ * - {!Http_fs} allows you to access HTTP servers in the style of filesystems
+ * - WebDAV: If you are looking for WebDAV there is an extension of this module:
+ *   {{:http://oss.wink.com/webdav/} Webdav}, which is separately available.
  *)
 
 (** {b Thread safety}
@@ -248,6 +240,20 @@ type resolver =
           * Only 1:1 resolution is supported, 1:n resolution not.
          *)
 
+type channel_binding_id = int
+    (** A channel binding identifies a requirement for the transport
+	channel, especially whether plain HTTP is sufficient, or HTTPS
+	needs to be used, and if so, whether there are further requirements
+	for the SSL context. There are the predefined IDs:
+
+	- {!Http_client.http_cb_id} for HTTP connections
+	- {!Http_client.https_cb_id} for HTTPS connections without user
+	  certificates
+        - {!Http_client.proxy_only_cb_id} for the restriction that this
+	  protocol can only be used via a web proxy
+     *)
+
+
 type http_options = 
     { synchronization : synchronization;
         (** Default: [Pipeline 5]. *)
@@ -291,6 +297,12 @@ type http_options =
         (** The function for name resolution *)
       configure_socket : Unix.file_descr -> unit;
         (** A function to configure socket options *)
+      schemes : (string * Neturl.url_syntax * int option * channel_binding_id) 
+                   list;
+        (** The list of supported URL schemes. The tuples mean
+	    [(scheme, syntax, default_port, cb)]. By default, the
+	    schemes "http", "https", and "ipp" are supported.
+	 *)
       verbose_status : bool;
       verbose_request_header : bool;
       verbose_response_header : bool;
@@ -313,20 +325,18 @@ type http_options =
          * any log message at all!
 	 *)
     }
-  (** Options for the whole pipeline *)
+      (** Options for the whole pipeline. It is recommended to change options
+	* the following way:
+	* {[
+	*    let opts = pipeline # get_options in
+        *    let new_opts = { opts with <field> = <value>; ... } in
+        *    pipeline # set_options new_opts
+        * ]}
+        *
+        * New fields can be added anytime to this record, and this style
+        * of changing options is transparent to field additions.
+       *)
 ;;
-
-
-type channel_binding_id = int
-    (** A channel binding identifies a requirement for the transport
-	channel, especially whether plain HTTP is sufficient, or HTTPS
-	needs to be used, and if so, whether there are further requirements
-	for the SSL context. There are the predefined IDs:
-
-	- {!Http_client.http_cb_id} for HTTP connections
-	- {!Http_client.https_cb_id} for HTTPS connections without user
-	  certificates
-     *)
 
 
 type header_kind = [ `Base | `Effective ]
@@ -381,11 +391,13 @@ object
 
   method set_request_uri : string -> unit
     (** Sets the request URI. This implicitly also sets the channel binding
-	ID (see below).
-     *)
+	ID (see below).	
 
-  method is_https : bool
-    (** Whether the request URI starts with "https://". *)
+	{b Changed in Ocamlnet-3.3:} The URI is no longer immediately parsed,
+	but first when the call is submitted to a pipeline. This means that
+	parsing errors will first be reported by the [add] method. The
+	background is that parsing now depends on pipeline options.
+     *)
 
   method request_header : header_kind -> Netmime.mime_header
     (** The whole header of the request. Users of this class should only
@@ -550,6 +562,12 @@ object
       * These properties describe the HTTP method 
    *)
 
+  method proxy_use_connect : bool
+    (** Whether to use the CONNECT method if the connection is made via a
+	web proxy. This is normally true if the channel binding is
+	{!Http_client.https_cb_id}
+     *)
+
   method empty_path_replacement : string
     (** The string to substitute in the request line for the empty
 	* path. This is usually "/", and for OPTIONS it is "*".
@@ -623,13 +641,25 @@ object
     (** Get the name of the request method. Same as [request_method]. *)
 
   method get_host : unit -> string
-    (** The host name of the content server, extracted from the URI *)
+    (** The host name of the content server, extracted from the URI.
+	
+	{b Changed in Ocamlnet-3.3:} The host can first be extracted after
+	the call is submitted to a pipeline.
+     *)
 
   method get_port : unit -> int
-    (** The port number of the content server, extracted from the URI *)
+    (** The port number of the content server, extracted from the URI.
+	
+	{b Changed in Ocamlnet-3.3:} The port can first be extracted after
+	the call is submitted to a pipeline.
+     *)
 
   method get_path : unit -> string
-    (** The path extracted from the URI *)
+    (** The path (incl. query, if any) extracted from the URI.
+	
+	{b Changed in Ocamlnet-3.3:} The path can first be extracted after
+	the call is submitted to a pipeline.
+     *)
     
   method get_uri : unit -> string
     (** the full URI of this message: http://server:port/path. If the
@@ -868,8 +898,12 @@ class type auth_session =
 object
   method auth_scheme : string
     (** The authentication scheme, e.g. "basic" *)
-  method auth_domain : string list
-    (** The list of domain URIs defines the protection space. *)
+  method auth_domain : Neturl.url list
+    (** The list of domain URIs defines the protection space.
+
+	{b Change:} Since Ocamlnet-3.3, this is a list of {!Neturl.url},
+	and no longer a list of strings.
+     *)
   method auth_realm : string
     (** The realm *)
   method auth_user : string
@@ -907,10 +941,10 @@ end
  *)
 class type auth_handler =
 object
-  method create_session : http_call -> auth_session option
+  method create_session : http_call -> http_options ref -> auth_session option
     (** Create a new authentication session. The passed call has status 401.
      *)
-  method create_proxy_session : http_call -> auth_session option
+  method create_proxy_session : http_call -> http_options ref -> auth_session option
     (** Same for proxy authentication *)
 end
 
@@ -993,11 +1027,18 @@ val create_aggressive_cache : unit -> connection_cache
    *)
 
 val http_cb_id : channel_binding_id
-  (** Identifies a channel binding to pure HTTP (without SSL) *)
+  (** Identifies a channel binding to pure HTTP (without SSL), with or
+      without web proxies
+   *)
 
 val https_cb_id : channel_binding_id
   (** Identifies a channel binding to anonymous HTTPS (i.e. no client
-      certificates)
+      certificates), with or without web proxies.
+   *)
+
+val proxy_only_cb_id : channel_binding_id
+  (** Identifies a channel binding to web proxy connections. Use this to
+      e.g. send an FTP URL to a web proxy via HTTP
    *)
 
 val new_cb_id : unit -> channel_binding_id

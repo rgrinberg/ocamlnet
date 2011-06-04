@@ -28,7 +28,7 @@ try
 	number_of_parallel_connections = 1;
     };
 	
-  let m1 = new head ("http://" ^ server ^ "/techdocs/corba/OMG-2.0/mailto:pubs@omg.org\n") in
+  let m1 = new head ("http://" ^ server ^ "/techdocs/corba/OMG-2.0/mailto:pubs@omg.org") in
   let m2 = new get ("http://" ^ server ^ "/") in
 
   p # add_with_callback 

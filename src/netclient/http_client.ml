@@ -19,7 +19,7 @@
    - Netfs - OK
    - HTTPS in Convenience - OK
    - GZIP response - OK
-   - Http_util stuff
+   - Http_util stuff - OK
    - Proxy: allow foreign schemes, e.g. ftp: URLs
  *)
 
@@ -186,6 +186,8 @@ let pipeline_blacklist =
 ;;
 
 
+type channel_binding_id = int
+
 type http_options = 
     { synchronization : synchronization;
       maximum_connection_failures : int;
@@ -197,6 +199,8 @@ type http_options =
       handshake_timeout : float;
       resolver : resolver;
       configure_socket : Unix.file_descr -> unit;
+      schemes : (string * Neturl.url_syntax * int option * channel_binding_id)
+	         list;
       verbose_status : bool;
       verbose_request_header : bool;
       verbose_response_header : bool;
@@ -209,8 +213,7 @@ type http_options =
 
 type header_kind = [ `Base | `Effective ]
 
-type channel_binding_id = int
-
+(*
 let http_re =
   Netstring_str.regexp
     "^https?://\
@@ -221,8 +224,36 @@ let http_re =
      \\([^/:@]+\\)\
      \\(:\\([0-9]+\\)\\)?\
      \\([/?].*\\)?$"
+ *)
 
-let parse_http_url url =
+let parse_url ?base_url options url =
+  try
+    let sch = 
+      try Neturl.extract_url_scheme url 
+      with err ->
+	( match base_url with
+	    | None -> raise err
+	    | Some b -> Neturl.url_scheme b
+	) in
+    let (_,syn,p_opt,cb) = 
+      List.find (fun (sch',_,_,_) -> sch=sch') !options.schemes in
+    let ht = Hashtbl.create 1 in
+    Hashtbl.add ht sch syn;
+    let url' = Neturl.fixup_url_string url in
+    let nu1 = 
+      Neturl.parse_url 
+	?base_syntax:(match base_url with
+			| None -> None
+			| Some b -> Some(Neturl.url_syntax_of_url b)
+		     )
+	~schemes:ht ~accept_8bits:true url' in
+    let nu2 = 
+      Neturl.ensure_absolute_url ?base:base_url nu1 in
+    (Neturl.default_url ?port:p_opt nu2, cb)
+  with
+    | Neturl.Malformed_URL -> raise Not_found
+
+(*
   match Netstring_str.string_match http_re url 0 with
     | None ->
 	raise Not_found
@@ -243,7 +274,7 @@ let parse_http_url url =
 	let path =
 	  try Netstring_str.matched_group m 8 url with Not_found -> "" in
 	(is_https,user,password,host,port,path)
-;;
+ *)
 
 
 let comma_re = Netstring_str.regexp "[ \t\n\r]*,[ \t\n\r]*" ;;
@@ -369,7 +400,7 @@ object
   method request_method : string
   method request_uri : string
   method set_request_uri : string -> unit
-  method is_https : bool
+(* method is_https : bool *)
   method request_header : header_kind -> Netmime.mime_header
   method set_request_header : Netmime.mime_header -> unit
   method set_expect_handshake : unit -> unit
@@ -397,6 +428,7 @@ object
   method set_proxy_enabled : bool -> unit
   method no_proxy : unit -> unit
   method is_proxy_allowed : unit -> bool
+  method proxy_use_connect : bool
   method empty_path_replacement : string
   method is_idempotent : bool
   method has_req_body : bool
@@ -424,6 +456,10 @@ end
 
 and private_api =
 object
+  method parse_request_uri : http_options ref -> unit
+  method request_uri_with : ?path:string option -> ?remove_particles:bool ->
+                            unit -> Neturl.url
+
   method get_error_counter : int
   method set_error_counter : int -> unit
   method set_error_exception : exn -> unit
@@ -489,7 +525,7 @@ end
 and auth_session =
 object
   method auth_scheme : string
-  method auth_domain : string list
+  method auth_domain : Neturl.url list
   method auth_realm : string
   method auth_user : string
   method auth_in_advance : bool
@@ -515,6 +551,7 @@ let new_cb_id () =
 
 let http_cb_id = new_cb_id()
 let https_cb_id = new_cb_id()
+let proxy_only_cb_id = new_cb_id()
 
 
 class virtual generic_call : gen_call =
@@ -522,7 +559,10 @@ object(self)
   val mutable status = (`Unserved : status)
   val mutable finished = false
 
-  val mutable req_uri = ""
+  val mutable req_uri = None
+      (* The req_uri must always include the port number *)
+  val mutable req_uri_raw = ""
+
   val mutable req_cb = http_cb_id
   val mutable req_secure = false
   val mutable req_host = ""   (* derived from req_uri *)
@@ -645,6 +685,44 @@ object(self)
 
 	method set_effective_request_uri s = eff_req_uri <- s
 
+	method parse_request_uri options =
+	  if req_uri = None then (
+	    try
+	      let (nu, cb) = parse_url options req_uri_raw in
+	      if (Neturl.url_provides ~user:true nu || 
+		    Neturl.url_provides ~password:true nu)
+	      then
+		failwith "Http_client: URL must not contain user or password";
+	      req_uri <- Some nu;
+	      req_host <- Neturl.url_host nu;
+	      req_port <- Neturl.url_port nu;
+	      req_path <- Neturl.join_path(Neturl.url_path nu);
+	      req_cb <- cb;
+	    with
+		Not_found ->
+		  failwith "Http_client: bad URL"
+	  )
+
+	method request_uri_with ?path ?(remove_particles=false) () =
+	  match req_uri with
+	    | None ->
+		assert false
+	    | Some ru ->
+		let nu = 
+		  Neturl.modify_url
+		    ?path:(match path with
+			     | None | Some None -> None
+			     | Some (Some p) -> Some(Neturl.split_path p)
+			  )
+		    (Neturl.remove_from_url
+		       ~path:(path = Some None)
+		       ~query:remove_particles
+		       ~param:remove_particles
+		       ~fragment:remove_particles
+		       ru) in
+		nu
+
+
 	method decompression_enabled = resp_decompress
 
 
@@ -711,7 +789,6 @@ object(self)
 	  let c_max = self # max_response_body_length in
 	  let out_count n =
 	    c := Int64.add !c (Int64.of_int n);
-eprintf "out_count n=%d c=%Ld\n%!" n !c;
 	    if !c > c_max then raise Response_too_large in
 	  let d1 = `Count_out(out_count, d0) in
 	  (* Check for decompression: *)
@@ -794,14 +871,6 @@ eprintf "out_count n=%d c=%Ld\n%!" n !c;
 	  ( match x with
 		Http_error(_,_) -> assert false   (* not allowed *)
 	      | _ ->
-(*
-		  let do_increment =
-		    match status with
-		      | `Http_protocol_error _ -> false
-		      | _ -> true in
-		  if do_increment then
-		    error_counter <- error_counter + 1;
- *)
 		  status <- (`Http_protocol_error x);
 	  );
 	  (* do this last - it can trigger user callback functions: *)
@@ -849,23 +918,8 @@ eprintf "out_count n=%d c=%Ld\n%!" n !c;
   (* Accessing the request message (new style) *)
 
   method request_method = self # def_request_method
-  method request_uri = req_uri
-  method set_request_uri uri = 
-    try
-      let is_https, u, pw, h, pt, ph = parse_http_url uri in
-      if u <> None || pw <> None then
-	failwith "Http_client, set_request_uri: URL must not contain user or password";
-      req_secure <- is_https;
-      req_uri <- uri;
-      req_host <- h;
-      req_port <- pt;
-      req_path <- ph;
-      req_cb <- if is_https then https_cb_id else http_cb_id;
-    with
-	Not_found ->
-	  failwith "Http_client: bad URL"
-
-  method is_https = req_secure
+  method request_uri = req_uri_raw
+  method set_request_uri uri = req_uri_raw <- uri; req_uri <- None
 
   method channel_binding = req_cb
   method set_channel_binding cb = req_cb <- cb
@@ -939,6 +993,7 @@ eprintf "out_count n=%d c=%Ld\n%!" n !c;
   method set_proxy_enabled e = proxy_enabled <- e
   method no_proxy() = proxy_enabled <- false
   method is_proxy_allowed() = proxy_enabled
+  method proxy_use_connect = (req_cb = https_cb_id)
 
   (* Method characteristics *)
 
@@ -976,7 +1031,7 @@ eprintf "out_count n=%d c=%Ld\n%!" n !c;
   method get_host() = req_host
   method get_port() = req_port
   method get_path() = req_path
-  method get_uri() = req_uri
+  method get_uri() = req_uri_raw
   method get_req_body() = req_body # value
   method get_req_header () =
     List.map (fun (n,v) -> (String.lowercase n, v)) req_base_header#fields
@@ -1335,24 +1390,23 @@ end
 
 class type auth_handler =
 object
-  method create_session : http_call -> auth_session option
-  method create_proxy_session : http_call -> auth_session option
+  method create_session : http_call -> http_options ref -> auth_session option
+  method create_proxy_session : http_call -> http_options ref -> auth_session option
 end
 
 
 exception Not_applicable
 
-let get_domain_uri call =
-  let h = call # get_host() in
-  let p = call # get_port() in
-  let scheme = if call#is_https then "https" else "http" in
-  scheme ^ "://" ^ h ^ ":" ^ string_of_int p ^ "/"
+let get_domain_uri (call : http_call) =
+  call # private_api # request_uri_with
+    ~path:(Some "/") ~remove_particles:true ()
 
 
 class basic_auth_session enable_auth_in_advance 
                          key_handler init_call for_proxy
                          : auth_session =
-  let domain = if for_proxy then [] else [ get_domain_uri init_call ] in
+  let domain_uri = if for_proxy then [] else [ get_domain_uri init_call ] in
+  let domain = List.map Neturl.string_of_url domain_uri in
   let basic_realms =
     (* Return all "Basic" realms in www-authenticate, or raise Not_applicable *)
     let auth_list = 
@@ -1398,7 +1452,7 @@ class basic_auth_session enable_auth_in_advance
   in
 object(self)
   method auth_scheme = "basic"
-  method auth_domain = domain
+  method auth_domain = domain_uri
   method auth_realm = key # realm
   method auth_user = key # user
   method auth_in_advance = enable_auth_in_advance
@@ -1420,13 +1474,13 @@ class basic_auth_handler ?(enable_auth_in_advance=false)
                          (key_handler : #key_handler)
                          : auth_handler =
 object(self)
-  method create_session call =
+  method create_session call options =
     try
       Some(new basic_auth_session enable_auth_in_advance key_handler call false)
     with
 	Not_applicable ->
 	  None
-  method create_proxy_session call =
+  method create_proxy_session call options =
     try
       Some(new basic_auth_session enable_auth_in_advance key_handler call true)
     with
@@ -1440,23 +1494,34 @@ let contains_auth v =
   List.mem "auth" (split_words v)
 
 
-class digest_auth_session enable_auth_in_advance 
-                          key_handler init_call for_proxy
+class digest_auth_session enable_auth_in_advance options
+                          key_handler (init_call : http_call) for_proxy
                           : auth_session =
   let normalize_domain s =
+    try
+      let (nu1,_) =
+	parse_url
+	  ~base_url:(init_call#private_api#request_uri_with())
+	  options s in
+      Neturl.remove_from_url
+	~user:true ~user_param:true ~password:true ~fragment:true nu1
+    with
+      | Neturl.Malformed_URL -> raise Not_found
+
+(*
     if s <> "" && s.[0] = '/' then
-      let host = init_call#get_host() in
-      let port = init_call#get_port() in
-      let scheme = if init_call#is_https then "https" else "http" in
-      scheme ^ "://" ^ host ^ ":" ^ string_of_int port ^ s
+      init_call#private_api#request_uri_with
+	~path:None ~remove_particles:true ()
+      ^ s
     else
       ( try
 	  let (is_https,_,_,host,port,path) = parse_http_url s in
 	  let scheme = if is_https then "https" else "http" in
 	  scheme ^ "://" ^ host ^ ":" ^ string_of_int port ^ path
 	with
-	    Not_found -> s
+	  | Not_found -> s
       )
+ *)
   in
   let digest_request =
     (* Return the "Digest" params in www-authenticate, or raise Not_applicable *)
@@ -1488,7 +1553,7 @@ class digest_auth_session enable_auth_in_advance
 	  (* Restriction: only the first request can be processed *)
 	  params
   in
-  let domain =
+  let domain_url =
     if for_proxy then [] else
       try 
 	List.map
@@ -1496,6 +1561,8 @@ class digest_auth_session enable_auth_in_advance
 	  (split_words (List.assoc "domain" digest_request))
       with
 	  Not_found -> [ get_domain_uri init_call ] in
+  let domain =
+    List.map Neturl.string_of_url domain_url in
   let realm =
     try List.assoc "realm" digest_request
     with Not_found -> assert false in
@@ -1618,7 +1685,7 @@ object(self)
     [ field_name, creds ]
 
   method auth_scheme = "digest"
-  method auth_domain = domain
+  method auth_domain = domain_url
   method auth_realm = key # realm
   method auth_user = key # user
   method auth_in_advance = enable_auth_in_advance
@@ -1654,15 +1721,17 @@ class digest_auth_handler ?(enable_auth_in_advance=false)
                          (key_handler : #key_handler)
                          : auth_handler =
 object(self)
-  method create_session call =
+  method create_session call options =
     try
-      Some(new digest_auth_session enable_auth_in_advance key_handler call false)
+      Some(new digest_auth_session
+	     enable_auth_in_advance options key_handler call false)
     with
 	Not_applicable ->
 	  None
-  method create_proxy_session call =
+  method create_proxy_session call options =
     try
-      Some(new digest_auth_session enable_auth_in_advance key_handler call true)
+      Some(new digest_auth_session 
+	     enable_auth_in_advance options key_handler call true)
     with
 	Not_applicable ->
 	  None
@@ -1671,14 +1740,14 @@ end
 
 class unified_auth_handler (key_handler : #key_handler) : auth_handler =
 object(self)
-  method create_session call =
-    try Some(new digest_auth_session false key_handler call false)
+  method create_session call options =
+    try Some(new digest_auth_session false options key_handler call false)
     with Not_applicable ->
       try Some(new basic_auth_session false key_handler call false)
       with Not_applicable ->
 	None
-  method create_proxy_session call =
-    try Some(new digest_auth_session false key_handler call true)
+  method create_proxy_session call options =
+    try Some(new digest_auth_session false options key_handler call true)
     with Not_applicable ->
       try Some(new basic_auth_session false key_handler call true)
       with Not_applicable ->
@@ -1687,34 +1756,20 @@ end
 
 
 
-let only_http =
-  let http_syntax = Hashtbl.find Neturl.common_url_syntax "http" in
-  let schemes = Hashtbl.create 1 in
-  Hashtbl.add schemes "http" http_syntax;
-  Hashtbl.add schemes "https" http_syntax;
-  schemes
-
-let parse_http_neturl s =
-  (* Parses the http URL s *)
-  Neturl.parse_url
-    ~schemes:only_http
-    ~accept_8bits:true
-    ~enable_fragment:true
-    s
-
 let norm_neturl neturl =
   (* Returns the neturl as normalized string (esp. normalized % sequences) *)
+  assert(Neturl.url_provides ~port:true neturl);
   let neturl' =
     Neturl.make_url 
       ~encoded:false
       ~scheme:(Neturl.url_scheme neturl)
       ~host:(Neturl.url_host neturl)
-      ~port:(try Neturl.url_port neturl with Not_found -> 80)
       ~path:(try Neturl.url_path neturl with Not_found -> [])
       ?query:(try Some(Neturl.url_query neturl) with Not_found -> None)
       ?fragment:(try Some(Neturl.url_fragment neturl) with Not_found -> None)
       (Neturl.url_syntax_of_url neturl) in
   Neturl.string_of_url neturl'
+
 
 let prefixes_of_neturl s_url =
   (* Returns a list of all legal prefixes of the absolute URI s.
@@ -1758,13 +1813,13 @@ object(self)
   method add_auth_handler (h : auth_handler) =
     auth_handlers <- auth_handlers @ [h]
 
-  method create_session (call : http_call) =
+  method create_session (call : http_call) options =
     (* Create a new session after a 401 reply *)
     let rec find l =
       match l with
 	| [] -> None
 	| h :: l' ->
-	    ( match h # create_session call with
+	    ( match h # create_session call options with
 		| None ->
 		    find l'
 		| Some s ->
@@ -1782,9 +1837,8 @@ object(self)
       List.iter
 	(fun dom_uri ->
 	   try
-	     let dom_uri' = parse_http_neturl dom_uri in
-	     let dom_uri'' = norm_neturl dom_uri' in
-	     Hashtbl.replace sessions dom_uri'' sess
+	     let dom_uri' = norm_neturl dom_uri in
+	     Hashtbl.replace sessions dom_uri' sess
 	   with
 	     | Neturl.Malformed_URL -> ()
 	)
@@ -1798,9 +1852,8 @@ object(self)
     List.iter
       (fun dom_uri ->
 	 try
-	   let dom_uri' = parse_http_neturl dom_uri in
-	   let dom_uri'' = norm_neturl dom_uri' in
-	   Hashtbl.remove sessions dom_uri''
+	   let dom_uri' = norm_neturl dom_uri in
+	   Hashtbl.remove sessions dom_uri'
 	 with
 	   | Neturl.Malformed_URL -> ()
       )
@@ -1809,11 +1862,10 @@ object(self)
 
   method find_session_in_advance (call : http_call) =
     (* Find a session suitable for authentication in advance *)
-    let uri = call # request_uri in
+    let uri = call # private_api # request_uri_with() in
     (* We are not only looking for [uri], but also for all prefixes of [uri] *)
     try
-      let uri' = parse_http_neturl uri in
-      let prefixes = prefixes_of_neturl uri' in
+      let prefixes = prefixes_of_neturl uri in
       let prefix =
 	List.find (* or Not_found *)
 	  (fun prefix ->
@@ -3087,7 +3139,7 @@ let proxy_connect_e esys fd fd_open host port options proxy_auth_handler_opt
 			      | None -> assert false
 			      | Some ah -> ah in
 			  let sess =
-			    match ah # create_proxy_session msg with
+			    match ah # create_proxy_session msg options with
 			      | None -> raise Not_found
 			      | Some sess -> sess in
 			  cur_proxy_session := Some sess;
@@ -3489,22 +3541,6 @@ let fragile_pipeline
 	 *)
 	let trans = 
 	  transmitter peer_is_proxy proxy_auth_state m f_done options in
-	
-	(* If proxy authentication is enabled, and it is already known that
-	 * the proxy demands authentication, add the necessary header fields: 
-	 * (See also the code and the comments in method 
-	 * 'postprocess_complete_message')
-	 *)
-(*
-	if proxy_credentials_required  &&  peer_is_proxy then begin
-	  (* If the cookie is not yet computed, do this now: *)
-	  if proxy_cookie = "" then
-	    proxy_cookie <- Netencoding.Base64.encode
-	      (proxy_user ^ ":" ^ proxy_password);
-	  (* Add the "proxy-authorization" header: *)
-	  trans # add_auth_header "proxy-authorization" ("Basic " ^ proxy_cookie)
-	end;
- *)
 	
 (* (* would not work, so leave disabled *)
 	if !proxy_auth_state = `None then (
@@ -4199,7 +4235,7 @@ let fragile_pipeline
 		| None ->
 		    default_action_e()
 		| Some ah ->
-		    (match ah # create_proxy_session msg with
+		    (match ah # create_proxy_session msg options with
 		       | None ->
 			   (* Authentication failed immediately *)
 			   proxy_auth_state := `None;
@@ -4230,7 +4266,7 @@ let fragile_pipeline
 		    continue
 	    in
 	    if try_again then (
-	      match auth_cache # create_session msg with
+	      match auth_cache # create_session msg options with
 		| None ->
 		    (* Authentication failed immediately *)
 		    default_action_e()
@@ -4586,6 +4622,12 @@ class pipeline =
     val mutable open_connections = 0
 
     val options =
+      let http_syn =
+	Hashtbl.find Neturl.common_url_syntax "http" in
+      let https_syn =
+	Hashtbl.find Neturl.common_url_syntax "https" in
+      let ipp_syn =
+	Hashtbl.find Neturl.common_url_syntax "ipp" in
       ref
 	{ (* Default values: *)
 	  synchronization = Pipeline 5;
@@ -4598,6 +4640,10 @@ class pipeline =
 	  handshake_timeout = 1.0;
 	  resolver = sync_resolver;
 	  configure_socket = (fun _ -> ());
+	  schemes = [ "http", http_syn, Some 80, http_cb_id;
+		      "https", https_syn, Some 443, https_cb_id;
+		      "ipp", ipp_syn, Some 631, http_cb_id;
+		    ];
 	  verbose_status = true;
 	  verbose_request_header = false;
 	  verbose_response_header = false;
@@ -4623,7 +4669,8 @@ class pipeline =
     val transports = Hashtbl.create 5
 
     initializer (
-      Hashtbl.add transports http_cb_id http_transport_channel_type
+      Hashtbl.add transports http_cb_id http_transport_channel_type;
+      Hashtbl.add transports proxy_only_cb_id http_transport_channel_type;
     )
 
     method event_system = esys
@@ -4666,18 +4713,11 @@ class pipeline =
       let http_proxy =
 	try Sys.getenv "http_proxy" with Not_found -> "" in
       begin try
-	let (is_https,user,password,host,port,path) = parse_http_url http_proxy in
-	self # set_proxy (Netencoding.Url.decode host) port;
-	match user with
-	  Some user_s ->
-	    begin match password with
-	      Some password_s ->
-		self # set_proxy_auth
-		  (Netencoding.Url.decode user_s)
-		  (Netencoding.Url.decode password_s)
-	    | None -> ()
-	    end
-	| None -> ()
+	let (nu,cb) = parse_url options http_proxy in  (* may raise Not_found *)
+	self # set_proxy (Neturl.url_host nu) (Neturl.url_port nu);
+	let u = Neturl.url_user nu in       (* may raise Not_found *)
+	let p = Neturl.url_password nu in   (* may raise Not_found *)
+	self # set_proxy_auth u p
       with
 	Not_found -> ()
       end;
@@ -4756,10 +4796,7 @@ class pipeline =
 	if use_proxy then
 	  match proxy_type with
 	    | `Http_proxy ->
-		(* FIXME: is_https could be wrong in some cases. Maybe
-		   the user should be allowed to configure this.
-		 *)
-		if request # is_https then
+		if request # proxy_use_connect then
 		  `Http_proxy_connect((proxy,proxy_port),(host,port))
 		else
 		  `Http_proxy(proxy,proxy_port)
@@ -4784,7 +4821,9 @@ class pipeline =
 	if List.length !connlist < !options.number_of_parallel_connections 
 	  then begin
 	    let tp =
-	      try Hashtbl.find transports cb
+	      try 
+		if cb = proxy_only_cb_id && not use_proxy then raise Not_found;
+		Hashtbl.find transports cb
 	      with Not_found ->
 		failwith "Http_client: No transport for this channel binding" in
 	    let proxy_auth_handler_opt =
@@ -4863,6 +4902,7 @@ class pipeline =
 
 
     method add_with_callback (request : http_call) f_done =
+      request # private_api # parse_request_uri options;
       self # add_with_callback_no_redirection
 	request
 	(fun m ->
@@ -4912,15 +4952,16 @@ class pipeline =
 			    * to RFC specs. Now it is relative (with full path).
 			    * Workaround: Interpret relative to old server
 			    *)
-			   let host = m # get_host() in
-			   let port = m # get_port() in
-			   let scheme, dport = 
-			     if m#is_https then "https", 443 else "http", 80 in
-			   let prefix =
-			     scheme ^ "://" ^ host ^ 
-			       (if port = dport then "" else ":" ^ string_of_int port)
-			   in
-			   prefix ^ location
+			   ( try
+			       let (nu,_) =
+				 parse_url 
+				   ~base_url:(m # private_api # request_uri_with
+					      ())
+				   options
+				   location in
+			       Neturl.string_of_url nu
+			     with _ -> location
+			   )
 			 else
 			   location in
 		       let ok =
@@ -5114,24 +5155,22 @@ module Convenience =
     let prepare_url =
       serialize
 	(fun url ->
+	   let p = Lazy.force pipe in
 	   try
 	     this_user := "";
-    	     let (is_https,user,password,host,port,path) = parse_http_url url in
-	     begin match user with
-		 Some user_s ->
-		   this_user := Netencoding.Url.decode user_s;
-		   this_password := "";
-		   begin match password with
-		       Some password_s ->
-			 this_password := Netencoding.Url.decode password_s
-		     | None -> ()
-		   end
-	       | None -> ()
-	     end;
-	     let scheme = if is_https then "https" else "http" in
-	     scheme ^ "://" ^ host ^ ":" ^ string_of_int port ^ path
+	     let (nu, _) = parse_url (ref p#get_options) url in
+	     if Neturl.url_provides ~user:true nu then (
+	       this_user := Neturl.url_user nu;
+	       this_password := "";
+	       if Neturl.url_provides ~password:true nu then
+		 this_password := Neturl.url_password nu;
+	     );
+	     Neturl.string_of_url
+	       (Neturl.remove_from_url
+		  ~user:true ~user_param:true ~password:true
+		  nu)
 	   with
-	       Not_found -> 
+	     | Not_found | Neturl.Malformed_URL -> 
 		 url
 	)
 
