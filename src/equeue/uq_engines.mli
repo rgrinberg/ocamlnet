@@ -159,6 +159,7 @@ val when_state : ?is_done:('a -> unit) ->
   (** Watches the state of the argument engine, and arranges that one of
    * the functions is called when the corresponding state change is done. 
    * Once a final state is reached, the engine is no longer watched.
+   * Note that [when_state] only observes future state changes.
    *
    * If one of the functions raises an exception, this exception is
    * propagated to the caller of {!Unixqueue.run}.
@@ -206,7 +207,9 @@ class ['a,'b] map_engine : map_done:('a -> 'b engine_state) ->
   (** The [map_engine] observes the argument engine, and when the
    * state changes to [`Done], [`Error], or [`Aborted], the corresponding
    * mapping function is called, and the resulting state becomes the state
-   * of the mapped engine.
+   * of the mapped engine. If the engine is already in one of the
+   * mentioned states, the map functions are also called (unlike
+   * [when_state]).
    *
    * After the state change to [`Done], [`Error], or [`Aborted] has been
    * observed, the map engine detaches from the argument engine,
@@ -884,6 +887,9 @@ class receiver : src:Unix.file_descr ->
    * The engine goes to [`Error] state when either reading from [src]
    * or writing to [dst] raises an unexpected exception.
    *
+   * For every file descriptor event, the state is advanced from
+   * [`Working n] to [`Working (n+1)].
+   *
    * TODO: This class cannot yet cope with Win32 named pipes.
    *
    * @param close_src Whether to close [src] when the engine stops
@@ -912,6 +918,9 @@ class sender : src:#async_in_channel ->
    *
    * The engine goes to [`Error] state when either reading from [src]
    * or writing to [dst] raises an unexpected exception.
+   *
+   * For every file descriptor event, the state is advanced from
+   * [`Working n] to [`Working (n+1)].
    *
    * TODO: This class cannot yet cope with Win32 named pipes.
    *

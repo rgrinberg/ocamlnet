@@ -1,24 +1,22 @@
 (* $Id$ *)
 
-(* TODO:
- * 
- * - Timeouts
- * - Reasonable exception handling. Currently, exceptions simply fall through
- *   to the caller which is always Unixqueue.run
- * - ftp_connected, ftp_data_conn are probably not correctly set
- *)
-
 (** FTP client
   *
-  * Warning: Experimental code! Not all features described in this interface
-  * work as described!
+  * Currently implements:
+  * - Core FTP (RFC 959), except compressed transfer modes, and except page
+  *   files
+  * - Negotiation of FTP extensions (RFC 2389)
+  * - Common FTP extensions (RFC 3659)
+  * - IPv6 (RFC 2428)
+  * - Internationalization (RFC 2640)
+  * - Directory walking (NVFS) and direct access (TVFS)
+  * 
+  * The client is written in asynchronous style (using {!Uq_engines}).
   *
-  * The client is currently only partially implemented. Especially, the
-  * STOR and STOU commands are missing. Only IPv4 is supported.
-  *
-  * It is intended to implement a large subset of RFC 959 (and later,
-  * the newer FTP-related RFCs). This includes support for EBCDIC,
-  * record files, and block mode.
+  * The interface of this module was changed in Ocamlnet-3.3. Before this
+  * release, the module was marked as "experimental". This is no longer
+  * the case, as the interface has been updated, and the missing features
+  * have been added (e.g. [STOR] support).
  *)
 
 exception FTP_error of exn
@@ -27,9 +25,13 @@ exception FTP_error of exn
 exception FTP_protocol_violation of string
   (** The server violates the FTP specification *)
 
+exception FTP_timeout of string
+  (** A timeout on the control or data connection (this is a fatal error) *)
+
 
 type cmd_state =
-    [ `Init
+    [ `Not_connected
+    | `Init
     | `Success
     | `Proto_error
     | `Temp_failure
@@ -42,6 +44,7 @@ type cmd_state =
     | `Preliminary
     ]
   (** The command state:
+    * - [`Not_connected]: Not connected.
     * - [`Init]: Just connected, no greeting message arrived yet
     * - [`Success]: Got the greeting message/last command was successful
     * - [`Proto_error]: {b currently unused}
@@ -64,6 +67,8 @@ type cmd_state =
 type port =
     [ `Active of string * int * Unix.file_descr
     | `Passive of string * int
+    | `Ext_active of string * int * Unix.file_descr
+    | `Ext_passive of int
     | `Unspecified 
     ]
   (** The port of the data connection: [`Active] means that the server 
@@ -153,10 +158,10 @@ type transmission_mode =
     *
     * Both modes are compatible with both structures, i.e. you can transfer
     * a record-structured file in stream mode and a flat file in block
-    * mode. However, in practise this is not the case. Servers that only
+    * mode. However, in practice this is not the case. Servers that only
     * know flat files are likely to only support stream mode, and servers
     * implementing record structure imply that block transfers base on
-    * the record format. So the advise is to use stream mode for flat
+    * the record format. So the advice is to use stream mode for flat
     * files, and block mode for record files.
    *)
 
@@ -202,7 +207,8 @@ type ftp_state =
 
 
 type cmd =
-    [ `Connect
+    [ `Connect of string * int
+    | `Disconnect
     | `Dummy
     (* RFC 959 - standard FTP *)
     | `USER of string
@@ -220,7 +226,7 @@ type cmd =
     | `MODE of transmission_mode
     | `RETR of string * (ftp_state -> Ftp_data_endpoint.local_receiver)
     | `STOR of string * (ftp_state -> Ftp_data_endpoint.local_sender)
-    | `STOU of (unit -> Ftp_data_endpoint.local_sender)
+    | `STOU of (ftp_state -> Ftp_data_endpoint.local_sender)
     | `APPE of string * (ftp_state -> Ftp_data_endpoint.local_sender)
     | `ALLO of int * int option
     | `REST of string
@@ -241,48 +247,45 @@ type cmd =
     (* RFC 2389 - feature negotiation *)
     | `FEAT
     | `OPTS of string * string option
-    (* ExtFTP Working Group *)
+    (* RFC 2428 *)
+    | `EPRT   (* port is automatically chosen *)
+    | `EPSV of [ `AF of Unix.socket_domain | `ALL ] option
+    (* RFC 2640 *)
+    | `LANG of string option
+    (* RFC 3659 *)
     | `MDTM of string
+    | `SIZE of string
+    | `MLST of string option
+    | `MLSD of string option * (ftp_state -> Ftp_data_endpoint.local_receiver)
     ]
-  (** An FTP command. {b Currently, STOR, STOU and APPE are not supported.} *)
+  (** An FTP command. Not all commands are implemented by all servers. *)
 
 type reply = int * string
   (** Reply code plus text *)
 
 
 
-(** The client protocol interpreter...
- *
- * has a queue of commands that are sent to the server in turn.
- *
- * [onempty] is called when the last command of the queue has been processed.
- *
- * [onclose] is called when the control connection is closed by the
- * FTP server (e.g. as reaction of the QUIT command).
- *
- * [onerrorstate] is called when an [`Error] state is reached (serious
- * error condition).
- *
- * [onusererror] is called when callbacks (i.e. [onreply]) raise exceptions.
- *)
-class ftp_client_pi : 
-        ?event_system:Unixqueue.event_system ->
-        ?onempty:(ftp_state -> unit) ->
-        ?onclose:(unit -> unit) ->
-        ?onerrorstate:(exn -> unit) ->
-        ?onusererror:(exn -> unit) ->
-        Unix.file_descr ->
+(** The client protocol interpreter... *)
+class type ftp_client_pi =
 object
 
+  method exec_e : ?prelim:(ftp_state -> reply -> unit) ->
+                  cmd -> (ftp_state * reply) Uq_engines.engine
+    (** Run another command as engine. The command is first started when
+	the previous command has terminated. The protocol interpreter does 
+	not check whether this command is allowed in the current ftp_state
+	or not.
 
-  method add_cmd : ?onreply:(ftp_state -> reply -> unit) -> cmd -> unit
-    (** Add another command to the queue. The protocol interpreter does 
-     * not check whether this command is allowed in the current ftp_state
-     * or not. For every reply of the server [onreply] is called.
-     * Due to the FTP specification there may be several replies for
-     * a command: First, zero or more replies with [cmd_state = `Preliminary],
-     * and then exactly one reply with a final state.
+	When the command is done, the engine transitions to
+	[`Done(st,r)] where [st] is the state after the command, and [r]
+	is the final reply of the server.
+
+	Due to the FTP specification there may be several replies for
+	a command: First, zero or more replies with [cmd_state = `Preliminary],
+	and then exactly one reply with a final state. The preliminary replies
+	can be intercepted with the [prelim] callback.
      *)
+
 
   method send_abort : unit -> unit
     (** Sends immediately an [ABOR] command, even when a data transfer is
@@ -315,83 +318,58 @@ object
   method event_system : Unixqueue.event_system
     (** The used event system *)
 
+  method request_notification : (unit -> bool) -> unit
+    (** as in {!Uq_engines.engine} *)
+
   method is_empty : bool
     (** Whether the queue is empty *)
 
-end
-
-
-module Action : sig
-  type plan
-  type action = plan -> unit
-
-  val ftp_state : plan -> ftp_state
-    (** Returns the ftp_state at the beginning of the plan *)
-
-  val execute : onreply:(ftp_state -> reply -> unit) -> 
-                onerror:(ftp_state -> reply -> unit) -> 
-                ftp_client_pi -> 
-                action ->
-                  unit
-    (** Executes the action for the given client PI. If the normal 
-      * execution path is taken, finally [onreply] is called once.
-      * If the error execution path is taken, finally [onerror] is called
-      * once.
+  method need_ip6 : bool
+    (** Whether [`EPSV] or [`EPRT] are required instead of
+	[`PASV] and [`PORT], respectively. This is first set after
+	connecting to a server (i.e. when the IP address family is known).
+	Before, it is always [false].
      *)
 
-  val empty : action
-    (** Do nothing *)
+  (** Feature tests
 
-  val command : cmd -> action
-    (** Execute the command *)
+      The following methods are first set when the [`FEAT] command is run.
+      Use [feat_method] to do so. Until then, always [false] is returned.
+   *)
 
-  val dyn_command : (unit -> cmd) -> action
-    (** Execute the computed command *)
+  method supports_tvfs : bool
+    (** Whether TVFS filenames are supported *)
 
-  val seq2 : action -> action -> action
-    (** Do the two actions in turn *)
-
-  val full_seq2 : action -> (reply -> action) -> action
-    (** Do the first action, then get the second action using the reply
-      * of the first action.
+  method supports_mdtm : bool
+    (** Whether the [`MDTM] command is supported. Note that [`MDTM] is sometimes
+	even supported even if the server does not provide the [`FEAT] command
+	to test for this feature.
      *)
 
-  val seq : action list -> action
-    (** Do the list of actions in turn *)
-
-  val expect : cmd_state -> action -> action
-    (** If the execution of the action yields the passed state, continue
-      * normally, otherwise treat the situation as error
+  method supports_size : bool
+    (** Whether the [`SIZE] command is supported. Note that [`SIZE] is sometimes
+	even supported even if the server does not provide the [`FEAT] command
+	to test for this feature.
      *)
 
-  val seq2_case : action -> (cmd_state * action) list -> action
-    (** Do the first action, then check the resulting command state.
-      * The matching second action is executed. If no second action
-      * matches, the situation is treated as error
-     *)
+  method supports_mlst : bool
+    (** Whether the [`MLST] and [`MLSD] commands are supported *)
+
+  method mlst_facts : string list
+    (** All available facts for [`MLST] and [`MLSD] *)
+
+  method mlst_enabled_facts : string list
+    (** The enabled facts for [`MLST] and [`MLSD] *)
+
+  method supports_utf8 : bool
+    (** Whether the UTF-8 extension is understood by the server (RFC 2640) *)
 
 end
 
 
 (** An [ftp_method] is a small procedure doing some task *)
-class type ftp_method =
-object
-  method connect : (string * int) option
-    (** The host and port the FTP method wants to be connected to.
-      * If [None] the current connection is used.
-     *)
-
-  method execute : Action.action
-    (** This method is called when the [ftp_client_pi] is connected and
-      * the queue of commands is empty.
-      *
-      * [onsuccess] must be called when the method has been successfully
-      * finished.
-      *
-      * [onerror] must be called when an exception is caught.
-     *)
-
-end
+type ftp_method =
+    ftp_client_pi -> unit Uq_engines.engine
 
 
 exception FTP_method_temp_failure of int * string
@@ -401,30 +379,30 @@ exception FTP_method_unexpected_reply of int * string
     * The int is the unexpected FTP control code and the string the
     * corresponding text. A temporary failure has a code between 400 and
     * 499, and a permanent failure has a code between 500 and 599.
-    *
-    * {b This does not work yet as intended!}
    *)
 
+val connect_method : host:string ->
+                     ?port:int ->
+                     unit -> ftp_method
+  (** This method connects to the [host]  *)
 
-class connect_method : host:string ->
-                       ?port:int ->
-                       unit -> ftp_method
-  (** This method connects to the [host] which must be an IP address *)
 
-
-class login_method : user:string ->
-                     get_password:(unit -> string) ->
-                     get_account:(unit -> string) ->
-                     unit ->
+val login_method : user:string ->
+                   get_password:(unit -> string) ->
+                   get_account:(unit -> string) ->
+                   unit ->
                        ftp_method
 (** This FTP method logs the [user] in. [get_password] is called when
   * the FTP server asks for the password (may be skipped). [get_account]
   * is called when the server asks for the account ID (may be skipped).
  *)
 
+val quit_method : unit -> ftp_method
+  (** Quits and disconnects *)
 
-class walk_method : [ `File of string | `Dir of string | `Stay ] ->
-                    ftp_method
+
+val walk_method : [ `File of string | `Dir of string | `Stay ] ->
+                  ftp_method
 (** This FTP method walks to the target directory:
   *
   * - [`File name]: The [name] is interpreted as slash-separated path.
@@ -438,6 +416,7 @@ class walk_method : [ `File of string | `Dir of string | `Stay ] ->
 
 type filename =
     [ `NVFS of string
+    | `TVFS of string
     | `Verbatim of string
     ]
   (** There are several methods how to specify filenames:
@@ -447,17 +426,20 @@ type filename =
     *   from this directory. For simplicity, this client interprets slashes
     *   in [name] as path component separators. The FTP server will never
     *   see these slashes.
+    * - [`TVFS name]: The optional "Trivial Network File System" avoids the
+    *   [CWD] and [CDUP] commands. The tagged [name] is normalized (double
+    *   slashed removed etc.), and is passed to the server as-is. Before using
+    *   the faster TVFS one should check whether it is supported (feature
+    *   "TVFS"). Note that even for TVFS there are no special files "."
+    *   and ".."!
     * - [`Verbatim name]: The string [name] is passed to the server without
     *   transforming it in any way.
-    *
-    * In the future, there will be a third way of referring to files:
-    * TVFS, the "Trivial Virtual File System".
    *)
 
-class get_method : file:filename ->
-                   representation:representation ->
-                   store:(ftp_state -> Ftp_data_endpoint.local_receiver) ->
-                   unit ->
+val get_method : file:filename ->
+                 representation:representation ->
+                 store:(ftp_state -> Ftp_data_endpoint.local_receiver) ->
+                 unit ->
                      ftp_method
 (** This FTP method walks to the right directory and gets [file] from
   * the server. The file is stored in the [local_receiver] that can be
@@ -465,24 +447,34 @@ class get_method : file:filename ->
   * remains unchanged.
  *)
 
-class invoke_method : command:cmd ->
-                      process_result:(ftp_state -> (int * string) -> unit) ->
-                      unit ->
-                        ftp_method
-(** This FTP method simply invokes [command], and calls for all kinds of
-  * successful replies the function [process_result], passing the ftp_state and
-  * the code and the reply text.
+val put_method : ?meth:[ `STOR | `APPE ] ->
+                 file:filename ->
+                 representation:representation ->
+                 store:(ftp_state -> Ftp_data_endpoint.local_sender) ->
+                 unit ->
+                     ftp_method
+(** This FTP method walks to the right directory and puts [file] to
+  * the server. The file is taken from the [local_sender] that can be
+  * obtained by calling the [store] function. The selected [representation]
+  * remains unchanged.
+  *
+  * [meth] selects the method to use (default [`STOR]).
  *)
 
-class set_structure_method : structure -> ftp_method
+val invoke_method : command:cmd ->
+                    unit ->
+                        ftp_method
+(** This FTP method simply invokes [command]. *)
+
+val set_structure_method : structure -> ftp_method
 (** Requests a certain structure for future file transfers *)
 
-class set_mode_method : transmission_mode -> ftp_method
+val set_mode_method : transmission_mode -> ftp_method
 (** Requests a certain mode for future file transfers *)
 
-class rename_method : file_from:filename ->
-                      file_to:filename ->
-                      unit ->
+val rename_method : file_from:filename ->
+                    file_to:filename ->
+                    unit ->
                         ftp_method
 (** Renames the [file_from] into [file_to].
   *
@@ -490,40 +482,128 @@ class rename_method : file_from:filename ->
   * If [`NVFS], both names must be in the same directory.
  *)
 
-class mkdir_method : filename -> ftp_method
+val mkdir_method : filename -> ftp_method
 (** Creates the named directory *)
 
-class rmdir_method : filename -> ftp_method
+val rmdir_method : filename -> ftp_method
 (** Deletes the named directory *)
 
-class delete_method : filename -> ftp_method
+val delete_method : filename -> ftp_method
 (** Deletes the named file *)
 
-class list_method : dir:filename ->
-                    representation:representation ->
-                    store:(ftp_state -> Ftp_data_endpoint.local_receiver) ->
-                    unit ->
+val list_method : dir:filename ->
+                  representation:representation ->
+                  store:(ftp_state -> Ftp_data_endpoint.local_receiver) ->
+                  unit ->
                       ftp_method
 (** Lists the contents of the directory [dir] using the LIST command.
   * The [representation] must not be [`Image].
  *)
 
-class nlst_method : dir:filename ->
-                    representation:representation ->
-                    store:(ftp_state -> Ftp_data_endpoint.local_receiver) ->
-                    unit ->
+val nlst_method : dir:filename ->
+                  representation:representation ->
+                  store:(ftp_state -> Ftp_data_endpoint.local_receiver) ->
+                  unit ->
                       ftp_method
 (** Lists the contents of the directory [dir] using the NLST command
   * The [representation] must not be [`Image].
  *)
 
-class mdtm_method : file:filename ->
-                    process_result:(float -> unit) ->
-                    unit ->
+val parse_nlst_document : string -> string list
+  (** Returns the filenames contained in the output of [`NLST] *)
+
+
+val mdtm_method : file:filename ->
+                  process_result:(float -> unit) ->
+                  unit ->
                       ftp_method
 (** Determines the date and time of the last modification of [file].
   * On success, [process_result] is called.
  *)
+
+val size_method : file:filename ->
+                  representation:representation ->
+                  process_result:(int64 -> unit) ->
+                  unit ->
+                      ftp_method
+(** Determines the size of [file]. On success, [process_result] is called.
+    The size depends on [representation].
+ *)
+
+
+val feat_method : ?process_result:((string * string option) list -> unit) ->
+                   unit -> ftp_method
+  (** Get the list of feature tokens (see also
+      {!Ftp_client.ftp_state.ftp_features})
+   *)
+
+
+type entry = string * (string * string) list
+    (** A file entry [(name, facts)]. The facts are given as pairs
+	[(factname,value)] where [factname] is always lowercase.
+	For parsers for common facts see below.
+     *)
+
+val mlst_method : file:filename ->
+                  process_result:(entry list -> unit) ->
+                  unit ->
+                      ftp_method
+     (** Get the file entry for [file]. *)
+
+val mlsd_method : dir:filename ->
+                  store:(ftp_state -> Ftp_data_endpoint.local_receiver) ->
+                  unit ->
+                      ftp_method
+    (** Gets the entries for this directory. *)
+
+val parse_mlsd_document : string -> entry list
+  (** Returns the entries contained in the output of [`MLSD] *)
+
+
+type entry_type =
+    [ `File | `Cdir | `Pdir | `Dir | `Other ]
+  (** Types:
+      - [`File]: entry refers to file
+      - [`Cdir]: entry refers to the directory being listed
+      - [`Pdir]: entry is a parent of the directory being listed
+      - [`Dir]: entry refers to directory
+      - [`Other]: entry is neither file nor directory
+   *)
+
+type entry_perm =
+    [ `Append | `Create | `Delete | `Enter | `Rename | `List | `Mkdir
+    | `Delete_member | `Read | `Write 
+    ]
+  (** Permissions:
+      - [`Append]: append to file possible
+      - [`Create]: file can be created in this dir
+      - [`Delete]: file or dir can be deleted
+      - [`Enter]: dir can be entered
+      - [`Rename]: file or dir can be renamed
+      - [`List]: dir can be listed
+      - [`Mkdir]: subdir can be created in this dir
+      - [`Delete_member]: a file or dir can be deleted in this directory
+      - [`Read]: a file can be retrieved
+      - [`Write]: a file can be stored
+   *)
+
+(** The following functions extract commonly used facts from entries.
+    They may raise [Not_found].
+ *)
+
+val get_name : entry -> string
+val get_size : entry -> int64
+val get_modify : entry -> float
+val get_create : entry -> float
+val get_type : entry -> entry_type
+val get_unique : entry -> string
+val get_perm : entry -> entry_perm list
+val get_lang : entry -> string
+val get_media_type : entry -> string
+val get_charset : entry -> string
+val get_unix_mode : entry -> int
+val get_unix_uid : entry -> string
+val get_unix_gid : entry -> string
 
 
 (** The ftp client is a user session that may even span several connections.
@@ -531,41 +611,36 @@ class mdtm_method : file:filename ->
  *)
 class ftp_client :
         ?event_system:Unixqueue.event_system ->
-        ?onempty:(unit -> unit) ->
         unit ->
 object
-  inherit [unit] Uq_engines.engine
-    (** The FTP client is also an engine. The engine can be in one of four
-      * states:
-      * - [`Working _]: The client is still active. The [int]
-      *   argument is currently meaningless.
-      * - [`Done()]: The client has been terminated.
-      * - [`Error e]: A violation of the FTP protocol happened, or another
-      *   exception [e] occurred
-      * - [`Aborted]: The [abort] method was called
+  method exec_e : ftp_method -> unit Uq_engines.engine
+    (** Runs the method asynchronously as engine. *)
+
+  method exec : ftp_method -> unit
+    (** Runs the method synchronously. Note that this implies a call of
+	{!Unixqueue.run}.
      *)
 
-  method add : ?onsuccess:(unit -> unit) ->
-               ?onerror:(exn -> unit) ->
-               ftp_method -> unit
-    (** Adds an FTP method to the queue of methods to execute. It is no
-      * problem to add the same method twice.
-      *
-      * When the method could be executed successfully, the function
-      * [onsuccess] is called. (By default, this function does nothing.)
-      *
-      * If the FTP server indicates an error, the 
-      * function [onerror] is called instead. The exception is either
-      * [FTP_method_temp_failure] or [FTP_method_perm_failure].  
-      * The default for [onerror] is to raise the exception again,
-      * which has the effect of setting the engine state to [`Error].
-      * This effectively stops the FTP client. (Hard errors
-      * like socket problems or protocol violations are not reported this
-      * way, but by directly setting the engine state to [`Error].)
+  method pi : ftp_client_pi
+    (** The curerent protocol interpreter. It is allowed that a different [pi]
+	is created when a new connection is opened.
+
+	The [pi] is first available after running the first method. The
+	method fails if [pi] is unavailable.
      *)
   
   method run : unit -> unit
-    (** Starts the event system; same as [Unixqueue.run] *)
+    (** Starts the event system; same as {!Unixqueue.run} *)
+
+  method configure_timeout : float -> unit
+    (** Configures a timeout for both the control and the data connection.
+	This must be done before connecting to a server.
+     *)
+
+  method event_system : Unixqueue.event_system
+
+  method reset : unit -> unit
+    (** Aborts all current activities if any, and re-initializes the client *)
 
 end
 
@@ -578,40 +653,17 @@ end
   *   let buffer = Buffer.create 1000 in
   *   let ch = new Netchannels.output_buffer buffer in
   *   let client = new ftp_client() in
-  *   client # add (new connect_method ~host:"127.0.0.1");
-  *   client # add (new login_method ~user:"foo"
-  *                                  ~get_password:(fun () -> "password")
-  *                                  ~get_account:(fun () -> "foo") ());
-  *   client # add (new get_method ~file:"path/to/file"
-  *                                ~representation:`Image
-  *                                ~store:(fun _ -> `File_structure ch) ());
-  *   client # run()
+  *   client # exec (connect_method ~host:"127.0.0.1" ());
+  *   client # exec (login_method ~user:"foo"
+  *                                ~get_password:(fun () -> "password")
+  *                                ~get_account:(fun () -> "foo") ());
+  *   client # exec (get_method ~file:(`NVFS "path/to/file")
+  *                             ~representation:`Image
+  *                             ~store:(fun _ -> `File_structure ch) ());
   * ]}
   *
   * The file is stored in [buffer]. By using a different netchannel, it
   * can be stored whereever wanted.
-  *
-  * This piece of code has the disadvantage that the client does not stop
-  * when a method fails ({b in the current version, it always stops, but
-  * in a disadvantegous manner - this will be changed}). Because of this,
-  * it is better to execute the next method only when the previous
-  * was successful:
-  *
-  * {[ 
-  *   ...
-  *   client # add ~onsuccess:(fun () ->
-  *                               client # add ~onsuccess:...
-                                               (new login_method 
-                                                   ~user:"foo"
-  *                                                ~get_password:(fun () -> "password")
-  *                                                ~get_account:(fun () -> "foo") ());
-  *                           )
-  *                (new connect_method ~host:"127.0.0.1")
-  * ]}
-  *
-  * Alternatively, one can also force that the execution stops by raising
-  * an exception in the [onerror] callback ({b not implemented in the current
-  * version}).
   *
   * To download a record-structured text file, use a [store] like:
   *

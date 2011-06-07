@@ -321,6 +321,11 @@ class telnet_session :
 	 * queue; processing of the output queue is deferred until the
 	 * Synch sequence has been completely sent.
 	 *)
+
+    method expect_input : bool -> unit
+      (** Set whether the timeout value is to be applied to the input side
+	  of the connection. This is [true] by default.
+       *)
   end
 ;;
 

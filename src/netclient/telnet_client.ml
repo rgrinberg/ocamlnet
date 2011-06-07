@@ -501,8 +501,6 @@ class telnet_session =
 		let timeout_value = options.connection_timeout in
 		Unixqueue.add_resource esys g (Unixqueue.Wait_in socket, 
 					       timeout_value);
-		Unixqueue.add_close_action esys g (socket, 
-						   (fun _ -> self # shutdown));
 		Unixqueue.add_handler esys g (self # handler);
 		polling_wr <- false;
 		self # maintain_polling
@@ -531,6 +529,21 @@ class telnet_session =
       Queue.add Telnet_dm synch_queue;
       self # update()
 
+
+    method expect_input flag =
+      match group with
+	| None ->
+	    failwith "Telnet_client: not attached"
+	| Some g ->
+	    Unixqueue.remove_resource esys g (Unixqueue.Wait_in socket);
+	    let timeout_value =
+	      if flag then 
+		options.connection_timeout
+	      else
+		(-1.0) in
+	    Unixqueue.add_resource esys g (Unixqueue.Wait_in socket, 
+					   timeout_value)
+	    
 
     method private inet_addr hostname =
       try
@@ -646,12 +659,6 @@ class telnet_session =
 
 
     method private abort_connection =
-
-      (* By removing the input and output resources, the event queue is told
-       * that nothing more will be done with the group g, and because of this
-       * the queue invokes the 'close action' (here self # shutdown) and
-       * cleans up the queue.
-       *)
       ( match connecting with
 	  | None -> ()
 	  | Some eng -> eng#abort()
@@ -663,6 +670,7 @@ class telnet_session =
 	      Unixqueue.remove_resource esys g (Unixqueue.Wait_out socket);
 	      polling_wr <- false;
 	    end;
+	    self # shutdown;
 	    assert (group = None);
         | None -> 
 	    ()

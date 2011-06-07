@@ -3,24 +3,19 @@ OCAMLNET
 - Nethttpd should respect Netcgi.*.default_exn_handler
 - export Netcgi_common.error_page
 - Netmcore_mempool.shm_name_of_pool
+- Http_fs: the http_stream_fs should also define a pipeline method
+- Option for Netfs.local_fs: enable_relative_names
+- Uq_engines.signal_engine: should be thread-safe (signal function
+  can be called from other thread)
 
-Test regexp:
- - Mimestring.scan_header OK, read_header OK, write_header OK
- - Mimestring: token scanner, RFC 2231 encoding, read_multipart_body OK
- - Netconversion.norm_enc_name OK
- - Netencoding.Html.encode, decode OK
- - Netstring_str.quote_set OK
- - Netglob.esc_subst OK
- - Netfs.local_fs OK
- - Nethttp.Header OK
- - Netmime.drop_ws OK
- - Neturl.fixup_url_string, classify_path, local_path_of_file_url OK
- - Netmech_scram OK
- - Netaux.KMP OK
- - Netsendmail.create_address_tokens create_text_tokens OK
- - Nethttpd_kernel, also chunked encoding -> test_acceptor OK
- - Netstring tests OK
- - Http_client OK
+- RPC: support relaying specially: if a server simply wants to forward
+  an RPC call unchanged to a different port, there is no need to decode
+  the message fully.
+
+- Netshm: use blitting functions encoded in C (for int32 bigarrays)
+
+   * Http_client.pipeline: add requests via an engine
+
 
 Fixme:
  - Netstring_pcre.quote: does not work for NULL bytes
@@ -52,42 +47,21 @@ Examples:
  - sort
 
 Docs:
- - Multicore tutorial
+ - Multicore tutorial - DONE
  - Multicore memory management (background info)
 
 Blogs:
- - Multicore announcement + test release
- - N-Queens
+ - Multicore announcement + test release - DONE
+ - N-Queens - DONE
  - Pipeline
  - Matrix
 
-Commerce:
- - Landing page: Multicore consulting
- - Landing page: Cluster consulting
- - Shop:
-    * Whitepaper "Server architectures in Ocaml"
-    * Whitepaper "Using multicore in Ocaml"
- - Sponsor wanted:
-    * Netmcore_set, _map
- - "Ocamlnet EE - Enterprise Extensions"
-    * GSS-API system binding
-    * Kerberos bindings
-    * System authentication
-    * LDAP authentication
- - Ocaml-Kurs
 
 IDEAS FOR OCAMLNET RECIPES:
  - How to maintain a set of cookies on the client side
 
 
-
-
-
-Fixes TODO:
-
-- Http_fs: the http_stream_fs should also define a pipeline method
-
-- Idea:
+Enhanced token scanner:
   Mimestring.create_mime_scanner: Support further options:
    - Enable_comments / Disable_comments -> (, ) can be part of atoms
    - Enable_qstrings / Disable_qstrings -> "" can be part of atoms
@@ -107,7 +81,7 @@ Fixes TODO:
    - highly configurable scanner Netscan
 
 Netstring_pcre.replace: The replacement string follows PCRE syntax
-(i.e. $& for whole match etc.)
+(i.e. $& for whole match etc.) - FIXED
 
 Netnumber (in netstring): - DONE
  - defines all the numeric Rtypes - DONE
@@ -117,6 +91,25 @@ Netnumber (in netstring): - DONE
 
 Netnumber plus add, sub
 
+***
+
+Test regexp:
+ - Mimestring.scan_header OK, read_header OK, write_header OK
+ - Mimestring: token scanner, RFC 2231 encoding, read_multipart_body OK
+ - Netconversion.norm_enc_name OK
+ - Netencoding.Html.encode, decode OK
+ - Netstring_str.quote_set OK
+ - Netglob.esc_subst OK
+ - Netfs.local_fs OK
+ - Nethttp.Header OK
+ - Netmime.drop_ws OK
+ - Neturl.fixup_url_string, classify_path, local_path_of_file_url OK
+ - Netmech_scram OK
+ - Netaux.KMP OK
+ - Netsendmail.create_address_tokens create_text_tokens OK
+ - Nethttpd_kernel, also chunked encoding -> test_acceptor OK
+ - Netstring tests OK
+ - Http_client OK
 
 ***
 
@@ -160,20 +153,16 @@ GSSAPI:
   buffer the first time input_line is called
 
 - Unixqueue: define no_group (do not spend time for group management)
-
-- Option for Netfs.local_fs: enable_relative_names
+  DONE
 
 ***
 
-- Uq_engines.signal_engine: should be thread-safe (signal function
-  can be called from other thread)
-
 - default_page_size statt
   let page_size = 
-    try Netsys_mem.getpagesize() with _ -> 4096
+    try Netsys_mem.getpagesize() with _ -> 4096 - DONE
 
 - Shell: need some function for turning stdin/stdout into an in/out_obj_channel
-  (only one descriptor can do this)
+  (only one descriptor can do this) - DONE
 
 - Http: factor streaming access functions out
 
@@ -253,15 +242,13 @@ src/equeue/uq_resolver.ml:	let he = Unix.gethostbyname host in
 Plan for Ocamlnet 3
 ----------------------------------------------------------------------
 
---Still to do:
+--- Already done:
 
   * Netclient: better storage methods. Pass status code (or even header)
-    to the `File or `Body function.
+    to the `File or `Body function. DONE
 
 - Doc:
-  * container sockets
-
---- Already done:
+  * container sockets - DONE
 
 - Other
   * Go through examples. Fix programming style
@@ -408,15 +395,9 @@ A list of possible improvements, once interfaces are stable again:
 
 - RPC: generate direct mapping
 
-- RPC: support relaying specially: if a server simply wants to forward
-  an RPC call unchanged to a different port, there is no need to decode
-  the message fully.
-
 - RPC: server should support caching for configured procedures
   (Hmmm, unclear. Maybe we just want a server where one can intercept the
   raw messages.)
-
-- Netshm: use blitting functions encoded in C (for int32 bigarrays)
 
 ----------------------------------------------------------------------
 Implementation improvements after Ocamlnet 3.0
@@ -449,9 +430,9 @@ Implementation improvements after Ocamlnet 3.0
 
 - Fix netplex + nethttpd + async API: netcgi cannot be used right now
 
-- Netclient: Support for CONNECT
+- Netclient: Support for CONNECT - DONE
 
-- Netclient: Code-cleanup
+- Netclient: Code-cleanup - DONE
 
 - Netclient: engine interface for HTTP
 
@@ -469,7 +450,7 @@ Implementation improvements after Ocamlnet 3.0
 
 - delegation classes for Netmime
 
-- delegation classes for nethttpd config objects
+- delegation classes for nethttpd config objects - DONE
 
 - use bigarray I/O in more cases
 
@@ -497,9 +478,9 @@ Further ideas
 - camlboxes:
   * safer. E.g. detect when there are pointers to camlbox messages,
     and prevent then that the message can be freed
-  * generic copy function that copies messages to the normal heap
+  * generic copy function that copies messages to the normal heap - DONE
   * support for bigarrays, int32 etc. The custom_ops need to be
-    put into the camlbox by the receiver process
+    put into the camlbox by the receiver process - DONE
   * more flexible memory management, e.g. support messages with
     dynamic size
 
@@ -599,7 +580,7 @@ Further ideas
     method inactivate : unit -> unit
   end
 
-- SSL support for Http_client
+- SSL support for Http_client - DONE
 
 - Finish Ftp_client
   * rewrite problematic parts in engines style
@@ -607,6 +588,7 @@ Further ideas
 - Netplex + RPC + SSL: should be easy to configure
 
 - Better integration of SOCKS
+  * Http_client: DONE
 
 - Netplex documentation:
    * netplex-admin
@@ -632,10 +614,11 @@ netcgi2-plex:
 	- Implement mount_dir/mount_at
 	  Sched: 2.3
 
+***
+
 Bugs Tidalwave:
   * ocamlnet
-	- Bug: Netstring_pcre.global_replace
-	  Sched: after 2.2.0 is out
+	- Bug: Netstring_pcre.global_replace - DONE
 
 Http_client.pipeline:
 	- aggressive caching does not work properly. Sometimes descriptors
