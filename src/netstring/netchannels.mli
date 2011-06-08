@@ -371,6 +371,7 @@ end
 (** {1:input Input channels} *)
 
 class input_channel :
+  ?onclose:(unit -> unit) ->
   in_channel ->
     in_obj_channel
   (** Creates an input channel from an [in_channel], which must be open.
@@ -380,6 +381,8 @@ class input_channel :
    * non-seekable channels.
    *
    * The method [close_in] also closes the underlying [in_channel].
+   *
+   * The function [onclose] is called after the [in_channel] has been closed.
    *)
 
 

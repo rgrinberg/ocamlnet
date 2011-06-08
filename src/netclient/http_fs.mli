@@ -213,3 +213,7 @@ val is_error_response : string -> Http_client.http_call -> exn option
       - other codes from 300 to 599 are mapped to [EPERM]
    *)
  *)
+
+(**/**)
+
+val find_flag : ('a -> 'b option) -> 'a list -> 'b

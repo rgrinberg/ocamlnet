@@ -192,7 +192,7 @@ end
 
 (****************************** input ******************************)
 
-class input_channel ch (* : in_obj_channel *) =
+class input_channel ?(onclose=fun () -> ()) ch (* : in_obj_channel *) =
 object (self)
   val ch = ch
   val mutable closed = false
@@ -227,7 +227,7 @@ object (self)
 
   method close_in () =
     if not closed then (
-      Pervasives.close_in ch; closed <- true
+      Pervasives.close_in ch; closed <- true; onclose()
     )
 
   method pos_in =

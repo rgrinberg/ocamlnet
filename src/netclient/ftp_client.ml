@@ -8,6 +8,7 @@
    - feature test functions - DONE
    - MLST MLSD - DONE
    - IPv6 - DONE
+   - SOCKS
    - Ftp_fs
    - FIx tutorial
    - Http_fs: support ftp URLs for web proxies
@@ -1964,6 +1965,7 @@ let rename_method ~file_from ~(file_to : filename) () (pi:ftp_client_pi) =
 	  if d1 <> d2 then invalid_arg "Ftp_client.rename_method";
 	  basename p2'
       | (`Verbatim _), (`Verbatim s) -> s
+      | (`TVFS _), (`TVFS s) -> norm_tvfs s
       | _ -> invalid_arg "Ftp_client.rename_method"
   in
   file_e file_from pi

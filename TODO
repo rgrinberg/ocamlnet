@@ -199,44 +199,33 @@ src/equeue/uq_socks5.ml:	let entry = Unix.gethostbyname name in (* may fail *)
 src/equeue/uq_resolver.ml:	let he = Unix.gethostbyname host in
 
 
-- Finish FTP client
+- Finish FTP client - DONE
 
-  * ftp_client_pi:
-
-    do not expose this class anymore!
-
-    no queueing anymore (do this in ftp_client)
-
-    add method add_cmd_e  with engine interface
- 
-    ftp_state: add last_reply, cumulated_replies (for last command)
-
-    method add_cmd_e : cmd -> ftp_state engine
-
-    type action_e = ftp_state engine
-    (replaces ftp_method)
-
-    class ftp_client_pi: no Unix.file_descr arg. Instead have commands
-    CONNECT of host*port and DISCONNECT
-
-    command Catch_replies of (cmd * (ftp_state -> unit))
-      [instead of onreply]
-
-  * module Action: replace with engines
-  * *_method: these also become engines
-  * add support for PUT
-
-  type ftp_method = context -> action_e
-
-  ftp_client # exec_e : ftp_method -> ftp_state engine
-
-  ftp_client # exec_e (connect_method ~host ())
-  ++ (fun (_:ftp_state) -> ftp_client # exec_e (login_method ...))
-  etc.
-
-  exec_e has also queing semantics
-
- ftp_client # exec : calls Unixqueue.run and throws exceptions
+- FTP w/SSL support
+  * RFC 4217
+  * SSL for data channels: currently, the data connections use
+    Uq_engines.sender/receiver to copy data from a file_descr to
+    an async_in/out_channel:
+      descr --copy--> async_in/out_channel.
+    Change this to:
+      descr --wrap--> mplex --copy--> async_in/out_channel
+    Do the copy with Uq_io.copy.
+  * SSL for control channel: Need to upgrade Telnet_client so it
+    can use (and exchange) mplex.
+    Difficulty: OOB data cannot be routed via mplex.
+  * Support for AUTH, PROT, PBSZ
+    - AUTH: Once we get a positive response, switch to SSL on the
+      control connection
+    - remember in ftp_state what was negotiated for the data conn.
+      Enable SSL if privacy is requested. Attn: always use tls_connect,
+      even if an active mode file transfer is being done!
+  * Modularity:
+    - Add concept of "security_provider", an implementation-dependent
+      type
+    - By pushing the AUTH_SSL provider, this security mechanism becomes
+      available.
+  * test against: e.g. pureftpd
+  * dev time: 1 day
 
 ----------------------------------------------------------------------
 Plan for Ocamlnet 3
@@ -328,12 +317,7 @@ Plan for Ocamlnet 3
   Option for the user to see these objects:
   typedef _object string mystring<>;
 
-
-
-- NetCGI cleanup
-  * remove netcgi1
-  * remove nethttpd-for-netcgi1, and fix types in nethttpd_for_netcgi2
-
+- NetCGI cleanup - DONE
 
 - Shell_uq/Shell_sys: Drop Shell_sys.wait implementation. Replace with
   engine. The system_handler is replaced by something like
@@ -453,6 +437,8 @@ Implementation improvements after Ocamlnet 3.0
 - delegation classes for nethttpd config objects - DONE
 
 - use bigarray I/O in more cases
+  * RPC - DONE
+  * Http_client - DONE
 
 - Fix Netplex_kit.start_helper_thread so that the component leaves
   `Starting state quickly
@@ -581,9 +567,6 @@ Further ideas
   end
 
 - SSL support for Http_client - DONE
-
-- Finish Ftp_client
-  * rewrite problematic parts in engines style
 
 - Netplex + RPC + SSL: should be easy to configure
 

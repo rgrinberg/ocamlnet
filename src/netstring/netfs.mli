@@ -195,7 +195,10 @@ object
      *)
 
   method size : size_flag list -> string -> int64
-    (** Returns the size of a file *)
+    (** Returns the size of a file. Note that there is intentionally no
+	distinction between text and binary mode - implementations must
+	always assume binary mode.
+     *)
 
   method test : test_flag list -> string -> test_type -> bool
     (** Returns whether the test is true. For filesystems that know
