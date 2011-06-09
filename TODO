@@ -4,6 +4,7 @@ OCAMLNET
 - export Netcgi_common.error_page
 - Netmcore_mempool.shm_name_of_pool
 - Http_fs: the http_stream_fs should also define a pipeline method
+- Http_fs: enable compression if possible
 - Option for Netfs.local_fs: enable_relative_names
 - Uq_engines.signal_engine: should be thread-safe (signal function
   can be called from other thread)
@@ -16,6 +17,7 @@ OCAMLNET
 
    * Http_client.pipeline: add requests via an engine
 
+- Netfs.abort_write
 
 Fixme:
  - Netstring_pcre.quote: does not work for NULL bytes
@@ -60,6 +62,13 @@ Blogs:
 IDEAS FOR OCAMLNET RECIPES:
  - How to maintain a set of cookies on the client side
 
+
+Enhanced stream_fs:
+ - read_file
+ - write_file
+ - metadata operations: ???
+ - problem with normal write: how to signal that the operation is
+   aborted?
 
 Enhanced token scanner:
   Mimestring.create_mime_scanner: Support further options:
@@ -183,21 +192,13 @@ GSSAPI:
 
 - Finishing pluggable DNS resolver
   * new iml Uq_engines.direct_socket_connector
-  * Http_client
-  * Telnet_client
-  * raise Host_not_found if lookups fail!
-
-$ find src -name "*.ml" | xargs grep gethostbyname
-src/nethttpd/nethttpd_services.ml:	      let h = Unix.gethostbyname host in
-src/smtp/netsmtp.ml:        | None -> (gethostbyname (gethostname ())).h_name
-src/netclient/http_client.ml:	    let h = Unix.gethostbyname name in
-src/netclient/telnet_client.ml:	      let h = syscall (fun () -> Unix.gethostbyname hostname) in
-src/rpc/rpc_auth_sys.ml:		    let entry = Unix.gethostbyname hostname in
-src/netplex/netplex_config.ml:					Unix.gethostbyname h in
-src/equeue/uq_engines.ml:	let entry = Unix.gethostbyname name in (* may fail *)
-src/equeue/uq_socks5.ml:	let entry = Unix.gethostbyname name in (* may fail *)
-src/equeue/uq_resolver.ml:	let he = Unix.gethostbyname host in
-
+  * Http_client - HALF DONE
+    + open: Use Uq_resolver also in the async case
+  * Telnet_client - DONE
+  * Uq_socks5: - HALF DONE
+    + open: Use Uq_resolver in an async way
+  * raise Host_not_found if lookups fail! - DONE. We are now using
+    Uq_resolver in Uq_engines.connector.
 
 - Finish FTP client - DONE
 
@@ -401,7 +402,7 @@ Implementation improvements after Ocamlnet 3.0
     the first failure
 
 - Name_resolution_error
-  use this in Uq_engines.connector.
+  use this in Uq_engines.connector. - DONE
 
 - Configurable async name resolution (already started: Uq_resolver)
   [Maybe include netdns?]

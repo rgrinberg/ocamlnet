@@ -1,5 +1,7 @@
 (* $Id$ *)
 
+(** FTP filesystem *)
+
 class type ftp_stream_fs =
 object
   inherit Netfs.stream_fs
@@ -24,7 +26,7 @@ class ftp_fs : ?config_client:(Ftp_client.ftp_client -> unit) ->
                string -> ftp_stream_fs
   (** [ftp_fs base_url]: Access the FTP file system rooted at [base_url].
 
-      The [base_url] must follow the [ftp://user@host:port/path] scheme.
+      The [base_url] must follow the [ftp://user\@host:port/path] scheme.
       Passwords in [base_url] are ignored.
 
       The following access methods are supported (compare with
@@ -61,7 +63,7 @@ class ftp_fs : ?config_client:(Ftp_client.ftp_client -> unit) ->
         (and an emulation is considered as too dangerous)
       - [readdir]: works
       - [rename]: works
-      - [mkdir]: works
+      - [mkdir]: works, but the flags are ignored
       - [rmdir]: works
 
       There is no support for [symlink], [readlink], and [copy].

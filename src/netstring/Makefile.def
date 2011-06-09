@@ -50,6 +50,7 @@ DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netmappings.mli netaux.mli nethttp.mli netpagebuffer.mli \
 	netfs.mli netglob.mli netauth.mli \
         netnumber.mli rtypes.mli xdr_mstring.mli xdr.mli \
+	netcompression.mli \
 	netchannels_tut.txt netmime_tut.txt netsendmail_tut.txt \
 	netulex_tut.txt neturl_tut.txt
 

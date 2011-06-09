@@ -467,7 +467,7 @@ let extract_address socket_dir service_name proto_name cf addraddr =
 					int_of_string
 					  (Netstring_str.matched_group m 2 bind) in
 				      let entry =
-					Unix.gethostbyname h in
+					Uq_resolver.get_host_by_name h in
 				      let al =
 					Array.to_list
 					  entry.Unix.h_addr_list in

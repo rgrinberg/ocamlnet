@@ -43,6 +43,12 @@ These modules are as simple as possible to do their task. It is up
 to the user to extend them, e.g. by plugging in fancier logging
 modules.
 
+{b Pluggable name resolver}
+
+All Ocamlnet modules use a single module for network name resolution:
+- {!Uq_resolver} defines a type for resolvers, and the current default resolver
+
+
 {b Preference of asynchronous protocol interpreters}
 
 A number of protocol interpreters are written in asynchronous style.
@@ -126,13 +132,13 @@ There a number of libraries using and extending Ocamlnet:
 
 - {{:http://oss.wink.com/hydro} Hydro} implements the ICE remote procedure
   call system
-- {{:http://oss.wink.com/hydro} Netdns} implements much of a DNS client
+- {{:http://oss.wink.com/netdns} Netdns} implements much of a DNS client
   and client cache
 - {{:http://oss.wink.com/webdav/} Webdav} is a WebDAV client
 - {{:http://oss.wink.com/netamqp/} NetAMQP} is an AMQP client
 - {{:http://code.google.com/p/orpc2} orpc} is another language mapping layer
   for SunRPC
-- {{:http://merjis.com/_file/simplesoap-doc.html} SimpleSOAP} provídes a
+- {{:http://merjis.com/_file/simplesoap-doc.html} SimpleSOAP} provides a
   simple SOAP client
 - {{:http://ne-fat-s.org/soss/index.html} SOSS} is a SOAP server
 - {{:http://raevnos.pennmush.org/code/ocaml-xml-rpc} ocaml-xml-rpc} is an

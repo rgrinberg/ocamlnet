@@ -1,13 +1,5 @@
 (* $Id$ *)
 
-(* TODO:
-   - error code translation
-   - mkdir flags
-   - TVFS: NLST returns paths (apply basename)
-   - readdir "/" -> "NLST "
-   - Raises Not_found if URL not found
- *)
-
 open Printf
 open Ftp_client
 
@@ -46,7 +38,36 @@ class ftp_fs ?(config_client = fun _ -> ())
   let ftp = new Ftp_client.ftp_client () in
   let () = config_client ftp in
   let last_ftp_state = ref None in
-  let transaction f =
+
+  let uerror code path detail =
+    raise(Unix.Unix_error(code, detail, path)) in
+  let einval path detail =
+    raise(Unix.Unix_error(Unix.EINVAL, detail, path)) in
+  let enosys path detail =
+    raise(Unix.Unix_error(Unix.ENOSYS, detail, path)) in
+
+  let translate_error err path detail =
+    match err with
+      | FTP_method_perm_failure(550,_) ->
+	  (* This can mean a lot. ENOENT is only the most frequent reason *)
+	  uerror Unix.ENOENT path (detail ^ " [code 550]")
+      | FTP_method_perm_failure((500|502) as code,_) ->
+	  enosys path (detail ^ "[ code " ^ string_of_int code ^ "]")
+      | FTP_method_perm_failure(553, _) ->
+	  uerror Unix.EINVAL path (detail ^ " [code 553]")
+      | FTP_method_temp_failure(450, _) ->
+	  uerror Unix.EPERM path (detail ^ " [code 450]")
+      | FTP_method_temp_failure(452, _) ->
+	  uerror Unix.ENOSPC path (detail ^ " [code 452]")
+      | FTP_method_perm_failure(code,_) ->
+	  uerror Unix.EPERM path (detail ^ " [code " ^ string_of_int code ^ "]")
+      | FTP_method_temp_failure(code,_) ->
+	  uerror Unix.EPERM path (detail ^ " [code " ^ string_of_int code ^ "]")
+      | _ ->
+	  err
+  in
+
+  let transaction f path detail =
     try
       let connected =
 	try (ftp # pi # ftp_state).ftp_connected
@@ -76,7 +97,7 @@ class ftp_fs ?(config_client = fun _ -> ())
 	  last_ftp_state := Some(ftp # pi # ftp_state);
 	  if not keep_open then
 	    ftp # reset();
-	  raise error in
+	  raise (translate_error error path detail) in
   let (supports_tvfs, supports_utf8) =
     transaction
       (fun () ->
@@ -88,15 +109,9 @@ class ftp_fs ?(config_client = fun _ -> ())
 	 (ftp # pi # supports_tvfs,
 	  ftp # pi # supports_utf8
 	 )
-      ) in
+      ) "" "Ftp_fs" in
   let path_encoding =
     if supports_utf8 then Some `Enc_utf8 else None in
-  let uerror code path detail =
-    raise(Unix.Unix_error(code, detail, path)) in
-  let einval path detail =
-    raise(Unix.Unix_error(Unix.EINVAL, detail, path)) in
-  let enosys path detail =
-    raise(Unix.Unix_error(Unix.ENOSYS, detail, path)) in
   let translate path =
     (* Check path. Also prepend the path from the base URL. The returned
        path does not start with /. If just the root dir is means this function
@@ -137,7 +152,10 @@ class ftp_fs ?(config_client = fun _ -> ())
       base_path_n @ (List.tl npath) in
     let p = 
       String.concat "/" path_trans in
-    if supports_tvfs then `TVFS p else `NVFS p in
+    (* `TVFS "" does not work for accessing the home dir, so switch
+       to `NVFS in this case
+     *)
+    if supports_tvfs && p <> "" then `TVFS p else `NVFS p in
   
 object(self)
   method path_encoding = path_encoding
@@ -186,7 +204,7 @@ object(self)
 				)
 			 ()
 		      );
-	);
+	) path "Ftp_fs.read";
       match !cur_tmp with
         | None ->
             assert false
@@ -256,7 +274,7 @@ object(self)
 			 | FTP_method_perm_failure(550,_) -> false in
 		     if exists <> r_exists then
 		       let ecode =
-			 if r_exists then Unix.ENOENT else Unix.EPERM in
+			 if r_exists then Unix.ENOENT else Unix.EEXIST in
 		       raise(uerror ecode path "Ftp_fs.write");
 	     );
 	     
@@ -279,6 +297,8 @@ object(self)
 		 ( try Unix.unlink tmp_name with _ -> () );
 		 raise error
 	)
+	path
+	"Ftp_fs.write"
     in
     
     let obj_outch =
@@ -301,6 +321,8 @@ object(self)
 		       ());
 	 !n
       )
+      path
+      "Ftp_fs.size"
 
   method test flags path typ =
     List.hd (self # test_list flags path [typ])
@@ -369,6 +391,8 @@ object(self)
 	   )
 	   typl
       )
+      path
+      "Ftp_fs.test_list"
 
   method remove flags path = 
     last_ftp_state := None;
@@ -379,6 +403,8 @@ object(self)
       (fun () ->
 	 ftp # exec (Ftp_client.delete_method vfs)
       )
+      path
+      "Ftp_fs.remove"
 
   method rename flags path1 path2 =
     last_ftp_state := None;
@@ -388,6 +414,8 @@ object(self)
       (fun () ->
 	 ftp # exec (Ftp_client.rename_method ~file_from:vfs1 ~file_to:vfs2 ())
       )
+      path1
+      "Ftp_fs.rename"
 
 
   method readdir flags path =
@@ -403,9 +431,12 @@ object(self)
 		     ~store:(fun _ -> `File_structure ch)
 		     ()
 		  );
-	 parse_nlst_document (Buffer.contents b)
+	 List.map
+	   Filename.basename
+	   (parse_nlst_document (Buffer.contents b))
       )
-
+      path
+      "Ftp_fs.readdir"
 
   method mkdir flags path =
     (* FIXME: flags *)
@@ -415,6 +446,8 @@ object(self)
       (fun () ->
 	 ftp # exec (Ftp_client.mkdir_method vfs)
       )
+      path
+      "Ftp_fs.mkdir"
 
   method rmdir flags path =
     last_ftp_state := None;
@@ -423,6 +456,8 @@ object(self)
       (fun () ->
 	 ftp # exec (Ftp_client.rmdir_method vfs)
       )
+      path
+      "Ftp_fs.rmdir"
 
 
   (* Unsupported *)

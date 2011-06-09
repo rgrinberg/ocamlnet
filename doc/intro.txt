@@ -491,17 +491,22 @@ processes, and sending messages between them.
 
 {1:ch_netproto Network Protocol Libraries}
 
+{3:ch_netproto_guides Guides}
+
+- {!module:Netclient_tut}: The Netclient tutorial (HTTP, FTP)
+
 {2:netclient The [netclient] library: HTTP, FTP, Telnet}
 
-This library includes clients for HTTP, Telnet, and (incomplete) FTP.
+This library includes clients for HTTP, Telnet, and FTP.
 
 {!modules:
    Http_client
    Http_client_conncache
    Http_fs
-   Telnet_client
    Ftp_client
    Ftp_data_endpoint
+   Ftp_fs
+   Telnet_client
 }
 
 

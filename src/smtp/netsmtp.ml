@@ -66,7 +66,7 @@ object (self)
     oc # output_string "EHLO ";
     self # smtp_cmd (
       match host with
-        | None -> (gethostbyname (gethostname ())).h_name
+        | None -> (Uq_resolver.get_host_by_name (gethostname ())).h_name
         | Some s -> s
     );
     snd (handle_answer ic)

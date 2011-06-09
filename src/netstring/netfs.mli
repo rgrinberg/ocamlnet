@@ -310,13 +310,18 @@ val local_fs : ?encoding:Netconversion.encoding -> ?root:string ->
  *)
 
 
-(** {2 Other impementations of [stream_fs]} *)
+(** {2:links Other impementations of [stream_fs]} *)
 
 (** List:
 
     - {!Http_fs} allows one to access HTTP-based filesystems
+    - {!Ftp_fs} allows on to access filesystems via FTP
     - {!Shell_fs} allows one to access filesystems by executing shell
       commands. This works locally and via ssh.
+
+    There are even some implementations outside Ocamlnet:
+    - {{:http://oss.wink.com/webdav/} Webdav} provides an extension of
+      {!Http_fs} for the full WebDAV set of filesystem operations
 
  *)
 

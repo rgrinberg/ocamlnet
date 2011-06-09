@@ -8,10 +8,10 @@
    - feature test functions - DONE
    - MLST MLSD - DONE
    - IPv6 - DONE
-   - SOCKS
-   - Ftp_fs
-   - FIx tutorial
-   - Http_fs: support ftp URLs for web proxies
+   - SOCKS - DONE
+   - Ftp_fs - DONE
+   - Ftp_fs.ftp_fs_via_http_proxy
+   - tutorial
  *)
 
 open Telnet_client
@@ -153,21 +153,21 @@ type cmd =
     | `MLSD of string option * (ftp_state -> Ftp_data_endpoint.local_receiver)
     ]
 
-let string_of_cmd =
+let string_of_cmd_nolf =
   function
     | `Connect _ -> ""
     | `Disconnect -> ""
     | `Dummy -> ""
-    | `USER s -> "USER " ^ s ^ "\r\n"
-    | `PASS s -> "PASS " ^ s ^ "\r\n"
-    | `ACCT s -> "ACCT " ^ s ^ "\r\n"
-    | `CWD s  -> "CWD " ^ s ^ "\r\n"
-    | `CDUP   -> "CDUP\r\n"
-    | `SMNT s -> "SMNT " ^ s ^ "\r\n"
-    | `QUIT   -> "QUIT\r\n"
-    | `REIN   -> "REIN\r\n"
+    | `USER s -> "USER " ^ s
+    | `PASS s -> "PASS " ^ s
+    | `ACCT s -> "ACCT " ^ s
+    | `CWD s  -> "CWD " ^ s
+    | `CDUP   -> "CDUP"
+    | `SMNT s -> "SMNT " ^ s
+    | `QUIT   -> "QUIT"
+    | `REIN   -> "REIN"
     | `PORT   -> assert false   (* not done here *)
-    | `PASV   -> "PASV\r\n"
+    | `PASV   -> "PASV"
     | `TYPE t -> "TYPE " ^ 
 	         ( match t with
 		     | `ASCII None -> "A"
@@ -179,59 +179,66 @@ let string_of_cmd =
 		     | `EBCDIC (Some `Telnet) -> "E T"
 		     | `EBCDIC (Some `ASA) -> "E C"
 		     | `Image -> "I"
-		 ) ^ "\r\n"
-    | `STRU `File_structure -> "STRU F\r\n"
-    | `STRU `Record_structure -> "STRU R\r\n"
-    | `MODE `Stream_mode -> "MODE S\r\n"
-    | `MODE `Block_mode -> "MODE B\r\n"
-    | `RETR (s,_) -> "RETR " ^ s ^ "\r\n"
-    | `STOR (s,_) -> "STOR " ^ s ^ "\r\n"
+		 )
+    | `STRU `File_structure -> "STRU F"
+    | `STRU `Record_structure -> "STRU R"
+    | `MODE `Stream_mode -> "MODE S"
+    | `MODE `Block_mode -> "MODE B"
+    | `RETR (s,_) -> "RETR " ^ s
+    | `STOR (s,_) -> "STOR " ^ s
     | `STOU _     -> "STOU\r\n"
-    | `APPE (s,_) -> "APPE " ^ s ^ "\r\n"
+    | `APPE (s,_) -> "APPE " ^ s
     | `ALLO(n,r)  -> "ALLO " ^ string_of_int n ^ 
 	             (match r with
 			| None -> ""
-			| Some m -> " R " ^ string_of_int m) ^ "\r\n"
-    | `REST s -> "REST " ^ s ^ "\r\n"
-    | `RNFR s -> "RNFR " ^ s ^ "\r\n"
-    | `RNTO s -> "RNTO " ^ s ^ "\r\n"
-    | `DELE s -> "DELE " ^ s ^ "\r\n"
-    | `RMD  s -> "RMD " ^ s ^ "\r\n"
-    | `MKD  s -> "MKD " ^ s ^ "\r\n"
-    | `PWD    -> "PWD\r\n"
-    | `LIST(None,_) -> "LIST\r\n"
-    | `LIST(Some s,_) -> "LIST " ^ s ^ "\r\n"
-    | `NLST(None,_) -> "NLST\r\n"
-    | `NLST(Some s,_) -> "NLST " ^ s ^ "\r\n"
-    | `SITE s -> "SITE " ^ s ^ "\r\n"
-    | `SYST   -> "SYST\r\n"
-    | `STAT None -> "STAT\r\n"
-    | `STAT(Some s) -> "STAT " ^ s ^ "\r\n"
-    | `HELP None -> "HELP\r\n"
-    | `HELP(Some s) -> "HELP " ^ s ^ "\r\n"
-    | `NOOP -> "NOOP\r\n"
-    | `FEAT -> "FEAT\r\n"
-    | `OPTS (cmd,None) -> "OPTS " ^ cmd ^ "\r\n"
-    | `OPTS (cmd,Some param) -> "OPTS " ^ cmd ^ " " ^ param ^ "\r\n"
-    | `EPRT -> "EPRT\r\n"
-    | `EPSV None -> "EPSV\r\n"
+			| Some m -> " R " ^ string_of_int m)
+    | `REST s -> "REST " ^ s
+    | `RNFR s -> "RNFR " ^ s
+    | `RNTO s -> "RNTO " ^ s
+    | `DELE s -> "DELE " ^ s
+    | `RMD  s -> "RMD " ^ s
+    | `MKD  s -> "MKD " ^ s
+    | `PWD    -> "PWD"
+    | `LIST(None,_) -> "LIST"
+    | `LIST(Some s,_) -> "LIST " ^ s
+    | `NLST(None,_) -> "NLST"
+    | `NLST(Some s,_) -> "NLST " ^ s
+    | `SITE s -> "SITE " ^ s
+    | `SYST   -> "SYST"
+    | `STAT None -> "STAT"
+    | `STAT(Some s) -> "STAT " ^ s
+    | `HELP None -> "HELP"
+    | `HELP(Some s) -> "HELP " ^ s
+    | `NOOP -> "NOOP"
+    | `FEAT -> "FEAT"
+    | `OPTS (cmd,None) -> "OPTS " ^ cmd
+    | `OPTS (cmd,Some param) -> "OPTS " ^ cmd ^ " " ^ param
+    | `EPRT -> "EPRT"
+    | `EPSV None -> "EPSV"
     | `EPSV (Some (`AF dom)) ->
 	let n =
 	  match dom with
 	    | Unix.PF_INET -> 1
 	    | Unix.PF_INET6 -> 2
 	    | _ -> failwith "no such address family" in
-	"EPSV " ^ string_of_int n ^ "\r\n"
-    | `EPSV (Some `ALL) -> "EPSV ALL\r\n"
-    | `LANG None -> "LANG\r\n"
-    | `LANG (Some tok) -> "LANG " ^ tok ^ "\r\n"
-    | `MDTM s -> "MDTM " ^ s ^ "\r\n"
-    | `SIZE s -> "SIZE " ^ s ^ "\r\n"
-    | `MLST None -> "MLST\r\n"
-    | `MLST (Some n) -> "MLST " ^ n ^ "\r\n"
-    | `MLSD (None, _) -> "MLSD\r\n"
-    | `MLSD (Some n,_) -> "MLSD " ^ n ^ "\r\n"
+	"EPSV " ^ string_of_int n
+    | `EPSV (Some `ALL) -> "EPSV ALL"
+    | `LANG None -> "LANG"
+    | `LANG (Some tok) -> "LANG " ^ tok
+    | `MDTM s -> "MDTM " ^ s
+    | `SIZE s -> "SIZE " ^ s
+    | `MLST None -> "MLST"
+    | `MLST (Some n) -> "MLST " ^ n
+    | `MLSD (None, _) -> "MLSD"
+    | `MLSD (Some n,_) -> "MLSD " ^ n
 
+
+let string_of_cmd =
+  function
+    | `Connect _ -> ""
+    | `Disconnect -> ""
+    | `Dummy -> ""
+    | cmd -> string_of_cmd_nolf cmd ^ "\r\n"
 
 let pasv_re = 
   Netstring_str.regexp 
@@ -487,6 +494,7 @@ exception Abort
 class ftp_client_pi_impl
         ?(event_system = Unixqueue.create_unix_event_system())
 	?(timeout = 300.0)
+	?proxy
         () =
   let ctrl_input_buffer = Netbuffer.create 500 in
   let ctrl_input, ctrl_input_shutdown = 
@@ -698,6 +706,9 @@ object(self)
     in
     let ready() =
       interaction_state <- `Ready in
+    let unexpected cmdname =
+      proto_viol ("Unexpected control message (code=" ^ 
+		    string_of_int code ^ " after command " ^ cmdname ^ ")") in
     ( match interaction_state with
 	| `Ready ->
 	    proto_viol "Spontaneous control message"
@@ -745,7 +756,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "USER"
 	    )
 	| `Waiting (`PASS s) ->
 	    ( match code with
@@ -770,7 +781,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "PASS"
 	    )
 	| `Waiting (`ACCT s) ->
 	    ( match code with
@@ -788,7 +799,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "ACCT"
 	    )
 	| `Waiting (`CWD s) ->
 	    ( match code with
@@ -802,7 +813,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "CWD"
 	    )
 	| `Waiting `CDUP ->
 	    ( match code with
@@ -819,7 +830,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "CDUP"
 	    )
 	| `Waiting `REIN ->
 	    ( match code with
@@ -833,7 +844,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "REIN"
 	    )
 	| `Waiting `PASV ->
 	    ( match code with
@@ -847,7 +858,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "PASV"
 	    )
 	| `Waiting (`EPSV _) ->
 	    ( match code with
@@ -861,7 +872,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "EPSV"
 	    )
 	| `Waiting (`TYPE t) ->
 	    ( match code with
@@ -873,7 +884,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "TYPE"
 	    )
 	| `Waiting (`MODE m) ->
 	    ( match code with
@@ -885,7 +896,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "MODE"
 	    )
 	| `Waiting (`STRU s) ->
 	    ( match code with
@@ -897,7 +908,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "STRU"
 	    )
 	| `Waiting (`REST _) ->
 	    ( match code with
@@ -909,7 +920,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "REST"
 	    )
 	| `Waiting (`RNFR _) ->
 	    ( match code with
@@ -920,7 +931,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "RNFR"
 	    )
 	| `Waiting `FEAT ->
 	    ( match code with
@@ -933,7 +944,7 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "FEAT"
 	    )
 	| `Waiting (`OPTS(cmd,param_opt)) ->
 	    ( match code with
@@ -951,25 +962,25 @@ object(self)
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
 		| _   -> 
-		    proto_viol "Unexpected control message"
+		    unexpected "OPTS"
 	    )
-	| `Waiting (`SMNT _)
-	| `Waiting `QUIT
-	| `Waiting `PORT
-	| `Waiting (`ALLO _)
-	| `Waiting (`RNTO _)
-	| `Waiting (`DELE _)
-	| `Waiting (`RMD _)
-	| `Waiting (`MKD _)
-	| `Waiting `PWD 
- 	| `Waiting `SYST
- 	| `Waiting (`STAT _)
-	| `Waiting (`HELP _)
-	| `Waiting (`SITE _)
-	| `Waiting (`MDTM _)
-	| `Waiting (`SIZE _)
-	| `Waiting `NOOP
-	| `Waiting (`MLST _) ->
+	| `Waiting (( `SMNT _
+		    | `QUIT
+		    | `PORT
+		    | `ALLO _
+		    | `RNTO _
+		    | `DELE _
+		    | `RMD _
+		    | `MKD _
+		    | `PWD 
+ 		    | `SYST
+ 		    | `STAT _
+		    | `HELP _
+		    | `SITE _
+		    | `MDTM _
+		    | `SIZE _
+		    | `NOOP
+		    | `MLST _) as cmd) ->
 	    ( match code with
 		| n when n >= 100 && n <= 199 ->
 		    reply ftp_state `Preliminary
@@ -979,12 +990,12 @@ object(self)
 		    ready(); reply ftp_state `Temp_failure
 		| n when n >= 500 && n <= 599 ->
 		    ready(); reply ftp_state `Perm_failure
-		| _   -> 
-		    proto_viol "Unexpected control message"
+		| _   ->
+		    unexpected (string_of_cmd_nolf cmd)
 	    )
 
-	| `Connecting_pasv(_, conn_engine) ->
-	    (* Somewhat unexpected reply! *)
+	| `Connecting_pasv(cmd, conn_engine) ->
+	    (* This is just a very early response *)
 	    ( match code with
 		| 125 | 150 ->
 		    reply ftp_state `Preliminary
@@ -997,11 +1008,10 @@ object(self)
 		    ready();
 		    reply ftp_state `Perm_failure
 		| _ ->
-		    conn_engine # abort();
-		    proto_viol "Unexpected control message"
+		    interaction_state <- `Transfer_replied(cmd,code,text)
 	    )
-	| `Listening_actv(_, acc_engine) ->
-	    (* Somewhat unexpected reply! *)
+	| `Listening_actv(cmd, acc_engine) ->
+	    (* This is just a very early response *)
 	    ( match code with
 		| 125 | 150 ->
 		    reply ftp_state `Preliminary
@@ -1014,8 +1024,7 @@ object(self)
 		    ready();
 		    reply ftp_state `Perm_failure
 		| _ ->
-		    acc_engine # abort();
-		    proto_viol "Unexpected control message"
+		    interaction_state <- `Transfer_replied(cmd,code,text)
 	    )
 	| `Transfer cmd ->
 	    (* The transfer probably ends in the near future, just record
@@ -1035,16 +1044,16 @@ object(self)
 		| _ ->
 		    interaction_state <- `Transfer_replied(cmd,code,text)
 	    )
-	| `Transfer_replied cmd ->
+	| `Transfer_replied (cmd,_,_) ->
 	    (* Another reply! This is an error. *)
-	    proto_viol "Unexpected control message"
-	| `Waiting(`RETR(_,_))
-	| `Waiting(`LIST(_,_))
-	| `Waiting(`NLST(_,_))
-	| `Waiting(`MLSD(_,_))
-	| `Waiting(`STOR(_,_))
-	| `Waiting(`STOU _)
-	| `Waiting(`APPE(_,_)) ->
+	    unexpected (string_of_cmd_nolf cmd ^ ", second reply")
+	| `Waiting ( (`RETR(_,_)
+		     |`LIST(_,_)
+		     |`NLST(_,_)
+		     |`MLSD(_,_)
+		     |`STOR(_,_)
+		     |`STOU _
+		     |`APPE(_,_) ) as cmd ) ->
 	    (* This state is only possible when the transfer has already
              * been completed.
              *)
@@ -1070,7 +1079,7 @@ object(self)
 		    self # close_data_connection();
 		    reply ftp_state `Perm_failure
 		| _ ->
-		    proto_viol "Unexpected control message"
+		    unexpected (string_of_cmd_nolf cmd)
 	    )
 	| _ -> assert false
 
@@ -1202,7 +1211,7 @@ object(self)
 		Uq_engines.timeout_engine
 		  timeout
 		  (FTP_timeout (sprintf "%s:%d" host port))
-		  (Uq_engines.connector
+		  (Uq_engines.connector ?proxy
 		     (`Socket(
 			`Sock_inet_byname(Unix.SOCK_STREAM,
 					  host,
@@ -1325,7 +1334,7 @@ object(self)
 	      Uq_engines.timeout_engine
 		timeout
 		(FTP_timeout (sprintf "%s:%d" addr port))
-		(Uq_engines.connector
+		(Uq_engines.connector ?proxy
 		   (`Socket(
 		      `Sock_inet(Unix.SOCK_STREAM,
 				 Unix.inet_addr_of_string addr,
@@ -2181,6 +2190,7 @@ exception Esys_exit
 class ftp_client 
         ?(event_system = Unixqueue.create_unix_event_system())
         () =
+  let proxy = ref None in
   let pi_opt = ref None in
   let timeout = ref 300.0 in
 
@@ -2191,6 +2201,7 @@ class ftp_client
 	    new ftp_client_pi_impl
 	      ~event_system 
 	      ~timeout:!timeout
+	      ?proxy:!proxy
 	      () in
 	  pi_opt := Some pi;
 	  pi
@@ -2203,6 +2214,12 @@ object(self)
 
   method configure_timeout t =
     timeout := t
+
+  method set_socks5_proxy h p =
+    proxy := Some(new Uq_socks5.proxy_client 
+                    (`Socket(`Sock_inet_byname(Unix.SOCK_STREAM,
+					       h,p),
+                               Uq_engines.default_connect_options)))
 
   method reset() =
     match !pi_opt with

@@ -63,7 +63,7 @@ val https_transport_channel_type : Ssl.context -> transport_channel_type
 
  *)
 
-(** {2 How to configure [!Http_fs}}
+(** {2 How to configure {!Http_fs}}
 
     Just do once:
 

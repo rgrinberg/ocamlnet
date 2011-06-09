@@ -3097,11 +3097,8 @@ class type client_socket_connector = client_endpoint_connector
 
 
 let addr_of_name name =
-  try Unix.inet_addr_of_string name
-  with
-      Failure _ ->
-	let entry = Unix.gethostbyname name in (* may fail *)
-	entry.Unix.h_addr_list.(0)
+  let entry = Uq_resolver.get_host_by_name name in
+  entry.Unix.h_addr_list.(0)
 ;;
 
 

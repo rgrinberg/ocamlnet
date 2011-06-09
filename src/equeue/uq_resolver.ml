@@ -27,10 +27,20 @@ object (self)
   method host_by_name host esys =
     let state =
       try
-	let he = Unix.gethostbyname host in
-	(`Done he)
-      with Not_found ->
-	(`Error(Host_not_found host)) in
+	let addr = Unix.inet_addr_of_string host in
+	`Done
+	  { Unix.h_name = host;
+	    h_aliases = [| |];
+	    h_addrtype = Netsys.domain_of_inet_addr addr;
+	    h_addr_list = [| addr |]
+	  }
+      with
+	| Failure _ ->
+	    try
+	      let he = Unix.gethostbyname host in
+	      (`Done he)
+	    with Not_found ->
+	      (`Error(Host_not_found host)) in
     ( object
 	method state = state
 	method abort() = ()

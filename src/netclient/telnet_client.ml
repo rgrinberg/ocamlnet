@@ -545,21 +545,6 @@ class telnet_session =
 					   timeout_value)
 	    
 
-    method private inet_addr hostname =
-      try
-	(* TODO: 'inet_addr_of_string' may block *)
-	syscall (fun () -> Unix.inet_addr_of_string hostname)
-      with
-	  Failure _ ->
-	    try
-	      let h = syscall (fun () -> Unix.gethostbyname hostname) in
-	      h.Unix.h_addr_list.(0)
-	    with Not_found ->
-	      raise 
-		(Sys_error 
-		   ("Telnet_client: host name lookup failed for " ^ hostname));
-
-
     method private connect_server f_ok f_err =
 
       begin match connector with
@@ -567,15 +552,13 @@ class telnet_session =
 	    dlog ("Telnet connection: Connecting to server " ^ 
 		    hostname);
 
-	    let addr = self # inet_addr hostname in
-
 	    let g1 = Unixqueue.new_group esys in
 
 	    let eng =
 	      Uq_engines.connector 
-		(`Socket(`Sock_inet(Unix.SOCK_STREAM,
-				    addr,
-				    port),
+		(`Socket(`Sock_inet_byname(Unix.SOCK_STREAM,
+					   hostname,
+					   port),
 			 Uq_engines.default_connect_options))
 		esys in
 	    
@@ -593,8 +576,7 @@ class telnet_session =
 			      Netlog.Debug.track_fd
 				~owner:"Telnet_client"
 				~descr:("connection to " ^ 
-					  Unix.string_of_inet_addr addr ^
-					  ":" ^ string_of_int port)
+					  hostname ^  ":" ^ string_of_int port)
 				s;
 			      f_ok()
 			  | _ -> assert false

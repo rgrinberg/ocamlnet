@@ -81,7 +81,7 @@ exception Too_many_redirections
   (** While following redirections the limit has been reached *)
 
 exception Name_resolution_error of string
-  (** Could not resolve this name *)
+  (** Could not resolve this name - same as {!Uq_engines.Host_not_found} *)
 
 exception URL_syntax_error of string
   (** This URL cannot be parsed after a redirection has been followed.

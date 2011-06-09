@@ -174,12 +174,12 @@ object
 	    match details#client_addr with
 	      | Some (Unix.ADDR_INET(a,p)) ->
 		  begin try
-		    let entry = Unix.gethostbyname hostname in
+		    let entry = Uq_resolver.get_host_by_name hostname in
 		    let l = Array.to_list entry.Unix.h_addr_list in
 		    if not(List.mem a l) then
 		      raise Not_found
 		  with
-		      Not_found ->
+		      Uq_resolver.Host_not_found _ ->
 			raise(Rpc_server Auth_bad_cred)
 		  end
 	      | _ ->

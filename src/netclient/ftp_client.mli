@@ -637,6 +637,12 @@ object
 	This must be done before connecting to a server.
      *)
 
+  method set_socks5_proxy : string -> int -> unit
+      (** Sets that a SOCKS version 5 proxy is used at this host and port.
+          There is no support for authentication at the proxy. Only
+	  passive mode is supported.
+       *)
+
   method event_system : Unixqueue.event_system
 
   method reset : unit -> unit

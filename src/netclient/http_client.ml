@@ -61,7 +61,7 @@ exception Http_protocol of exn;;
 exception Proxy_error of int
 exception No_reply;;
 exception Too_many_redirections;;
-exception Name_resolution_error of string
+exception Name_resolution_error = Uq_resolver.Host_not_found
 exception URL_syntax_error of string
 exception Timeout of string
 exception Response_too_large
@@ -289,16 +289,12 @@ let split_words s =
 
 
 let sync_resolver esys name reply =
+  (* FIXME: Use Uq_resolver also in the async case! *)
   let addr =
     try
-      Some (Unix.inet_addr_of_string name)
-    with
-	Failure _ ->
-	  try
-	    let h = Unix.gethostbyname name in
-	    Some h.Unix.h_addr_list.(0)
-	  with Not_found ->
-	    None in
+      let h = Uq_resolver.get_host_by_name name in
+      Some h.Unix.h_addr_list.(0)
+    with Uq_resolver.Host_not_found _ -> None in
   reply addr
 ;;
 

@@ -1218,6 +1218,11 @@ val connector : ?proxy:#client_socket_connector ->
    * engine detaches when the file descriptor is closed.
    *
    * It is possible that name service queries block execution.
+   * 
+   * If name resolution fails, the engine will enter
+   * [`Error(Uq_resolver.Host_not_found name)]. This is {b new since
+   * Ocamlnet-3.3} - before this version, the exception was simply
+   * [Not_found].
    *)
 
 (** {b Example} of using [connector]: This engine [e] connects to the

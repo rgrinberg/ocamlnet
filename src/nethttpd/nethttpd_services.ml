@@ -1346,10 +1346,10 @@ let prepare_ac_by_host spec =
     with
       | _ ->
 	  ( try
-	      let h = Unix.gethostbyname host in
+	      let h = Uq_resolver.get_host_by_name host in
 	      Array.to_list h.Unix.h_addr_list
 	    with
-	      | Not_found -> []
+	      | Uq_resolver.Host_not_found _ -> []
 	  )
   in
 

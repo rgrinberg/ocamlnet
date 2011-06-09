@@ -1,4 +1,4 @@
-requires = "netstring"
+requires = "netstring equeue"
 version = "@VERSION@"
 description = "Ocamlnet - Simple Mail Transfer Protocol (SMTP)"
 archive(byte) = "smtp.cma"

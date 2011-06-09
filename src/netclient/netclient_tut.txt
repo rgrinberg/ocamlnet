@@ -1,0 +1,406 @@
+{1:tutorial Netclient tutorial}
+
+Here we give some recipes how to submit HTTP and FTP requests to servers.
+There is a quite simple interface representing the hierarchy of remote
+files, which is recommended for all occasional uses. If performance
+is important, however, the protocol-specific interfaces will give you
+more options.
+
+{2 Accessing HTTP and FTP as filesystem}
+
+Let's start with an example: We want to get the public files
+
+ - [http://foo.org/bar]
+ - [ftp://foo.org/baz]
+
+For HTTP we need a filesystem object accessing the foo.org server:
+
+{[
+let fs1 = Http_fs.http_fs "http://foo.org"
+]}
+
+The same for FTP looks like:
+
+{[
+let fs2 = Ftp_fs.ftp_fs "ftp://foo.org"
+]}
+
+The objects [fs1] and [fs2] provide now a number of methods for accessing
+files. These do not only cover downloads, but also listing directories,
+writing files, renaming files, and a number of further operations. The
+commonly available methods are those of {!Netfs.stream_fs}. The incarnations
+of this interface for concrete protocols usually define more methods. It
+is guaranteed that you can coerce the types to {!Netfs.stream_fs}, though:
+
+{[
+let my_filesystems =
+  [ (fs1 :> Netfs.stream_fs); (fs2 :> Netfs.stream_fs) ]
+]}
+
+The method we use here is [read]:
+
+{[
+method read : read_flags -> string -> Netchannels.in_obj_channel
+]}
+
+All access methods take a list of flags as first argument. For example,
+a possible flag here is [`Binary] switching to binary mode for the protcols
+where it makes a difference (like FTP).
+
+The second argument is the file path, using slashes as separators, and
+{b always starting with a slash}. The path is appended to the base URL
+given when creating the [fs1] and [fs2] objects. Note that the path must
+not contain any URL-specific encodings like "%xx".
+
+We get a an {!Netchannels.in_obj_channel} back we can read the data from:
+
+{[
+let c1 = fs1 # read [] "/bar"
+let s1 = Netchannels.string_of_in_obj_channel c1
+let () = c1 # close_in()
+
+let c2 = fs2 # read [`Binary] "/baz"
+let s2 = Netchannels.string_of_in_obj_channel c2
+let () = c2 # close_in()
+]}
+
+It depends very much on the implementation what actually happens:
+
+- HTTP has built-in resilience against errors. Downloads are tried again
+  if errors occur.
+- HTTP follows redirects automatically, perhaps pointing to a different
+  server.
+- FTP does not retry after errors.
+- The possible error codes can be different. For example, FTP does not
+  distinguish between "access denied" and "file not found".
+
+You should keep in mind that the protocol differences do not go away, just
+because we are mapping the protocols to a common interface here.
+
+By default, the downloaded data are cached in a temporary file. Some 
+implementations support the streaming mode to avoid that (like HTTP),
+and you are directly connected with the reading socket when reading from
+the returned [in_obj_channel]. Pass [`Streaming] as flag to [read] to
+enable this. In streaming mode, however, neither retries nor redirects
+are possible.
+
+{3 Other access methods}
+
+An overview:
+
+- [write] works very much like [read], only that you get a
+  {!Netchannels.out_obj_channel} back. The network write operation
+  normally starts first when this channel is closed, and the so-far
+  cached data are uploaded to the server.  For HTTP there is also
+  a streaming mode. The [write] operation takes also flags that look
+  like normal open flags, i.e. whether you want to create a file,
+  truncate a file, or ensure the unique creation. Not all protocols
+  support every combination, though. For HTTP a [write] is translated
+  to sending a [PUT] method to the server.
+- [readdir] reads the names of a directory. For FTP this is clearly
+  an NLST command. For HTTP the implementation just extracts the
+  names from the hyperlinks contained in the page - this works well
+  for applying [readdir] to automatically generated file indexes.
+- [remove] translates to the [DELETE] method for HTTP. This method
+  is defined in the HTTP standard, but usually not available on
+  servers, though.
+- [size] gets the size of a file. This may work for HTTP or may not -
+  depending on whether the server knows the size (which is often not
+  the case for dynamically generated content). For FTP there is the
+  SIZE command. However, this is a later addition to the protocol,
+  and may not be available on ancient servers.
+- [test] and [test_list] allow it to test properties of files
+  (existence, type, non-empty, accessibility). This is only partially
+  implemented for HTTP and FTP.
+
+The following operations are only applicable to FTP:
+
+- [rename]
+- [mkdir]
+- [rmdir]
+
+There are also operations that do not make sense here:
+
+- [symlink]
+- [readlink]
+- [copy]
+
+{3 Other filesystem implementations}
+
+There is a full implementation of {!Netfs.stream_fs} for accessing
+local files: {!Netfs.local_fs}. There are more definitions inside
+and outside Ocamlnet, see {!Netfs.links} for a list. It also mentions
+a WebDAV implementation extending the HTTP definition explained here,
+and which covers a larger set of access operations.
+
+{3 Configuring HTTP and FTP file accesses}
+
+When creating the access object, one can set a callback that allows
+almost arbitrary configurations:
+
+{[
+let fs1 = 
+  Http_fs.http_fs
+     ~config_pipeline:(fun p -> ...)
+     "http://foo.org"
+
+let fs2 = 
+  Ftp_fs.ftp_fs 
+     ~config_client:(fun c -> ...)
+     "ftp://foo.org"
+]}
+
+Here, [p] and [c] are the underlying protocol implementations.
+
+{3 Authentication for HTTP}
+
+Do it like this in the [config_pipeline] callback:
+
+{[
+  let user = "user" in
+  let password = "secret" in
+  let realm = "the realm string" in
+  let domain = [ "http://foo.org " ] in
+  let keys = new Http_client.key_ring() in
+  keys # add_key (Http_client.key ~user ~password ~realm ~domain);
+  let ah = new Http_client.unified_auth_handler keys in
+  p # add_auth_handler ah
+]}
+
+This works for both "basic" and "digest" authentication.
+
+{3 Authentication for FTP}
+
+This is not done in the [config_client] callback, but directly when
+creating the filesystem object. The user string is always taken from
+the URL (as normally the accessed file space depends on the user).
+Passwords and account names (if needed) are supplied by callbacks:
+
+{[
+let fs2 = 
+   Ftp_fs.ftp_fs
+      ~get_password:(fun () -> "secret")
+      ~get_account:(fun () -> "account")
+      "ftp://user@foo.org"
+]}
+
+{3 Configure a web proxy for HTTP}
+
+Do it like this in the [config_pipeline] callback:
+
+{[
+  p # set_proxy "proxy.company.net" 8080;
+  p # set_proxy_auth "user" "secret";
+  p # avoid_proxy_for [ ".company.net"; "localhost" ]
+]}
+
+Or you can just import this data from the environment variables
+"http_proxy" and "no_proxy":
+
+{[
+  p # set_proxy_from_environment()
+]}
+
+{3 Configure a web proxy for FTP}
+
+Web proxies often also support FTP URLs, but only for a limited set
+of operations (often only [read] works).
+
+XXX
+
+{3 Configure a SOCKS proxy for HTTP}
+
+This is an alternative to a web proxy. 
+Do it like this in the [config_pipeline] callback:
+
+{[
+  p # set_socks5_proxy "proxy.company.net" 1080
+]}
+
+{3 Configure a SOCKS proxy for FTP}
+
+Do it like this in the [config_client] callback:
+
+{[
+  c # set_socks5_proxy "proxy.company.net" 1080
+]}
+
+The current implementation is limited to file transfers in passive mode,
+though. This is nowadays not a problem anymore, because almost all FTP
+servers support it.
+
+{3 Configure HTTPS}
+
+Support for TLS (SSL) is not available by default. Ocamlnet must be
+compiled with support for TLS, and a certain configuration must be
+applied to the HTTP pipeline.
+
+See the {!Https_client} module for a recipe (this module is part of
+[equeue-ssl]).
+
+{3 Globbing}
+
+The {!Netglob} module can be used to interpret wildcards in filenames.
+An example:
+
+{[
+let files =
+  Netglob.glob
+    ~fsys:(Netglob.of_stream_fs (fs2 :> Netfs.stream_fs))
+    (`String "/dir/*.gif")
+]}
+
+This would return paths to all gif files in /dir on the FTP server [fs2].
+
+{3 Copying}
+
+There are the generic copy algorithms {!Netfs.copy} and {!Netfs.copy_into},
+which can also be used for HTTP and FTP.
+
+For example, let's copy the file "/xyz" from [fs1] to [fs2], i.e. from
+an HTTP server to an FTP server:
+
+{[
+Netfs.copy (fs1 :> Netfs.stream_fs) "/xyz" (fs2 : Netfs.stream_fs) "/xyz"
+]}
+
+{3 Iterating files}
+
+There is the generic file iterator {!Netfs.iter}, which walks through
+the directory hierarchy on the server:
+
+{[
+Netfs.iter
+  ~pre:(fun name kind symkind -> ...)
+  (fs2 :> Netfs.stream_fs)
+  "/"
+]}
+
+Note that you may run into problems in conjunction with HTTP and FTP:
+- HTTP may redirect file accesses, and the iterator is not aware of this
+- FTP does not represent symlinks as such, and the iterator would
+  follow symlink loops infinitely
+
+
+
+
+{2 Accessing HTTP via {!Http_client}}
+
+The {!Http_client} module is the real implementation of HTTP. It
+is asynchronous, which means it can do many tasks in parallel, but
+also needs special care when using it.
+
+The tasks are organized as {i pipelines}. This is actually an HTTP
+protocol feature - one can send the next request(s) to an HTTP server 
+without having to wait for the response of the prior request. The
+pipeline is available as Ocaml class:
+
+{[
+let p = new Http_client.pipeline
+]}
+
+By adding requests, the pipeline is told to send them to the right
+server. If the server allows pipelining on HTTP level, this feature
+is exploited to speed up the accesses. Here, we submit two different
+[GET] requests:
+
+{[
+let x1 = new Http_client.get "http://foo.org/bar"
+let x2 = new Http_client.get "http://foo.org/baz"
+
+p # add x1;
+p # add x2
+]}
+
+The objects [x1] and [x2] are instances of {!Http_client.http_call}.
+They have lots of access methods for changing the request type and
+getting the returned response.
+
+Now, after just adding the objects, nothing is done yet. You also
+have to start the pipeline:
+
+{[
+p # run()
+]}
+
+(Or, alternatively, do [Unixqueue.run p#event_system], which is just
+the same.)
+
+Now, you can get the fetched data with:
+
+{[
+let d1 = x1 # response_body # value
+]}
+
+Before looking at the value, you would normally check the status code
+of the response. There are a few possibilities:
+
+- {!Http_client.http_call.status} only indicates the class of the
+  response (success, redirect, client error, server error), or whether
+  there was a socket or protocol error.
+- {!Http_client.http_call.response_status} returns the code as
+  variant
+- {!Http_client.http_call.response_status_code} returns the code numerically
+
+
+{3 How the pipeline works}
+
+The object [p] is actually several pipelines in one object. For each
+connected server, [p] keeps a small number of parallel connections
+(normally 2). Each connection is then driven in a pipelined way, if
+possible.
+
+When running [p], all the connections to the servers are created in 
+parallel, and the communication is done in parallel.
+
+
+
+
+{2 Accessing FTP via {!Ftp_client}}
+
+The {!Ftp_client} is also an asynchronous implementation. It is a bit
+more difficult to exploit this, though, because {!Ftp_client} is a bit
+simpler than {!Http_client}.
+
+Generally, a client can only connect to a single server, not to several
+at once. Also, there is no queue of pending requests - all submitted
+requests are immediately executed, and the next request can first be
+started when the previous has finished.
+
+In synchrounous code, a file download looks like:
+
+{[
+let client = new ftp_client()
+let () = client # exec (connect_method ~host:"foo.bar" ())
+let () = client # exec 
+	    (login_method
+	       ~user:"anonymous" 
+	       ~get_password:(fun () -> "")
+	       ~get_account:(fun () -> "")
+		())
+let buffer = Buffer.create 1000 
+let ch = new Netchannels.output_buffer buffer
+let () = client # exec 
+            (get_method
+                ~file:(`NVFS "dir/baz")
+                ~representation:`Image 
+                ~store:(fun _ -> `File_structure ch) 
+                ());
+let s = Buffer.contents buffer
+]}
+
+As you see, this is just a sequence of [exec] calls. There is also an
+[exec_e] method allowing to start these operations as
+{!Uq_engines.engine}, allowing asynchronous execution.
+
+FTP has a number of subtle protocol options - like file transfer in
+several modes. Please refer to {!Ftp_client} where these details are
+extensively documented.
+
+You close the connection using the [QUIT] command with
+
+{[
+let () = client # exec (quite_method())
+]}
+
+or just run [client # reset()] to just shut the TCP connection down.
