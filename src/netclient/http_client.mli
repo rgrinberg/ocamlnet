@@ -1184,6 +1184,12 @@ class pipeline :
 	 * indicated.
 	 *)
 
+    method add_e : http_call -> unit Uq_engines.engine
+      (** The same as engine: The call is added to the pipeline, and
+	  when it is processed, the returned engine transitions to the
+	  state [`Done()].
+       *)
+
     method run : unit -> unit
       (** Runs through the requests in the pipeline. If a request can be
        * fulfilled, i.e. the server sends a response, the state of the

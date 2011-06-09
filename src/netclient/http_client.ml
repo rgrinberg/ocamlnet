@@ -4992,6 +4992,11 @@ class pipeline =
     method add request =
       self # add_with_callback request (fun _ -> ())
 
+    method add_e request =
+      let (e, signal) = Uq_engines.signal_engine esys in
+      self # add_with_callback request (fun _ -> signal (`Done()) );
+      e
+
     method run () =
 	 Unixqueue.run esys
 

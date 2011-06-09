@@ -1,13 +1,20 @@
 OCAMLNET
 
 - Nethttpd should respect Netcgi.*.default_exn_handler
-- export Netcgi_common.error_page
-- Netmcore_mempool.shm_name_of_pool
-- Http_fs: the http_stream_fs should also define a pipeline method
-- Http_fs: enable compression if possible
-- Option for Netfs.local_fs: enable_relative_names
+  * Need more information
+  * What would be the meaning of disabling default_exn_handler
+    in (cgi-)config?
+  * maybe it is just about unifying the two styles of error pages?
+    (Nethttpd_util.std_error_response vs. Netcgi_common.error_page)
+
+- export Netcgi_common.error_page - DONE
+- Netmcore_mempool.shm_name_of_pool - DONE
+- Http_fs: the http_stream_fs should also define a pipeline method - DONE
+- Http_fs: enable compression if possible - DONE
+- Option for Netfs.local_fs: enable_relative_names - DONE
 - Uq_engines.signal_engine: should be thread-safe (signal function
-  can be called from other thread)
+  can be called from other thread) - DONE
+- Http_client.pipeline: add requests via an engine - DONE
 
 - RPC: support relaying specially: if a server simply wants to forward
   an RPC call unchanged to a different port, there is no need to decode
@@ -15,8 +22,8 @@ OCAMLNET
 
 - Netshm: use blitting functions encoded in C (for int32 bigarrays)
 
-   * Http_client.pipeline: add requests via an engine
 
+- WebDAV, Haddop_fs: use Netfs.empty_fs
 - Netfs.abort_write
 
 Fixme:
@@ -26,6 +33,10 @@ Optimization:
   - Uq_io.input_lines: reads as much lines as possible from in_buffer
     and returns list of lines
     -> useful in Mapred_task_exec, emap implementation
+
+Netstring:
+ - add "parse_ls_l"
+ - Ftp_fs: use parser for the output of "LIST" when there is no MLST command
 
 Netmulticore:
  - type heap_descr - DONE

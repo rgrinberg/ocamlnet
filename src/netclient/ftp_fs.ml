@@ -7,6 +7,7 @@ class type ftp_stream_fs =
 object
   inherit Netfs.stream_fs
 
+  method ftp_client : Ftp_client.ftp_client
   method last_ftp_state : Ftp_client.ftp_state
   method close : unit -> unit
 end
@@ -161,6 +162,7 @@ object(self)
   method path_encoding = path_encoding
   method path_exclusions = [0,0; 47,47]
   method nominal_dot_dot = true
+  method ftp_client = ftp
 
   method last_ftp_state =
     match !last_ftp_state with

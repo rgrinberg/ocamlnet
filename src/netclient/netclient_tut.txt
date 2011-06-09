@@ -206,7 +206,24 @@ Or you can just import this data from the environment variables
 Web proxies often also support FTP URLs, but only for a limited set
 of operations (often only [read] works).
 
-XXX
+Note that you have to use {!Http_fs} to use this feature, not {!Ftp_fs}:
+
+{[
+let fs1 = 
+  Http_fs.http_fs
+     ~config_pipeline:(fun p ->
+        p # set_proxy "proxy.company.net" 8080;
+        p # set_proxy_auth "user" "secret";
+     )
+     ~enable_ftp:true
+     "ftp://foo.org"
+]}
+
+In this configuration, the web proxy is contacted via HTTP, and the
+proxy talks FTP with the content server.
+
+If you do not configure the proxy, any accesses will fail (no
+transport error).
 
 {3 Configure a SOCKS proxy for HTTP}
 
@@ -252,6 +269,47 @@ let files =
 
 This would return paths to all gif files in /dir on the FTP server [fs2].
 
+{b Caveat:} Globbing works only well if the server provides the operations
+for recognizing directories. Most FTP servers don't - only the recently (1)
+added MLST command allows it to safely recognize directories.
+
+(1) recently = many years ago, but existing FTP deployments seem only to
+be very slowly upgraded.
+
+Test whether an FTP server supports MLST: There must be a line for
+MLST in the output for the FEAT command, like in
+
+{[
+$ ftp localhost
+Connected to localhost.
+220---------- Welcome to Pure-FTPd [privsep] [TLS] ----------
+...
+ftp> quote feat
+211-Extensions supported:
+ EPRT
+ IDLE
+ MDTM
+ SIZE
+ REST STREAM
+ MLST type*;size*;sizd*;modify*;UNIX.mode*;UNIX.uid*;UNIX.gid*;unique*;
+ MLSD
+ AUTH TLS
+ PBSZ
+ PROT
+ UTF8
+ TVFS
+ ESTA
+ PASV
+ EPSV
+ SPSV
+ ESTP
+211 End.
+]}
+
+For HTTP servers, the recognition of directories is even worse. Don't
+rely on it.
+
+
 {3 Copying}
 
 There are the generic copy algorithms {!Netfs.copy} and {!Netfs.copy_into},
@@ -280,7 +338,8 @@ Note that you may run into problems in conjunction with HTTP and FTP:
 - HTTP may redirect file accesses, and the iterator is not aware of this
 - FTP does not represent symlinks as such, and the iterator would
   follow symlink loops infinitely
-
+- Both HTTP and FTP have problems recognizing directories (see the
+  remarks about globbing above).
 
 
 
@@ -400,7 +459,7 @@ extensively documented.
 You close the connection using the [QUIT] command with
 
 {[
-let () = client # exec (quite_method())
+let () = client # exec (quit_method())
 ]}
 
 or just run [client # reset()] to just shut the TCP connection down.

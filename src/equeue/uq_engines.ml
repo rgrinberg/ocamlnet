@@ -603,7 +603,8 @@ let epsilon_engine = new epsilon_engine
 
 
 
-class poll_engine ?(extra_match = fun _ -> false) oplist ues =
+class poll_engine ?(extra_match = fun _ -> false) 
+                  oplist ues =
   let state = ref (`Working 0) in
 object(self)
 
@@ -679,14 +680,20 @@ let delay_engine = new delay_engine
 
 let signal_engine esys =
   let wid = Unixqueue.new_wait_id esys in
-  let p = new poll_engine [Unixqueue.Wait wid, (-1.0)] esys in
+  let op = Unixqueue.Wait wid in
+  let p = new poll_engine [op, (-1.0)] esys in
   let r = ref `Aborted in
+  let flag = ref false in
   let e = new map_engine
-            ~map_done:(fun _ -> assert false) 
+            ~map_done:(fun _ -> (!r :> _ engine_state))
 	    ~map_aborted:(fun _ -> (!r :> _ engine_state)) p in
   let signal st =
-    r := st;
-    p#abort() in
+    if not !flag then (   (* atomic *)
+      r := st;
+      flag := true
+    );
+    (* p#abort() - old implementation *)
+    Unixqueue.add_event esys (Unixqueue.Timeout(p#group, op)) in
   (e, signal)
 
 

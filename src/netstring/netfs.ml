@@ -60,6 +60,29 @@ object
 end
 
 
+class empty_fs detail : stream_fs =
+  let enosys path =
+    raise (Unix.Unix_error(Unix.ENOSYS, path, detail)) in
+object
+  method path_encoding = enosys ""
+  method path_exclusions = enosys ""
+  method nominal_dot_dot = enosys ""
+  method read _ p = enosys p
+  method write _ p = enosys p
+  method size _ p = enosys p
+  method test _ p _ = enosys p
+  method test_list _ p _ = enosys p
+  method remove _ p = enosys p
+  method rename _ p _ = enosys p
+  method symlink _ p _ = enosys p
+  method readdir _ p = enosys p
+  method readlink _ p = enosys p
+  method mkdir _ p = enosys p
+  method rmdir _ p = enosys p
+  method copy _ p _ = enosys p
+end
+
+
 let slash_re = Netstring_str.regexp "/+"
 
 let drive_re = Netstring_str.regexp "^[a-zA-Z]:$"
@@ -101,7 +124,7 @@ let copy_prim ~streaming orig_fs orig_name dest_fs dest_name =
     )
     
       
-let local_fs ?encoding ?root () : stream_fs =
+let local_fs ?encoding ?root ?(enable_relative_paths=false) () : stream_fs =
   let enc =
     match encoding with
       | None ->
@@ -174,8 +197,9 @@ let local_fs ?encoding ?root () : stream_fs =
     String.length s >= 3 && s.[0] = '/' && s.[1] = '/' && s.[2] <> '/' in
 
   let check_and_norm_path p =
+    let l = Netstring_str.split_delim slash_re p in
+    List.iter (check_component p) l;
     try
-      let l = Netstring_str.split_delim slash_re p in
       ( match l with
 	  | [] ->  raise (Unix.Unix_error(Unix.EINVAL,
 					  "Netfs: empty path",
@@ -194,7 +218,6 @@ let local_fs ?encoding ?root () : stream_fs =
 	      )
 	      else raise Not_absolute
       );
-      List.iter (check_component p) l;
       let np = String.concat "/" l in
       if win32_root then (
 	if is_unc p then
@@ -207,9 +230,12 @@ let local_fs ?encoding ?root () : stream_fs =
       else np
     with 
       | Not_absolute ->
-	  raise (Unix.Unix_error(Unix.EINVAL,
-				 "Netfs: path not absolute",
-				 p))
+	  if enable_relative_paths then
+	    String.concat "/" l
+	  else
+	    raise (Unix.Unix_error(Unix.EINVAL,
+				   "Netfs: path not absolute",
+				   p))
   in
 
   let real_root =
@@ -503,7 +529,9 @@ let convert_path ?subst oldfs newfs oldpath =
 
 
 let copy ?(replace=false) ?(streaming=false)
-         (orig_fs:stream_fs) orig_name dest_fs dest_name =
+         orig_fs0 orig_name dest_fs0 dest_name =
+  let orig_fs = (orig_fs0 :> stream_fs) in
+  let dest_fs = (dest_fs0 :> stream_fs) in
   if replace then
     dest_fs # remove [] dest_name;
   try
@@ -518,7 +546,8 @@ let copy ?(replace=false) ?(streaming=false)
 type file_kind = [ `Regular | `Directory | `Symlink | `Other | `None ]
 
 
-let iter ~pre ?(post=fun _ -> ()) (fs:stream_fs) start =
+let iter ~pre ?(post=fun _ -> ()) fs0 start =
+  let fs = (fs0 :> stream_fs) in
   let rec iter_members dir rdir =
     let files = fs # readdir [] dir in
     List.iter
@@ -561,7 +590,9 @@ let iter ~pre ?(post=fun _ -> ()) (fs:stream_fs) start =
 
 
 let copy_into ?(replace=false) ?subst ?streaming
-              (orig_fs:stream_fs) orig_name dest_fs dest_name =
+              orig_fs0 orig_name dest_fs0 dest_name =
+  let orig_fs = (orig_fs0 :> stream_fs) in
+  let dest_fs = (dest_fs0 :> stream_fs) in
   let orig_base = Filename.basename orig_name in
   let dest_start = 
     dest_name ^ "/" ^ convert_path ?subst orig_fs dest_fs orig_base in

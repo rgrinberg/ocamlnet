@@ -530,6 +530,14 @@ let get_mem res_id =
     | _ -> failwith "Netmcore_mempool: this resource is not a pool"
   
 
+let shm_name res_id =
+  let res = Netmcore.get_resource res_id in
+  match res#repr with
+    | `Posix_shm_preallocated(name,_) -> 
+	name
+    | _ -> failwith "Netmcore_mempool: this resource is not a pool"
+
+
 let alloc_mem res_id bsize =
   (* round up to multiple of page_size: *)
   if bsize <= 0 then

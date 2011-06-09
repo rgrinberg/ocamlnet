@@ -6,6 +6,9 @@ class type ftp_stream_fs =
 object
   inherit Netfs.stream_fs
 
+  method ftp_client : Ftp_client.ftp_client
+    (** The FTP client backing this filesystem *)
+
   method last_ftp_state : Ftp_client.ftp_state
     (** The last state of the last operation, or [Not_found] *)
 
@@ -91,5 +94,3 @@ val ftp_fs : ?config_client:(Ftp_client.ftp_client -> unit) ->
              ?keep_open:bool ->
              string -> ftp_stream_fs
   (** Same as function *)
-
-(* create_ftp_url: XXX *)

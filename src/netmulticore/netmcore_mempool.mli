@@ -75,6 +75,8 @@ val stats : Netmcore.res_id -> int * int * int
 val debug_info : Netmcore.res_id -> string
   (** Returns a string describing the allocations etc. *)
 
+val shm_name : Netmcore.res_id -> string
+  (** Returns the name of the shared memory object *)
 
 module Debug : sig
   val enable : bool ref

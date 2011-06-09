@@ -27,8 +27,10 @@
     listings that conform to this format. For example, Apache provides
     this through the module [mod_autoindex].
 
-    An extension to this would be support for WebDAV. This will be
-    made available shortly as a separate library.
+    There is an extension to this class for WebDAV:
+    - {{:http://oss.wink.com/webdav/} Webdav} provides an extension of
+      {!Http_fs} for the full WebDAV set of filesystem operations
+
 
  *)
 
@@ -99,6 +101,9 @@ object
 	(or not fully).
      *)
 
+  method pipeline : Http_client.pipeline
+    (** The HTTP pipeline backing this file system *)
+
   (** The following methods are the same as in {!Netfs.stream_fs}.
       (For formal reasons we cannot inherit from this class type.)
    *)
@@ -128,7 +133,7 @@ class http_fs : ?config_pipeline:(Http_client.pipeline -> unit) ->
                 ?tmp_prefix:string ->
                 ?path_encoding:Netconversion.encoding ->
                 ?enable_read_for_directories:bool ->
-                (* ?is_error_response:(string -> Http_client.http_call -> exn option) -> *)
+                ?enable_ftp:bool ->
                 string -> http_stream_fs
   (** [http_fs base_url]: Accesses the HTTP file system rooted at
       [base_url].
@@ -179,6 +184,10 @@ class http_fs : ?config_pipeline:(Http_client.pipeline -> unit) ->
         query the server for this. The default, [`Enc_utf8], seems to be the
         de-facto standard on the web (e.g. browsers use UTF-8 when
         non-ASCII characters are entered in the address line).
+      - [enable_ftp]: This enables anonymous FTP via web proxies. In
+        this case the [base_url] is of the form [ftp://host:port/path].
+        This works only if the pipeline is configured to contact a
+        web proxy understanding FTP URLs.
    *)
 
 (*
@@ -200,7 +209,7 @@ val http_fs : ?config_pipeline:(Http_client.pipeline -> unit) ->
                 ?tmp_prefix:string ->
                 ?path_encoding:Netconversion.encoding ->
                 ?enable_read_for_directories:bool ->
-                (* ?is_error_response:(string -> Http_client.http_call -> exn option) -> *)
+                ?enable_ftp:bool ->
                 string -> http_stream_fs
   (** Same as normal function *)
 

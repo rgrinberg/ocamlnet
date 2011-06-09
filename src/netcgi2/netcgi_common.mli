@@ -476,7 +476,7 @@ val exn_handler_default : cgi_environment ->
   (** [exn_handler_default env ~exn_handler ~finally run_cgi] will
       basically execute [exn_handler env run_cgi].  Provided that the
       environment config [default_exn_handler] is set to [true] (the
-      default), any exception [e] not catched by the user provided
+      default), any exception [e] not caught by the user provided
       [exn_handler] (or that is raised by it) will be passed to the
       default handler of OCamlNet which will rollback the current
       output, produce a page describing the exception [e], and close
@@ -486,15 +486,14 @@ val exn_handler_default : cgi_environment ->
       (as mandated by HTTP/1.1);...
 
       Note that, regardless of the value of [default_exn_handler], the
-      [Exit] exception is always catched and treated like an
+      [Exit] exception is always caught and treated like an
       acceptable early termination (thus produces no error page).
 
       Whether [run_cgi] terminates normally or by an exception,
-      [finally()] is be executed last and its return value is the
-      return value of [exn_handler_default].
+      [finally()] is executed last.
 
       Sometimes, you want that some "special" exceptions (for example
-      exceptions internal to the connector) CANNOT to be catched by
+      exceptions internal to the connector) CANNOT to be caught by
       [exn_handler].  In this case, [run_cgi()] catches the exception,
       say [e], and returns it as [Some e].  The exception [e] will "go
       through" [exn_handler_default], it will not even be passed to
@@ -508,6 +507,21 @@ val exn_handler_default : cgi_environment ->
       but you can ignore that to understand what this function does.  *)
 
 
+val error_page : cgi_environment -> Nethttp.http_status -> 
+                 (string * string list) list ->
+                 string -> string ->
+                 unit
+  (** [error_page env status fields msg detail]: Logs an error message and
+      outputs an error page via [env].
+
+      [status] is the status of the error page, e.g. [`Internal_server_error].
+      [fields] are put into the response header of the error page.
+
+      [msg] occurs in the log message and in the error page, and should
+      be a concise description without linefeeds. [detail] is only
+      printed to the error page, and may be longer than this, and may
+      also include HTML markup.
+   *)
 
 (************************************************************************)
 

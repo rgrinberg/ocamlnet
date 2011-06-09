@@ -1,19 +1,5 @@
 (* $Id$ *)
 
-(* TODO:
-   - configure timeout, also for data conn - DONE
-   - store - DONE
-   - DNS lookups - DONE
-   - TVFS - DONE
-   - feature test functions - DONE
-   - MLST MLSD - DONE
-   - IPv6 - DONE
-   - SOCKS - DONE
-   - Ftp_fs - DONE
-   - Ftp_fs.ftp_fs_via_http_proxy
-   - tutorial
- *)
-
 open Telnet_client
 open Ftp_data_endpoint
 open Printf

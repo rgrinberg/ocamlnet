@@ -444,8 +444,8 @@ class local_fsys : ?encoding:Netconversion.encoding -> unit -> glob_fsys
 val local_fsys : ?encoding:Netconversion.encoding -> unit -> glob_fsys
   (** Accesses the local filesystem *)
 
-class of_stream_fs : Netfs.stream_fs -> glob_fsys
-val of_stream_fs : Netfs.stream_fs -> glob_fsys
+class of_stream_fs : #Netfs.stream_fs -> glob_fsys
+val of_stream_fs : #Netfs.stream_fs -> glob_fsys
   (** Use an arbitrary network filesystem for globbing *)
 
 

@@ -2,12 +2,12 @@
 
 (* TODO:
    - factor streaming get/put out
-   - copy/copy_into/of_stream_fs: accept #stream_fs args
-   - check what we need for webdav
  *)
 
 
 open Printf
+module StrSet = Set.Make(String)
+
 
 type read_flag =
     [ Netfs.read_flag | `Header of (string*string)list ]
@@ -20,6 +20,7 @@ object
   method read : read_flag list -> string -> Netchannels.in_obj_channel
   method write : write_flag list -> string -> Netchannels.out_obj_channel
   method last_response_header : Nethttp.http_header
+  method pipeline : Http_client.pipeline
 
   method path_encoding : Netconversion.encoding option
   method path_exclusions : (int * int) list
@@ -175,6 +176,12 @@ and find_file_members_in_list l =
     (List.map find_file_members l)
 
 
+let unique_str_list l =
+  let set =
+    List.fold_left (fun acc s -> StrSet.add s acc) StrSet.empty l in
+  StrSet.elements set
+
+
 exception Interrupt
 
 
@@ -216,9 +223,21 @@ class http_fs
 	?tmp_prefix
 	?(path_encoding = `Enc_utf8)
         ?(enable_read_for_directories=false)
+	?(enable_ftp=false)
 	(* ?(is_error_response = is_error_response) *)
 	base_url : http_stream_fs =
   let p = new Http_client.pipeline in
+  let () =
+    if enable_ftp then (
+      let ftp_syn = Hashtbl.find Neturl.common_url_syntax "ftp" in
+      let opts = p # get_options in
+      let opts' =
+	{ opts with
+	    Http_client.schemes = opts.Http_client.schemes @
+	    [ "ftp", ftp_syn, Some 21, Http_client.proxy_only_cb_id ]
+	} in
+      p # set_options opts'
+    ) in
   let () = config_pipeline p in
   let base_url_ends_with_slash =
     base_url <> "" && base_url.[String.length base_url-1] = '/' in
@@ -276,6 +295,7 @@ object(self)
   method path_encoding = Some path_encoding
   method path_exclusions = [0,0; 47,47]
   method nominal_dot_dot = true
+  method pipeline = p
 
   method last_response_header =
     match !last_response_header with
@@ -294,6 +314,7 @@ object(self)
       with Not_found -> 0L in
     if skip > 0L then
       Nethttp.Header.set_range req_hdr (`Bytes[Some skip, None]);
+    call # set_accept_encoding();
     let header =
       try find_flag (function `Header h -> Some h | _ -> None) flags
       with Not_found -> [] in
@@ -604,14 +625,22 @@ object(self)
        *)
       raise(Unix.Unix_error(Unix.ENOTDIR,"Http_fs.readdir",path)) in
     last_response_header := None;
-    let url = translate path in
+    let path1 =
+      if path <> "" && path.[String.length path - 1] <> '/' then
+	path ^ "/"
+      else
+	path in
+    let url = translate path1 in
     let call = new Http_client.get url in
     p#add call;
     p#run();
     last_response_header := Some(call#response_header);
     match is_error_response path call with
       | None ->
-	  if not (is_dir_url(call # effective_request_uri)) then fail();
+	  (* The is_dir_url test only works if the server redirects to a
+	     URL ending with a slash. Some servers don't do this.
+	   *)
+	  (* if not (is_dir_url(call # effective_request_uri)) then fail(); *)
 	  (* Get the MIME type and the charset of the result: *)
 	  let (cont_type, charset) =
 	    try
@@ -650,9 +679,23 @@ object(self)
 		      let u = 
 			Neturl.parse_url ~base_syntax ~accept_8bits:true 
 			  (Neturl.fixup_url_string name) in
-		      let q = Neturl.url_path u in
-		      if q <> [] then (
-			let qj = Neturl.join_path q in
+		      let q1 = Neturl.url_path u in
+		      (* Some URLs contain "%2f" in the path. We don't like
+			 this
+		       *)
+		      if List.exists (fun s -> String.contains s '/') q1 then
+			raise Not_found;
+		      let q2 =
+			if q1 <> [] && q1 <> [""] then
+			  let r1 = List.rev q1 in
+			  if List.hd r1 = "" then 
+			    List.rev(List.tl r1)
+			  else
+			    q1
+			else
+			  q1 in
+		      if q2 <> [] && not(List.mem "" q2) then (
+			let qj = Neturl.join_path q2 in
 			Netconversion.verify path_encoding qj;
 			[ qj ]
 		      )
@@ -661,11 +704,10 @@ object(self)
 		 )
 		 names
 	      ) in
-	  let names2 =
-	    if not(List.mem ".." names1) then ".." :: names1 else names1 in
-	  let names3 =
-	    if not(List.mem "." names1) then "." :: names2 else names2 in
-	  names3
+	  let names2 = "." :: ".." :: names1 in
+	  unique_str_list names2
+      | Some(Unix.Unix_error(Unix.ENOENT,_,_)) ->
+	  fail()   (* prefer ENOTDIR in this case *)
       | Some _ ->
 	  handle_error path call
 

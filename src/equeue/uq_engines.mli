@@ -184,6 +184,10 @@ end
       have any effect.
 
       Also, if [se] is aborted, [signal] does not have any effect.
+      
+      The function [signal] may be called from a different thread.
+      The signalling event is forwarded to the thread running the
+      event system.
    *)
 
 val signal_engine : Unixqueue.event_system -> 

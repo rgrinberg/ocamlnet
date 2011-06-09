@@ -67,8 +67,10 @@
     - Random access to files
 
     This definition here is intentionally minimalistic. In the future
-    more extended versions of this class type may be defined that
-    cover more common filesystem features.
+    this class type will be extended, and more more common filesystem features
+    will be covered. See {!Netfs.empty_fs} for a way how to ensure that
+    your definition of a [stream_fs] can still be built after [stream_fs]
+    has been extended.
  *)
 
 (** {2 The class type [stream_fs]} *)
@@ -258,15 +260,48 @@ object
      *)
 end
 
+class empty_fs : string -> stream_fs
+  (** This is a class where all methods fail with [ENOSYS]. The string
+      argument is the detail in the [Unix_error], normally the module
+      name of the user of this class.
 
-val local_fs : ?encoding:Netconversion.encoding -> ?root:string -> 
+      [empty_fs] is intended as base class for implementations of [stream_fs]
+      outside Ocamlnet. When [stream_fs] is extended by new methods, these
+      methods are at least defined, and no build error occurs. So the
+      definition should look like
+
+      {[
+      class my_fs ... =
+        object
+          inherit Netfs.empty_fs "my_fs"
+
+          method read flags name = ...
+
+          (* Add here all methods you can define, and omit the rest *)
+        end
+      ]}
+   *)
+
+
+val local_fs : ?encoding:Netconversion.encoding -> ?root:string ->
+               ?enable_relative_paths:bool ->
                unit -> stream_fs
   (** [local_fs()]: Returns a filesystem object for the local filesystem.
 
       - [encoding]: Specifies the character encoding of paths. The default
         is system-dependent.
       - [root]: the root of the returned object is the directory [root]
-        of the local filesystem.
+        of the local filesystem. If omitted, the root is the root of
+        the local filesystem (i.e. / for Unix, and see comments for
+        Windows below). Use [root="."] to make the current working
+        directory the root. Note that "." like other relative paths
+        are interpreted at the time when the access method is executed.
+      - [enable_relative_paths]: Normally, only absolute paths can be
+        passed to the access methods like [read]. By setting this option
+        to [true] one can also enable relative paths. These are taken
+        relative to the working directory, and not relative to [root].
+        Relative names are off by default because there is usually no
+        counterpart in network filesystems.
    *)
 
 (** {2 OS Notes} *)
@@ -329,7 +364,7 @@ val local_fs : ?encoding:Netconversion.encoding -> ?root:string ->
 (** {2 Algorithms} *)
 
 val copy : ?replace:bool -> ?streaming:bool ->
-           stream_fs -> string -> stream_fs -> string -> unit
+           #stream_fs -> string -> #stream_fs -> string -> unit
   (** [copy orig_fs orig_name dest_fs dest_name]: Copies the file [orig_name]
       from [orig_fs] to the file [dest_name] in [dest_fs]. By default,
       the destination file is truncated and overwritten if it already
@@ -353,7 +388,7 @@ val copy : ?replace:bool -> ?streaming:bool ->
    *)
 
 val copy_into : ?replace:bool -> ?subst:(int->string) -> ?streaming:bool ->
-                stream_fs -> string -> stream_fs -> string -> 
+                #stream_fs -> string -> #stream_fs -> string -> 
                   unit
   (** [copy_into orig_fs orig_name dest_fs dest_name]: 
       Like [copy], but this version also supports recursive copies. The
@@ -373,7 +408,7 @@ type file_kind = [ `Regular | `Directory | `Symlink | `Other | `None ]
 
 val iter : pre:(string -> file_kind -> file_kind -> unit) -> 
            ?post:(string -> unit) ->
-            stream_fs -> string -> unit
+            #stream_fs -> string -> unit
   (** [iter pre fs start]: Iterates over the file hierarchy at [start].
       The function [pre] is called for every filename. The filenames
       passed to [pre] are relative to [start]. The [start] must
@@ -400,7 +435,7 @@ val iter : pre:(string -> file_kind -> file_kind -> unit) ->
    *)
 
 val convert_path : ?subst:(int -> string) ->
-                   stream_fs -> stream_fs -> string -> string
+                   #stream_fs -> #stream_fs -> string -> string
   (** [convert_path oldfs newfs oldpath]: The encoding of [oldpath]
       (which is assumed to reside in [oldfs]) is converted to the encoding
       of [newfs] and returned.
