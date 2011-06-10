@@ -1,3 +1,23 @@
+2011-06-10  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Released: Ocamlnet-3.3.1
+
+2011-06-10  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* FTP protocol: Finishing Ftp_client (w/ API changes). Adding Ftp_fs
+
+	* HTTP protocol: adding support for TLS
+
+	* HTTP protocol: can handle compression automatically
+
+	* Adding tutorial for Netclient
+
+	* Using Uq_resolver, finally
+
+	* Adding Uq_lwt for (limited) compatibility with Lwt
+
+	* Reorganizing regression test suite
+
 2011-05-06  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Unixqueue: important bug fixes that were introduced since

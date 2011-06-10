@@ -17,13 +17,15 @@ equeue-gtk1	-enable-gtk	Event queues - integration into lablgtk
 equeue-gtk2	-enable-gtk2	Event queues - integration into lablgtk2
 equeue-ssl	-enable-ssl	Event queues - SSL support
 equeue-tcl	-enable-tcl	Event queues - integration into labltk
-netcgi1		CORE		Web applications
+netcamlbox	CORE		Multiprocessing
 netcgi2		CORE		Web applications (revised lib)
+netcgi2-apache  -enable-apache  Web applications as Apache module
 netcgi2-plex	CORE		Web applications - support for netplex
-netclient	CORE		Clients for HTTP, FTP (exp), Telnet
+netclient	CORE		Clients for HTTP, FTP, Telnet
 nethttpd	-with-nethttpd	Web server
-nethttpd-for-netcgi1 (same as nethttpd)
 nethttpd-for-netcgi2 (same as nethttpd)
+netmech-scram   -enable-crypto  SCRAM authentication mechanism
+netmulticore    CORE 	        Multiprocessing
 netplex		CORE		Generic server framework
 netshm		CORE		Shared memory for IPC
 netstring	CORE		String routines (e.g. URLs, HTML, Mail)
@@ -61,13 +63,13 @@ CORE		pcre		>= 5
 		 (pcre-ocaml)	http://www.ocaml.info/ocaml_sources
 				Regular expressions library
 
-				Since Ocamlnet-3.3 pcre is not
-				strictly required. It is also possible
-				to build without by configuring with
-				-disable-pcre. The Str regexp engine
-				is then used instead.  The
-				functionality should be exactly the
-				same.
+				! Since Ocamlnet-3.3 pcre is not
+				! strictly required. It is also possible
+				! to build without by configuring with
+				! -disable-pcre. The Str regexp engine
+				! is then used instead.  The
+				! functionality should be exactly the
+				! same.
 
 -enable-gtk	lablgtk		>= 1.2 (*)
 				http://wwwfun.kurims.kyoto-u.ac.jp/soft/
@@ -90,6 +92,9 @@ CORE		pcre		>= 5
 -enable-zip     camlzip         >= 1.01
 				http://pauillac.inria.fr/~xleroy/software.html
 	                        Bindings for zlib
+
+-enable-crypto  cryptokit	probably any
+		                Xavier Leroy's crypto package
 
 -with-nethttpd	none		none
 
@@ -215,6 +220,7 @@ in binary form:
 - ocamlnet-ssl		Add-on libraries needing ssl
 - ocamlnet-tcl		Add-on libraries needing tcl
 - ocamlnet-zip          Add-on libraries needing camlzip
+- ocamlnet-crypto	Add-on libraries needing cryptokit
 - ocamlnet-nethttpd	nethttpd (optional, if it makes the different
 			licensing conditions clearer)
 
@@ -229,11 +235,14 @@ extra variables:
    INC_NETSYS="-package netsys"
    INC_NETSTRING="-package netstring"
    INC_EQUEUE="-package equeue"
-   INC_NETCGI1="-package netcgi1"
+   INC_EQUEUE_SSL="-package equeue-ssl"
    INC_NETCGI2="-package netcgi2"
+   INC_NETCGI2_APACHE="-package netcgi2-apache"
    INC_NETPLEX="-package netplex"
+   INC_NETCAMLBOX="-package netcamlbox"
    INC_RPC="-package rpc"
    INC_SHELL="-package shell"
+   INC_NETGSSAPI="-package netgssapi"
 
 i.e. "make all" becomes
 
