@@ -45,6 +45,7 @@ object
   method clear : group -> unit
   method run : unit -> unit
   method is_running : bool
+  method when_blocking : (unit -> unit) -> unit
   (* Protected interface *)
   method private setup : unit -> (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list * float)
   method private queue_events : (Unix.file_descr list * Unix.file_descr list * Unix.file_descr

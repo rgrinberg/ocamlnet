@@ -101,6 +101,7 @@ type event_system_t =
       clear : group -> unit;
       run : unit -> unit;
       is_running : bool;
+      when_blocking : (unit -> unit) -> unit  (* experimental *)
     >
 
 class type event_system =
@@ -118,6 +119,7 @@ object
   method clear : group -> unit
   method run : unit -> unit
   method is_running : bool
+  method when_blocking : (unit -> unit) -> unit  (* experimental *)
 end
 
 

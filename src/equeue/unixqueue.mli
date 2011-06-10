@@ -172,6 +172,7 @@ object
   method clear : group -> unit
   method run : unit -> unit
   method is_running : bool
+  method when_blocking : (unit -> unit) -> unit
 end
   (** The [event_system] manages events, handlers, resources, groups,
    * etc. It is now a class type, and you may invoke the operations directly

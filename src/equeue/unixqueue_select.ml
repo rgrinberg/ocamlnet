@@ -21,6 +21,7 @@ object
   method clear : group -> unit
   method run : unit -> unit
   method is_running : bool
+  method when_blocking : (unit -> unit) -> unit
   (* Protected interface *)
   method private setup : unit -> (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list * float)
   method private queue_events : (Unix.file_descr list * Unix.file_descr list * Unix.file_descr list) -> bool
@@ -149,6 +150,8 @@ object(self)
   val mutable ctrl_pipe_rd = None
   val mutable ctrl_pipe_wr = None
   val mutable ctrl_pipe_group = new Unixqueue_util.group_object
+
+  val mutable when_blocking = (fun () -> ())
 
   (**********************************************************************)
   (* Implementation of the queue                                        *)
@@ -401,6 +404,7 @@ object(self)
 
   method private source _sys =
     assert(Lazy.force sys == _sys);
+    when_blocking();
     mutex#lock();
     try
       (* Find out which system events are interesting now: *)
@@ -926,6 +930,9 @@ object(self)
 
   method is_running =
     Equeue.is_running (Lazy.force sys)
+
+  method when_blocking f =
+    when_blocking <- f
 
 end
 ;;

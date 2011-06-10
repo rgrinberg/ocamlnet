@@ -168,6 +168,7 @@ class pollset_event_system (pset : Netsys_pollset.pollset) =
             (* the number of keys in [handlers] *)
 
   let waiting = ref false in
+  let when_blocking = ref (fun () -> ()) in
 
   let mutex = mtp # create_mutex() in
 
@@ -234,6 +235,8 @@ object(self)
        from Equeue
      *)
     assert(Lazy.force !sys == _sys);
+
+    !when_blocking();
 
     let dbg = !Unixqueue_util.Debug.enable in
 
@@ -1012,6 +1015,10 @@ object(self)
 
   method is_running =
     Equeue.is_running (Lazy.force !sys)
+
+
+  method when_blocking f =
+    when_blocking := f
 
 end
 
