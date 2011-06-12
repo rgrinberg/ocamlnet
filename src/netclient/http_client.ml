@@ -692,7 +692,8 @@ object(self)
 	      req_uri <- Some nu;
 	      req_host <- Neturl.url_host nu;
 	      req_port <- Neturl.url_port nu;
-	      req_path <- Neturl.join_path(Neturl.url_path nu);
+	      req_path <- Neturl.join_path(Neturl.url_path nu) ^ 
+                          (try "?" ^ Neturl.url_query nu with Not_found -> "");
 	      req_cb <- cb;
 	    with
 		Not_found ->

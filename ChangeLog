@@ -1,3 +1,9 @@
+2011-06-12  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Fix: Http_client removed the query path from URLs accidentally
+
+	* Released: Ocamlnet-3.3.2
+	
 2011-06-10  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Released: Ocamlnet-3.3.1
