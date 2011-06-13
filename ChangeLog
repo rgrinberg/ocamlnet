@@ -1,3 +1,15 @@
+2011-06-13  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Fix: sending HTTP requests in URL-encoded form (thanks to
+	  Joel Reymont for pointing it out)
+
+	* Fix: redirects after POST
+
+	* Fix: timeouts in Unixqueue_pollset no longer cause failed
+	  assertions (thanks to Stéphane Legrand)
+
+	* Released: Ocamlnet-3.3.3
+
 2011-06-12  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Fix: Http_client removed the query path from URLs accidentally
