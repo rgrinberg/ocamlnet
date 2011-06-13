@@ -999,6 +999,7 @@ let process_connection config fd (stage1 : 'a http_service) =
 		  new redirected_environment 
 		    ~properties:new_properties
 		    ~in_header:new_hdr
+		    ~in_channel:req#environment#input_channel
 		    redir_env in
 		process_request req new_env (redir_count+1)
 	)
