@@ -3,26 +3,6 @@
  *
  *)
 
-(* - CHECK: fd tracking - OK
-   - half-open connections and https - OK
-   - Timeout for https - OK
-   - suite - OK
-   - CONNECT - OK
-     * localhost als proxy konfigurieren - OK
-     * basic auth for CONNECT -OK
-     * Proxy: digest auth, also for CONNECT - OK
-   - CONNECT + auth in test suite - OK
-   - SOCKS - OK
-   - Always include "Proxy-Connection: keep-alive" headers - OK
-   - check: upper/lowercase for "close" tokens etc. - OK
-   - Look for all "80" defaults - OK
-   - Netfs - OK
-   - HTTPS in Convenience - OK
-   - GZIP response - OK
-   - Http_util stuff - OK
-   - Proxy: allow foreign schemes, e.g. ftp: URLs
- *)
-
 (* TODO:
    - Also support automatic compression of uploads. Be prepared to get
      a 415 response, and fall back to [identity] (or whatever is available)
@@ -239,7 +219,7 @@ let parse_url ?base_url options url =
       List.find (fun (sch',_,_,_) -> sch=sch') !options.schemes in
     let ht = Hashtbl.create 1 in
     Hashtbl.add ht sch syn;
-    let url' = Neturl.fixup_url_string url in
+    let url' = Neturl.fixup_url_string ~escape_hash:true url in
     let nu1 = 
       Neturl.parse_url 
 	?base_syntax:(match base_url with
@@ -692,8 +672,18 @@ object(self)
 	      req_uri <- Some nu;
 	      req_host <- Neturl.url_host nu;
 	      req_port <- Neturl.url_port nu;
-	      req_path <- Neturl.join_path(Neturl.url_path nu) ^ 
-                          (try "?" ^ Neturl.url_query nu with Not_found -> "");
+	      (* req_path must also contain the parts after the path, i.e.
+	         param and query
+	       *)
+	      req_path <- 
+                Neturl.join_path(Neturl.url_path ~encoded:true nu) ^ 
+                ( try String.concat "" 
+                        (List.map
+                          (fun s -> ";" ^ s)
+                          (Neturl.url_param ~encoded:true nu))
+                  with Not_found -> "") ^
+                ( try "?" ^ Neturl.url_query ~encoded:true nu 
+                  with Not_found -> "");
 	      req_cb <- cb;
 	    with
 		Not_found ->
@@ -4620,11 +4610,17 @@ class pipeline =
 
     val options =
       let http_syn =
-	Hashtbl.find Neturl.common_url_syntax "http" in
+        { (Hashtbl.find Neturl.common_url_syntax "http") with
+            Neturl.url_enable_query = Neturl.Url_part_not_recognized
+        } in
       let https_syn =
-	Hashtbl.find Neturl.common_url_syntax "https" in
+        { (Hashtbl.find Neturl.common_url_syntax "https") with
+            Neturl.url_enable_query = Neturl.Url_part_not_recognized
+        } in
       let ipp_syn =
-	Hashtbl.find Neturl.common_url_syntax "ipp" in
+        { (Hashtbl.find Neturl.common_url_syntax "ipp") with
+            Neturl.url_enable_query = Neturl.Url_part_not_recognized
+        } in
       ref
 	{ (* Default values: *)
 	  synchronization = Pipeline 5;

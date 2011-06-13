@@ -419,11 +419,13 @@ val parse_url :
    *   are always recognized.
    *)
 
-val fixup_url_string : string -> string
+val fixup_url_string : ?escape_hash:bool -> string -> string
   (** Escapes some unsafe or "unwise" characters that are commonly used
     * in URL strings: space, < > \{ \} \[ \] ^ \\ | and double quotes.
     * Call this function before parsing the URL to support these
     * characters.
+    *
+    * If [escape_hash] is set, '#' is also escaped.
    *)
 
 val url_provides :

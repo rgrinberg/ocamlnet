@@ -1282,10 +1282,11 @@ let url_of_string url_syntax s =
 
 
 let problem_re = Netstring_str.regexp "[] <>\"{}|\\^[`]"
+let problem_hash_re = Netstring_str.regexp "[] <>\"{}|\\^[`]#"
 
-let fixup_url_string =
+let fixup_url_string ?(escape_hash=false) =
   Netstring_str.global_substitute 
-    problem_re
+    (if escape_hash then problem_hash_re else problem_re)
     (fun m s ->
        sprintf "%%%02x" (Char.code s.[Netstring_str.match_beginning m]))
 ;;
