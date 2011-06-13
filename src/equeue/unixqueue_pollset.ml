@@ -202,7 +202,7 @@ class pollset_event_system (pset : Netsys_pollset.pollset) =
 
   let tmo_events_of_op_wl op =
     try 
-      [ event_of_op_wl_nf op ]
+      [ tmo_event_of_op_wl_nf op ]
     with
       | Not_found -> [] (* Ghost event, see above *) in
 	    
