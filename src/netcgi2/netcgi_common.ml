@@ -1190,7 +1190,13 @@ seeing the result."))
 			    ^ " bytes is allowed for urlencoded forms"));
 	       );
 	       let qs = String.create len in
-	       in_obj#really_input qs 0 len;
+	       ( try
+ 	           in_obj#really_input qs 0 len
+                 with End_of_file ->
+                   raise(HTTP(`Bad_request,
+                              "Request body is shorter than announced in \
+                               Content-Length"));
+               );
 	       let args = args_of_string env arg_store qs in
 	       new_cgi env op `POST args
 
