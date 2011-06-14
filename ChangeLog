@@ -1,3 +1,8 @@
+2011-06-14  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Adding Netsockaddr module, and a few conversion functions
+	  for socksymbol
+
 2011-06-13  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Fix: sending HTTP requests in URL-encoded form (thanks to

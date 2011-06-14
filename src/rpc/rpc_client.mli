@@ -117,6 +117,9 @@ type connector =
 val connector_of_sockaddr : Unix.sockaddr -> connector
   (** Converts the socket address into a connector *)
 
+val connector_of_socksymbol : Netsockaddr.socksymbol -> connector
+  (** Converts the {!Netsockaddr.socksymbol} into a connector *)
+
 val shutdown_connector : 
   t -> Rpc_transport.rpc_multiplex_controller -> (unit -> unit) -> unit
   (** The default implementation to shut down the connector. Actions are

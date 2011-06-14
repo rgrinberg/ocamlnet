@@ -63,6 +63,16 @@ val get_host_by_name : ?resolver:resolver -> string -> Unix.host_entry
       pluggable resolver is used.
    *)
 
+val sockaddr_of_socksymbol : ?resolver:resolver -> 
+                             Netsockaddr.socksymbol -> Unix.sockaddr
+  (** Use the resolver to look up names in {!Netsockaddr.socksymbol},
+      and convert the symbol to a [Unix.sockaddr] only containing IP
+      addresses.
+
+      If a [resolver] is passed, this resolver is used, otherwise the
+      pluggable resolver is used.
+   *)
+
 
 (** {1 Plugins} *)
 
@@ -71,3 +81,6 @@ val current_resolver : unit -> resolver
 
 val set_current_resolver : resolver -> unit
   (** Set the pluggable resolver *)
+
+
+(* TODO: Set IPv6 behavior *)

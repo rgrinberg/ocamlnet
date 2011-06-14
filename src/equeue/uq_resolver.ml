@@ -77,3 +77,15 @@ let get_host_by_name ?(resolver = !cur_resolver) host =
     | e when not !eng_final ->
 	eng # abort();
 	raise e
+
+
+let sockaddr_of_socksymbol ?resolver =
+  function
+    | `Inet(ip,port) ->
+	Unix.ADDR_INET(ip,port)
+    | `Unix p ->
+	Unix.ADDR_UNIX p
+    | `Inet_byname(n,port) ->
+	let e = get_host_by_name ?resolver n in
+	let ip = e.Unix.h_addr_list.(0) in
+	Unix.ADDR_INET(ip,port)

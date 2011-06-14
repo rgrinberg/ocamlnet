@@ -350,6 +350,10 @@ val string_of_fd : Unix.file_descr -> string
 val string_of_sockaddr : Unix.sockaddr -> string
   (** Returns a human-readable string describing the address
       (for debug messages)
+
+      Note that the reverse (parsing such a string) can be
+      accomplished with {!Netsockaddr.socksymbol_of_string} and
+      {!Uq_resolver.sockaddr_of_socksymbol}.
    *)
 
 val string_of_fd_style : fd_style -> string

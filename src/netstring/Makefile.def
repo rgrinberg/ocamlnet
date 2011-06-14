@@ -1,5 +1,5 @@
 OBJECTS  = netconst.cmo netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
-	   netaux.cmo netchannels.cmo netdate.cmo \
+	   netaux.cmo netchannels.cmo netdate.cmo netsockaddr.cmo \
 	   netdb.cmo netmappings.cmo netconversion.cmo netulex.cmo \
            netencoding.cmo netstream.cmo \
 	   mimestring.cmo \
@@ -48,7 +48,7 @@ DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netdate.mli netencoding.mli netulex.mli netaccel.mli \
 	netaccel_link.mli nethtml.mli netstring_str.mli netstring_pcre.mli \
 	netmappings.mli netaux.mli nethttp.mli netpagebuffer.mli \
-	netfs.mli netglob.mli netauth.mli \
+	netfs.mli netglob.mli netauth.mli netsockaddr.mli \
         netnumber.mli rtypes.mli xdr_mstring.mli xdr.mli \
 	netcompression.mli \
 	netchannels_tut.txt netmime_tut.txt netsendmail_tut.txt \

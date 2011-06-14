@@ -126,8 +126,15 @@ let get_fd_style fd =
 
 let string_of_sockaddr =
   function
-    | Unix.ADDR_INET(inet,port) ->
-	Unix.string_of_inet_addr inet ^ ":" ^ string_of_int port
+    | Unix.ADDR_INET(inet,port) as addr ->
+	( match Unix.domain_of_sockaddr addr with
+	    | Unix.PF_INET ->
+		Unix.string_of_inet_addr inet ^ ":" ^ string_of_int port
+	    | Unix.PF_INET6 ->
+		"[" ^ Unix.string_of_inet_addr inet ^ "]:" ^ string_of_int port
+	    | _ ->
+		assert false
+	)
     | Unix.ADDR_UNIX path ->
 	String.escaped path
 

@@ -1093,6 +1093,10 @@ type sockspec =
 val sockspec_of_sockaddr : Unix.socket_type -> Unix.sockaddr -> sockspec
   (** Converts a normal socket address to the extended form *)
 
+val sockspec_of_socksymbol : Unix.socket_type -> Netsockaddr.socksymbol ->
+                               sockspec
+  (** Converts a {!Netsockaddr.socksymbol} to this form *)
+
 
 (** {2 Client sockets} *)
 

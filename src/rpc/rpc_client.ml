@@ -280,6 +280,13 @@ let connector_of_sockaddr =
 	Unix s
 
 
+let connector_of_socksymbol =
+  function
+    | `Inet(ip,p) -> Internet(ip,p)
+    | `Inet_byname(n,p) -> Inet(n,p)
+    | `Unix p -> Unix p
+
+
   (*****)
 
 let set_auth_methods cl list =

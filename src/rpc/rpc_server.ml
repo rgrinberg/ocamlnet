@@ -335,6 +335,11 @@ let connector_of_sockaddr =
     | Unix.ADDR_UNIX s ->
 	Unix s
 
+let connector_of_socksymbol sym =
+  connector_of_sockaddr
+    (Uq_resolver.sockaddr_of_socksymbol sym)
+
+
 let sockaddrname sa =
   match sa with
     | Unix.ADDR_INET(addr, port) ->

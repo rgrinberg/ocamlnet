@@ -150,6 +150,7 @@ for other libraries.
    Netmime
    Netsendmail
    Neturl
+   Netsockaddr
    Netaddress
    Netbuffer
    Netpagebuffer

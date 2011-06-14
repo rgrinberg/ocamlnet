@@ -3059,6 +3059,13 @@ let sockspec_of_sockaddr st =
     | Unix.ADDR_UNIX path -> `Sock_unix(st, path)
 
 
+let sockspec_of_socksymbol st =
+  function
+    | `Inet(ip,port) -> `Sock_inet(st, ip, port)
+    | `Inet_byname(n,port) -> `Sock_inet_byname(st, n, port)
+    | `Unix p -> `Sock_unix(st, p)
+
+
 type connect_address =
     [ `Socket of sockspec * connect_options
     | `Command of string * (int -> Unixqueue.event_system -> unit)

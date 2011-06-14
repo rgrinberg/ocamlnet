@@ -100,6 +100,9 @@ type binding =
 val connector_of_sockaddr : Unix.sockaddr -> connector
   (** Converts the socket address into a connector *)
 
+val connector_of_socksymbol : Netsockaddr.socksymbol -> connector
+  (** Converts the {!Netsockaddr.socksymbol} into a connector *)
+
 val create :
     ?program_number:uint4 ->  (* Override program number *)
     ?version_number:uint4 ->  (* Override version number *)
