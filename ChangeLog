@@ -1,5 +1,9 @@
 2011-06-16  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
+	* Rpc_client: fix when trying several authentication methods:
+	  The original call is no longer marked as pending. This avoids
+	  a hanging event system.
+
 	* Netsys_posix: adding with_tty, tty_read_password
 
 2011-06-14  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>

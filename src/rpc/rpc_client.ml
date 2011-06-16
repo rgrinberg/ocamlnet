@@ -840,12 +840,11 @@ let process_regular_incoming_message cl message peer sock call rc =
 		     (Rpc.string_of_server_error auth_problem)
 		     (string_of_reject_code code)
 		);
+	      remove_pending_call cl call;
 	      ( match code with
 		  | `Fail ->
-		      remove_pending_call cl call;
 		      Error(Rpc.Rpc_server auth_problem)
 		  | `Retry ->
-		      remove_pending_call cl call;
 		      ignore(
 			unbound_async_call_r 
 			  cl rc.prog rc.proc rc.param rc.get_result
