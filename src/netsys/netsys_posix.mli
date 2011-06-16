@@ -324,8 +324,8 @@ val tty_read_password : ?tty:Unix.file_descr -> string -> string
 
       [tty] defaults to [Unix.stdin]. If this function is used in a
       program where stdin is not redirected, and the program is started
-      in a terminal, it will read the password with prompt and disabled
-      echo. If stdin is redirected, it is assumed that the program is
+      in a terminal, it will read the password with prompt and 
+      echo disabled. If stdin is redirected, it is assumed that the program is
       used in a script, and the password is piped into it.
 
       Use in conjunction with [with_tty] to ensure that [tty] is
