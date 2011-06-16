@@ -48,6 +48,9 @@ end
 let dlog = Netlog.Debug.mk_dlog "Rpc_auth_gssapi" Debug.enable
 let dlogr = Netlog.Debug.mk_dlogr "Rpc_auth_gssapi" Debug.enable
 
+let () =
+  Netlog.Debug.register_module "Rpc_auth_gssapi" Debug.enable
+
 
 let split_rpc_gss_data_t ms =
   let ms_len =  Xdr_mstring.length_mstrings ms in
