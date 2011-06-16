@@ -310,6 +310,32 @@ external getsid : int -> int = "netsys_getsid"
    * For the PID 0, the session ID of the current process is returned.
    *)
 
+val with_tty : (Unix.file_descr -> unit) -> unit
+  (** [with_tty f]: Runs [f fd] where [fd] is the terminal of the process.
+      If the process does not have a terminal (because it is a daemon) 
+      [with_tty] will fail.
+   *)
+
+val tty_read_password : ?tty:Unix.file_descr -> string -> string
+  (** [tty_read_password prompt]: If [tty] is a terminal, the [prompt]
+      is output, and a password is read from the terminal (echo off).
+      If [tty] is not a terminal, no [prompt] is printed, and just a
+      line is read from the [tty] descriptor (non-interactive case).
+
+      [tty] defaults to [Unix.stdin]. If this function is used in a
+      program where stdin is not redirected, and the program is started
+      in a terminal, it will read the password with prompt and disabled
+      echo. If stdin is redirected, it is assumed that the program is
+      used in a script, and the password is piped into it.
+
+      Use in conjunction with [with_tty] to ensure that [tty] is
+      the terminal even if a redirection is in effect, e.g.
+      {[ with_tty (fun tty -> tty_read_password ~tty prompt) ]}
+
+      Raises [Sys.Break] if the user triggers SIGINT (i.e. presses
+      CTRL-C) to abort the input of a password.
+   *)
+
 (* Users and groups *)
 
 external setreuid : int -> int -> unit = "netsys_setreuid"

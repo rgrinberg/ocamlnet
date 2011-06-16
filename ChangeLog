@@ -1,3 +1,7 @@
+2011-06-16  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Netsys_posix: adding with_tty, tty_read_password
+
 2011-06-14  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Adding Netsockaddr module, and a few conversion functions

@@ -55,6 +55,78 @@ external ttyname : file_descr -> string = "netsys_ttyname";;
 
 external getsid : int -> int = "netsys_getsid";;
 
+let with_tty f =
+  let fd = 
+    try Unix.openfile (ctermid()) [Unix.O_RDWR] 0 
+    with _ -> failwith "Netsys_posix.with_tty: cannot open terminal" in
+  try
+    let r = f fd in
+    Unix.close fd;
+    r
+  with error -> Unix.close fd; raise error
+
+
+let descr_input_line fd = (* unbuffered! *)
+  let b = Buffer.create 80 in
+  let s = String.create 1 in
+
+  let rec loop () =
+    try
+      let n = Unix.read fd s 0 1 in
+      if n > 0 && s.[0] <> '\n' then (
+	Buffer.add_string b s;
+	raise(Unix.Unix_error(Unix.EINTR,"",""))
+      )
+    with
+      | Unix.Unix_error(Unix.EINTR,_,_) ->
+	  loop()
+  in
+
+  loop();
+  Buffer.contents b
+
+
+
+let tty_read_password ?(tty=Unix.stdin) prompt =
+  if Unix.isatty tty then (
+    let cleanup = ref [] in
+    let f = Unix.out_channel_of_descr tty in
+    output_string f prompt;
+    flush f;
+    Unix.tcdrain tty;
+    Unix.tcflush tty Unix.TCIFLUSH;
+    let p = Unix.tcgetattr tty in
+    try
+      let p' =
+	{ p with
+	    Unix.c_echo = false;
+	    Unix.c_echoe = false;
+	    Unix.c_echok = false;
+	    Unix.c_echonl = false
+	} in
+      Unix.tcsetattr tty Unix.TCSAFLUSH p';
+      cleanup := (fun () -> Unix.tcsetattr tty Unix.TCSAFLUSH p) :: !cleanup;
+      let old_sigint = 
+	Sys.signal Sys.sigint (Sys.Signal_handle(fun _ -> raise Sys.Break)) in
+      cleanup := (fun () -> Sys.set_signal Sys.sigint old_sigint) :: !cleanup;
+      let pw = descr_input_line tty in
+      output_string f "\n";
+      flush f;
+      List.iter (fun f -> f()) !cleanup;
+      pw
+    with
+      | error ->
+	  List.iter (fun f -> f()) !cleanup;
+	  if error = Sys.Break then (
+	    output_string f "\n";
+	    flush f
+	  );
+	  raise error
+  )
+  else
+    descr_input_line tty
+
+
 (* Users and groups *)
 
 external setreuid : int -> int -> unit = "netsys_setreuid";;

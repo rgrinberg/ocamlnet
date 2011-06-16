@@ -1,5 +1,12 @@
 OCAMLNET
 
+- Netplex: startup_directory: make this also visible in controller_config
+- Rpc_server.auth_limit (m:auth_method) ...:
+  limits authentication to certain programs/versions/procedures
+- Rpc_server.name_auth_method (n:name) (m:auth_method)
+  sets the name of the method
+- RPc_server: preflight mode for XDR
+
 - Nethttpd should respect Netcgi.*.default_exn_handler
   * Need more information
   * What would be the meaning of disabling default_exn_handler
