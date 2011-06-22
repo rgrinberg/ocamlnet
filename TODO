@@ -6,6 +6,8 @@ OCAMLNET
 - Rpc_server.name_auth_method (n:name) (m:auth_method)
   sets the name of the method
 - RPc_server: preflight mode for XDR
+- LIne number in errors like
+  Netplex_config.Config_error("./twincastd.conf: Syntax error")
 
 - Nethttpd should respect Netcgi.*.default_exn_handler
   * Need more information

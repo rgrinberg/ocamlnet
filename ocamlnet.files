@@ -79,6 +79,8 @@ f src/netstring/netstring_pcre.mlp
 x src/netstring/netstring_pcre.ml
 f src/netstring/netstring_pcre.mlip
 x src/netstring/netstring_pcre.mli
+x src/netstring/netglob_lex.ml
+f src/netstring/netglob_lex.mll
 # The pattern:
 p src/netstring/.*\.ml
 p src/netstring/.*\.mli
