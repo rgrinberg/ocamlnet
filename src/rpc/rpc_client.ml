@@ -345,7 +345,7 @@ let pass_result cl call f =
 	end
 
 
-let pass_exception cl call x =
+let pass_exception ?(skip_auth=false) cl call x =
   (* Caution! This function does not remove [call] from the set of pending
    * calls.
    * 
@@ -362,17 +362,19 @@ let pass_exception cl call x =
 	  | `Regular _ ->
 	      pass_result cl call (fun () -> raise x)
 	  | `Auth_proto prog ->
-	      stop_retransmission_timer cl call;
-	      call.state <- Done;
-	      let q =
-		try Hashtbl.find cl.delayed_calls call.call_auth_proto
-		with Not_found -> Queue.create() in
-	      Hashtbl.remove cl.delayed_calls call.call_auth_proto;
-	      Queue.iter
-		(fun d_call ->
-		   pass_result cl d_call (fun () -> raise x)
-		)
-		q
+	      if not skip_auth then (
+		stop_retransmission_timer cl call;
+		call.state <- Done;
+		let q =
+		  try Hashtbl.find cl.delayed_calls call.call_auth_proto
+		  with Not_found -> Queue.create() in
+		Hashtbl.remove cl.delayed_calls call.call_auth_proto;
+		Queue.iter
+		  (fun d_call ->
+		     pass_result cl d_call (fun () -> raise x)
+		  )
+		  q
+	      )
       )
     with
       | Keep_call -> ()          (* ignore *)
@@ -401,7 +403,8 @@ let pass_exception_to_all cl x =
     )
     cl.delayed_calls;
 
-  List.iter (fun call -> pass_exception cl call x) !fn_list
+  (* We already included delayed_calls, hence set skip_auth here *)
+  List.iter (fun call -> pass_exception ~skip_auth:true cl call x) !fn_list
 
   (*****)
 

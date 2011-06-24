@@ -1,3 +1,11 @@
+2011-06-24  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Rpc_client: fix for GSS-API authentication how
+	  exceptions are passed back to the caller, avoiding
+	  double callbacks
+
+	* Packing error for Netglob_lex.
+
 2011-06-16  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Rpc_client: fix when trying several authentication methods:

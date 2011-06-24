@@ -8,6 +8,15 @@ OCAMLNET
 - RPc_server: preflight mode for XDR
 - LIne number in errors like
   Netplex_config.Config_error("./twincastd.conf: Syntax error")
+- Netplex:
+  * Easier way to catch controller termination
+    Netplex_cenv.on_system_shutdown
+    (can use a plugin internally for the controller case)
+  * Netplex_cenv.container_count : service_name -> int
+    (useful in pre_start_hook, post_finish_hook)
+  * container # is_first : bool
+  * make startup_directory accessible in containers
+    also: eff_socket_directory (absolute path)
 
 - Nethttpd should respect Netcgi.*.default_exn_handler
   * Need more information
