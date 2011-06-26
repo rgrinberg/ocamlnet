@@ -378,10 +378,10 @@ Plan for Ocamlnet 3
     - which fd's to manage: the long-living fd's
 
 
-- Move new cookie implementation to Nethttp
+- Move new cookie implementation to Nethttp - DONE
 
 - Faster URL encoding functions can be moved to Netencoding
-  if really faster
+  if really faster - REVISIT
 
 - Bug: Netplex daemonization doesn't wait until the inner process is
   initialized (enough)
@@ -399,6 +399,28 @@ A list of possible improvements, once interfaces are stable again:
 
 - Implement Netplex_semaphore with POSIX semaphores for systems
   supporting them
+   * pollable semaphores: emulate with pipes
+     post : lock
+            n = getvalue
+            post
+            if n=0 then write(pipe)
+            unlock
+     trywait : lock
+            if trywait then
+              n = getvalue
+              if n=0 then read(pipe)
+            else error
+            unlock
+     async_wait:
+            poll for pipe(read)
+            if readable then
+              trywait
+
+     Unix implementation (Netsys_psem, Uq_psem):
+      - one named sem for lock
+      - one names sem for sem
+      - one named pipe for pipe
+      - Linux: use eventfd instead of pipe
 
 - Implement Netplex_sharedvar with Netshm shared memory for systems
   supporting that
@@ -417,6 +439,8 @@ A list of possible improvements, once interfaces are stable again:
 ----------------------------------------------------------------------
 Implementation improvements after Ocamlnet 3.0
 ----------------------------------------------------------------------
+
+- NNTP client implementation (async)
 
 - signalfd (Linux), as an efficient way of catching SIGCHLD
 - eventfd (Linux), as an efficient way of waking equeue up from
@@ -513,6 +537,7 @@ Further ideas
 - netconversion: support for character case
 
 - netconversion: support for Unicode db (implement normalization forms)
+  * saslprep
 
 - netbuffer: more search functions. Substring search. Maybe even globbing
 
@@ -546,6 +571,14 @@ Further ideas
   * Message passing between containers: Containers can define a 
     message queue, and other containers can send XDR-able messages.
     Queues are referenced by a global naming scheme.
+
+    OR: Netplex_queue. Ops:
+     - add, also with max
+     - take
+     - wait until n>0
+     - wait until n<N
+     - "wait": also as async op
+     - msg encoding: as for Netplex_sharedvar
 
   * Revisit: Netplex + UDP
 

@@ -4,11 +4,13 @@ PKGNAME = equeue
 OBJECTS = equeue.cmo unixqueue_util.cmo unixqueue_pollset.cmo \
           unixqueue_select.cmo unixqueue.cmo \
 	  uq_resolver.cmo \
-          uq_engines.cmo uq_socks5.cmo uq_io.cmo uq_lwt.cmo
+          uq_engines.cmo uq_socks5.cmo uq_io.cmo uq_lwt.cmo \
+	  uq_libevent.cmo
 DOBJECTS = equeue.mli unixqueue.mli unixqueue_pollset.mli \
            unixqueue_select.mli \
 	   uq_resolver.mli \
            uq_engines.mli uq_socks5.mli uq_io.mli uq_lwt.mli \
+	   uq_libevent.mli \
            equeue_intro.txt
 
 INCLUDES += $(INC_NETSYS)
