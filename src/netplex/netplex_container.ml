@@ -289,6 +289,18 @@ object(self)
     engines <- [];
 
   method private accepted fd_slave proto =
+    ( try
+	let proto_obj =
+	  List.find
+	    (fun proto_obj ->
+	       proto_obj#name = proto
+	    )
+	    sockserv#socket_service_config#protocols in
+	if proto_obj#tcp_nodelay then
+	  Unix.setsockopt fd_slave Unix.TCP_NODELAY true
+      with
+	| Not_found -> ()
+    );
     match rpc with
       | None -> assert false
       | Some r ->

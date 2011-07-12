@@ -573,7 +573,8 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 		cf # restrict_parameters protaddr [ "name";
 						    "lstn_backlog";
 						    "lstn_reuseaddr";
-						    "so_keepalive"
+						    "so_keepalive";
+						    "tcp_nodelay"
 						  ];
 
 		let prot_name =
@@ -597,6 +598,11 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 		    cf # bool_param (cf # resolve_parameter protaddr "so_keepalive") 
 		  with
 		    | Not_found -> true in
+		let tcp_nodelay =
+		  try
+		    cf # bool_param (cf # resolve_parameter protaddr "tcp_nodelay") 
+		  with
+		    | Not_found -> false in
 		let addresses =
 		  List.flatten
 		    (List.map
@@ -609,6 +615,7 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 		    method lstn_backlog = lstn_backlog
 		    method lstn_reuseaddr = lstn_reuseaddr
 		    method so_keepalive = so_keepalive
+		    method tcp_nodelay = tcp_nodelay
 		    method configure_slave_socket _ = ()
 		  end
 		)

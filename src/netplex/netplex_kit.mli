@@ -137,6 +137,7 @@ val add_helper_service : controller -> string -> processor_hooks -> unit
 val create_protocol : ?lstn_backlog:int -> 
                       ?lstn_reuseaddr:bool ->
                       ?so_keepalive:bool -> 
+                      ?tcp_nodelay:bool ->
                       ?configure_slave_socket:(Unix.file_descr ->unit) ->
                       string ->
                       extended_address array ->

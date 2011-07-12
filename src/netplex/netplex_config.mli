@@ -38,6 +38,7 @@ val read_netplex_config :
     *              lstn_backlog = <n>;
     *              lstn_reuseaddr = <bool>;
     *              so_keepalive = <bool>;
+    *              tcp_nodelay = <bool>;
     *              address {
     *                  type = "local";
     *                  path = "socketname";
