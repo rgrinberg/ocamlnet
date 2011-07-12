@@ -407,6 +407,9 @@ let posix_run
   (* Descriptor assignments. We have to translate the parallel
      pipe_assigmnents into a list of [dup2] operations. Also, we have
      to check which descriptors are kept open at all
+
+     Order: First the parallel pipe_assignments are done, then the sequential
+     c_assignments.
    *)
 
   let pipe_assignments =
@@ -416,7 +419,10 @@ let posix_run
       pipe_assignments
   in
 
-  (* Collect the descriptors that must not be closed by [exec] (final view): *)
+  (* Collect the descriptors that must not be closed by [exec] (final view),
+     i.e. this is the set of descriptors that is finally shared by the
+     forking and the forked process.
+   *)
   let open_descr_ht = Hashtbl.create 50 in
 
   List.iter
@@ -425,6 +431,12 @@ let posix_run
     pipe_assignments;
   List.iter
     (fun (from_fd, to_fd) ->
+       (* By removing from_fd we prevent that intermediate descriptors
+	  are shared with the subprocess, e.g. fd2 := fd1; fd3 := fd2.
+	  Here, only fd3 is automatically shared, but neither fd1 nor fd2.
+	  In order to enable sharing, the user can put these descriptors
+	  into c_descriptors.
+	*)
        Hashtbl.remove  open_descr_ht from_fd;
        Hashtbl.replace open_descr_ht to_fd ())
     c.c_assignments;
@@ -434,28 +446,40 @@ let posix_run
     c.c_descriptors;
 
   (* In this table we track the use of descriptors (dup2 tracking).
-     At this point, this table must contain the fd's that will be used
-     later, either as a source fd in a dup2, or it ends in [c_descriptors].
-     In the algorithm below, temp_descr_ht is then updated by each dup2.
+     We need to know at each step of the algorithm whether an fd is
+     used or free. In order to get the starting point, we take
+     the _final_ set (in open_descr_ht), and go backward.
+     In the algorithm below, track_descr_ht is then updated by each dup2.
+
+     If an fd is member of track_descr_ht it is used at the current step of the
+     algorithm.
    *)
-  let temp_descr_ht = Hashtbl.create 50 in
+  let track_descr_ht = Hashtbl.create 50 in
 
   Hashtbl.iter       (* starting point: the fd's that remain finally open *)
-    (fun fd _ -> Hashtbl.replace temp_descr_ht fd ())
+    (fun fd _ -> Hashtbl.replace track_descr_ht fd ())
     open_descr_ht;
   List.iter          (* go backward: first the c_assignments *)
-    (fun (from_fd, to_fd) -> 
-       Hashtbl.remove  temp_descr_ht to_fd;
-       Hashtbl.replace temp_descr_ht from_fd ())
+    (fun (from_fd, to_fd) ->
+       (* Here we remove to_fd (being assigned, so overwritten), and we mark
+	  from_fd as needed. We do this assignment by assignment, so for
+	  chains fd2 := fd1; fd3 := fd2 the intermediate descriptor fd2
+	  is initially a free descriptor.
+	*)
+       Hashtbl.remove  track_descr_ht to_fd;
+       Hashtbl.replace track_descr_ht from_fd ())
     (List.rev c.c_assignments);
+  (* The parallel pipe_assignments do not have an order, to we first
+     remove all overwritten descriptors, and then add all source descriptors.
+   *)
   List.iter
     (fun (from_fd, to_fd) -> 
-       Hashtbl.remove  temp_descr_ht to_fd;
+       Hashtbl.remove  track_descr_ht to_fd;
     )
     pipe_assignments;
   List.iter
     (fun (from_fd, to_fd) -> 
-       Hashtbl.replace temp_descr_ht to_fd ();
+       Hashtbl.replace track_descr_ht !from_fd ();
     )
     pipe_assignments;
 
@@ -465,18 +489,18 @@ let posix_run
   let next_fd = ref 3 in
   let rec new_descriptor() =
     let fd = Netsys_posix.file_descr_of_int !next_fd in
-    if (Hashtbl.mem temp_descr_ht fd) then (
+    if (Hashtbl.mem track_descr_ht fd) then (
       incr next_fd;
       new_descriptor();
     ) else (
-      Hashtbl.add temp_descr_ht fd ();
+      Hashtbl.add track_descr_ht fd ();
       fd
     ) in
   let alloc_descriptor fd =
-    Hashtbl.replace temp_descr_ht fd () in
+    Hashtbl.replace track_descr_ht fd () in
   let rel_descriptor fd =
-    if Hashtbl.mem temp_descr_ht fd then (
-      Hashtbl.remove temp_descr_ht fd;
+    if Hashtbl.mem track_descr_ht fd then (
+      Hashtbl.remove track_descr_ht fd;
       let ifd = Netsys_posix.int_of_file_descr fd in
       if ifd < !next_fd then next_fd := ifd
     ) in
@@ -510,8 +534,13 @@ let posix_run
 	    fd_actions := 
 	      (Netsys_posix.Fda_dup2(!from_fd, to_fd)) :: !fd_actions;
 	    alloc_descriptor to_fd;
-	    rel_descriptor !from_fd;
 	    Hashtbl.replace dest_descr_ht to_fd ();
+	    (* It is not evident which from_fd can be released here.
+	       The descriptors could be the source in a following
+	       c_assignment, or even be shared with the subprocess
+	       (in strange configurations). So better keep the hands
+	       off.
+	     *)
 	  );
 	  assign_parallel fdlist'
       | [] ->
@@ -528,8 +557,11 @@ let posix_run
 	 fd_actions := 
 	   (Netsys_posix.Fda_dup2(from_fd, to_fd)) :: !fd_actions;
 	 alloc_descriptor to_fd;
-	 rel_descriptor from_fd;
 	 Hashtbl.replace dest_descr_ht to_fd ();
+	 (* We cannot release from_fd. It might be the source for another
+	    assignment (e.g. fd2 := fd1; fd3 := fd1) or it might be finally
+	    shared with the subprocess.
+	  *)
        )
     )
     c.c_assignments;
@@ -551,6 +583,16 @@ let posix_run
     open_descr_ht;
   fd_actions :=
     (Netsys_posix.Fda_close_except keep_open) :: !fd_actions;
+
+  (* Clean up track_descr_ht after the above close operation: *)
+  let to_release =
+    Hashtbl.fold
+      (fun fd _ acc ->
+	 if not(Hashtbl.mem open_descr_ht fd) then fd :: acc else acc
+      )
+      track_descr_ht
+      [] in
+  List.iter (fun fd -> rel_descriptor fd) to_release;
 
   (* Clear the close-on-exec flag for the shared descriptors. There
      is no Fda_clear_close_on_exec, so we have to get this effect by
