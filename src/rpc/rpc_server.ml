@@ -877,14 +877,18 @@ and next_incoming_message' srv conn trans =
 
 and handle_before_record srv conn filter_var n trans_addr =
   dlog srv "Checking filter before_record";
+(*
   let filter = 
     match !filter_var with
       | Some filter -> 
 	  filter
       | None ->
+ *)
 	  let filter = srv.filter trans_addr conn.conn_id in
+(*
 	  filter_var := Some filter;
 	  filter in
+ *)
   ( match unroll_rule filter n with
       | `Accept -> `Accept
       | `Deny   -> terminate_connection srv conn; `Deny

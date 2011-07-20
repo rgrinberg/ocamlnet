@@ -5,128 +5,313 @@
 
 module S = Netstring_str;;
 
-let cr_or_lf_re = S.regexp "[\013\n]";;
 
-let header_stripped_re =
-  S.regexp "\\([^ \t\r\n:]+\\):[ \t]*\
-            \\(\
-              \\(.*[^ \t\r\n]\\)?\
-              \\([ \t\r]*\n[ \t]\\(.*[^ \t\r\n]\\)?\\)*\
-            \\)\
-            [ \t\r]*\n";;
-(* This expression extracts the name and the stripped value (whitespace is
- * removed at the beginning and at the end). Explanations:
- * ([^ \t\r\n:]+)             The name of the header field, all but whitespace
- * :                          The colon seperating the name from the value
- * [ \t]*                     Optional whitespace after the colon. It does not
- *                            count.
- * (.*[^ \t\r\n])?            A string not containing \n (LF) at all. It may 
- *                            contain whitespace including \r (CR) but not as
- *                            last character. The intention is: match 
- *                            everything until the next LF or CRLF, but don't
- *                            include whitespace at the end of the string.
- * ([ \t\r]*\n[ \t](.*[^ \t\r\n])?)*  
- *                            Any number of continuation lines. These lines
- *                            begin after skipping the whitespace at the end
- *                            of the last line, skipping a LF or CRLF 
- *                            terminating the line followed by exactly
- *                            one whitespace. This whitespace indicates that
- *                            a continuation line follows. The rule for
- *                            the continuation line itself is essentially the
- *                            same as the rule for the first line.
- * [ \t\r]*\n                 Finally, skip the whitespace at the end of the
- *                            last line, following by LF or CRLF terminating
- *                            the line.
- *
- * Note that the first group matches the name of the field, and that the
- * second group matches the value of the field. The value does neither include
- * whitespace at its beginning nor whitespace at its end.
- *)
-
-let header_unstripped_re =
-  S.regexp "\\([^ \t\r\n:]+\\):\\([ \t]*.*\n\\([ \t].*\n\\)*\\)";;
-(* This much simpler expression returns the name and the unstripped 
- * value.
- *)
+let rec skip_line_ends s pos len =
+  if len > 0 then
+    match s.[pos] with
+      | '\010' -> 
+	  skip_line_ends s (pos+1) (len-1)
+      | '\013' ->
+	  if len > 1 && s.[pos+1] = '\010' then
+	    skip_line_ends s (pos+2) (len-2)
+	  else
+	    pos
+      | _ ->
+	  pos
+  else
+    pos
 
 
-let empty_line_re =
-  S.regexp "\013?\n";;
+let rec find_line_start s pos len =
+  if len > 0 then
+    match s.[pos] with
+      | '\010' ->
+	  pos+1
+      | '\013' ->
+	  if len > 1 && s.[pos+1] = '\010' then
+	    pos+2
+	  else
+	    find_line_start s (pos+1) (len-1)
+      | _ ->
+	  find_line_start s (pos+1) (len-1)
+  else
+    raise Not_found
 
-let end_of_header_re =
-  S.regexp "\n\013?\n";;
+
+let rec find_line_end s pos len =
+  if len > 0 then
+    match s.[pos] with
+      | '\010' ->
+	  pos
+      | '\013' ->
+	  if len > 1 && s.[pos+1] = '\010' then
+	    pos
+	  else
+	    find_line_end s (pos+1) (len-1)
+      | _ ->
+	  find_line_end s (pos+1) (len-1)
+  else
+    raise Not_found
+
+
+let rec find_double_line_start s pos len =
+  let pos' = find_line_start s pos len in
+  let len' = len - (pos' - pos) in
+  if len' > 0 then
+    match s.[pos'] with
+      | '\010' ->
+	  pos'+1
+      | '\013' ->
+	  if len' > 1 && s.[pos'+1] = '\010' then
+	    pos'+2
+	  else
+	    find_double_line_start s pos' len'
+      | _ ->
+	  find_double_line_start s pos' len'
+  else
+    raise Not_found
+
+
+let fold_lines_p f acc0 s pos len =
+  let e = pos+len in
+  let rec loop acc p =
+    if p < e then (
+      let p1 = 
+	try find_line_end s p (e-p)
+	with Not_found -> e in
+      let p2 =
+	try find_line_start s p1 (e-p1)
+	with Not_found -> e in
+      let is_last =
+	p2 = e in
+      let acc' =
+	f acc p p1 p2 is_last in
+      loop acc' p2
+    )
+    else acc in
+  loop acc0 pos
+
+
+let fold_lines f acc0 s pos len =
+  fold_lines_p
+    (fun acc p0 p1 p2 is_last ->
+       f acc (String.sub s p0 p1)
+    )
+    acc0 s pos len
+
+
+let iter_lines f s pos len =
+  fold_lines
+    (fun _ line -> let () = f line in ())
+    () s pos len
+
+
+let skip_whitespace_left s pos len =
+  let e = pos+len in  
+  let rec skip_whitespace p =
+    if p < e then (
+      let c = s.[p] in
+      match c with
+	| ' ' | '\t' | '\r' | '\n' -> skip_whitespace(p+1)
+	| _ -> p
+    )
+    else 
+      raise Not_found in
+  skip_whitespace pos
+
+
+let skip_whitespace_right s pos len =
+  let rec skip_whitespace p =
+    if p >= pos then (
+      let c = s.[p] in
+      match c with
+	| ' ' | '\t' | '\r' | '\n' -> skip_whitespace(p-1)
+	| _ -> p
+    )
+    else 
+      raise Not_found in
+  skip_whitespace (pos+len-1)
+
+
+type header_line =
+  | Header_start of string * string   (* name, value *)
+  | Header_cont of string             (* continued value *)
+  | Header_end                        (* empty line = header end *)
+
+
+let rec find_colon s p e =
+  if p < e then (
+    let c = s.[p] in
+    match c with
+      | ' ' | '\t' | '\r' | '\n' -> raise Not_found
+      | ':' -> p
+      | _ -> find_colon s (p+1) e
+  )
+  else raise Not_found
+
+
+let parse_header_line include_eol skip_ws s p0 p1 p2 is_last =
+  (* p0: start of line
+     p1: position of line terminator
+     p2: position after line terminator
+     is_last: whether last line in the iteration
+     include_eol: whether to include the line terminator in the output string
+     skip_ws: whether to skip whitespace after the ":"
+
+     Raises Not_found if not parsable.
+   *)
+  if p0 = p1 then (
+    if not is_last then raise Not_found;
+    Header_end
+  ) else (
+    let c0 = s.[p0] in
+    let is_cont = (c0 = ' ' || c0 = '\t' || c0 = '\r') in
+    if is_cont then (
+      let out =
+	if include_eol then
+	  String.sub s p0 (p2-p0)
+	else
+	  String.sub s p0 (p1-p0) in
+      Header_cont out
+    )
+    else (
+      let q = find_colon s p0 p1 in
+      let r =
+	if skip_ws then
+	  try skip_whitespace_left s (q+1) (p1-q-1) with Not_found -> p1
+	else
+	  q+1 in
+      let out_name = String.sub s p0 (q-p0) in
+      let out_value =
+	if include_eol then
+	  String.sub s r (p2-r)
+	else
+	  String.sub s r (p1-r) in
+      Header_start(out_name,out_value)
+    )
+  )
+  
+
+let fold_header ?(downcase=false) ?(unfold=false) ?(strip=false) 
+                f acc0 s pos len =
+  let err k =
+    failwith ("Mimestring.fold_header [" ^ string_of_int k ^ "]") in
+  let postprocess cur =
+    match cur with
+      | None -> 
+	  None
+      | Some(n, values) ->
+	  let cat_values1 =
+	    String.concat "" (List.rev values) in
+	  let cat_values2 =
+	    if strip then
+	      try
+		let k = 
+		  skip_whitespace_right
+		    cat_values1 0 (String.length cat_values1) in
+		String.sub cat_values1 0 (k+1)
+	      with Not_found -> cat_values1
+	    else
+	      cat_values1 in
+	  let n' =
+	    if downcase then String.lowercase n else n in
+	  Some(n', cat_values2) in
+  let (user, cur, at_end) =
+    fold_lines_p
+      (fun (acc_user, acc_cur, acc_end) p0 p1 p2 is_last ->
+	 if acc_end then err 1;
+	 let hd = 
+	   try
+	     parse_header_line 
+	       (not unfold) strip s p0 p1 p2 is_last
+	   with Not_found -> err 2 in
+	 match hd with
+	   | Header_start(n,v) ->
+	       let last_header_opt = postprocess acc_cur in
+	       let acc_cur' = Some(n, [v]) in
+	       let acc_user' =
+		 match last_header_opt with
+		   | None -> acc_user
+		   | Some(n,v) -> f acc_user n v in
+	       (acc_user', acc_cur', false)
+	   | Header_cont v ->
+	       ( match acc_cur with
+		   | None -> err 3
+		   | Some(n, values) ->
+		       let acc_cur' = Some (n, (v::values)) in
+		       (acc_user, acc_cur', false)
+	       )
+	   | Header_end ->
+	       let last_header_opt = postprocess acc_cur in
+	       let acc_user' =
+		 match last_header_opt with
+		   | None -> acc_user
+		   | Some(n,v) -> f acc_user n v in
+	       (acc_user', None, true)
+      )
+      (acc0, None, false)
+      s pos len in
+  if not at_end then err 4;
+  assert(cur = None);
+  user
+
+
+let list_header ?downcase ?unfold ?strip s pos len =
+  List.rev
+    (fold_header
+       ?downcase ?unfold ?strip
+       (fun acc n v -> (n,v) :: acc)
+       [] s pos len
+    )
+
+
+let find_end_of_header s pos len =
+  (* Returns the position after the header, or raises Not_found *)
+  if len > 0 && s.[pos]='\n' then
+    pos+1
+  else 
+    if len > 1 && s.[pos]='\r' && s.[pos+1]='\n' then
+      pos+2
+    else
+      find_double_line_start s pos len
 
 
 let scan_header ?(downcase=true) 
                 ?(unfold=true) 
 		?(strip=false)
-		parstr ~start_pos:i0 ~end_pos:i1 =
-  let header_re =
-    if unfold || strip then header_stripped_re else header_unstripped_re in
-  let rec parse_header i l =
-    match S.string_match header_re parstr i with
-	Some r ->
-	  let i' = S.match_end r in
-	  if i' > i1 then
-	    failwith "Mimestring.scan_header";
-	  let name = 
-	    if downcase then
-	      String.lowercase(S.matched_group r 1 parstr) 
-	    else
-	      S.matched_group r 1 parstr
-	  in
-	  let value_with_crlf =
-	    S.matched_group r 2 parstr in
-	  let value =
-	    if unfold then
-	      S.global_replace cr_or_lf_re "" value_with_crlf
-	    else
-	      value_with_crlf
-	  in
-	  parse_header i' ( (name,value) :: l)
-      | None ->
-	  (* The header must end with an empty line *)
-	  begin match S.string_match empty_line_re parstr i with
-	      Some r' ->
-		List.rev l, S.match_end r'
-	    | None ->
-		failwith "Mimestring.scan_header"
-	  end
-  in
-  parse_header i0 []
-;;
+		parstr ~start_pos ~end_pos =
+  try
+    let real_end_pos =
+      find_end_of_header parstr start_pos (end_pos-start_pos) in
+    let values =
+      list_header
+	~downcase ~unfold ~strip:(unfold || strip) parstr 
+	start_pos (real_end_pos - start_pos) in
+    (values, real_end_pos)
+  with
+    | Not_found | Failure _ ->
+	failwith "Mimestring.scan_header"
 
 
-let read_header ?downcase ?unfold ?strip (s : Netstream.in_obj_stream) =
-  let rec find_end_of_header() =
+let read_header ?(downcase=true) ?(unfold=true) ?(strip=false)
+                (s : Netstream.in_obj_stream) =
+  let rec search() =
     try
       let b = Netbuffer.unsafe_buffer s#window in
-      (* Maybe the header is empty. In this case, there is an empty line
-       * right at the beginning
-       *)
-      begin match S.string_match empty_line_re b 0 with
-	  Some r ->
-	    S.match_end r
-	| None ->
-	    (* Search the empty line: *)
-	    let _, r = S.search_forward end_of_header_re b 0 in (*or Not_found*)
-	    if S.match_end r > s#window_length then raise Not_found;
-	    S.match_end r
-      end
+      find_end_of_header b 0 s#window_length  (* or Not_found *)
     with
-	Not_found ->
+      | Not_found ->
 	  if s#window_at_eof then (
 	    failwith "Mimestring.read_header";
 	  );
 	  s#want_another_block();
-	  find_end_of_header()
-  in
-  let end_pos = find_end_of_header() in
+	  search() in
+  let end_pos = search() in
   let b = Netbuffer.unsafe_buffer s#window in
-  let header, _ = scan_header ?downcase ?unfold ?strip b ~start_pos:0 ~end_pos 
-  in
+  let l = 
+    list_header ~downcase ~unfold ~strip:(unfold || strip) b 0 end_pos in
   s # skip end_pos;
-  header
+  l
 ;;
 
 

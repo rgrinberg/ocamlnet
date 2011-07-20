@@ -576,7 +576,7 @@ exception Buffer_exceeded
    *)
 
 exception Timeout
-  (* Internally used by HTTP implementation: socket blocks too long *)
+  (* Internally used by HTTP implementation: socket blocks for too long *)
 
 exception Fatal_error of fatal_error
   (* Internally used by HTTP implementation: Indicate fatal error *)
@@ -597,82 +597,97 @@ object
 end
 
 
-let req_line_re = 
-  Netstring_str.regexp "\\([^ \r\n]+\\)\
-                        [ \t]+\
-                        \\([^ \r\n]+\\)\
-                        [ \t]+\
-                        \\([^ \r\n]+\\)\
-                        \r?\n$";;
-  (* Note: \r at end is optional, because the class input_string might be changed
-   * in the future to also accept CRLF as line terminator.
-   *
-   * We don't support HTTP/0.9. One could recognize it easily because the third
-   * word is missing.
+let http_find_line_start s pos len =
+  try Mimestring.find_line_start s pos len
+  with Not_found -> raise Buffer_exceeded
+
+
+let http_find_double_line_start s pos len =
+  try Mimestring.find_double_line_start s pos len
+  with Not_found -> raise Buffer_exceeded
+
+
+let parse_req_line s pos len =
+  (* Parses a request line: "WORD WORD WORD\r\n", where \r is optional.
+     The words are separated by spaces or TABs. Once we did this with
+     a regexp, but this caused stack overflows in the regexp interpreter
+     for long request lines.
+
+     Raises Not_found if not parseable.
+
+     We don't support HTTP/0.9. One could recognize it easily because the third
+     word is missing.
    *)
+  let e = pos+len in
+  let rec next_sep p =
+    if p >= e then raise Not_found else
+      let c = s.[p] in
+      if c = ' ' || c = '\t' then p else
+	if c = '\r' || c = '\n' then raise Not_found
+	else next_sep(p+1) in
+  let rec next_end p =
+    if p >= e then raise Not_found else
+      let c = s.[p] in
+      if c = '\r' || c = '\n' then p 
+      else next_end(p+1) in
+  let rec skip_sep p =
+    if p >= e then raise Not_found else
+      let c = s.[p] in
+      if c = ' ' || c = '\t' 
+      then skip_sep(p+1)
+      else p in
+  let p1 = next_sep pos in
+  let q1 = skip_sep p1 in
+  let p2 = next_sep q1 in
+  let q2 = skip_sep p2 in
+  let p3 = next_end q2 in
+  if s.[p3] = '\n' then (
+    if p3+1 <> e then raise Not_found
+  ) else (
+    if s.[p3] <> '\r' then raise Not_found;
+    if p3+2 <> e then raise Not_found;
+    if s.[p3+1] <> '\n' then raise Not_found;
+  );
+  let w1 = String.sub s pos (p1-pos) in
+  let w2 = String.sub s q1 (p2-q1) in
+  let w3 = String.sub s q2 (p3-q2) in
+  (w1, w2, w3)
 
-let chunk_re = 
-  Netstring_str.regexp "\\([0-9a-fA-F]+\\)\
-                        [ \t]*\
-                        \\(;\\|\r?\n\\)";;
+  
+let is_hex =
+  function
+    | '0'..'9' | 'a'..'f' | 'A'..'F' -> true
+    | _ -> false
 
 
-
-let rec skip_empty_lines s pos len =
-  (* Skips over empty lines at [pos]. These lines are terminated by CR/LF or single LF *)
-  if len > 0 then
-    match s.[pos] with
-      | '\010' -> 
-	  skip_empty_lines s (pos+1) (len-1)
-      | '\013' ->
-	  if len > 1 && s.[pos+1] = '\010' then
-	    skip_empty_lines s (pos+2) (len-2)
-	  else
-	    pos
-      | _ ->
-	  pos
-  else
-    pos
-
-
-let rec find_line_end s pos len =
-  (* Returns the position after line terminator. These are CR/LF or single LF.
-   * Raises Buffer_exceeded if there is none.
+let parse_chunk_header s pos len =
+  (* Parses "HEXNUMBER OPTIONAL_SEMI_AND_IGNORED_EXTENSION CRLF",
+     or raises Not_found.
    *)
-  if len > 0 then
-    match s.[pos] with
-      | '\010' ->
-	  pos+1
-      | '\013' ->
-	  if len > 1 && s.[pos+1] = '\010' then
-	    pos+2
-	  else
-	    find_line_end s (pos+1) (len-1)
-      | _ ->
-	  find_line_end s (pos+1) (len-1)
-  else
-    raise Buffer_exceeded
+  let e = pos+len in
+  let rec skip_hex_number p =
+    if p >= e then raise Not_found else
+      let c = s.[p] in
+      if is_hex c then skip_hex_number(p+1)
+      else p in
+  let p1 = skip_hex_number pos in
+  if p1 = pos || p1 >= e then raise Not_found;
+  let c1 = s.[p1] in
+  if c1=';' then (
+    let p2 =
+      Mimestring.find_line_start s p1 (e - p1) in
+    if p2 <> e then raise Not_found
+  )
+  else (
+    if c1 = '\n' then (
+      if p1+1 <> e then raise Not_found
+    ) else (
+      if p1+2 <> e then raise Not_found;
+      if s.[p1+1] <> '\n' then raise Not_found
+    )
+  );
+  String.sub s pos (p1-pos)
 
-
-let rec find_double_line_end s pos len =
-  (* Returns the position after two adjacent line terminators. These are CR/LF or single LF.
-   * Raises Buffer_exceeded if this is not found.
-   *)
-  let pos' = find_line_end s pos len in   (* or Buffer_exceeded *)
-  let len' = len - (pos' - pos) in
-  if len' > 0 then
-    match s.[pos'] with
-      | '\010' ->
-	  pos'+1
-      | '\013' ->
-	  if len' > 1 && s.[pos'+1] = '\010' then
-	    pos'+2
-	  else
-	    find_double_line_end s pos' len'
-      | _ ->
-	  find_double_line_end s pos' len'
-  else
-    raise Buffer_exceeded
 
 type cont =
     [ `Continue of unit -> cont | `Restart | `Restart_with of unit -> cont ]
@@ -928,7 +943,7 @@ object(self)
     waiting_for_next_message <- true;
     let l = Netbuffer.length recv_buf in
     let s = Netbuffer.unsafe_buffer recv_buf in
-    let block_start = skip_empty_lines s pos (l - pos) in  (* (1) *)
+    let block_start = Mimestring.skip_line_ends s pos (l - pos) in  (* (1) *)
     try
       (* (2) *)
       if block_start = l || (block_start+1 = l && s.[block_start] = '\013') then (
@@ -938,7 +953,7 @@ object(self)
       (* (2a) *)
       let reqline_end =
 	try
-	  find_line_end s block_start (l - block_start)
+	  http_find_line_start s block_start (l - block_start)
 	with
 	    Buffer_exceeded ->
 	      IFDEF Testing THEN self # case "accept_header/reqline_ex" ELSE () END;
@@ -950,29 +965,29 @@ object(self)
       if reqline_end-block_start > config#config_max_reqline_length then
 	raise (Bad_request `Request_line_too_long);
       waiting_for_next_message <- false;
-      let line = String.sub s block_start (reqline_end - block_start) in
       let ((meth,uri),req_version) as request_line =
-	match Netstring_str.string_match req_line_re line 0 with
-	  | None ->
+	try
+	  let (meth, uri, proto_s) = 
+	    parse_req_line s block_start (reqline_end - block_start) in
+	    (* or Not_found *)
+	  IFDEF Testing THEN self # case "accept_header/4" ELSE () END;
+	  let proto = protocol_of_string proto_s in
+	  ( match proto with
+	      | `Http((1,_),_) -> ()
+	      | _ -> raise (Bad_request `Protocol_not_supported)
+	  );
+	  ((meth, uri), proto)
+	with
+	  | Not_found ->
 	      (* This is a bad request. Response should be "Bad Request" *)
 	      IFDEF Testing THEN self # case "accept_header/3" ELSE () END;
 	      raise (Bad_request `Bad_request_line)
-	  | Some m ->
-	      IFDEF Testing THEN self # case "accept_header/4" ELSE () END;
-	      let meth = Netstring_str.matched_group m 1 line in
-	      let uri = Netstring_str.matched_group m 2 line in
-	      let proto = protocol_of_string(Netstring_str.matched_group m 3 line) in
-	      ( match proto with
-		  | `Http((1,_),_) -> ()
-		  | _ -> raise (Bad_request `Protocol_not_supported)
-	      );
-	      ((meth, uri), proto)
       in
       (* (3) *)
       let config_max_header_length = config # config_max_header_length in
       let block_end =
 	try
-	  find_double_line_end s block_start (l - block_start)
+	  http_find_double_line_start s block_start (l - block_start)
 	with
 	    Buffer_exceeded -> 
 	      IFDEF Testing THEN self # case "accept_header/2" ELSE () END;
@@ -1142,30 +1157,30 @@ object(self)
     let l = Netbuffer.length recv_buf in
     let s = Netbuffer.unsafe_buffer recv_buf in
     try
-      let p = find_line_end s pos (l - pos) (* or Buffer_exceeded *) in
-      let chunk_header = Netbuffer.sub recv_buf pos (p-pos) in
-      match Netstring_str.string_match chunk_re chunk_header 0 with
-	| None ->
-	    IFDEF Testing THEN self # case "accept_body_chunked/invalid_ch" ELSE () END;
-	    raise(Bad_request (`Format_error "Invalid chunk"))
-	| Some m ->
-	    let hex_digits = Netstring_str.matched_group m 1 chunk_header in
-	    let chunk_length =
-	      try int_of_string("0x" ^ hex_digits)
-	      with Failure _ -> 
-		IFDEF Testing THEN self # case "accept_body_chunked/ch_large" ELSE () END;
-		raise(Bad_request (`Format_error "Chunk too large")) in
-	    (* Continue with chunk data or chunk end *)
-	    if chunk_length > 0 then (
-	      IFDEF Testing THEN self # case "accept_body_chunked/go_on" ELSE () END;
-	      `Continue(self # accept_body_chunked_contents req_h resp p chunk_length)
-	    )
-	    else (
-	      IFDEF Testing THEN self # case "accept_body_chunked/end" ELSE () END;
-	      `Continue(self # accept_body_chunked_end req_h resp p)
-	    )
+      let p = http_find_line_start s pos (l - pos) (* or Buffer_exceeded *) in
+      ( try
+	  let hex_digits = parse_chunk_header s pos (p-pos) in
+	    (* or Not_found *)
+	  let chunk_length =
+	    try int_of_string("0x" ^ hex_digits)
+	    with Failure _ -> 
+	      IFDEF Testing THEN self # case "accept_body_chunked/ch_large" ELSE () END;
+	      raise(Bad_request (`Format_error "Chunk too large")) in
+	  (* Continue with chunk data or chunk end *)
+	  if chunk_length > 0 then (
+	    IFDEF Testing THEN self # case "accept_body_chunked/go_on" ELSE () END;
+	    `Continue(self # accept_body_chunked_contents req_h resp p chunk_length)
+	  )
+	  else (
+	    IFDEF Testing THEN self # case "accept_body_chunked/end" ELSE () END;
+	    `Continue(self # accept_body_chunked_end req_h resp p)
+	  )
+	with Not_found ->
+	  IFDEF Testing THEN self # case "accept_body_chunked/invalid_ch" ELSE () END;
+	  raise(Bad_request (`Format_error "Invalid chunk"))
+      )
     with
-	Buffer_exceeded -> 
+      | Buffer_exceeded -> 
 	  IFDEF Testing THEN self # case "accept_body_chunked/exceeded" ELSE () END;
 	  if recv_eof then (
 	    IFDEF Testing THEN self # case "accept_body_chunked/eof" ELSE () END;
@@ -1268,7 +1283,8 @@ object(self)
 	else (
 	  IFDEF Testing THEN self # case "accept_body_chunked_end/trailer" ELSE () END;
 	  (* Assume there is a trailer. *)
-	  let trailer_end = find_double_line_end s pos (l-pos) in (* or Buf_exceeded *)
+	  let trailer_end = http_find_double_line_start s pos (l-pos) in
+              (* or Buf_exceeded *)
 	  IFDEF Testing THEN self # case "accept_body_chunked_end/tr_found" ELSE () END;
 	  (* Now we are sure there is a trailer! *)
 	  if trailer_end - pos > config_max_trailer_length then (

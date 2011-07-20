@@ -380,12 +380,12 @@ object(self)
                        ~when_done () =
     assert(not mplex#reading);
 
-    let rec est_reading() =
+    let rec est_reading (in_rule:in_rule) =
       let mplex_when_done exn_opt n =
 	self # timer_event `Stop `R;
 	match exn_opt with
 	  | None ->
-	      process `Accept
+	      process in_rule
 	  | Some End_of_file ->
 	      if rd_mode = `RM && Queue.is_empty rd_queue then
 		return_eof()   (* EOF between messages *)
@@ -485,7 +485,7 @@ object(self)
 		)
 	      )
 	      else
-		est_reading()
+		est_reading in_rule
 		
 	  | `Payload(plen,is_last) ->
 	      (* Read payload data *)
@@ -534,16 +534,19 @@ object(self)
 		  rd_queue_len <- 0;
 		  Netpagebuffer.delete_hd rd_buffer rd_pos;
 		  rd_pos <- 0;
-		  rd_processing <- true;(* so [process] will be called again *)
+		  rd_processing <- true;
+                    (* so [process] will be called again - maybe there is
+		       another message
+		     *)
 		  return_msg r
 		) else 
 		  process in_rule
 	      )
 	      else
-		est_reading()
+		est_reading in_rule
       )
       else
-	est_reading()
+	est_reading in_rule
 
     and return_msg msg =
       if not aborted then
@@ -560,10 +563,17 @@ object(self)
 	when_done `End_of_file 
 
     in
+
+    (* It can happen that we already began to read the next message in
+       the previous call. So check whether there is already a message
+       (or a beginning) in the buffer.
+
+       At this point we always start with a new message, so in_rule=`Accept.
+     *)
     if rd_processing then
       process `Accept
     else
-      est_reading()
+      est_reading `Accept
 	    
 
   val wr_buffer =

@@ -10,6 +10,7 @@
  * see the [Netmime] module.
  *
  * {b Contents}
+ * - {!Mimestring.lines}
  * - {!Mimestring.headers}
  * - {!Mimestring.structured_values}
  * - {!Mimestring.parsers_for_structured_values}
@@ -19,6 +20,108 @@
  * 
  *)
 
+(** {1:lines Splitting a string into lines} *)
+
+(** These functions are all CR/LF-aware, i.e. lines can be terminated
+    by either LF or CR/LF.
+ *)
+
+val find_line_end : string -> int -> int -> int
+  (** [find_line_end s pos len]: Searches the next line end (CR/LF or
+      only LF), and returns the position. The search starts at position
+      [pos], and covers the next [len] bytes. Raises [Not_found]
+      if there is no line end.
+   *)
+
+val find_line_start : string -> int -> int -> int
+  (** [find_line_start s pos len]: Searches the next start, and returns its
+      position. The line start is the position after the next line end
+      (CR/LF or only LF). The search starts at position
+      [pos], and covers the next [len] bytes. Raises [Not_found]
+      if there is no line end.
+   *)
+
+val find_double_line_start : string -> int -> int -> int
+  (** [find_double_line_start s pos len]: Searches two adjacent line ends
+      (each may be a CR/LF combination or a single LF), and returns the
+      position after the second line end.  The search starts at position
+      [pos], and covers the next [len] bytes. Raises [Not_found]
+      if the mentioned pattern is not found.
+   *)
+
+val skip_line_ends : string -> int -> int -> int
+  (** [skip_line_ends s pos len]: Skips over adjacent line ends (terminated
+      by CR/LF or plain LF), and returns the position after the last
+      line end. The search starts at position
+      [pos], and covers the next [len] bytes. Note that this function
+      cannot raise [Not_found].
+   *)
+
+val fold_lines_p : ('a -> int -> int -> int -> bool -> 'a) -> 
+                 'a -> string -> int -> int -> 'a
+  (** [fold_lines_p f acc0 s pos len]: Splits the substring of [s] 
+      from [pos]
+      to [pos+len] into lines, and folds over these lines like 
+      [List.fold_left]. The function [f] is called as
+      [f acc p0 p1 p2 is_last] where [acc] is the current accumulator
+      (initialized with [acc0]), and
+      - [p0] is the start position of the line in [s]
+      - [p1] is the position of the line terminator in [s]
+      - [p2] is the position after the line terminator in [s]
+      - [is_last] is true if this is the last line in the iteration
+
+      The lines can be terminated with CR/LF or LF. For the last line
+      the terminator is optional ([p1=p2] is possible).
+
+      The function is tail-recursive.
+   *)
+
+val fold_lines : ('a -> string -> 'a) -> 'a -> string -> int -> int -> 'a
+  (** [fold_lines f acc0 s pos len]: Splits the substring of [s] 
+      from [pos]
+      to [pos+len] into lines, and folds over these lines like 
+      [List.fold_left]. The function [f] is called as
+      [f acc line] where [acc] is the current accumulator
+      (initialized with [acc0]), and [line] is the current line
+      w/o terminator.
+
+      The lines can be terminated with CR/LF or LF.
+
+      The function is tail-recursive.
+
+      Example: Get the lines as list:
+      {[
+         List.rev(fold_lines (fun l acc -> acc::l) [] s pos len)
+      ]}
+
+   *)
+
+val iter_lines : (string -> unit) -> string -> int -> int -> unit
+  (** [iter_lines f s pos len]: Splits the substring of [s] 
+      from [pos]
+      to [pos+len] into lines, and calls [f line] for each
+      line.
+
+      The lines can be terminated with CR/LF or LF.
+   *)
+
+val skip_whitespace_left : string -> int -> int -> int
+  (** [skip_whitespace_left s pos len]: Returns the smallest
+      [p] with [p >= pos && p < pos+len] so that [s.[p]] is not
+      a whitesapce character (space, TAB, CR, LF), and 
+      [s.[q]] is a whitespace character for all [q<p].
+      If this is not possible [Not_found] will be raised.
+   *)
+
+val skip_whitespace_right : string -> int -> int -> int
+  (** [skip_whitespace_right s pos len]: Returns the biggest
+      [p] with [p >= pos && p < pos+len] so that [s.[p]] is not
+      a whitesapce character (space, TAB, CR, LF), and
+      [s.[q]] is a whitespace character for all [q>p].
+      If this is not possible [Not_found] will be raised.
+   *)
+
+
 (* *********************************************************************)
 (* Collection of auxiliary functions to parse MIME headers             *)
 (* *********************************************************************)
@@ -26,6 +129,113 @@
 (* See also the module Netmime for high-level MIME functions *)
 
 (** {1:headers Parsing and Printing Mail Headers} *)
+
+(**
+  {b The Format of Mail Messages}
+
+  Messages
+  consist of a header and a body; the first empty line separates both
+  parts. The header contains lines "{i param-name}[:] {i param-value}" where
+  the param-name must begin on column 0 of the line, and the "[:]"
+  separates the name and the value. So the format is roughly:
+  
+  {[
+   param1-name: param1-value
+   ...
+   paramN-name: paramN-value
+   _
+   body ]}
+  
+   (Where "_" denotes an empty line.)
+  
+   {b Details}
+   
+   Note that parameter values are restricted; you cannot represent
+   arbitrary strings. The following problems can arise:
+    - Values cannot begin with whitespace characters, because there
+      may be an arbitrary number of whitespaces between the "[:]" and the
+      value.
+    - Values (and names of parameters, too) must only be formed of
+      7 bit ASCII characters. (If this is not enough, the MIME standard
+      knows the extension RFC 2047 that allows that header values may
+      be composed of arbitrary characters of arbitrary character sets.
+      See below how to decode such characters in values returned by
+      this function.)
+    - Header values may be broken into several lines. Continuation
+      lines must begin with whitespace characters. This means that values
+      must not contain line breaks as semantic part of the value.
+      And it may mean that {i one} whitespace character is not distinguishable
+      from {i several} whitespace characters.
+    - Header lines must not be longer than 78 characters (soft limit) or
+      998 characters (hard limit). Values that
+      would result into longer lines must be broken into several lines.
+      This means that you cannot represent strings that contain too few
+      whitespace characters.
+      (Note: The soft limit is to avoid that user agents have problems
+      with long lines. The hard limit means that transfer agents sometimes
+      do not transfer longer lines correctly.)
+    - Some old gateways pad the lines with spaces at the end of the lines.
+   
+    This implementation of a mail scanner tolerates a number of
+    deviations from the standard: long lines are not rejected; 8 bit
+    values are generally accepted; lines may be ended only with LF instead of
+    CRLF.
+   
+    {b Compatibility}
+   
+    These functions can parse all mail headers that conform to RFC 822 or
+    RFC 2822.
+   
+    But there may be still problems, as RFC 822 allows some crazy
+    representations that are actually not used in practice.
+    In particular, RFC 822 allows it to use backslashes to "indicate"
+    that a CRLF sequence is semantically meant as line break. As this
+    function normally deletes CRLFs, it is not possible to recognize such
+    indicators in the result of the function.
+ *)
+
+val fold_header :
+       ?downcase:bool ->              (* default: false *)
+       ?unfold:bool ->                (* default: false *)
+       ?strip:bool ->                 (* default: false *)
+       ('a -> string -> string -> 'a) ->
+       'a -> string -> int -> int ->
+         'a
+  (** [fold_header f acc0 s pos len]:
+      Parses a MIME header in the string [ſ] from [pos] to exactly
+      [pos+len]. The MIME header must be terminated by an empty line.
+
+      A folding operation is done over the header values while
+      the lines are extracted from the string, very much like
+      [List.fold_left]. For each header [(n,v)] where [n] is the
+      name and [v] is the value, the function [f] is called as
+      [f acc n v].
+
+      If the header cannot be parsed, a [Failure] is raised.
+
+      Certain transformations may be applied (default: no
+      transformations):
+      - If [downcase] is set, the header names are converted to
+        lowercase characters
+      - If [unfold] is set, the line terminators are not included
+        in the resulting values. This covers both the end of line
+        characters at the very end of a header and the end of line
+        characters introduced by continuation lines.
+      - If [strip] is set, preceding and trailing white space is
+        removed from the value (including line terminators at the
+        very end of the value)
+   *)
+
+val list_header :
+       ?downcase:bool ->              (* default: false *)
+       ?unfold:bool ->                (* default: false *)
+       ?strip:bool ->                 (* default: false *)
+       string -> int -> int -> (string * string) list
+  (** [list_header s pos len]: Returns the headers as list of pairs
+      [(name,value)].
+
+      For the meaning of the arguments see [fold_header] above.
+   *)
 
 
 val scan_header : 
@@ -35,121 +245,27 @@ val scan_header :
        string -> start_pos:int -> end_pos:int -> 
          ((string * string) list * int)
     (** [let params, header_end_pos = scan_header s start_pos end_pos]:
-     *
-     * Scans the mail header that begins at position [start_pos] in the string 
-     * [s] and that must end somewhere before position [end_pos]. It is intended
-     * that in [end_pos] the character position following the end of the body of
-     * the MIME message is passed.
-     *
-     * Returns the parameters of the header as [(name,value)] pairs (in
-     * [params]), and in [header_end_pos] the position of the character following
-     * directly after the header (i.e. after the blank line separating
-     * the header from the body).
-     *
-     * The following normalizations have already been applied:
-     * - (D) The names are converted to lowercase characters
-     * - (U) Newline characters (CR and LF) in the middle of the header fields
-     *     have been removed
-     * - (S) Whitespace at the beginning and at the end of field values has been
-     *     removed 
-     *
-     * The default is to apply all three normalizations (D), (U), and (S)
-     * (for historic reasons). The three arguments [downcase], [unfold],
-     * and [strip] control which normalizations are performed (and for
-     * historic reasons, too, this is not what you would expect - backwards
-     * compatibility can sometimes be a burden):
-     *
-     * - If [downcase], do (D); if [not downcase], don't do (D).
-     * - If [unfold], do (U); if [not unfold], don't do (U).
-     * - If [unfold || strip], do (S); if [not unfold && not strip],
-     *   don't do (S)
-     * - Defaults: [downcase], [unfold], [not strip].
-     *
-     * This means that [unfold] not only removes CR/LF from the field value,
-     * but also removes whitespace at the beginning and at the end of the
-     * field value. [strip] causes not to remove CR/LF if it occurs
-     * somewhere within the field value, but all whitespace (including
-     * CR/LF) at the beginning of the field value and at the end of the
-     * field value is still deleted. Note that if you only want (S)
-     * you have to pass [~unfold:false] and [~strip:true].
-     *
-     * The rules to postprocess mail messages in MIME format are {b not}
-     * applied (e.g. encoding transformations as indicated by RFC 2047).
-     *
-     * The function fails if the header violates the header format
-     * strongly. (Some minor deviations are tolerated, e.g. it is sufficient
-     * to separate lines by only LF instead of CRLF.)
-     *
-     * {b The Format of Mail Messages}
-     *
-     * Messages
-     * consist of a header and a body; the first empty line separates both
-     * parts. The header contains lines "{i param-name}[:] {i param-value}" where
-     * the param-name must begin on column 0 of the line, and the "[:]"
-     * separates the name and the value. So the format is roughly:
-     *
-     * {[
-     * param1-name: param1-value
-     * ...
-     * paramN-name: paramN-value
-     * _
-     * body ]}
-     *
-     * (Where "_" denotes an empty line.)
-     *
-     * This function wants in [start_pos] the position of the first character of
-     * [param1-name] in the string, and in [end_pos] the position of the character
-     * following [body]. It returns as [header_end_pos] the position where
-     * [body] begins. Furthermore, in [params] all parameters are returned the
-     * function finds in the header.
-     *
-     * {b Details}
-     *
-     * Note that parameter values are restricted; you cannot represent
-     * arbitrary strings. The following problems can arise:
-     * - Values cannot begin with whitespace characters, because there
-     *   may be an arbitrary number of whitespaces between the "[:]" and the
-     *   value.
-     * - Values (and names of parameters, too) must only be formed of
-     *   7 bit ASCII characters. (If this is not enough, the MIME standard
-     *   knows the extension RFC 2047 that allows that header values may
-     *   be composed of arbitrary characters of arbitrary character sets.
-     *   See below how to decode such characters in values returned by
-     *   this function.)
-     * - Header values may be broken into several lines. Continuation
-     *   lines must begin with whitespace characters. This means that values
-     *   must not contain line breaks as semantic part of the value.
-     *   And it may mean that {i one} whitespace character is not distinguishable
-     *   from {i several} whitespace characters.
-     * - Header lines must not be longer than 78 characters (soft limit) or
-     *   998 characters (hard limit). Values that
-     *   would result into longer lines must be broken into several lines.
-     *   This means that you cannot represent strings that contain too few
-     *   whitespace characters.
-     *   (Note: The soft limit is to avoid that user agents have problems
-     *   with long lines. The hard limit means that transfer agents sometimes
-     *   do not transfer longer lines correctly.)
-     * - Some old gateways pad the lines with spaces at the end of the lines.
-     *
-     * This implementation of a mail scanner tolerates a number of
-     * deviations from the standard: long lines are not rejected; 8 bit
-     * values are generally accepted; lines may be ended only with LF instead of
-     * CRLF.
-     *
-     * Furthermore, the transformations (D), (U), and (S) can be performed
-     * resulting in values that are simpler to process.
-     *
-     * {b Compatibility}
-     *
-     * This function can parse all mail headers that conform to RFC 822 or
-     * RFC 2822.
-     *
-     * But there may be still problems, as RFC 822 allows some crazy
-     * representations that are actually not used in practice.
-     * In particular, RFC 822 allows it to use backslashes to "indicate"
-     * that a CRLF sequence is semantically meant as line break. As this
-     * function normally deletes CRLFs, it is not possible to recognize such
-     * indicators in the result of the function.
+   
+        {b Deprecated.} 
+  
+      Scans the mail header that begins at position [start_pos] in the string 
+      [s] and that must end somewhere before position [end_pos]. It is intended
+      that in [end_pos] the character position following the end of the body of
+      the MIME message is passed.
+
+     Returns the parameters of the header as [(name,value)] pairs (in
+     [params]), and in [header_end_pos] the position of the character following
+     directly after the header (i.e. after the blank line separating
+     the header from the body).
+
+     - If [downcase], header names are converted to lowercase characters
+     - The arguments [unfold] and [strip] have a slightly different meaning as
+       for the new function [fold_header] above. In particular, whitespace
+       is already stripped off the returned values if {b any} of [unfold] or
+       [strip] are enabled. (This is for backward compatibility.)
+
+     Also, this function is different because [downcase] and [unfold] are
+     enabled by default, and only [strip] is not enabled.
      *)
 
 val read_header : 

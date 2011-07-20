@@ -2660,6 +2660,8 @@ let transmitter
 	
       method f_done = indicate_done
 
+      method send_interrupted = send_interrupted
+
       method init() =
 	(* Prepare for (re)transmission:
 	 * - Set the `Effective request header
@@ -3797,6 +3799,7 @@ let fragile_pipeline
 		      assert
 			(trans#state = Sent_request || trans#state = Complete
 			  || trans#state = Handshake
+			    || trans#send_interrupted
 			);
 		      sending_first_message <- false;
 		      ignore (Q.take write_queue);

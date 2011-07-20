@@ -1,5 +1,9 @@
 OCAMLNET
 
+- Reverse proxy for Nethttpd
+
+- Better exceptions: connect_check should include the socket address
+  as third string
 - Netplex: startup_directory: make this also visible in controller_config
 - Rpc_server.auth_limit (m:auth_method) ...:
   limits authentication to certain programs/versions/procedures

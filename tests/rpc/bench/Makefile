@@ -26,7 +26,9 @@ opt:
 
 build: all
 
+BENCH_ARGS?=all
+
 test:
-	./prototest all
+	./prototest $(BENCH_ARGS)
 
 gen: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.s2stamp)
