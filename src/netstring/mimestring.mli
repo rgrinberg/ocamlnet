@@ -202,7 +202,7 @@ val fold_header :
        'a -> string -> int -> int ->
          'a
   (** [fold_header f acc0 s pos len]:
-      Parses a MIME header in the string [ſ] from [pos] to exactly
+      Parses a MIME header in the string [s] from [pos] to exactly
       [pos+len]. The MIME header must be terminated by an empty line.
 
       A folding operation is done over the header values while
