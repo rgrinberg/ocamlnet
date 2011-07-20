@@ -12,6 +12,12 @@
         * Nethttpd: banning all regexps in message parsing that could cause
           stack overflows 
 
+	* Nethttpd: Returning better Content-Encoding for statically served 
+	  files. In particular, the encoding of compressed files is taken
+	  into account
+
+	* Released: Ocamlnet-3.3.5
+	
 2011-07-12  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Shell_sys: Fixing descriptor assignments (avoiding EBADF
