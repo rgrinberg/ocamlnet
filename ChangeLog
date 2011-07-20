@@ -1,3 +1,17 @@
+2011-07-20  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Fix filter in Rpc_server: they are no longer accidentally reset for
+          longer TCP messages
+
+	* Fix Http_client: avoiding an assert when the server immediately 
+	  responds without awaiting the request
+
+	* Mimestring: reimplementing the MIME scanner w/o regexps. Also new
+          string processing functions for iterating over lines.
+
+        * Nethttpd: banning all regexps in message parsing that could cause
+          stack overflows 
+
 2011-07-12  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Shell_sys: Fixing descriptor assignments (avoiding EBADF

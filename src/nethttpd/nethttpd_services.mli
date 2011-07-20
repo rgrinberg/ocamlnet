@@ -142,15 +142,22 @@ val method_distributor :
 
 type file_option =
     [ `Enable_gzip
+    | `Enable_cooked_compression
+    | `Override_compression_suffixes of (string * string) list
     | `Enable_index_file of string list
     | `Enable_listings of 
 	extended_environment -> Netcgi.cgi_activation -> file_service -> unit
     ]
   (** Add-on features for file services:
-    * - [`Enable_gzip]: If enabled, files ending in [.gz] are assumed to be in [gzip] 
-    *   compression. When there is {b both} the base file and the gzip file ending in
-    *   [.gz], accesses to the base file (!) are transmitted with [gzip]
-    *   compression.
+    * - [`Enable_gzip]: Deprecated. Same as [`Enable_cooked_compression].
+    * - [`Enable_cooked_compression]: Modifies the way compressed files
+    *   are handled. Normally it is required that one accesses the compressed
+    *   file (with suffix such as "gz") directly to get it in compressed form.
+    *   If this option is enabled, though, the server also compresses
+    *   the base file (without suffix such as "gz"), but only if the
+    *   base file is accompanied by a compressed version (with suffix).
+    *   E.g. if there is "foo" and "foo.gz", this enables that the accesses
+    *   to "foo" can make use of compression.
     * - [`Enable_index_file]: If enabled, accesses to directories are redirected
     *   to index files. The possible file names are given in the string list.
     *   E.g. [`Enable_index_file ["index.html"; "index.htm"]]. It is redirected to
@@ -159,6 +166,10 @@ type file_option =
     *   the argument function. The [PATH_TRANSLATED] property of the environment
     *   contains the absolute name of the directory to list. The [PATH_INFO] property
     *   is the corresponding URI path. [SCRIPT_NAME] is meaningless.
+    * - [`Override_compression_suffixes l]: Tags the file suffixes in
+    *   [l] as compression schemes. A pair [(suffix,ce)] sets that the
+    *   [suffix] means the content encoding [ce]. Knowing this is important
+    *   for determining the media type of the file.
    *)
 
 and file_service =

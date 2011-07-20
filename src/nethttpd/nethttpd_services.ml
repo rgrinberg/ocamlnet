@@ -716,6 +716,8 @@ let dynamic_service spec =
 
 type file_option =
     [ `Enable_gzip
+    | `Enable_cooked_compression
+    | `Override_compression_suffixes of (string * string) list
     | `Enable_index_file of string list
     | `Enable_listings of 	
 	extended_environment -> Netcgi.cgi_activation -> file_service -> unit
@@ -832,6 +834,35 @@ let w32_fix_trailing_slash s =
   else s
 
 
+let get_compression_suffixes file_options =
+  let rec find opts =
+    match opts with
+      | `Override_compression_suffixes l :: _ -> l
+      | _ :: opts' -> find opts'
+      | [] ->
+	  [ "gz", "gzip";
+	    "bz2", "bzip2";
+	    "Z", "compress"
+	  ] in
+  find file_options
+
+
+let rec search_cooked_file filename compression_suffixes =
+  match compression_suffixes with
+    | [] ->
+	[ "identity", filename ]
+    | (suffix, ce) :: suffixes' ->
+	try
+	  let filename_ext = filename ^ "." ^ suffix in
+	  let fd = Unix.openfile filename_ext [ Unix.O_RDONLY] 0 in
+	  (* or Unix_error *)
+	  Unix.close fd;
+	  (ce, filename_ext) :: search_cooked_file filename suffixes'
+	with
+	  | Unix.Unix_error(_,_,_) ->
+	      search_cooked_file filename suffixes'
+
+
 let file_service (spec : file_service) =
 object(self)
   method name = "file_service"
@@ -850,8 +881,12 @@ object(self)
     List.iter
       (function
 	 | `Enable_gzip       -> Format.fprintf fmt "@ enable_gzip"
+	 | `Enable_cooked_compression -> 
+	     Format.fprintf fmt "@ enable_cooked_compression"
 	 | `Enable_index_file _ -> Format.fprintf fmt "@ enable_index_file"
 	 | `Enable_listings _ -> Format.fprintf fmt "@ enable_listings"
+	 | `Override_compression_suffixes _ ->
+	     Format.fprintf fmt "@ override_compression_suffixes"
       )
       spec.file_options;
     Format.fprintf fmt "@]@ )";
@@ -865,7 +900,7 @@ object(self)
       let filename =
 	file_translator spec req_path in (* or Not_found *)
       let s = Unix.LargeFile.stat (w32_fix_trailing_slash filename) in
-              (* or Unix_error *)
+      (* or Unix_error *)
       ( match s.Unix.LargeFile.st_kind with
 	  | Unix.S_REG ->
 	      self # serve_regular_file env filename s
@@ -904,19 +939,37 @@ object(self)
     if req_method <> "GET" && req_method <> "HEAD" then (
       let h = new Netmime.basic_mime_header [] in
       set_allow h [ "GET"; "HEAD"; "OPTIONS" ];
-      raise (Standard_response(`Method_not_allowed,Some h,(Some "Nethttpd: Method not allowed for file"))));
+      raise(Standard_response(`Method_not_allowed,Some h,
+			      (Some "Nethttpd: Method not allowed for file"))));
     (* Set [Accept-ranges] header: *)
     env # set_output_header_field "Accept-ranges" "bytes";
-    (* Figure out file extension and media type *)
+    (* Figure out file extension, content encoding (compression type)
+       and media type
+     *)
+    let media_type_of_ext ext =
+      try List.assoc ext spec.file_suffix_types
+      with Not_found -> spec.file_default_type in
+    let compression_suffixes =
+      get_compression_suffixes spec.file_options in
     let ext_opt = get_extension filename in
-    let media_type =
+    let content_encoding, media_type =
       match ext_opt with
-	| Some ext ->
-	    ( try List.assoc ext spec.file_suffix_types
-	      with Not_found -> spec.file_default_type
+	| Some ext when List.mem_assoc ext compression_suffixes ->
+	    let ce = List.assoc ext compression_suffixes in
+	    let filename1 = Filename.chop_extension filename in
+	    let ext1_opt = get_extension filename1 in
+	    ( match ext1_opt with
+		| None -> (ce, spec.file_default_type)
+		| Some ext1 -> (ce, media_type_of_ext ext1)
 	    )
-	| None -> spec.file_default_type in
+	| Some ext ->
+	    "identity", media_type_of_ext ext
+	| None ->
+	    "identity", spec.file_default_type in
     env # set_output_header_field "Content-type" media_type;
+    if content_encoding <> "identity" then
+      env # set_output_header_field "Content-Encoding" content_encoding;
+
     (* Generate the (weak) validator from the file statistics: *)
     let etag =
       `Weak (sprintf "%d-%Lu-%.0f"
@@ -988,9 +1041,9 @@ object(self)
 	| Not_found -> false, false
 	| Bad_header_field _ -> false, false in
     if (have_if_modified || have_if_none_match) && 
-       not (accept_if_modified || accept_if_none_match) 
+      not (accept_if_modified || accept_if_none_match) 
     then
-	 raise(Standard_response(`Not_modified,None,None));
+      raise(Standard_response(`Not_modified,None,None));
     (* Now the GET request is accepted! *)
     let partial_GET =
       try
@@ -1043,26 +1096,25 @@ object(self)
 	| None ->
 	    (* Full GET *)
 	    (* Check whether there is a gzip-encoded complementary file *)
-	    let filename_gz = filename ^ ".gz" in
-	    let support_gzip =
-	      try
-		let fd = Unix.openfile filename_gz [ Unix.O_RDONLY] 0 in
-		(* or Unix_error *)
-		Unix.close fd;
-		true
-	      with
-		| Unix.Unix_error(_,_,_) -> false in
-	    let support_encodings =
-	      (if support_gzip then ["gzip"] else []) @ ["identity"] in
-	    let encoding = best_encoding env#input_header support_encodings in
+	    let encodings_and_files =
+	      if (List.mem `Enable_gzip spec.file_options ||
+		    List.mem `Enable_cooked_compression spec.file_options) 
+	      then
+		search_cooked_file filename compression_suffixes
+	      else
+		[ "identity", filename ] in
+	    let supported_encodings =
+	      List.map fst encodings_and_files in
+	    let encoding = best_encoding env#input_header supported_encodings in
 	    let h = env # output_header in
 	    ( match encoding with
 		| "identity" ->
 		    `File(`Ok, None, filename, 0L, s.Unix.LargeFile.st_size)
-		| "gzip" ->
-		    let st_gzip = Unix.LargeFile.stat filename_gz in
-		    h # update_field "Content-Encoding" "gzip";
-		    `File(`Ok, Some h, filename_gz, 0L, st_gzip.Unix.LargeFile.st_size)
+		| _ ->
+		    let fn = List.assoc encoding encodings_and_files in
+		    let st_gzip = Unix.LargeFile.stat fn in
+		    h # update_field "Content-Encoding" encoding;
+		    `File(`Ok, Some h, fn, 0L, st_gzip.Unix.LargeFile.st_size)
 		| _ -> assert false
 	    )
     )
@@ -1094,13 +1146,13 @@ object(self)
       (* If [req_path] does not end with a slash, perform a redirection: *)
       if req_path <> "" && req_path.[ String.length req_path - 1 ] <> '/' then (
 	let h = new Netmime.basic_mime_header
-		  [ "Location", 
-		    sprintf "http://%s%s%s/"
-		      env#cgi_server_name
-		      ( match env#cgi_server_port with 
-			  | Some p -> ":" ^ string_of_int p
-			  | None -> "")
-		      env#cgi_request_uri ] in
+	  [ "Location", 
+	    sprintf "http://%s%s%s/"
+	      env#cgi_server_name
+	      ( match env#cgi_server_port with 
+		  | Some p -> ":" ^ string_of_int p
+		  | None -> "")
+	      env#cgi_request_uri ] in
 	raise(Standard_response(`Found, Some h, None));
       )
     );
@@ -1110,7 +1162,7 @@ object(self)
 	  let req_path_esc = Neturl.split_path env#cgi_script_name in
 	  let name_esc = [ uripath_encode name ] in
 	  raise(Redirect_request(Neturl.join_path (req_path_esc @ name_esc), 
-			       env # input_header))
+				 env # input_header))
 
       | None, Some (`Enable_listings generator) ->
 	  (* If OPTIONS: Respond now *)
@@ -1134,28 +1186,28 @@ object(self)
 	    } in
 	  let dyn_srv = dynamic_service dyn_spec in
 	  dyn_srv # process_header env
-(*
-	  let (listing, listing_hdr) = generator env spec filename in
-	  (* Generate the (weak) validator from the file statistics: *)
-	  let etag =
-	    `Weak (sprintf "%d-%Lu-%.0f"
-		     s.Unix.LargeFile.st_ino
-		     s.Unix.LargeFile.st_size
-		     s.Unix.LargeFile.st_mtime) in
-	  set_etag listing_hdr etag;
-	  (* Refuse If-match and If-unmodified-since: *)
-	  if env # multiple_input_header_field "If-match" <> [] then
-	    raise(Standard_response(`Precondition_failed, None, None));
-	  if env # multiple_input_header_field "If-unmodified-since" <> [] then
-	    raise(Standard_response(`Precondition_failed, None, None));
-	  (* Return contents: *)
-	  `Static(`Ok, Some listing_hdr, listing)
- *)
+	    (*
+	      let (listing, listing_hdr) = generator env spec filename in
+	    (* Generate the (weak) validator from the file statistics: *)
+	      let etag =
+	      `Weak (sprintf "%d-%Lu-%.0f"
+	      s.Unix.LargeFile.st_ino
+	      s.Unix.LargeFile.st_size
+	      s.Unix.LargeFile.st_mtime) in
+	      set_etag listing_hdr etag;
+	    (* Refuse If-match and If-unmodified-since: *)
+	      if env # multiple_input_header_field "If-match" <> [] then
+	      raise(Standard_response(`Precondition_failed, None, None));
+	      if env # multiple_input_header_field "If-unmodified-since" <> [] then
+	      raise(Standard_response(`Precondition_failed, None, None));
+	    (* Return contents: *)
+	      `Static(`Ok, Some listing_hdr, listing)
+	     *)
 
       | _ ->
 	  (* Listings are forbidden: *)
 	  `Std_response(`Forbidden, None, (Some "Nethttpd: Access to directories not configured") )
-     
+	    
 end
 
 
