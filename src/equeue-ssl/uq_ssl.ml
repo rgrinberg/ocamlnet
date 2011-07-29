@@ -516,6 +516,10 @@ object(self)
 		     (false, true, fun () -> ())
 		 | true ->
 		     writing_eof <- None;
+		     (* The following is unnecessary according to the SSL 
+			specs, but actually required by buggy implementations.
+		      *)
+		     ( try Unix.shutdown fd Unix.SHUTDOWN_SEND with _ -> ());
 		     (false, false, fun () -> when_done None)
 	   with
 	     | Ssl_exts.Shutdown_error Ssl.Error_want_read ->
@@ -616,10 +620,15 @@ object(self)
 	       | (true, false) ->
 		   (false, true, fun () -> ())
 	       | (false, true) ->
+		   (* The following is unnecessary according to the SSL 
+		      specs, but actually required by buggy implementations.
+		    *)
+		   ( try Unix.shutdown fd Unix.SHUTDOWN_SEND with _ -> ());
 		   (true, false, fun () -> ())
 	       | (true, true) ->
 		   shutting_down <- None;
 		   state <- `Clean;
+		   ( try Unix.shutdown fd Unix.SHUTDOWN_ALL with _ -> ());
 		   (false, false, fun () -> when_done None)
 	 with
 	   | Ssl_exts.Shutdown_error Ssl.Error_want_read ->

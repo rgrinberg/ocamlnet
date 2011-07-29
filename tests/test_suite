@@ -40,7 +40,8 @@ dirs="netclient/hhamsters \
       rpc/bench \
       shell"
 
-dirs_ssl="netclient/http_bench"
+dirs_ssl="netclient/http_bench
+          netclient/ssl_sites"
 
 
 clean() {
@@ -60,7 +61,7 @@ build() {
     echo "****************************************"
     echo "Building"
     echo "****************************************"
-    for d in $dirs; do
+    for d in $dirs $dirs_ssl; do
 	echo "----------------------------------------"
 	echo ">>> Directory $d"
 	echo "----------------------------------------"
@@ -112,6 +113,7 @@ while [ $# -gt 0 ]; do
 	    shift; run_ssl ;;
 	-d)
 	    dirs="$2"
+	    dirs_ssl="$2"
 	    shift 2 ;;
 	*)
 	    echo "Illegal mode: $1" >&2;

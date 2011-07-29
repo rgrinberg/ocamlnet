@@ -1,3 +1,14 @@
+2011-07-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Uq_ssl: Changed the method of closing SSL tunnels. Before,
+	  a close-notify SSL message was sent, and also expected by the
+	  peer before the connection was closed on TCP level. Now,
+	  we half-close the TCP connection immediately after sending
+	  close-notify. This seems to fix some SSL sessions where the
+	  server ignores close-notify, and only reacts on TCP closes.
+	  This method of closing seems to be ok with the standard,
+	  which is apparently not very precise on SSL closures.
+
 2011-07-20  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Fix filter in Rpc_server: they are no longer accidentally reset for
