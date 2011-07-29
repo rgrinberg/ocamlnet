@@ -1,5 +1,9 @@
 2011-07-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
+	* Shell: calling subprograms did not work when multi-threading
+	  was enabled because of a caml_leave_blocking_section
+	  without prior caml_enter_blocking_section. This is fixed.
+
 	* Uq_ssl: Changed the method of closing SSL tunnels. Before,
 	  a close-notify SSL message was sent, and also expected by the
 	  peer before the connection was closed on TCP level. Now,
@@ -8,6 +12,8 @@
 	  server ignores close-notify, and only reacts on TCP closes.
 	  This method of closing seems to be ok with the standard,
 	  which is apparently not very precise on SSL closures.
+
+	* Released: Ocamlnet-3.3.6
 
 2011-07-20  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 

@@ -744,6 +744,7 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
     /* caml_enter_blocking_section();
        cleanup_bsection = 1;
        -- TODO: check this more carefully before enabling it
+       -- see also leave_blocking_section below
     */
 
     /* Fork the process. */
@@ -961,8 +962,10 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
        (meaning no error), or whether there are bytes, the marshalled
        error condition.
     */
-    caml_leave_blocking_section();
-    cleanup_bsection = 0;
+    if (cleanup_bsection) {
+	caml_leave_blocking_section();
+	cleanup_bsection = 0;
+    };
 
     code = close(ctrl_pipe[1]);
     if (code == -1) {
