@@ -202,3 +202,7 @@ val last_chars: string -> int -> string
  * module in a special way when used in multi-threaded environment. This
  * is no longer necessary.
  *)
+
+module Debug : sig
+  val enable : bool ref
+end

@@ -2,6 +2,17 @@
  * ----------------------------------------------------------------------
  *
  *)
+open Printf
+  
+module Debug = struct let enable = ref false
+                         end
+  
+let dlog = Netlog.Debug.mk_dlog "Netstring_str" Debug.enable
+  
+let dlogr = Netlog.Debug.mk_dlogr "Netstring_str" Debug.enable
+  
+let () = Netlog.Debug.register_module "Netstring_str" Debug.enable
+  
 let explode s =
   let l = String.length s in
   let rec loop k = if k < l then s.[k] :: (loop (k + 1)) else [] in loop 0
@@ -10,6 +21,29 @@ let implode l =
   let n = List.length l in
   let s = String.create n in
   let k = ref 0 in (List.iter (fun c -> (s.[!k] <- c; incr k)) l; s)
+  
+let quote_set s =
+  let l = explode s in
+  let have_circum = List.mem '^' l in
+  let have_minus = List.mem '-' l in
+  let have_rbracket = List.mem ']' l in
+  let l1 =
+    List.filter (fun c -> (c <> '^') && ((c <> '-') && (c <> ']'))) l in
+  let l2 = if have_rbracket then ']' :: l1 else l1 in
+  let l3 = if have_circum then l2 @ [ '^' ] else l2 in
+  let l4 = if have_minus then l3 @ [ '-' ] else l3 in
+  let s4 = implode l4 in
+  let s' =
+    match s4 with
+    | "" -> failwith "Netstring_str.quote_set: empty"
+    | "^" -> "^"
+    | "^-" -> "[-^]"
+    | _ -> "[" ^ (s4 ^ "]")
+  in
+    (if !Debug.enable
+     then dlogr (fun () -> sprintf "quote_set: orig: %s - quoted: %s" s s')
+     else ();
+     s')
   
 (* This implementation of Netstring_str uses the PCRE engine. The
  * syntax for regular expressions is compatible with previous versions.
@@ -368,27 +402,44 @@ let regexp s =
   let ret = scan_str_regexp s in
   let s' = print_pcre_regexp ret
   in
-    (* DEBUG:*)
-    (* prerr_endline s'; *)
-    Pcre.regexp ~flags: [ `MULTILINE ] s'
+    (if !Debug.enable
+     then dlogr (fun () -> sprintf "regexp: orig: %s - translated: %s" s s')
+     else ();
+     Pcre.regexp ~flags: [ `MULTILINE ] s')
   
 let regexp_case_fold s =
   let ret = scan_str_regexp s in
   let s' = print_pcre_regexp ret
   in
-    (* DEBUG: prerr_endline s'; *)
-    Pcre.regexp ~flags: [ `MULTILINE; `CASELESS ] s'
+    (if !Debug.enable
+     then
+       dlogr
+         (fun () ->
+            sprintf "regexp_case_fold: orig: %s - translated: %s" s s')
+     else ();
+     Pcre.regexp ~flags: [ `MULTILINE; `CASELESS ] s')
   
-let quote s = (* FIXME: is incorrect for NUL chars *) Pcre.quote s
+let pcre_quote s =
+  (* Note that Pcre.quote is incorrect for NUL chars, which simply remain
+     in place, although they need to be encoded
+   *)
+  let s1 = Pcre.quote s in
+  let s' = Pcre.qreplace ~pat: "\\000" ~templ: "\\000" s1
+  in
+    (if !Debug.enable
+     then dlogr (fun () -> sprintf "quote: orig: %s - quoted: %s" s s')
+     else ();
+     s')
   
-let quote_set s =
-  print_pcre_regexp (Tset (List.map (fun c -> Schar c) (explode s)))
+let unsafe_str_re = Pcre.regexp "[\\]\\[+*?.\\\\^$]"
   
-let regexp_string s = (* FIXME: is incorrect for NUL chars *)
-  Pcre.regexp ~flags: [ `MULTILINE ] (Pcre.quote s)
+let quote s = (* This returns, of course, a Str-syntax regexp! *)
+  Pcre.replace ~rex: unsafe_str_re ~templ: "\\$&" s
   
-let regexp_string_case_fold s = (* FIXME: is incorrect for NUL chars *)
-  Pcre.regexp ~flags: [ `MULTILINE; `CASELESS ] (Pcre.quote s)
+let regexp_string s = Pcre.regexp ~flags: [ `MULTILINE ] (pcre_quote s)
+  
+let regexp_string_case_fold s =
+  Pcre.regexp ~flags: [ `MULTILINE; `CASELESS ] (pcre_quote s)
   
 let string_match = Netstring_pcre.string_match
   

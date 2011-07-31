@@ -62,7 +62,7 @@ OCAMLNET
 - Netfs.abort_write
 
 Fixme:
- - Netstring_pcre.quote: does not work for NULL bytes
+ - Netstring_pcre.quote: does not work for NULL bytes - DONE
 
 Optimization:
   - Uq_io.input_lines: reads as much lines as possible from in_buffer
