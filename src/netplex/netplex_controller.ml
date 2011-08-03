@@ -360,7 +360,9 @@ object(self)
 	     ( try 
 		 (* If this is a fork, reclaim memory: *)
 		 if par # ptype = `Multi_processing then (
-		   ctrl_detach()
+		   ctrl_detach();
+		   Netsys_mem.pool_reclaim Netsys_mem.default_pool;
+		   Netsys_mem.pool_reclaim Netsys_mem.small_pool;
 		 );
 		 (* This is the real start of the container: *)
 		 container # start fd_clnt sys_fd_clnt;

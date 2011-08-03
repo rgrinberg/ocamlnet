@@ -359,13 +359,14 @@ let pool_alloc_blocks p =
   else
     p.pool_factor <- min_pool_factor
 
-let pool_free_blocks p =
+let pool_free_blocks ?(force=false) p =
   let age = (Gc.quick_stat()).Gc.major_collections in
-  if age > p.pool_free_age then (
+  if force || age > p.pool_free_age then (
     pool_move_to_free_list p;
     let db, fb =
       List.partition
-	(fun (_, _, bb) -> bb.bb_use_counter = 0 && age - bb.bb_age >= 2)
+	(fun (_, _, bb) -> 
+	   bb.bb_use_counter = 0 && (force || age - bb.bb_age >= 2))
 	p.pool_free_blocks in
     (* Sort the free blocks, to achieve that big, filled blocks are preferred
        when new blocks are taken from the free list. So small and quite empty
@@ -386,6 +387,9 @@ let pool_free_blocks p =
     (* prerr_endline ("pool_free_blocks db=" ^ string_of_int (List.length db))*)
       (* unmap_file is not supported for the "bigblock" approach CHECK *)
   )
+
+let pool_reclaim p =
+  pool_free_blocks ~force:true p
 
 let set_false v _ =
   (* prerr_endline "finaliser"; *)

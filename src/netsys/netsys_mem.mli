@@ -412,6 +412,9 @@ val pool_alloc_memory2 : memory_pool -> (memory * (unit->unit))
       If [free] is not called, the block [m] is first recycled when it
       is not referenced any more (like in [pool_alloc_memory]).
    *)
+
+val pool_reclaim : memory_pool -> unit
+  (** Reclaim as much memory as possible *)
   
 val pool_block_size : memory_pool -> int
   (** Returns the size of the memory blocks in bytes *)
