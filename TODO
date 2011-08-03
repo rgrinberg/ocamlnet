@@ -2,6 +2,11 @@ OCAMLNET
 
 - Reverse proxy for Nethttpd
 
+- ephemeral bug in Netplex: when the container shuts down, the controller
+  may log a crit error EPIPE. This is not critical, though. Better:
+  The container announces the shutdown, and the controller shuts its
+  servers down at this moment.
+
 - Better exceptions: connect_check should include the socket address
   as third string
 - Netplex: startup_directory: make this also visible in controller_config

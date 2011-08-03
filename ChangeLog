@@ -1,5 +1,14 @@
 2011-08-03  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
+	* Netplex: new workload_hook. It is called whenever a
+	  connection is accepted or terminated.
+
+	* Netplex: new config conn_limit to set the maximum number
+	  of connections a container can accept
+
+	* Netplex: new config gc_when_idle to run Gc.full_major
+	  when the container is idle for some time
+
 	* Reducing memory consumption (Uq_io and users such as
 	  Http_client, Netplex, Rpc) by recycling bigarray buffers
 	  more quickly

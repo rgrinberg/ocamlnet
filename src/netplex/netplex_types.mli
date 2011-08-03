@@ -330,6 +330,16 @@ object
         [post_start_hook]. It is usually 60 seconds.
      *)
 
+  method conn_limit : int option
+    (** An optional limit of the number of connections this container
+	can accept. If the limit is reached, the container will not
+	accept any further connections, and shut down when all connections
+	are processed.
+     *)
+
+  method gc_when_idle : bool
+    (** If set, idle containers run a [Gc.full_major] cycle. *)
+
   method controller_config : controller_config
     (** Make this config accessible here too, for convenience *)
 end
@@ -446,6 +456,15 @@ object
       * controller.
      *)
 
+  method workload_hook : container -> bool -> int -> unit
+    (**  A user-supplied function that is called when the workload
+	 changes, i.e. a new connection has been accepted, or an
+	 existing connection could be completely processed.
+	 The [bool] argument is [true] if the reason is a new
+	 connection. The [int] argument is the number of connections.
+	 This function is called from the process/thread of the container.
+     *)
+
   method receive_message :
             container -> string -> string array -> unit
     (** This function is called when a broadcast message is received.
@@ -546,6 +565,12 @@ object
 
   method shutdown : unit -> unit
     (** Initiates a shutdown of the container. *)
+
+  method n_connections : int
+    (** The current number of connections *)
+
+  method n_total : int
+    (** The sum of all connections so far *)
 
   method system : Rpc_client.t
     (** An RPC client that can be used to send messages to the controller.

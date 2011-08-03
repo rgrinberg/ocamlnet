@@ -74,7 +74,8 @@ program Control {
 
 	void ping(void) = 0;
 
-	event poll(int               /* Number of active connections */
+	event poll(int,              /* Number of active connections */
+                   bool              /* whether currently busy anyway (not accepting) */
 		   ) = 1;
 	/* Polls for the next controller event */
 

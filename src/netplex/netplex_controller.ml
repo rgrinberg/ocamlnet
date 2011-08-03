@@ -734,7 +734,7 @@ object(self)
       ~proc_activate_lever:(self # activate_lever)
       sys_rpc
 
-  method private poll c sess n reply =
+  method private poll c sess (n,fully_busy) reply =
     (* Last [poll] call still unreplied? If so, send EVENT_NONE: *)
     ( match c.poll_call with
 	| None -> ()
@@ -754,7 +754,7 @@ object(self)
     c.poll_call <- Some (sess, reply);
     if is_starting then
       n_failures <- 0;
-    if c.cont_state <> `Shutting_down then (
+    if c.cont_state <> `Shutting_down && not fully_busy then (
       (* If n is updated, we must call [adjust] asap. Before [schedule]! *)
       let old_state = c.cont_state in
       c.cont_state <- `Accepting(n, c.t_accept);
@@ -1335,6 +1335,8 @@ class controller_sockserv setup controller : socket_service =
 	  ]
 	method change_user_to = None
         method startup_timeout = (-1.0)
+	method conn_limit = None
+	method gc_when_idle = false
 	method controller_config = controller#controller_config
       end
     ) in

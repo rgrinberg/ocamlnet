@@ -22,6 +22,7 @@ object
   method post_start_hook _ = ()
   method pre_finish_hook _ = ()
   method post_finish_hook _ _ _ = ()
+  method workload_hook _ _ _ = ()
   method receive_message _ _ _ = ()
   method receive_admin_message _ _ _ = ()
   method shutdown () = ()
@@ -45,6 +46,8 @@ object(self)
     hooks # pre_finish_hook cont
   method post_finish_hook socksrv ctrl cont = 
     hooks # post_finish_hook socksrv ctrl cont
+  method workload_hook cont busier n =
+    hooks # workload_hook cont busier n
   method receive_message cont cmd cmdargs =
     hooks # receive_message cont cmd cmdargs
   method receive_admin_message cont cmd cmdargs =
@@ -129,6 +132,10 @@ object(self)
     List.iter
       (fun (_,hooks) -> hooks # post_finish_hook socksrv ctrl cont) 
       r_merge_list
+  method workload_hook cont busier n =
+    List.iter
+      (fun (_,hooks) -> hooks # workload_hook cont busier n) 
+      r_merge_list
   method receive_message cont cmd cmdargs =
     List.iter
       (fun (_,hooks) -> hooks # receive_message cont cmd cmdargs) merge_list
@@ -181,6 +188,8 @@ let add_helper_service ctrl name hooks =
 	method protocols = []
 	method change_user_to = None
 	method startup_timeout = (-1.0)
+	method conn_limit = None
+	method gc_when_idle = false
 	method controller_config = ctrl#controller_config
       end
     ) in
@@ -230,12 +239,17 @@ let create_protocol ?(lstn_backlog=20)
   ) 
 
 let create_socket_service_config ?(startup_timeout = 60.0)
-                                 ?change_user_to name protos ctrl_cfg =
+                                 ?change_user_to 
+				 ?(gc_when_idle = false)
+				 ?conn_limit
+				 name protos ctrl_cfg =
 ( object
     method name = name
     method protocols = protos
     method change_user_to = change_user_to
     method startup_timeout = startup_timeout
+    method conn_limit = conn_limit
+    method gc_when_idle = gc_when_idle
     method controller_config = ctrl_cfg
   end : socket_service_config
 ) 

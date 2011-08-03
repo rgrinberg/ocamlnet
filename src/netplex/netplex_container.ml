@@ -40,6 +40,7 @@ object(self)
   val mutable rpc = None
   val mutable sys_rpc = None
   val mutable nr_conns = 0
+  val mutable nr_conns_total = 0
   val mutable engines = []
   val mutable vars = Hashtbl.create 10 
 
@@ -152,7 +153,8 @@ object(self)
 	  dlogr
 	    (fun () -> 
 	       sprintf "Container %d: Polling" (Oo.id self));
-	  Netplex_ctrl_clnt.Control.V1.poll'async r nr_conns
+	  let fully_busy = self#conn_limit_reached in
+	  Netplex_ctrl_clnt.Control.V1.poll'async r (nr_conns,fully_busy)
 	    (fun getreply ->
 	       let continue =
 		 ( try
@@ -309,6 +311,7 @@ object(self)
 	    r Netplex_ctrl_aux.program_Control'V1 "accepted" Xdr.XV_void
 	    (fun _ ->
 	       nr_conns <- nr_conns + 1;
+	       nr_conns_total <- nr_conns_total + 1;
 	       let regid = self # reg_conn fd_slave in
 	       let when_done_called = ref false in
 	       dlogr
@@ -320,6 +323,7 @@ object(self)
 		      (Netsys.int64_of_file_descr fd_slave)
 		      nr_conns
 		 );
+	       self # workload_hook true;
 	       self # protect
 		 "process"
 		 (sockserv # processor # process
@@ -333,6 +337,7 @@ object(self)
 				    nr_conns <- nr_conns - 1;
 				    self # unreg_conn fd_slave regid;
 				    when_done_called := true;
+				    self # workload_hook false;
 				    self # setup_polling();
 				    dlogr
 				      (fun () ->
@@ -372,6 +377,43 @@ object(self)
       )
     with
       | Not_found -> ()
+
+  method n_connections = nr_conns
+
+  method n_total = nr_conns_total
+
+  method private conn_limit_reached =
+    match sockserv#socket_service_config#conn_limit with
+      | None -> false
+      | Some lim -> nr_conns_total >= lim
+
+  val mutable gc_timer = None
+
+  method private workload_hook busier_flag =
+    if busier_flag then (
+      match gc_timer with
+	| None ->  ()
+	| Some g -> Unixqueue.clear esys g
+    );
+    if self#conn_limit_reached && nr_conns = 0 then
+      self#shutdown()
+    else (
+      self # protect "workload_hook"
+	(sockserv # processor # workload_hook
+	   (self : #container :> container)
+	   busier_flag
+	)
+	nr_conns;
+      if nr_conns = 0 && sockserv#socket_service_config#gc_when_idle then (
+	match gc_timer with
+	  | None -> 
+	      let g = Unixqueue.new_group esys in
+	      Unixqueue.once esys g 1.0
+		(fun () -> Gc.full_major());
+	      gc_timer <- Some g
+	  | Some _ -> ()
+      )
+    )
 
   method update_detail fd detail =
     let ifd = Netsys.int64_of_file_descr fd in

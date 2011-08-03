@@ -1490,6 +1490,25 @@ module Html = struct
   let unsafe_chars_html4 = "<>\"&\000\001\002\003\004\005\006\007\008\011\012\014\015\016\017\018\019\020\021\022\023\024\025\026\027\028\029\030\031\127" ;;
 
 
+  let regexp_ht = Hashtbl.create 7
+  let regexp_ht_mutex = !Netsys_oothr.provider # create_mutex()
+
+  let regexp_set s =
+    Netsys_oothr.serialize
+      regexp_ht_mutex
+      (fun () ->
+	 try
+	   Hashtbl.find regexp_ht s
+	 with
+	   | Not_found ->
+	       let re = Netstring_str.regexp (Netstring_str.quote_set s) in
+	       if Hashtbl.length regexp_ht < 100 then  (* avoid leak *)
+		 Hashtbl.replace regexp_ht s re;
+	       re
+      )
+      ()
+
+
   (* The functions [encode_quickly] and [encode_ascii] are special cases of 
    * [encode] that can be implemented by regular expressions.
    *)
@@ -1501,10 +1520,8 @@ module Html = struct
     if unsafe_chars = "" then
       (fun s -> s)
     else
-      let unsafe_re_str = 
-	Netstring_str.quote_set unsafe_chars in
       let unsafe_re = 
-	Netstring_str.regexp unsafe_re_str in
+	regexp_set unsafe_chars in
       Netstring_str.global_substitute
 	unsafe_re
 	(fun r s ->
@@ -1529,10 +1546,8 @@ module Html = struct
      * ASCII-compatible encoding.
      *)
     let unsafe_chars1 = unsafe_chars ^ msb_set in
-    let unsafe_re_str = 
-      Netstring_str.quote_set unsafe_chars1 in
     let unsafe_re = 
-      Netstring_str.regexp unsafe_re_str in
+      regexp_set unsafe_chars1 in
     (* unicode_of.[q] = p: the code point q+128 of in_enc is the same as the
      * Unicode code point p
      *)

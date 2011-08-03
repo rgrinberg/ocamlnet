@@ -511,7 +511,10 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
       (fun addr ->
 	 cf # restrict_subsections addr [ "protocol"; "processor";
 					  "workload_manager" ];
-	 cf # restrict_parameters addr [ "name"; "user"; "group" ];
+	 cf # restrict_parameters addr [ "name"; "user"; "group";
+					 "startup_timeout"; "conn_limit";
+					 "gc_when_idle"
+				       ];
 
 	 let service_name =
 	   try
@@ -565,6 +568,18 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 	     cf # float_param (cf # resolve_parameter addr "startup_timeout")
 	   with
 	     | Not_found -> 60.0 in
+
+	 let conn_limit =
+	   try
+	     Some(cf # int_param (cf # resolve_parameter addr "conn_limit"))
+	   with
+	     | Not_found -> None in
+
+	 let gc_when_idle =
+	   try
+	     cf # bool_param (cf # resolve_parameter addr "gc_when_idle")
+	   with
+	     | Not_found -> false in
 
 	 let protocols =
 	   List.map
@@ -632,6 +647,8 @@ let read_netplex_config_ ptype c_logger_cfg c_wrkmng_cfg c_proc_cfg cf =
 	       method protocols = protocols
 	       method change_user_to = user_group_opt
 	       method startup_timeout = startup_timeout
+	       method conn_limit = conn_limit
+	       method gc_when_idle = gc_when_idle
 	       method controller_config = ctrl_cfg
 	     end
 	   ) in

@@ -149,6 +149,8 @@ val create_protocol : ?lstn_backlog:int ->
 val create_socket_service_config : 
                       ?startup_timeout:float ->
                       ?change_user_to:(int*int) ->
+                      ?gc_when_idle:bool ->
+                      ?conn_limit:int ->
                       string ->
                       protocol list ->
                       controller_config ->
