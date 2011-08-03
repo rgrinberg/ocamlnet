@@ -101,6 +101,9 @@ let fallback_size = 16384   (* for I/O via Unix *)
 let mem_alloc() =
   Netsys_mem.pool_alloc_memory Netsys_mem.default_pool
 
+let mem_alloc2() =
+  Netsys_mem.pool_alloc_memory2 Netsys_mem.default_pool
+
 
 let mem_dummy() =
   Bigarray.Array1.create
@@ -111,18 +114,32 @@ let mem_dummy() =
 class datagram_rpc_multiplex_controller sockname peername_opt peer_user_name_opt
         (mplex : Uq_engines.datagram_multiplex_controller) esys 
       : rpc_multiplex_controller =
-object(self)
-  val rd_buffer = 
+  let rd_buffer, free_rd_buffer = 
     if mplex#mem_supported then (
-      `Mem(mem_alloc())
+      let (m, f) = mem_alloc2() in
+      let r = ref(`Mem m) in
+      let free () = f(); r := `None in
+      (r, free)
     )
     else (
-      `String(String.create fallback_size)
-    )
+      let r = ref(`String(String.create fallback_size)) in
+      (r, (fun () -> ()))
+    ) in
     (* Max. size of an Internet datagram is 64 K. See RFC 760. However,
      * the Unix library uses a buffer size of only 16 K. Longer messages
      * can neither be received nor sent without truncation.
      *)
+
+  let wr_buffer, free_wr_buffer =
+    if mplex#mem_supported then
+      let (m, f) = mem_alloc2() in
+      let r = ref(`Mem m) in
+      let free() = f(); r := `None in
+      (r, free)
+    else
+      (ref `None, (fun () -> ())) in
+
+object(self)
 
   method alive = mplex # alive
   method event_system = esys
@@ -141,13 +158,15 @@ object(self)
 
 
   method private rd_buffer_contents n =  (* first n bytes *)
-    match rd_buffer with
+    match !rd_buffer with
       | `String s ->
 	  String.sub s 0 n
       | `Mem m ->
 	  let s = String.create n in
 	  Netsys_mem.blit_memory_to_string m 0 s 0 n;
 	  s
+      | `None ->
+	  failwith "Rpc_transport: read/write not possible"
 
 
   method start_reading ?peek 
@@ -188,7 +207,7 @@ object(self)
 	| Some error ->
 	    when_done (`Error error)
     in
-    ( match rd_buffer with
+    ( match !rd_buffer with
 	| `String s ->
 	    mplex # start_reading ?peek ~when_done:mplex_when_done 
 	      s 0 (String.length s)
@@ -196,14 +215,11 @@ object(self)
 	    mplex # start_mem_reading ?peek ~when_done:mplex_when_done 
 	      m 0 (Bigarray.Array1.dim m)
 	      (* saves us 1 string copy! *)
-	      
+	| `None ->
+	    failwith "Rpc_transport: read/write not possible"
     );
     self # timer_event `Start `R
 
-
-  val wr_buffer =
-    if mplex#mem_supported then mem_alloc() else mem_dummy()
-  
 
   method start_writing ~when_done pv addr =
     ( match addr with
@@ -230,9 +246,13 @@ object(self)
     let len = Xdr_mstring.length_mstrings mstrings in
 
     if len > fallback_size && len <= mem_size && mplex#mem_supported then (
-      Xdr_mstring.blit_mstrings_to_memory mstrings wr_buffer;
+      let m =
+	match !wr_buffer with
+	  | `Mem m -> m
+	  | `None -> failwith "Rpc_transport: read/write not possible" in
+      Xdr_mstring.blit_mstrings_to_memory mstrings m;
       mplex # start_mem_writing
-	~when_done:(mplex_when_done len) wr_buffer 0 len
+	~when_done:(mplex_when_done len) m 0 len
     )
     else
       let s = Xdr_mstring.concat_mstrings mstrings in
@@ -250,9 +270,13 @@ object(self)
   method abort_rw () =
     aborted <- true;
     mplex # cancel_reading();
-    mplex # cancel_writing()
+    mplex # cancel_writing();
+    free_rd_buffer();
+    free_wr_buffer()
     
   method start_shutting_down ~when_done () =
+    free_rd_buffer();
+    free_wr_buffer();
     mplex # start_shutting_down
       ~when_done:(fun exn_opt ->
 		    self # timer_event `Stop `D;
@@ -268,6 +292,8 @@ object(self)
     mplex # cancel_shutting_down()
 
   method inactivate () =
+    free_rd_buffer();
+    free_wr_buffer();
     self # stop_timer();
     mplex # inactivate()
 
@@ -347,6 +373,17 @@ class stream_rpc_multiplex_controller sockname peername peer_user_name_opt
 	     sprintf "new stream_rpc_multiplex_controller mplex=%d"
 	       (Oo.id mplex))
   in
+
+  let wr_buffer, free_wr_buffer =
+    if mplex#mem_supported then
+      let (m, f) = mem_alloc2() in
+      let r = ref(`Mem m) in
+      let free() = f(); r := `None in
+      (r, free)
+    else
+      (ref `None, (fun () -> ())) in
+
+
 object(self)
   val mutable rd_buffer = Netpagebuffer.create mem_size
   val mutable rd_buffer_nomem = 
@@ -576,13 +613,6 @@ object(self)
       est_reading `Accept
 	    
 
-  val wr_buffer =
-    if mplex#mem_supported then
-      mem_alloc()
-    else
-      Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
-
-
   method start_writing ~when_done pv addr =
 
     assert(not mplex#writing);
@@ -600,9 +630,14 @@ object(self)
       match ms # preferred with
 	| `String ->
 	    if mplex#mem_supported then (
+	      let m =
+		match !wr_buffer with
+		  | `Mem m -> m
+		  | `None -> 
+		      failwith "Rpc_transport: read/write not possible" in
 	      let n = min (l-r) mem_size in
-	      ms#blit_to_memory r wr_buffer 0 n;
-	      `Memory(wr_buffer, 0, n, ms, r+n)
+	      ms#blit_to_memory r m 0 n;
+	      `Memory(m, 0, n, ms, r+n)
 	    )
 	    else
 	      let (s,pos) = ms#as_string in (* usually only r=0 *)
@@ -734,12 +769,16 @@ object(self)
   method abort_rw () =
     aborted <- true;
     mplex # cancel_reading();
-    mplex # cancel_writing()
+    mplex # cancel_writing();
+    Netpagebuffer.clear rd_buffer;
+    free_wr_buffer()
     
   method start_shutting_down ~when_done () =
     dlogr (fun () ->
 	     sprintf "start_shutting_down mplex=%d"
 	       (Oo.id mplex));
+    Netpagebuffer.clear rd_buffer;
+    free_wr_buffer();
     mplex # start_shutting_down
       ~when_done:(fun exn_opt ->
 		    dlogr (fun () ->
@@ -761,6 +800,8 @@ object(self)
     dlogr (fun () ->
 	     sprintf "inactivate mplex=%d"
 	       (Oo.id mplex));
+    Netpagebuffer.clear rd_buffer;
+    free_wr_buffer();
     self # stop_timer();
     mplex # inactivate()
 

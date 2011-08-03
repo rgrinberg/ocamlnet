@@ -548,6 +548,51 @@ object(self)
 	    )
 	    reg_conns
 
+      | "netplex.mem.major" ->
+	  (* FIXME: This style does not make sense for multi-threaded 
+	     programs *)
+	  let t0 = Unix.gettimeofday() in
+	  Gc.major();
+	  let t1 = Unix.gettimeofday() in
+	  self # log `Info
+	    (sprintf "Gc.major: pid %d - %f seconds" 
+	       (Unix.getpid()) (t1 -. t0))
+
+      | "netplex.mem.compact" ->
+	  (* FIXME: This style does not make sense for multi-threaded 
+	     programs *)
+	  let t0 = Unix.gettimeofday() in
+	  Gc.compact();
+	  let t1 = Unix.gettimeofday() in
+	  self # log `Info
+	    (sprintf "Gc.compact: pid %d - %f seconds" 
+	       (Unix.getpid()) (t1 -. t0))
+
+      | "netplex.mem.pools" ->
+	  (* FIXME: This style does not make sense for multi-threaded 
+	     programs *)
+	  self # log `Info
+	    (sprintf "Default pool: pid %d - %s"
+	       (Unix.getpid())
+	       (Netsys_mem.pool_report Netsys_mem.default_pool));
+	  self # log `Info
+	    (sprintf "Small pool: pid %d - %s"
+	       (Unix.getpid())
+	       (Netsys_mem.pool_report Netsys_mem.small_pool))
+
+      | "netplex.mem.stats" ->
+	  let (name, inch, outch) = Netchannels.make_temporary_file() in
+	  Gc.print_stat outch;
+	  close_out outch;
+	  let n = in_channel_length inch in
+	  let s = String.create n in
+	  really_input inch s 0 n;
+	  close_in inch;
+	  Sys.remove name;
+	  self # log `Info
+	    (sprintf "GC stats pid %d:\n%s"
+	       (Unix.getpid()) s)
+
       | _ ->
 	  self # forward_admin_message msg
 

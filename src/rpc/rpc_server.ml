@@ -1886,6 +1886,23 @@ let stop_connection srv conn_id =
       | Not_found -> ()
   )
 
+let detach srv =
+  (* Detach from connections: *)
+    let l = srv.connections in
+    srv.connections <- [];
+    List.iter
+      (fun conn ->
+	 conn.fd <- None;
+	 match conn.trans with
+	   | Some t -> 
+	       t#abort_rw();
+	       t#cancel_shutting_down()
+	   | None -> ()
+      )
+      l
+  
+  
+
 let verbose b =
   Debug.enable := b;
   Debug.enable_ctrace := b

@@ -1,3 +1,12 @@
+2011-08-03  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Reducing memory consumption (Uq_io and users such as
+	  Http_client, Netplex, Rpc) by recycling bigarray buffers
+	  more quickly
+
+	* New admin messages netplex.mem.major, netplex.mem.compact,
+	  netplex.mem.pools, netplex.mem.stats
+
 2011-07-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Shell: calling subprograms did not work when multi-threading

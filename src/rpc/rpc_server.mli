@@ -520,6 +520,13 @@ val verbose : bool -> unit
       Set whether you want debug messages to stderr or not
    *)
 
+val detach : t -> unit
+  (** {b Internal function.} Cancels all pending I/O operations, and
+      deallocates buffers. This function has only one purpose: The
+      RPC servers inherited by a Netplex child process return memory.
+      The RPC server is unusable after this.
+   *)
+
 module Debug : sig
   val enable : bool ref
     (** Whether debug messages of general kind are enabled. 

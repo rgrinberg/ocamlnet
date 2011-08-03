@@ -751,6 +751,13 @@ There are a few predefined messages understood by all containers:
   The argument is the debug target as known by {!Netlog.Debug}.
 - The admin message [netplex.fd_table] outputs the file descriptor
   table (debug)
+- The admin message [netplex.mem.major] triggers a major GC run
+- The admin message [netplex.mem.compact] triggers a compaction GC run
+- The admin message [netplex.mem.pools] outputs information about
+  memory pools ({!Netsys_mem}-type pools)
+- The admin message [netplex.mem.stats] outputs information from
+  [Gc.stats]
+
 
 In general, messages starting with "netplex." are reserved for 
 Netplex itself.

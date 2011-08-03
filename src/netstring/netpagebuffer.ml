@@ -5,7 +5,11 @@ type t =
       mutable pages : Netsys_mem.memory array;
       (* Used pages have size pgsize. Unused pages are set to a dummy page *)
       mutable n_pages : int;
-      (* The pages 0 .. n_pages-1 are used. n_pages >= 1 *)
+      (* The pages 0 .. n_pages-1 are used. n_pages >= 1 (exception below) *)
+      mutable free_page : (unit -> unit) array;
+      (* For each element of [pages] a function for freeing the page
+	 (quicker than by GC)
+       *)
       mutable start_index : int;
       (* start_index: The first byte in the first page has this index *)
       mutable stop_index : int;
@@ -14,14 +18,24 @@ type t =
       (* Pages that can be reclaimed *)
     }
 
-(* invariant: there is at least one free byte on the last page *)
+(* Except for one case we have this invariant:
+
+   invariant: there is at least one free byte on the last page 
+
+   The exception is that we also tolerate n_pages=0, which is treated
+   in the same way as an empty single page. When needed this empty
+   single page is allocated to enforce the invariant (fix_invariant).
+ *)
 
 
 let dummy_page =
   Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
 
 let length buf =
-  buf.n_pages * buf.pgsize - buf.start_index - (buf.pgsize - buf.stop_index)
+  if buf.n_pages = 0 then
+    0
+  else
+    buf.n_pages * buf.pgsize - buf.start_index - (buf.pgsize - buf.stop_index)
 
 let alloc_pages buf n =
   let need_resize =
@@ -37,12 +51,18 @@ let alloc_pages buf n =
       Array.make new_size dummy_page in
     Array.blit
       buf.pages 0 pages' 0 buf.n_pages;
-    buf.pages <- pages'
+    let free_page' =
+      Array.make new_size (fun () -> ()) in
+    Array.blit
+      buf.free_page 0 free_page' 0 buf.n_pages;
+    buf.pages <- pages';
+    buf.free_page <- free_page'
   );
   let n_pages' = buf.n_pages + n in
   for k = buf.n_pages to n_pages'-1 do
-    let p = Netsys_mem.pool_alloc_memory buf.pool in
-    buf.pages.(k) <- p
+    let p, f = Netsys_mem.pool_alloc_memory2 buf.pool in
+    buf.pages.(k) <- p;
+    buf.free_page.(k) <- f
   done;
   buf.n_pages <- n_pages'
 
@@ -52,18 +72,29 @@ let create pgsize =
   if pgsize mod sys_pgsize <> 0 then
     failwith "Netpagebuffer.create: invalid pagesize";
   let pool = 
-    if pgsize = Netsys_mem.pool_block_size Netsys_mem.default_pool then
+    if pgsize = Netsys_mem.default_block_size then
       Netsys_mem.default_pool
     else
-      Netsys_mem.create_pool pgsize in
-  let initial_page = Netsys_mem.pool_alloc_memory pool in
+      if pgsize = Netsys_mem.small_block_size then
+	Netsys_mem.small_pool
+      else
+	Netsys_mem.create_pool pgsize in
   { pgsize = pgsize;
-    pages = [| initial_page |];
-    n_pages = 1;
+    pages = [| dummy_page |];
+    n_pages = 0;
+    free_page = [| fun () -> () |];
     start_index = 0;
     stop_index = 0;
     pool = pool;
   }
+
+
+let fix_invariant buf =
+  if buf.n_pages = 0 then (
+    alloc_pages buf 1;
+    buf.start_index <- 0;
+    buf.stop_index <- 0;
+  )
 
 
 let blit_to_string buf pos s s_pos len =
@@ -156,6 +187,7 @@ let add_sub_string buf s pos len =
   let s_len = String.length s in
   if pos < 0 || len < 0 || len > s_len - pos then
     invalid_arg "Netpagebuffer.add_sub_string";
+  fix_invariant buf;
   let len_for_new_pages =
     len - (buf.pgsize - buf.stop_index) in
   let new_pages =
@@ -201,11 +233,12 @@ let add_string buf s =
 
 let add_sub_memory buf m pos len =
   (* very similar to add_sub_string. For performance reasons this is a
-     copy
+     copy of the above algorithm
    *)
   let m_len = Bigarray.Array1.dim m in
   if pos < 0 || len < 0 || len > m_len - pos then
     invalid_arg "Netpagebuffer.add_sub_memory";
+  fix_invariant buf;
   let len_for_new_pages =
     len - (buf.pgsize - buf.stop_index) in
   let new_pages =
@@ -242,11 +275,13 @@ let add_sub_memory buf m pos len =
 
 
 let page_for_additions buf =
+  fix_invariant buf;
   let last_page = buf.n_pages - 1 in
   ( buf.pages.(last_page), buf.stop_index, buf.pgsize - buf.stop_index )
 
 
 let advance buf n =
+  fix_invariant buf;
   if n < 0 || n > buf.pgsize - buf.stop_index then
     invalid_arg "Netpagebuffer.advance";
   buf.stop_index <- buf.stop_index + n;
@@ -266,6 +301,7 @@ let add_inplace buf f =
 
 
 let page_for_consumption buf =
+  fix_invariant buf;
   let stop =
     if buf.n_pages = 1 then buf.stop_index else buf.pgsize in
   ( buf.pages.(0), buf.start_index, stop )
@@ -275,33 +311,49 @@ let delete_hd buf n =
   let blen = length buf in
   if n < 0 || n > blen then
     invalid_arg "Netpagebuffer.delete_hd";
-  let l_first_page = buf.pgsize - buf.start_index in
-  if n < l_first_page then
-    buf.start_index <- buf.start_index + n
-  else (
-    let pages_to_delete =
-      (n - l_first_page) / buf.pgsize + 1 in
-    let new_start_index =
-      (n - l_first_page) mod buf.pgsize in
-    Array.blit
-      buf.pages pages_to_delete buf.pages 0 (buf.n_pages - pages_to_delete);
-    buf.n_pages <- buf.n_pages - pages_to_delete;
-    buf.start_index <- new_start_index;
-    for k = buf.n_pages to Array.length buf.pages - 1 do
-      buf.pages.(k) <- dummy_page
-    done
-  );
-  if buf.n_pages = 1 && buf.start_index = buf.stop_index then (
-    buf.start_index <- 0;
-    buf.stop_index <- 0;
+  if n > 0 then (
+    (* hence, blen > 0, and the invariant holds *)
+    let l_first_page = buf.pgsize - buf.start_index in
+    if n < l_first_page then
+      buf.start_index <- buf.start_index + n
+    else (
+      let pages_to_delete =
+	(n - l_first_page) / buf.pgsize + 1 in
+      let new_start_index =
+	(n - l_first_page) mod buf.pgsize in
+      for k = 0 to pages_to_delete-1 do
+	buf.free_page.(k) ()
+      done;
+      let m = buf.n_pages - pages_to_delete in
+      Array.blit
+	buf.pages pages_to_delete buf.pages 0 m;
+      Array.blit
+	buf.free_page pages_to_delete buf.free_page 0 m;
+      buf.n_pages <- buf.n_pages - pages_to_delete;
+      buf.start_index <- new_start_index;
+      for k = buf.n_pages to Array.length buf.pages - 1 do
+	buf.pages.(k) <- dummy_page;
+	buf.free_page.(k) <- (fun () -> ())
+      done
+    );
+    if buf.n_pages = 1 && buf.start_index = buf.stop_index then (
+      buf.free_page.(0) ();
+      buf.pages.(0) <- dummy_page;
+      buf.free_page.(0) <- (fun () -> ());
+      buf.n_pages <- 0;
+      buf.start_index <- 0;
+      buf.stop_index <- 0;
+    )
   )
 
 
 let clear buf =
-  for k = 1 to buf.n_pages - 1 do
-    buf.pages.(k) <- dummy_page
+  for k = 0 to buf.n_pages - 1 do
+    buf.free_page.(k) ();
+    buf.pages.(k) <- dummy_page;
+    buf.free_page.(k) <- (fun () -> ())
   done;
-  buf.n_pages <- 1;
+  buf.n_pages <- 0;
   buf.start_index <- 0;
   buf.stop_index <- 0
 

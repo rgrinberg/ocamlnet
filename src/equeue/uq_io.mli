@@ -162,15 +162,15 @@ val write_eof_e : [< out_device ] -> bool Uq_engines.engine
   (** [let e = write_eof_e d]: For devices supporting half-open connections,
       this engine writes the EOF marker and transitions to 
       [`Done true]. For other devices nothing happens, and the engine
-      transitions to [`Done false]. (The only way to signal EOF is
-      to shut down the device, see below.)
+      transitions to [`Done false]. (In the latter case, the only way to
+      signal EOF is to shut down the device, see below.)
 
       Note that the effect of [write_eof_e] cannot be buffered. Because
       of this, the [io_buffer] flushes all data first (i.e. [write_eof_e]
       implies the effect of [flush_e]).
    *)
 
-val copy_e : ?len:int -> ?len64:int64 ->
+val copy_e : ?small_buffer:bool -> ?len:int -> ?len64:int64 ->
                 [< in_device ] -> [< out_device ] -> 
                 int64 Uq_engines.engine
   (** [let e = copy_e d_in d_out]: Copies data from [d_in] to [d_out],
@@ -179,6 +179,9 @@ val copy_e : ?len:int -> ?len64:int64 ->
       By default, [d_in] is read until end of file. If [len] is passed,
       at most this number of bytes are copied. The length can also be given
       as [int64] in [len64].
+
+      By setting [small_buffer], the copy buffer consists only of a 
+      single page. Normally, a bigger buffer is allocated.
    *)
 
 val flush_e : [< out_device ] -> unit Uq_engines.engine
@@ -227,8 +230,12 @@ val inactivate : [< in_device | out_device ] -> unit
 
 (** {2 Buffers} *)
 
-val create_in_buffer : [< in_device ] -> in_buffer
-  (** Provides a buffered version of the [in_device] *)
+val create_in_buffer : ?small_buffer:bool -> [< in_device ] -> in_buffer
+  (** Provides a buffered version of the [in_device].
+
+      By setting [small_buffer], the initial input buffer consists only of a 
+      single page. Normally, a bigger buffer is allocated.
+   *)
 
 val in_buffer_length : in_buffer -> int
   (** The length *)
@@ -242,10 +249,14 @@ val in_buffer_fill_e : in_buffer -> bool Uq_engines.engine
       EOF is reached (eof=true). 
    *)
 
-val create_out_buffer : max:int option -> [< out_device ] -> out_buffer
+val create_out_buffer : ?small_buffer:bool -> 
+                        max:int option -> [< out_device ] -> out_buffer
   (** Provides a buffered version of the [out_device]. The argument
       [max] is the maximum number of bytes to buffer. This can also be
       set to [None] meaning no limit.
+
+      By setting [small_buffer], the initial output buffer consists only of a 
+      single page. Normally, a bigger buffer is allocated.
    *)
 
 val filter_out_buffer : 

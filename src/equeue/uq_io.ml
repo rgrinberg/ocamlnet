@@ -19,6 +19,7 @@ object
   method advance : int -> unit
   method page_for_additions : string_like * int * int
   method page_for_consumption : string_like * int * int
+  method clear : unit -> unit
 end
 
 
@@ -188,16 +189,16 @@ let rec buf_input_e b ms pos len =
     b#buffer#delete_hd n;
     eps_e (`Done n) b#event_system
   )
-  else if b#eof then (
+  else if b#eof then
     eps_e (`Error End_of_file) b#event_system
-  )
   else (
     (* Optimization: if len is quite large, bypass the buffer *)
     let d = b#udevice in
     if len >= 4096 && (device_supports_memory d || is_string ms) then
       dev_input_e d ms pos len
       >> (function
-	    | `Error End_of_file -> b#set_eof(); `Error End_of_file
+	    | `Error End_of_file -> 
+		b#set_eof(); `Error End_of_file
 	    | st -> st
 	 )
     else
@@ -607,8 +608,10 @@ let rec inactivate0 d =
 let inactivate d =
   inactivate0 (d :> inout_device)
 
-let mem_obj_buffer() =
-  let psize = Netsys_mem.pagesize in
+let mem_obj_buffer small_buffer =
+  let psize = 
+    if small_buffer then 
+      Netsys_mem.small_block_size else Netsys_mem.default_block_size in
   let buf = 
     Netpagebuffer.create psize in
   ( object
@@ -633,12 +636,16 @@ let mem_obj_buffer() =
       method page_for_consumption =
 	let (m,pos,len) = Netpagebuffer.page_for_consumption buf in
 	(`Memory m, pos, len)
+      method clear() =
+	Netpagebuffer.clear buf
     end
   )
 
-let str_obj_buffer() =
+let str_obj_buffer small_buffer =
+  let bufsize = 
+    if small_buffer then 4096 else 65536 in
   let buf =
-    Netbuffer.create 4096 in
+    Netbuffer.create bufsize in
   ( object
       method length = Netbuffer.length buf
       method blit_out bpos ms pos len =
@@ -661,19 +668,21 @@ let str_obj_buffer() =
       method page_for_consumption =
 	let s = Netbuffer.unsafe_buffer buf in
 	(`String s, 0, Netbuffer.length buf)
+      method clear() =
+	Netbuffer.clear buf
     end
   )
     
 
-let create_in_buffer d0 =
+let create_in_buffer ?(small_buffer=false) d0 =
   let d = (d0 :> in_device) in
   let esys =
     device_esys d in
   let buf =
     if device_supports_memory d then
-      mem_obj_buffer()
+      mem_obj_buffer small_buffer
     else
-      str_obj_buffer() in
+      str_obj_buffer small_buffer in
   let eof = 
     ref false in
   let fill_e_opt =
@@ -715,6 +724,7 @@ object
     shutdown_e d
 
   method inactivate() =
+    buf#clear();
     inactivate d
 
   method udevice = d
@@ -734,15 +744,15 @@ let in_buffer_fill_e (b:in_buffer)  =
     | Some fe -> fe
 
 
-let create_out_buffer ~max d0 =
+let create_out_buffer ?(small_buffer=false) ~max d0 =
   let d = (d0 :> out_device) in
   let esys =
     device_esys d in
   let buf =
     if device_supports_memory d then
-      mem_obj_buffer()
+      mem_obj_buffer small_buffer
     else
-      str_obj_buffer() in
+      str_obj_buffer small_buffer in
   let eof = 
     ref false in
   let flush_e_opt =
@@ -788,6 +798,7 @@ let create_out_buffer ~max d0 =
     shutdown_e ?linger d
     
   method inactivate () =
+    buf#clear();
     inactivate d
 
   method udevice = Some d
@@ -795,22 +806,28 @@ let create_out_buffer ~max d0 =
 end
 
 
-let copy_e ?len ?len64 d_in d_out =
+let copy_e ?(small_buffer=false) ?len ?len64 d_in d_out =
   let d_in_esys = device_esys d_in in
   let d_out_esys = device_esys d_out in
   if d_in_esys <> d_out_esys then
     invalid_arg "Uq_io.copy_e: devices must use the same event system";
   let esys = d_in_esys in
 
-  let ms, ms_len =
+  let ms, ms_len, free_ms =
     if device_supports_memory d_in && device_supports_memory d_out then (
-      let m = Netsys_mem.pool_alloc_memory Netsys_mem.default_pool in
-      (`Memory m, Bigarray.Array1.dim m)
+      let m, f = 
+	Netsys_mem.pool_alloc_memory2 
+	  (if small_buffer then Netsys_mem.small_pool 
+	   else Netsys_mem.default_pool) in
+      (`Memory m, Bigarray.Array1.dim m, f)
     )
     else (
-      let s = String.create 16384 in
-      (`String s, String.length s)
+      let s = String.create (if small_buffer then 4096 else 65536) in
+      (`String s, String.length s, (fun () -> ()))
     ) in
+  (* Note that calling free_ms only accelerates that ms is recognized
+     as free after the copy is done. It is not necessary to call it.
+   *)
 
   let rec push_data p n =
     if n = 0 then
@@ -839,15 +856,17 @@ let copy_e ?len ?len64 d_in d_out =
        missing
      *)
 
-    if n=0 then
+    if n=0 then (
+      free_ms();
       eps_e (`Done !count) esys
+    )
     else
       ( input_e d_in ms 0 n
 	>> (function
 	      | `Done n -> `Done(`Good n)
 	      | `Error End_of_file -> `Done `Eof
-	      | `Error error -> `Error error
-	      | `Aborted -> `Aborted
+	      | `Error error -> free_ms(); `Error error
+	      | `Aborted -> free_ms(); `Aborted
 	   )
 	: [`Good of int | `Eof] Uq_engines.engine
       ) ++
@@ -856,6 +875,7 @@ let copy_e ?len ?len64 d_in d_out =
 	       count := Int64.add !count (Int64.of_int n);
 	       push_data 0 n ++ (fun () -> pull_data())
 	   | `Eof ->
+	       free_ms();
 	       eps_e (`Done !count) esys
 	) in
   pull_data()
@@ -870,10 +890,11 @@ let eof_as_none =
 
 
 let filter_out_buffer ~max (p : Netchannels.io_obj_channel) d0 : out_buffer =
+  let small_buffer = true in
   let d = (d0 :> out_device) in
   let esys =
     device_esys d in
-  let buf = str_obj_buffer() in
+  let buf = str_obj_buffer small_buffer in
   let eof = 
     ref false in
   let flush_e_opt =

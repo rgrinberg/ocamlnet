@@ -391,7 +391,7 @@ let set_false v _ =
   (* prerr_endline "finaliser"; *)
   v := false
 
-let pool_alloc_memory p =
+let pool_alloc_memory2 p =
   Netsys_oothr.serialize
     p.pool_mutex
     (fun () ->
@@ -406,24 +406,34 @@ let pool_alloc_memory p =
 	     bb.bb_use_counter <- bb.bb_use_counter + 1;
 	     let is_used = ref true in
 	     let free = set_false is_used in  (* avoid referencing m ! *)
+	     let free2 = set_false is_used in
 	     if !do_free_check && l <> [] then
 	       pool_free_blocks p;
 	     p.pool_blocks <- (k,bb,is_used) :: p.pool_blocks;
 	     Gc.finalise free m;
-	     m
+	     (m,free2)
 	 | [] ->
 	     assert false
     )
     ()
 
+let pool_alloc_memory p =
+  fst(pool_alloc_memory2 p)
+
 let pool_block_size p =
   p.pool_block_size
 
-let default_pool_size =
+let default_block_size =
   pagesize * 16
 
 let default_pool =
-  create_pool default_pool_size
+  create_pool default_block_size
+
+let small_block_size =
+  pagesize
+
+let small_pool =
+  create_pool small_block_size
 
 let pool_report p =
   let b = Buffer.create 500 in

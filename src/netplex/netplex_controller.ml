@@ -29,6 +29,7 @@ object
   method forward_message : message -> unit
   method forward_admin_message : message -> unit
   method forward_system_shutdown : (unit -> unit) -> unit
+  method detach : unit -> unit
 end
 
 and extended_controller =
@@ -113,6 +114,7 @@ let create_pipe_pair() =
 class std_socket_controller ?(no_disable = false)
                             rm_service (par: parallelizer) 
                             controller sockserv wrkmng cs_directory
+			    ctrl_detach
       : extended_socket_controller =
   (* cs_directory: tuples (service_name, proto_name, path, component) *)
   let name = sockserv # name in
@@ -356,6 +358,11 @@ object(self)
 	  (fun par_thread ->
 	     Netplex_cenv.register_cont container par_thread;
 	     ( try 
+		 (* If this is a fork, reclaim memory: *)
+		 if par # ptype = `Multi_processing then (
+		   ctrl_detach()
+		 );
+		 (* This is the real start of the container: *)
 		 container # start fd_clnt sys_fd_clnt;
 	       with 
 		 | error ->
@@ -1078,6 +1085,15 @@ object(self)
 	    with Rpc_server.Connection_lost -> ()
 	  )
 
+  method detach () =
+    List.iter
+      (fun c ->
+	 Rpc_server.detach c.rpc;
+	 Rpc_server.detach c.sys_rpc;
+      )
+      clist;
+    clist <- []
+
 end
 
 
@@ -1377,7 +1393,8 @@ object(self)
 	(self : #extended_controller :> extended_controller)
 	my_sockserv 
 	my_wrkmng 
-	cs_directory in
+	cs_directory 
+	self#ctrl_detach in
     services <- (my_sockserv, my_sockctrl, my_wrkmng) :: services;
     socksrv_list <- my_sockserv :: socksrv_list;
     my_wrkmng # hello (self : #controller :> controller);
@@ -1410,7 +1427,8 @@ object(self)
 	(self : #extended_controller :> extended_controller)
 	sockserv 
 	wrkmng 
-	cs_directory in
+	cs_directory
+	self#ctrl_detach in
     services <- (sockserv, sockctrl, wrkmng) :: services;
     wrkmng # hello
       (self : #controller :> controller);
@@ -1660,6 +1678,13 @@ object(self)
 	| Not_found ->
 	    failwith ("Lever not found: " ^ string_of_int id) in
     f (self :> controller) arg
+
+  method private ctrl_detach() =
+    List.iter
+      (fun (_,sockctrl,_) ->
+	 sockctrl#detach()
+      )
+      services
 
 end
 

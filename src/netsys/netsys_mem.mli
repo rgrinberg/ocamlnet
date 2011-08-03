@@ -394,7 +394,7 @@ val create_pool : int -> memory_pool
    *)
 
 val pool_alloc_memory : memory_pool -> memory
-  (** [let (m,free) = pool_alloc_memory p]: 
+  (** [let m = pool_alloc_memory p]: 
       Gets a memory block [m] from the pool [p]. If required, new blocks are 
       automatically allocated and added to the pool. This function is
       thread-safe.
@@ -402,12 +402,38 @@ val pool_alloc_memory : memory_pool -> memory
       The memory block is automatically garbage-collected.
    *)
 
+val pool_alloc_memory2 : memory_pool -> (memory * (unit->unit))
+  (** [let m, free = pool_alloc_memory2 p]: 
+      Gets a memory block [m] from the pool [p] like [pool_alloc_memory].
+      This function also returns the function [free] marking the
+      block as free again. The block can then be immediately recycled
+      for another use.
+
+      If [free] is not called, the block [m] is first recycled when it
+      is not referenced any more (like in [pool_alloc_memory]).
+   *)
+  
 val pool_block_size : memory_pool -> int
   (** Returns the size of the memory blocks in bytes *)
+
+val default_block_size : int
+  (** The default block size, normally 64 K (or better, 16 times the
+      page size)
+   *)
 
 val default_pool : memory_pool
   (** The default pool with the default block size. This pool is used
       by Ocamlnet itself as much as possible
+   *)
+
+val small_block_size : int
+  (** The block size of [small_pool], normally 4K (or better, the
+      page size)
+   *)
+
+val small_pool : memory_pool
+  (** Another standard pool where the blocks are smaller than in
+      [default_pool].
    *)
 
 val pool_report : memory_pool -> string

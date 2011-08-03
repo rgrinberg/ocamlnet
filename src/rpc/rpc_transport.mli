@@ -142,6 +142,10 @@ object
     (** Aborts the current reader and/or writer forever. Note that there is no
       * clean way of resuming reading and/or writing. The readers/writers
       * are not notified about cancellation.
+      *
+      * This method also deallocates buffers, so far possible.
+      *
+      * It is allowed to go on with the shutdown, and to inactivate.
      *)
 
   method start_shutting_down :
@@ -153,6 +157,8 @@ object
       * The underlying file descriptor (if any) is not closed. A shutdown
       * is only a protocol handshake. After a shutdown,[read_eof]
       * is true. Call [inactivate] to close the descriptor.
+      *
+      * This method also deallocates buffers, so far possible.
      *)
  
   method cancel_shutting_down : unit -> unit

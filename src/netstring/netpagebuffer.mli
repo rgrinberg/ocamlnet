@@ -15,8 +15,15 @@
 type t
 
 val create : int -> t
-  (** crea [pagesize]: creates new buffer with this [pagesize], which must
+  (** create [blocksize]: creates new buffer with this [blocksize], which must
       be a whole multiple of the page size of the OS
+
+      The [blocksize] is normally either
+      - {!Netsys_mem.default_block_size}, or
+      - {!Netsys_mem.small_block_size}
+
+      These cases are optimized, and the buffer is allocated in a shared
+      pool.
     *)
 
 val contents : t -> string
