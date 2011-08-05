@@ -265,7 +265,7 @@ let mem_sendto fd mem off len flags addr =
  *)
 
 let min_pool_factor = 4
-let max_pool_factor = 16
+let max_pool_factor = 8
 
 
 type bigblock =

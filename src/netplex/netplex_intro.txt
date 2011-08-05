@@ -158,6 +158,8 @@ netplex {
 As you can see, the main program is extremely simple. Netplex includes
 support for command-line parsing, and the rest deals with the question
 which Netplex modules are made accessible for the configuration file.
+Note that detailed information about the config file is available in
+the {!Netplex_admin.main}.
 
 Here, we have:
 
@@ -393,6 +395,8 @@ where the [<path>] is the filename of the socket.
 One can have several [address] sections to create several sockets for the
 same protocol.
 
+For detailed documentation, see {!Netplex_admin.protocol}.
+
 
 {2:servproc Services And Processors}
 
@@ -431,7 +435,8 @@ for all container processes when these are actually created.
 The processor objects (of type {!Netplex_types.processor}) consist of
 a number of methods. We have already seen one of them, [process],
 which is called in the container process when a new connection is
-accepted. The other methods are called at other points of interest:
+accepted. The other methods are called at other points of interest
+(see {!Netplex_types.processor_hooks} for more details):
 
 {b Methods called on the controller instance of the processor}
 
@@ -706,6 +711,8 @@ Another parameter is:
   of seconds and is not needed to ensure [min_free_job_capacity] it is
   shut down. Defaults to 15 seconds.
 
+More documentation is available in {!Netplex_admin.workload}.
+
 
 {2:messaging Messaging}
 
@@ -738,26 +745,8 @@ the wildcard [*] to select the containers by a name pattern.
 
 An admin message is sent using the [netplex-admin] command.
 
-There are a few predefined messages understood by all containers:
-
-- The admin message [netplex.threadlist] outputs to the log file
-  which process executes which service, and how loaded the processes are.
-- The admin message [netplex.connections] outputs a line for every
-  connection managed by Netplex, sometimes with details of the protocol
-  interpreter
-- The admin message [netplex.logger.set_max_level] changes the maximum
-  log level for the container.
-- The admin message [netplex.debug.enable] enables debug messages.
-  The argument is the debug target as known by {!Netlog.Debug}.
-- The admin message [netplex.fd_table] outputs the file descriptor
-  table (debug)
-- The admin message [netplex.mem.major] triggers a major GC run
-- The admin message [netplex.mem.compact] triggers a compaction GC run
-- The admin message [netplex.mem.pools] outputs information about
-  memory pools ({!Netsys_mem}-type pools)
-- The admin message [netplex.mem.stats] outputs information from
-  [Gc.stats]
-
+There are a few predefined messages understood by all containers.
+See {!Netplex_admin.admin} for a list.
 
 In general, messages starting with "netplex." are reserved for 
 Netplex itself.
@@ -811,7 +800,7 @@ way is to send all messages to stderr:
   };
 ]}
 
-Further types of logging are documented in the {!Netplex_log} module.
+Further types of logging are documented in {!Netplex_admin.controller}.
 
 {2:debug Debug logging}
 

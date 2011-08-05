@@ -123,6 +123,7 @@ Related external articles:
 - {!module:Equeue_intro}: Introduction to programming with [equeue]
 - {!module:Netplex_intro}: Introduction to [Netplex]
 - {!module:Netplex_advanced}: Advanced features of [Netplex]
+- {!module:Netplex_admin}: Netplex administration guide
 - {!module:Netshm_intro}: Shared Memory for IPC
 - {!module:Shell_intro}: Motivation for [shell]
 
