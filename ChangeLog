@@ -1,3 +1,7 @@
+2011-08-05  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Released: ocamlnet-3.3.7
+
 2011-08-03  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Netplex: new workload_hook. It is called whenever a
@@ -15,6 +19,8 @@
 
 	* New admin messages netplex.mem.major, netplex.mem.compact,
 	  netplex.mem.pools, netplex.mem.stats
+
+	* Docs netplex_admin.txt
 
 2011-07-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
