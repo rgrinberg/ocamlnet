@@ -270,19 +270,25 @@ MAKE_HANDLER(ocaml_bytecode_handler)
  * Commands
  */
 
-static const char *
-cmd_load (cmd_parms *parms, void *dummy, const char *filename)
-{
-  static value *f = NULL;
-  value arg = copy_string (filename);
-  value exn;
-  if (f == NULL) f = caml_named_value("netcgi2_apache_cmd_load");
-  exn = callback_exn(*f, arg);
-  if (Is_exception_result (exn))
-    /* FIXME: ap_pstrdup into pool? */
-    return caml_format_exception (Extract_exception (exn));
-  return NULL;
+#define MAKE_SIMPLE_CMD(name)                                          \
+static const char *                                                    \
+name (cmd_parms *parms, void *dummy, const char *strarg)               \
+{                                                                      \
+  static value *f = NULL;                                              \
+  value arg = copy_string (strarg);                                    \
+  value exn;                                                           \
+  if (f == NULL) f = caml_named_value("netcgi2_apache_" #name);        \
+  exn = callback_exn(*f, arg);                                         \
+  if (Is_exception_result (exn))                                       \
+    /* FIXME: ap_pstrdup into pool? */                                 \
+    return caml_format_exception (Extract_exception (exn));            \
+  return NULL;                                                         \
 }
+
+MAKE_SIMPLE_CMD(cmd_load)
+MAKE_SIMPLE_CMD(cmd_require)
+MAKE_SIMPLE_CMD(cmd_thread)
+MAKE_SIMPLE_CMD(cmd_predicates)
 
 
 static const char *
@@ -339,6 +345,18 @@ static command_rec cmds[] = {
                  NULL,
                  RSRC_CONF,
                  "load OCaml module"),
+  AP_INIT_TAKE1 ("NetcgiRequire", cmd_require,
+                 NULL,
+                 RSRC_CONF,
+                 "load OCaml package (findlib)"),
+  AP_INIT_TAKE1 ("NetcgiThread", cmd_thread,
+                 NULL,
+                 RSRC_CONF,
+                 "load OCaml threading support"),
+  AP_INIT_TAKE1 ("NetcgiPredicates", cmd_predicates,
+                 NULL,
+                 RSRC_CONF,
+                 "set findlib predicates for NetcgiRequire"),
   AP_INIT_TAKE1 ("NetcgiTranslateHandler", cmd_translate_handler,
                  NULL,
                  RSRC_CONF,

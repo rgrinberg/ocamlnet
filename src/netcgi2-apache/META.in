@@ -2,7 +2,7 @@
 #name = "netcgi_apache"
 version = "@VERSION@"
 description = "Apache mod connector"
-requires = "unix netstring netsys netcgi2"
+requires = "unix netstring netsys netcgi2 str"
 archive(byte) = "netcgi_apache.cma"
 archive(native) = "netcgi_apache.cmxa"
 archive(native,gprof) = "netcgi_apache.p.cmxa"

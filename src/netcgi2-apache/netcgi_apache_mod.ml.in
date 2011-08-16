@@ -442,6 +442,7 @@ struct
   let reg_module_name = ref None
 
   let register_module handler full_name =
+prerr_endline ("register_module " ^ full_name);
     Hashtbl.replace reg_table full_name handler
 
   (* Register the module's handler. *)
@@ -466,6 +467,102 @@ struct
     try  Dynlink.loadfile filename;
     with Dynlink.Error(e) ->
       log_error(Dynlink.error_message e)
+
+  let skip_findlib = [ "unix"; "dynlink"; "findlib" ]
+  let predicates = ref [ "byte" ]
+  let loaded = ref []
+  let init_findlib_var = ref false
+
+  let init_findlib() =
+    if not !init_findlib_var then (
+prerr_endline "init_findlib";
+      Findlib.init();
+      init_findlib_var := true
+    )
+
+  let split_in_words s =
+    (* Copy of Fl_split.in_words.
+       splits s in words separated by commas and/or whitespace *)
+    let l = String.length s in
+    let rec split i j =
+      if j < l then
+	match s.[j] with
+            (' '|'\t'|'\n'|'\r'|',') ->
+              if i<j then (String.sub s i (j-i)) :: (split (j+1) (j+1))
+              else split (j+1) (j+1)
+	  | _ ->
+              split i (j+1)
+      else
+	if i<j then [ String.sub s i (j-i) ] else []
+    in
+    split 0 0
+
+  let cmd_require pkg =
+    (* Findlib-supported package loading. Also see topfind.ml in findlib *)
+    init_findlib();
+prerr_endline ("require " ^ pkg);
+    try
+      let eff_pkglist =
+	Findlib.package_deep_ancestors !predicates [pkg] in
+      List.iter
+	(fun pkg ->
+	   if not (List.mem pkg !loaded) then begin
+             (* Determine the package directory: *)
+             let d = Findlib.package_directory pkg in
+             if not (List.mem pkg skip_findlib) then begin
+               (* Determine the 'archive' property: *)
+               let archive =
+		 try Findlib.package_property !predicates pkg "archive"
+		 with
+		     Not_found -> ""
+               in
+               (* Split the 'archive' property and load the files: *)
+               let archives = split_in_words archive in
+               List.iter
+		 (fun arch -> 
+		    let arch' = Findlib.resolve_path ~base:d arch in
+		    reg_module_name := 
+		      Some(String.capitalize(Filename.chop_extension
+					       (Filename.basename arch')));
+prerr_endline ("load " ^ arch');
+		    try Dynlink.loadfile arch';
+		    with Dynlink.Error(e) ->
+		      log_error(Dynlink.error_message e)
+		 )
+		 archives;
+             end;
+             (* The package is loaded: *)
+             loaded := pkg :: !loaded
+	   end
+	)
+	eff_pkglist
+    with
+      | Findlib.No_such_package(name,_) ->
+	  log_error ("No such ocaml package: " ^ name)
+      | Findlib.Package_loop name ->
+	  log_error ("Ocaml package loop: " ^ name)
+      | Failure msg ->
+	  log_error ("Failure: " ^ msg)
+
+  let cmd_thread _ =
+    init_findlib();
+    let have_mt_support() =
+      Findlib.package_property [] "threads" "type_of_threads" = "posix" in
+      if not(List.mem "threads" !loaded) then (
+	(* This works only for POSIX threads. *)
+	if have_mt_support() then (
+	  predicates := ["mt"; "mt_posix"] @ !predicates;
+	  cmd_require "threads"
+	)
+	else (
+	  log_error "NetcgiThread: No support for threads"
+	)
+      )
+
+  let cmd_predicates s =
+    init_findlib();
+    let preds = split_in_words s in
+    predicates := preds @ !predicates
 
   let cmd_translate_handler sconfig name =
     { sconfig with translate_handler = Some (Hashtbl.find reg_table name) }
@@ -500,6 +597,9 @@ struct
   let () =
     let cb = Callback.register in
     cb "netcgi2_apache_cmd_load"                   cmd_load;
+    cb "netcgi2_apache_cmd_require"                cmd_require;
+    cb "netcgi2_apache_cmd_thread"                 cmd_thread;
+    cb "netcgi2_apache_cmd_predicates"             cmd_predicates;
     cb "netcgi2_apache_cmd_translate_handler"      cmd_translate_handler;
     cb "netcgi2_apache_cmd_check_user_id_handler"  cmd_check_user_id_handler;
     cb "netcgi2_apache_cmd_auth_checker_handler"   cmd_auth_checker_handler;

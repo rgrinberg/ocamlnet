@@ -360,12 +360,7 @@ val run :
     /etc/apache/conf.d/netcgi_apache.conf) the following lines:
     {v
     LoadModule netcgi_module /usr/lib/apache/1.3/mod_netcgi_apache.so
-    NetcgiLoad pcre/pcre.cma
-    NetcgiLoad netsys/netsys.cma
-    NetcgiLoad netstring/netstring.cma
-    NetcgiLoad str.cma
-    NetcgiLoad netcgi2/netcgi.cma
-    NetcgiLoad netcgi2-apache/netcgi_apache.cma
+    NetcgiRequire netcgi2-apache
     v}
 
     {3 Apache 2.2 or later}
@@ -374,12 +369,7 @@ val run :
     /etc/apache2/mods-available/netcgi_apache.load) the following line:
     {v
     LoadModule netcgi_module /usr/lib/apache2/modules/mod_netcgi_apache.so
-    NetcgiLoad pcre/pcre.cma
-    NetcgiLoad netsys/netsys.cma
-    NetcgiLoad netstring/netstring.cma
-    NetcgiLoad str.cma
-    NetcgiLoad netcgi2/netcgi.cma
-    NetcgiLoad netcgi2-apache/netcgi_apache.cma
+    NetcgiRequire netcgi2-apache
     v}
     and make a symbolic link from /etc/apache2/mods-enabled/ to it to
     actually enable it.  Subsequent configuration is recommended to be
@@ -398,6 +388,30 @@ val run :
     If x.cma is not in a subdirectory of `ocamlc -where`, you need to
     specify the full path.
 
+    {3 Interaction with findlib}
+
+    Libraries managed with findlib are specially supported. In order to
+    load a library "lib" just use
+    {v
+    NetcgiRequire lib
+    v}
+    Findlib-managed libraries are automatically found.
+
+    For special configurations one can also set Findlib predicates:
+    {v
+    NetcgiPredicates p1,p2,p3,...
+    v}
+
+    {3 Multi-threading}
+
+    If you need multi-threading call
+    {v
+    NetcgiThread
+    v}
+    as the very first directive after [LoadModule], even before
+    [NetcgiRequire netcgi2-apache] (otherwise a number of
+    critical sections remain unprotected in Ocamlnet, and you'll experience
+    crashes).
 
     {3 Installing scripts}
 

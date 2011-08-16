@@ -15,7 +15,13 @@ CRYPTOKIT_LIBS= nums.cma cryptokit.cma
 INCLUDES += -I $(CRYPTOKIT_PATH)
 endif
 
-LIBS_CMA	= str.cma pcre.cma unix.cma bigarray.cma netsys_oothr.cmo netsys.cma netstring.cma \
+PCRE_PATH= $(shell $(OCAMLFIND) query pcre)
+ifneq "$(PCRE_PATH)" ""
+PCRE_LIBS= pcre.cma
+INCLUDES += -I $(PCRE_PATH)
+endif
+
+LIBS_CMA	= str.cma $(PCRE_LIBS) unix.cma bigarray.cma netsys_oothr.cmo netsys.cma netstring.cma \
   $(CRYPTOKIT_LIBS)
 LIBS_CMXA1	= $(LIBS_CMA:.cma=.cmxa)
 LIBS_CMXA 	= $(LIBS_CMXA1:.cmo=.cmx)
@@ -36,6 +42,10 @@ ifneq "$(CRYPTOKIT_PATH)" ""
 PROGRAMS += filemanager_apache.cma
 endif
 endif
+
+counter_apache.cma: counter.cmo counter_apache.cmo
+	$(OCAMLC) -a -o counter_apache.cma \
+		$(OCAMLC_FLAGS) counter.cmo counter_apache.cmo
 
 ######################################################################
 
