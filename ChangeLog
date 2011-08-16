@@ -1,3 +1,8 @@
+2011-08-16  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* netcgi_apache: adding support for Findlib
+	  (new directives NetcgiRequire et al)
+
 2011-08-05  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Released: ocamlnet-3.3.7

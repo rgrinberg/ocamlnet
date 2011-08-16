@@ -405,7 +405,8 @@ mkdir -p tmp
 cat <<_EOF_ >tmp/t.ml
 let _ = Mutex.create();;
 _EOF_
-if ocamlopt -thread -o tmp/t${exec_suffix} ${OCAMLOPTFLAGS} unix.cmxa threads.cmxa tmp/t.ml 2>/dev/null; then
+if ocamlopt -thread -o tmp/t${exec_suffix} ${OCAMLOPTFLAGS} unix.cmxa threads.cmxa tmp/t.ml 2>/dev/null ||
+    ocamlc -thread -o tmp/t${exec_suffix} unix.cma threads.cma tmp/t.ml 2>/dev/null; then
     if tmp/t${exec_suffix} 2>/dev/null; then
 	mt_type=posix
 	mt_switch="-thread"

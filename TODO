@@ -1,5 +1,9 @@
 OCAMLNET
 
+- bug netcgi2-apache:
+  add -Wl,--rpath,$(APACHE_OCAMLLIBDIR) to $(APXS) for builing the .so
+  the --rpath option is platform-dependent, though
+
 - Reverse proxy for Nethttpd
 
 - ephemeral bug in Netplex: when the container shuts down, the controller
