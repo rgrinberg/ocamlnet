@@ -723,7 +723,7 @@ let timeout_engine d exn eng =
     eng
 
 
-class ['a] timeout_engine d exn eng =
+class ['a] timeout_engine d exn (eng : _ engine) =
   ['a] delegate_engine(timeout_engine d exn eng)
 
 

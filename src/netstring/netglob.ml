@@ -773,7 +773,7 @@ end
 
 
 class of_stream_fs fs0 =
-  let fs = (fs0 :> Netfs.stream_fs) in
+  let fs = (fs0 : #Netfs.stream_fs :> Netfs.stream_fs) in
   of_dual_stream_fs fs fs
 
 let of_stream_fs = new of_stream_fs
