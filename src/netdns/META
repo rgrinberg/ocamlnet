@@ -1,0 +1,4 @@
+description = "DNS resolver library"
+requires = "rpc pcre"
+archive(byte) = "dns.cma"
+archive(native) = "dns.cmxa"

@@ -1,0 +1,31 @@
+USE_OCAMLFIND = true
+BYTE_ENABLED = true
+
+DNS_FILES = netdns_lexer netdns_message netdns_transport netdns_client \
+	    netdns_resolver
+
+OCAMLPACKS += rpc pcre camlp4 camlp4.macro
+
+# Check if we have ocamlnet3 and pass this on to "macro":
+defs_on3 =
+if $(eq $(shell-code ./have_ocamlnet3.sh),0)
+    defs_on3 = -ppopt "-D OCAMLNET3"
+    export
+
+OCAMLFINDFLAGS    += -syntax camlp4o $(defs_on3)
+
+.DEFAULT: dns.cma dns.cmxa
+
+LocalOCamlGeneratedFiles(netdns_lexer.ml)
+
+.PHONY: clean
+
+clean:
+        rm -f *.o *.a *.cm* *~ *.annot netdns_lexer.ml
+	rm -f resolve resolve.run resolve.opt
+
+OCamlLibrary(dns, $(DNS_FILES))
+
+section
+    OCAML_LIBS = dns
+    OCamlProgram(resolve, resolve)

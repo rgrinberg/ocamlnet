@@ -1,0 +1,22 @@
+#! /bin/sh
+
+version=0.1
+
+cd ..
+tar czf netdns-$version.tar.gz \
+	netdns/README \
+	netdns/LICENSE \
+	netdns/META \
+	netdns/OMakeroot \
+	netdns/OMakefile \
+	netdns/netdns_client.ml \
+	netdns/netdns_client.mli \
+	netdns/netdns_lexer.mll \
+	netdns/netdns_message.ml \
+	netdns/netdns_message.mli \
+	netdns/netdns_resolver.ml \
+	netdns/netdns_resolver.mli \
+	netdns/netdns_transport.ml \
+	netdns/netdns_transport.mli \
+	netdns/resolve.ml
+

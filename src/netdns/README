@@ -1,0 +1,40 @@
+About Netdns
+
+Netdns is a library for doing asynchronous DNS lookups. It is not yet 
+complete, but already usable as a so-called stub resolver (i.e. it 
+needs a real DNS server in the LAN it can forward all requests to).
+
+This version (0.1) is a pre-release. We know that this library is not
+yet in the state it should be. Nevertheless, the stub resolver function
+works and might be useful.
+
+For the license conditions, see the file LICENSE.
+
+Prerequisites
+
+You need the following to build netdns:
+
+- omake
+- ocamlnet
+- ocamlpcre
+
+Build & Install
+
+Build netdns by simply typing "omake".
+
+There is currently no make rule to install this library. Regular
+ocaml users will certainly know how to do that. 
+
+How to use
+
+See the program resolve.ml for an example (build with 
+"omake resolve"). It accepts several host names on the command line
+and resolves them in parallel. Note that you have to specify the
+-server option to name the DNS server to which the requests are
+to be directed.
+
+Who developed this library
+
+Netdns has been developed by Gerd Stolpmann <gerd@gerd-stolpmann.de>
+as contract work for Wink Technologies (http://wink.com).
+
