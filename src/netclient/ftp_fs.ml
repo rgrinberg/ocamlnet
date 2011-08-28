@@ -9,6 +9,7 @@ object
 
   method ftp_client : Ftp_client.ftp_client
   method last_ftp_state : Ftp_client.ftp_state
+  method translate : string -> string
   method close : unit -> unit
 end
 
@@ -21,12 +22,14 @@ let ftp_schemes =
   Hashtbl.add ht "ftp" ftp_syn;
   ht
 
+type any_wflag = [ Netfs.write_flag | Netfs.write_file_flag ]
+
 
 class ftp_fs ?(config_client = fun _ -> ())
              ?tmp_directory
              ?tmp_prefix
-             ?(get_password = fun () -> "")
-             ?(get_account = fun () -> "")
+             ?(get_password = fun _ -> "")
+             ?(get_account = fun _ -> "")
 	     ?(keep_open = false)
              base_url_s : ftp_stream_fs =
   (* parse base_url: *)
@@ -80,11 +83,13 @@ class ftp_fs ?(config_client = fun _ -> ())
 			     with Not_found -> None)
 		      ()
 		   );
+	let user = 
+	  try Neturl.url_user base_url
+	  with Not_found -> "anonymous" in
 	ftp # exec (Ftp_client.login_method
-		      ~user:(try Neturl.url_user base_url
-			     with Not_found -> "anonymous")
-		      ~get_password
-		      ~get_account
+		      ~user
+		      ~get_password:(fun () -> get_password user)
+		      ~get_account:(fun () -> get_account user)
 		      ()
 		   );
       );
@@ -115,7 +120,7 @@ class ftp_fs ?(config_client = fun _ -> ())
     if supports_utf8 then Some `Enc_utf8 else None in
   let translate path =
     (* Check path. Also prepend the path from the base URL. The returned
-       path does not start with /. If just the root dir is means this function
+       path does not start with /. If just the root dir is meant this function
        returns the empty string.
      *)
     if path = "" then
@@ -157,6 +162,8 @@ class ftp_fs ?(config_client = fun _ -> ())
        to `NVFS in this case
      *)
     if supports_tvfs && p <> "" then `TVFS p else `NVFS p in
+
+  let cancel_flag = ref (ref false) in
   
 object(self)
   method path_encoding = path_encoding
@@ -164,6 +171,21 @@ object(self)
   method nominal_dot_dot = true
   method ftp_client = ftp
 
+  method translate path =
+    let ftp_path = translate path in
+    let raw_path =
+      match ftp_path with
+	| `TVFS p -> p
+	| `NVFS p -> p in
+    let url_path = "" :: Neturl.split_path raw_path in
+    Neturl.string_of_url
+      (Neturl.modify_url
+	 ~path:url_path
+	 (Neturl.remove_from_url
+	    ~password:true
+	    base_url
+	 ))
+    
   method last_ftp_state =
     match !last_ftp_state with
       | None ->
@@ -174,11 +196,10 @@ object(self)
   method close() =
     ftp # reset()
 
-  method read flags path =
+  method private read_impl binary path =
     last_ftp_state := None;
     let vfs = translate path in
-    let representation =
-      if List.mem `Binary flags then `Image else `ASCII None in
+    let representation = if binary then `Image else `ASCII None in
     let cur_tmp = ref None in
     let cleanup() =
       match !cur_tmp with
@@ -211,20 +232,43 @@ object(self)
         | None ->
             assert false
         | Some (tmp_name,inch,outch) ->
-            (* Success *)
-	    let skip =
-	      try 
-		Http_fs.find_flag (function `Skip p -> Some p | _ -> None) flags
-	      with Not_found -> 0L in
-	    LargeFile.seek_in inch skip;
-	    new Netchannels.input_channel
-	      ~onclose:cleanup
-	      inch
+	    (tmp_name,inch,outch,cleanup)
     with error ->
       cleanup();
       raise error
 
-  method write flags path =
+  method read flags path =
+    let binary = List.mem `Binary flags in
+    let (tmp_name,inch,outch,cleanup) = self # read_impl binary path in
+    let skip =
+      try 
+	Http_fs.find_flag (function `Skip p -> Some p | _ -> None) flags
+      with Not_found -> 0L in
+    LargeFile.seek_in inch skip;
+    new Netchannels.input_channel
+      ~onclose:cleanup
+      inch
+
+  method read_file flags path =
+    let binary = List.mem `Binary flags in
+    let (tmp_name,inch,outch,cleanup) = self # read_impl binary path in
+    close_in inch;
+    close_out outch;
+    ( object
+	method filename = tmp_name
+	method close() = cleanup()
+      end
+    )
+
+  method write_file flags path local =
+    Netchannels.with_in_obj_channel
+      (new Netchannels.input_channel (open_in_bin local#filename))
+      (fun obj_inch ->
+	 self # write_file_impl
+	   (flags :> any_wflag list) path obj_inch local#close
+      )
+
+  method private write_file_impl flags path obj_inch close =
     last_ftp_state := None;
     let vfs = translate path in
     let representation =
@@ -249,66 +293,73 @@ object(self)
 	else
 	  None in
 
-    let cur_tmp = ref None in
+    transaction
+      (fun () ->
+	 try
+	   ( match req with
+	       | None -> ()
+	       | Some r_exists ->
+		   let exists =
+		     try
+		       ftp # exec (Ftp_client.mlst_method
+				     ~file:vfs
+				     ~process_result:(fun _ -> ())
+				     ()
+				  );
+		       true
+		     with
+		       | FTP_method_perm_failure(550,_) -> false in
+		   if exists <> r_exists then
+		     let ecode =
+		       if r_exists then Unix.ENOENT else Unix.EEXIST in
+		     raise(uerror ecode path "Ftp_fs.write");
+	   );
+	   ftp # exec (Ftp_client.put_method
+			 ~file:vfs
+			 ~representation
+			 ~store:(fun _ -> `File_structure obj_inch)
+			 ()
+		      );
+	   
+	   close()
+	 with
+	   | error ->
+	       close();
+	       raise error
+      )
+      path
+      "Ftp_fs.write"
+    
+  method write flags path =
+    let this_cancel_flag = !cancel_flag in
     let (tmp_name, inch, outch) =
       Netchannels.make_temporary_file 
 	?tmp_directory ?tmp_prefix () in
-    cur_tmp := Some (tmp_name, inch, outch);
-
+    let obj_inch =
+      new Netchannels.input_channel inch in
+    let close() =
+      close_in inch;
+      close_out outch;
+      ( try Unix.unlink tmp_name with _ -> () ) in
     let do_write() =
-      transaction
-	(fun () ->
-	   close_out outch;
-
-	   try
-	     ( match req with
-		 | None -> ()
-		 | Some r_exists ->
-		     let exists =
-		       try
-			 ftp # exec (Ftp_client.mlst_method
-				       ~file:vfs
-				       ~process_result:(fun _ -> ())
-				       ()
-				    );
-			 true
-		       with
-			 | FTP_method_perm_failure(550,_) -> false in
-		     if exists <> r_exists then
-		       let ecode =
-			 if r_exists then Unix.ENOENT else Unix.EEXIST in
-		       raise(uerror ecode path "Ftp_fs.write");
-	     );
-	     
-	     ftp # exec (Ftp_client.put_method
-			   ~file:vfs
-			   ~representation
-			   ~store:(fun _ ->
-				     let obj_inch =
-				       new Netchannels.input_channel inch in
-				     `File_structure obj_inch
-				  )
-			   ()
-			);
-	     
-	     close_in inch;
-	     ( try Unix.unlink tmp_name with _ -> () )
-	   with
-	     | error ->
-		 close_in inch;
-		 ( try Unix.unlink tmp_name with _ -> () );
-		 raise error
-	)
-	path
-	"Ftp_fs.write"
-    in
-    
+      if !this_cancel_flag then
+	close()
+      else
+	self # write_file_impl (flags :> any_wflag list) path obj_inch close in
     let obj_outch =
       new Netchannels.output_channel 
 	~onclose:do_write
 	outch in
-
     obj_outch
+
+  method cancel() =
+    (* This cancellation affects all [write]s that were started until
+       now...
+     *)
+    let this_cancel_flag = !cancel_flag in
+    this_cancel_flag := true;
+    (* All new [write]s are not cancelled, of course: *)
+    cancel_flag := (ref false)
 
   method size flags path =
     last_ftp_state := None;

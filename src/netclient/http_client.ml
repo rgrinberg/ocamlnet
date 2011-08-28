@@ -206,7 +206,7 @@ let http_re =
      \\([/?].*\\)?$"
  *)
 
-let parse_url ?base_url options url =
+let parse_url_0 ?base_url schemes url =
   try
     let sch = 
       try Neturl.extract_url_scheme url 
@@ -216,7 +216,7 @@ let parse_url ?base_url options url =
 	    | Some b -> Neturl.url_scheme b
 	) in
     let (_,syn,p_opt,cb) = 
-      List.find (fun (sch',_,_,_) -> sch=sch') !options.schemes in
+      List.find (fun (sch',_,_,_) -> sch=sch') schemes in
     let ht = Hashtbl.create 1 in
     Hashtbl.add ht sch syn;
     let url' = Neturl.fixup_url_string ~escape_hash:true url in
@@ -232,6 +232,9 @@ let parse_url ?base_url options url =
     (Neturl.default_url ?port:p_opt nu2, cb)
   with
     | Neturl.Malformed_URL -> raise Not_found
+
+let parse_url ?base_url options url =
+  parse_url_0 ?base_url !options.schemes url
 
 (*
   match Netstring_str.string_match http_re url 0 with
@@ -409,7 +412,6 @@ object
   method is_idempotent : bool
   method has_req_body : bool
   method has_resp_body : bool
-  method channel_binding : channel_binding_id
   method set_channel_binding : channel_binding_id -> unit
   method same_call : unit -> http_call
   method get_req_method : unit -> string
@@ -435,6 +437,8 @@ object
   method parse_request_uri : http_options ref -> unit
   method request_uri_with : ?path:string option -> ?remove_particles:bool ->
                             unit -> Neturl.url
+
+  method channel_binding : http_options ref -> channel_binding_id
 
   method get_error_counter : int
   method set_error_counter : int -> unit
@@ -540,6 +544,7 @@ object(self)
   val mutable req_uri_raw = ""
 
   val mutable req_cb = http_cb_id
+  val mutable req_cb_set = false
   val mutable req_secure = false
   val mutable req_host = ""   (* derived from req_uri *)
   val mutable req_port = 80   (* derived from req_uri *)
@@ -684,11 +689,16 @@ object(self)
                   with Not_found -> "") ^
                 ( try "?" ^ Neturl.url_query ~encoded:true nu 
                   with Not_found -> "");
-	      req_cb <- cb;
+	      if not req_cb_set then
+		req_cb <- cb;
 	    with
 		Not_found ->
 		  failwith "Http_client: bad URL"
 	  )
+
+	method channel_binding options =
+	  pself # parse_request_uri options;
+	  req_cb
 
 	method request_uri_with ?path ?(remove_particles=false) () =
 	  match req_uri with
@@ -908,8 +918,9 @@ object(self)
   method request_uri = req_uri_raw
   method set_request_uri uri = req_uri_raw <- uri; req_uri <- None
 
-  method channel_binding = req_cb
-  method set_channel_binding cb = req_cb <- cb
+  method set_channel_binding cb = 
+    req_cb <- cb;
+    req_cb_set <- true
 
 
   method request_header (k:header_kind) =
@@ -4592,6 +4603,25 @@ let robust_pipeline
  * world.
  *)
 
+type proxy_type = [`Http_proxy | `Socks5 ] 
+
+let parse_proxy_setting url =
+  let syn = Neturl.ip_url_syntax in
+  let (nu,cb) = 
+    try parse_url_0 [ "http", syn, Some 80, http_cb_id ] url
+    with Not_found -> failwith ("Invalid proxy URL: " ^ url) in
+  let auth =
+    try
+      let u = Neturl.url_user nu in       (* may raise Not_found *)
+      let p = Neturl.url_password nu in   (* may raise Not_found *)
+      Some(u,p)
+    with Not_found -> None in
+  (Neturl.url_host nu, Neturl.url_port nu, auth)
+
+let parse_no_proxy =
+  split_words_by_commas
+
+
 class pipeline =
   object (self)
     val mutable esys = Unixqueue.create_unix_event_system()
@@ -4602,6 +4632,7 @@ class pipeline =
     val mutable proxy_user = ""
     val mutable proxy_password = ""
     val mutable proxy_type = `Http_proxy
+    val tproxy = Hashtbl.create 5  (* transport-specific proxy *)
 
     val mutable no_proxy_for = []
 
@@ -4708,23 +4739,42 @@ class pipeline =
       (* Is the environment variable "http_proxy" set? *)
       let http_proxy =
 	try Sys.getenv "http_proxy" with Not_found -> "" in
-      begin try
-	let (nu,cb) = parse_url options http_proxy in  (* may raise Not_found *)
-	self # set_proxy (Neturl.url_host nu) (Neturl.url_port nu);
-	let u = Neturl.url_user nu in       (* may raise Not_found *)
-	let p = Neturl.url_password nu in   (* may raise Not_found *)
-	self # set_proxy_auth u p
-      with
-	Not_found -> ()
-      end;
+      if http_proxy <> "" then (
+	let (host,port,auth) = parse_proxy_setting http_proxy in
+	self # set_proxy host port;
+	match auth with
+	  | None -> ()
+	  | Some(u,p) ->
+	      self # set_proxy_auth u p
+      );
 
       (* Is the environment variable "no_proxy" set? *)
       let no_proxy =
 	try Sys.getenv "no_proxy" with Not_found -> "" in
       let no_proxy_list =
-	split_words_by_commas no_proxy in
+	parse_no_proxy no_proxy in
       self # avoid_proxy_for no_proxy_list;
 
+
+    method set_transport_proxy_from_environment l =
+      List.iter
+	(fun (var_name, cb_id) ->
+	   let var =
+	     try Sys.getenv var_name with Not_found -> "" in
+	   if var <> "" then (
+	     let (host,port,auth) = parse_proxy_setting var in
+	     self # set_transport_proxy cb_id host port auth `Http_proxy
+	   );
+	)
+	l;
+
+      (* Is the environment variable "no_proxy" set? *)
+      let no_proxy =
+	try Sys.getenv "no_proxy" with Not_found -> "" in
+      let no_proxy_list =
+	parse_no_proxy no_proxy in
+      self # avoid_proxy_for no_proxy_list
+      
 
     method set_socks5_proxy host port =
       proxy       <- host;
@@ -4734,6 +4784,9 @@ class pipeline =
 
     method configure_transport (cb:int) (tp:transport_channel_type) =
       Hashtbl.replace transports cb tp
+
+    method set_transport_proxy cb host port auth (pt:proxy_type) =
+      Hashtbl.replace tproxy cb (host,port,auth,pt)
 
     method reset () =
       (* deletes all pending requests; closes connection *)
@@ -4758,48 +4811,92 @@ class pipeline =
  *)
 
       self # reset_counters()
-      
 
-    method private add_with_callback_no_redirection (request : http_call) f_done =
+
+    method private peer_of_call request =
+      request # private_api # parse_request_uri options;
 
       let host = request # get_host() in
       let port = request # get_port() in
-      let cb = request # channel_binding in
+      let cb = request # private_api # channel_binding options in
 
-      let use_proxy = 
-	proxy <> "" &&
+      let peer_of_proxy h p pt =
+      	match pt with
+	  | `Http_proxy ->
+	      if request # proxy_use_connect then
+		`Http_proxy_connect((h,p),(host,port))
+	      else
+		`Http_proxy(h,p)
+	  | `Socks5 ->
+	      `Socks5((h,p),(host,port)) in
+
+      let proxy_possible =
 	request # proxy_enabled &&
-	not
-          (List.exists
-             (fun dom ->
-                if dom <> "" &
-                   dom.[0] = '.' &
-		   String.length host > String.length dom
-                then
-                  let ld = String.length dom in
-                  String.lowercase(String.sub 
-                                     host 
-                                     (String.length host - ld) 
-                                     ld)
-                  = String.lowercase dom
-                else
-                  dom = host)
-             no_proxy_for)
-      in
+	  (not
+             (List.exists
+		(fun dom ->
+		   if dom <> "" &&
+                     dom.[0] = '.' &&
+		     String.length host > String.length dom
+		   then
+                     let ld = String.length dom in
+                     String.lowercase(String.sub 
+					host 
+					(String.length host - ld) 
+					ld)
+                     = String.lowercase dom
+		   else
+                     dom = host)
+		no_proxy_for
+	     )) in
+      try
+	if proxy_possible then ( 
+	  try
+	    let (h,p,a,pt) = Hashtbl.find tproxy cb in
+	    (peer_of_proxy h p pt, a)
+	  with
+	    | Not_found ->
+		if proxy = "" then raise Not_found;
+		(peer_of_proxy proxy proxy_port proxy_type, 
+		 if proxy_auth then
+		   Some(proxy_user, proxy_password)
+		 else
+		   None
+		)
+	)
+	else raise Not_found
+      with Not_found ->
+	(`Direct(host,port), None)
+
+
+    method proxy_type_of_call request =
+      let peer, auth = self # peer_of_call request in
+      match peer with
+	| `Http_proxy _ -> Some `Http_proxy
+	| `Http_proxy_connect _ -> Some `Http_proxy
+	| `Socks5 _ -> Some `Socks5
+	| `Direct _ -> None
+
+
+    method proxy_type url : proxy_type option =
+      let request = new get url in  (* pseudo request *)
+      self # proxy_type_of_call request
+
+
+    method channel_binding (req : http_call) =
+      req # private_api # channel_binding options
+
+
+    method private add_with_callback_no_redirection (request : http_call) f_done =
+
+      let cb = request # private_api # channel_binding options in
 
       (* find out the effective peer: *)
-      let peer =
-	if use_proxy then
-	  match proxy_type with
-	    | `Http_proxy ->
-		if request # proxy_use_connect then
-		  `Http_proxy_connect((proxy,proxy_port),(host,port))
-		else
-		  `Http_proxy(proxy,proxy_port)
-	    | `Socks5 ->
-		`Socks5((proxy,proxy_port),(host,port))
-	else
-	  `Direct(host,port) in
+      let peer, auth = self # peer_of_call request in
+      let use_proxy =
+	match peer with
+	  | `Direct _ -> false
+	  | _ -> true in
 
       (* Find out if there is already a connection to this peer: *)
 
@@ -4823,11 +4920,12 @@ class pipeline =
 	      with Not_found ->
 		failwith "Http_client: No transport for this channel binding" in
 	    let proxy_auth_handler_opt =
-	      if proxy_auth then
-		let kh = new proxy_key_handler proxy_user proxy_password in
-		Some(new unified_auth_handler kh)
-	      else
-		None in
+	      match auth with
+		| Some(u,p) ->
+		    let kh = new proxy_key_handler u p in
+		    Some(new unified_auth_handler kh)
+		| None -> 
+		    None in
 	    let new_conn = robust_pipeline
 	                     esys tp cb
 	                     peer

@@ -76,9 +76,11 @@ end
 
 class shell_fs : ?encoding:Netconversion.encoding -> ?root:string -> 
                  ?dd_has_excl:bool ->
+                 ?tmp_directory:string -> ?tmp_prefix:string ->
                  command_interpreter -> shell_stream_fs
 val shell_fs : ?encoding:Netconversion.encoding -> ?root:string -> 
                ?dd_has_excl:bool ->
+               ?tmp_directory:string -> ?tmp_prefix:string ->
                command_interpreter -> shell_stream_fs
   (** The shell filesystem.
 
@@ -88,7 +90,10 @@ val shell_fs : ?encoding:Netconversion.encoding -> ?root:string ->
         be an absolute path, or a relative path. 
       - [dd_has_excl]: whether the [dd] command support "conv=excl".
         Default is [false]; this is a GNU extension.
-      
+      - [tmp_directory] and [tmp_prefix] are only meaningful for
+        the [write_file] method which creates a temporary file.
+        See {!Netchannels.make_temporary_file} for more information.
+     
    *)
 
 

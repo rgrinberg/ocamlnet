@@ -75,8 +75,15 @@
 type read_flag =
     [ Netfs.read_flag | `Header of (string*string)list ]
 
+type read_file_flag =
+    [ Netfs.read_file_flag | `Header of (string*string)list ]
+
 type write_flag =
     [ Netfs.write_flag | `Header of (string*string)list ]
+
+type write_file_flag =
+    [ Netfs.write_file_flag | `Header of (string*string)list ]
+
 
 class type http_stream_fs =
 object
@@ -85,7 +92,17 @@ object
 	- [`Header h]: Set these headers in the submitted GET request
      *)
     
+  method read_file : read_file_flag list -> string -> Netfs.local_file
+    (** Additional flag:
+	- [`Header h]: Set these headers in the submitted GET request
+     *)
+
   method write : write_flag list -> string -> Netchannels.out_obj_channel
+    (** Additional flag:
+	- [`Header h]: Set these headers in the submitted PUT request
+     *)
+
+  method write_file : write_file_flag list -> string -> Netfs.local_file -> unit
     (** Additional flag:
 	- [`Header h]: Set these headers in the submitted PUT request
      *)
@@ -108,6 +125,9 @@ object
       (For formal reasons we cannot inherit from this class type.)
    *)
 
+  method translate : string -> string
+    (** Translates a path into a URL *)
+
   method path_encoding : Netconversion.encoding option
   method path_exclusions : (int * int) list
   method nominal_dot_dot : bool
@@ -122,6 +142,7 @@ object
   method mkdir : Netfs.mkdir_flag list -> string -> unit
   method rmdir : Netfs.rmdir_flag list -> string -> unit
   method copy : Netfs.copy_flag list -> string -> string -> unit
+  method cancel : unit -> unit
 end
 
 

@@ -207,7 +207,9 @@ let link_re = Netstring_str.regexp ".*? -> \\(.*\\)$"
 
 exception Not_absolute
 
-class shell_fs ?encoding ?(root="/") ?(dd_has_excl=false) (ci : command_interpreter) : shell_stream_fs =
+class shell_fs ?encoding ?(root="/") ?(dd_has_excl=false)
+               ?tmp_directory ?tmp_prefix
+               (ci : command_interpreter) : shell_stream_fs =
   let () =
     match encoding with
       | None -> ()
@@ -360,6 +362,32 @@ object(self)
     ci#exec !cctx;
     ch
 
+  method read_file flags filename =
+    let (tmp_name, inch, outch) =
+      Netchannels.make_temporary_file 
+        ?tmp_directory ?tmp_prefix () in
+    close_in inch;
+    try
+      Netchannels.with_out_obj_channel
+	(new Netchannels.output_channel outch)
+	(fun obj_outch ->
+	   Netchannels.with_in_obj_channel
+	     (self # read [] filename)
+	     (fun obj_inch ->
+		obj_outch # output_channel obj_inch
+	     )
+	);
+      ( object
+	  method filename = tmp_name
+	  method close() =
+	    try Sys.remove tmp_name with _ -> ()
+	end
+      )
+    with
+      | error ->
+	  ( try Sys.remove tmp_name with _ -> ());
+	  raise error
+
   method write flags filename =
     Buffer.clear stderr_buf;
     let fn = get_sh_path filename in
@@ -414,6 +442,24 @@ object(self)
     cctx := { !cctx with sfs_stdin = stdin_producer };
     ci#exec !cctx;
     ch
+
+  method write_file flags filename local =
+    let flags' =
+      List.map
+	(function
+	   | #Netfs.write_common as x -> (x :> Netfs.write_flag)
+	   | _ -> `Dummy
+	)
+	flags in
+    Netchannels.with_in_obj_channel
+      (new Netchannels.input_channel (open_in_bin local#filename))
+      (fun obj_inch ->
+	 Netchannels.with_out_obj_channel
+	   (self # write flags' filename)
+	   (fun obj_outch ->
+	      obj_outch # output_channel obj_inch
+	   )
+      )
 
   method size _ filename =
     Buffer.clear stderr_buf;
@@ -692,6 +738,8 @@ object(self)
 	  raise(Unix.Unix_error(Unix.ENOENT, "Shell_fs.readlink", filename))
       | _ ->
 	  raise(Unix.Unix_error(Unix.EPERM, "Shell_fs.readlink", filename))
+
+  method cancel() = ()
 
 end
 

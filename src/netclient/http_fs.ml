@@ -12,15 +12,26 @@ module StrSet = Set.Make(String)
 type read_flag =
     [ Netfs.read_flag | `Header of (string*string)list ]
 
+type read_file_flag =
+    [ Netfs.read_file_flag | `Header of (string*string)list ]
+
 type write_flag =
     [ Netfs.write_flag | `Header of (string*string)list ]
+
+type write_file_flag =
+    [ Netfs.write_file_flag | `Header of (string*string)list ]
+
+type any_wflag = [ write_flag | write_file_flag ]
 
 class type http_stream_fs =
 object
   method read : read_flag list -> string -> Netchannels.in_obj_channel
+  method read_file : read_file_flag list -> string -> Netfs.local_file
   method write : write_flag list -> string -> Netchannels.out_obj_channel
+  method write_file : write_file_flag list -> string -> Netfs.local_file -> unit
   method last_response_header : Nethttp.http_header
   method pipeline : Http_client.pipeline
+  method translate : string -> string
 
   method path_encoding : Netconversion.encoding option
   method path_exclusions : (int * int) list
@@ -36,7 +47,12 @@ object
   method mkdir : Netfs.mkdir_flag list -> string -> unit
   method rmdir : Netfs.rmdir_flag list -> string -> unit
   method copy : Netfs.copy_flag list -> string -> string -> unit
+  method cancel : unit -> unit
 end
+
+(* ensure this is a subtype of Netfs.stream_fs *)
+let _f (x : http_stream_fs) =
+  ignore(x :> Netfs.stream_fs)
 
 
 let http_body ~open_value_rd ~open_value_wr =
@@ -291,11 +307,15 @@ class http_fs
     with Interrupt -> () in
   let last_response_header = ref None in
 
+  let cancel_flag = ref (ref false) in
+  
+
 object(self)
   method path_encoding = Some path_encoding
   method path_exclusions = [0,0; 47,47]
   method nominal_dot_dot = true
   method pipeline = p
+  method translate = translate
 
   method last_response_header =
     match !last_response_header with
@@ -441,7 +461,63 @@ object(self)
 	    call # response_body # open_value_rd()
     )
 
+  method read_file flags path =
+    let url = translate path in
+    let call = new Http_client.get url in
+    let req_hdr = call # request_header `Base in
+    call # set_accept_encoding();
+    let header =
+      try find_flag (function `Header h -> Some h | _ -> None) flags
+      with Not_found -> [] in
+    List.iter (fun (n,v) -> req_hdr # update_field n v) header;
+    last_response_header := None;
+
+    let cur_tmp = ref None in 
+    call # set_response_body_storage
+      (`Body (fun () -> 
+		last_response_header := Some(call#response_header);
+		(* Check whether this is the last body *)
+		match is_error_response path call with
+		  | None ->
+		      let (tmp_name, inch, outch) =
+			Netchannels.make_temporary_file 
+			  ?tmp_directory ?tmp_prefix () in
+		      close_in inch;
+		      cur_tmp := Some tmp_name;
+		      http_body
+			~open_value_rd:(fun () -> 
+					  new Netchannels.input_channel inch)
+			~open_value_wr: (fun () ->
+             				   new Netchannels.output_channel outch)
+		  | Some _ ->
+		      discarding_body()
+	     ));
+    p # add call;
+    run();
+    match !cur_tmp with
+      | None ->
+	  (* Error *)
+	  handle_error path call  (* raise exception *)
+      | Some tmp_name ->
+	  (* Success *)
+	  let close() =
+	    try Unix.unlink tmp_name with _ -> () in
+	  if not enable_read_for_directories then
+	    check_dir (call # effective_request_uri) path;
+	  ( object
+	      method filename = tmp_name
+	      method close = close
+	    end
+	  )
+
   method write flags path =
+    self # write_impl (flags :> any_wflag list) path None
+
+  method write_file flags path local =
+    ignore(self # write_impl (flags :> any_wflag list) path (Some local))
+
+  method private write_impl flags path local_opt =
+    let this_cancel_flag = !cancel_flag in
     let url = translate path in
     let call = new Http_client.put_call in
     call # set_request_uri url;
@@ -484,7 +560,7 @@ object(self)
     let precondfailed = !precondfailed in
 	    
     last_response_header := None;
-    if streaming || List.mem `Streaming flags then (
+    if (streaming || List.mem `Streaming flags) && local_opt = None then (
       (* We cannot reconnect in streaming mode :-( *)
       call # set_reconnect_mode Http_client.Request_fails;
       (* We have to use chunked transfer encoding: *)
@@ -531,29 +607,58 @@ object(self)
       body # open_value_wr()
     )
     else (
-      let (tmp_name, inch, outch) =
-	Netchannels.make_temporary_file 
-	  ?tmp_directory ?tmp_prefix () in
-      let onclose() =
-	let st = Unix.LargeFile.stat tmp_name in
-	req_hdr # update_field
-	  "Content-length" (Int64.to_string st.Unix.LargeFile.st_size);
-	call # set_request_body (new Netmime.file_mime_body tmp_name);
-	( try
-	    p # add call;
-	    run();
-	    Unix.unlink tmp_name;
-	  with e -> Unix.unlink tmp_name; raise e
-	);
-	last_response_header := Some(call#response_header);
-	match is_error_response ~precondfailed path call with
+      let (fname, mk_return, close) =
+	match local_opt with
 	  | None ->
-	      ()
-	  | Some e ->
-	      raise e
+	      let (n,inch,outch) =
+		Netchannels.make_temporary_file 
+		  ?tmp_directory ?tmp_prefix () in
+	      close_in inch;
+	      let mkr onclose =
+		new Netchannels.output_channel ~onclose outch in
+	      let close() =
+		(try Unix.unlink n with _ -> ()) in
+	      (n, mkr, close)
+	  | Some local ->
+	      let mkr onclose =
+		onclose();
+		new Netchannels.output_null() in
+	      (local#filename, mkr, local#close) in
+
+      let onclose() =
+	if !this_cancel_flag then
+	  close()
+	else (
+	  let st = Unix.LargeFile.stat fname in
+	  req_hdr # update_field
+	    "Content-length" (Int64.to_string st.Unix.LargeFile.st_size);
+	  call # set_request_body (new Netmime.file_mime_body fname);
+	  ( try
+	      p # add call;
+	      run();
+	      close()
+	    with e -> close(); raise e
+	  );
+	  last_response_header := Some(call#response_header);
+	  match is_error_response ~precondfailed path call with
+	    | None ->
+		()
+	    | Some e ->
+		raise e
+	)
       in
-      new Netchannels.output_channel ~onclose outch
+      
+      mk_return onclose
     )
+
+  method cancel() =
+    (* This cancellation affects all [write]s that were started until
+       now...
+     *)
+    let this_cancel_flag = !cancel_flag in
+    this_cancel_flag := true;
+    (* All new [write]s are not cancelled, of course: *)
+    cancel_flag := (ref false)
 
   method size _ path =
     last_response_header := None;

@@ -3,8 +3,18 @@
 type read_flag =
     [ `Skip of int64 | `Binary | `Streaming | `Dummy ]
 
+type read_file_flag =
+    [ `Binary | `Dummy ]
+
 type write_flag =
     [ `Create | `Exclusive | `Truncate | `Binary | `Streaming | `Dummy ]
+
+type write_file_flag =
+    [ `Create | `Exclusive | `Truncate | `Binary | `Link | `Dummy ]
+
+type write_common =
+    [ `Create | `Exclusive | `Truncate | `Binary | `Dummy ]
+      (* The intersection of write_flag and write_file_flag *)
 
 type size_flag =
     [ `Dummy ]
@@ -39,13 +49,22 @@ type copy_flag =
 type test_type =
     [ `N | `E | `D | `F | `H | `R | `W | `X | `S ]
 
+class type local_file =
+object
+  method filename : string
+  method close : unit -> unit
+end
+
+
 class type stream_fs =
 object
   method path_encoding : Netconversion.encoding option
   method path_exclusions : (int * int) list
   method nominal_dot_dot : bool
   method read : read_flag list -> string -> Netchannels.in_obj_channel
+  method read_file : read_file_flag list -> string -> local_file
   method write : write_flag list -> string -> Netchannels.out_obj_channel
+  method write_file : write_file_flag list -> string -> local_file -> unit
   method size : size_flag list -> string -> int64
   method test : test_flag list -> string -> test_type -> bool
   method test_list : test_flag list -> string -> test_type list -> bool list
@@ -57,6 +76,7 @@ object
   method mkdir : mkdir_flag list -> string -> unit
   method rmdir : rmdir_flag list -> string -> unit
   method copy : copy_flag list -> string -> string -> unit
+  method cancel : unit -> unit
 end
 
 
@@ -68,7 +88,9 @@ object
   method path_exclusions = enosys ""
   method nominal_dot_dot = enosys ""
   method read _ p = enosys p
+  method read_file _ p = enosys p
   method write _ p = enosys p
+  method write_file _ p _ = enosys p
   method size _ p = enosys p
   method test _ p _ = enosys p
   method test_list _ p _ = enosys p
@@ -80,6 +102,7 @@ object
   method mkdir _ p = enosys p
   method rmdir _ p = enosys p
   method copy _ p _ = enosys p
+  method cancel () = enosys ""
 end
 
 
@@ -280,6 +303,17 @@ let local_fs ?encoding ?root ?(enable_relative_paths=false) () : stream_fs =
 	set_binary_mode_in ch binary;
 	new Netchannels.input_channel ch
 
+      method read_file flags filename =
+	let fn = real_root ^ check_and_norm_path filename in
+	let st = Unix.stat fn in
+	if st.Unix.st_kind = Unix.S_DIR then
+	  raise(Unix.Unix_error(Unix.EISDIR,"Netfs.read_file",""));
+	( object
+	    method filename = fn
+	    method close() = ()
+	  end
+	)
+
       method write flags filename =
 	let fn = real_root ^ check_and_norm_path filename in
 	let binary = List.mem `Binary flags in
@@ -298,6 +332,57 @@ let local_fs ?encoding ?root ?(enable_relative_paths=false) () : stream_fs =
 	let ch = Unix.out_channel_of_descr fd in
 	set_binary_mode_out ch binary;
 	new Netchannels.output_channel ch
+
+      method write_file flags filename local =
+	(* This is just a copy operation *)
+	let fn = real_root ^ check_and_norm_path filename in
+	let binary = List.mem `Binary flags in
+	let link = List.mem `Link flags in
+	let local_filename = local#filename in
+	let wflags = 
+	  List.map
+	    (function
+	       | #write_common as x ->
+		   (x :> write_flag)
+	       | _ -> `Dummy
+	    )
+	    flags in
+	try
+	  let do_copy =
+	    try
+	      not link || (
+		Unix.link local_filename fn;
+		false
+	      )
+	    with 
+	      | Unix.Unix_error( ( Unix.EACCES | Unix.ELOOP | 
+				   Unix.ENAMETOOLONG | Unix.ENOENT |
+                                   Unix.ENOTDIR | Unix.EPERM |
+                                   Unix.EROFS ), _, _) as e ->
+		  (* These errors cannot be fixed by doing copies instead *)
+		  raise e
+	      | Unix.Unix_error(_,_,_) ->
+		  true in
+	  if do_copy then (
+	    let fd_local = Unix.openfile local_filename [Unix.O_RDONLY] 0 in
+	    let ch_local = Unix.in_channel_of_descr fd_local in
+	    set_binary_mode_in ch_local binary;
+	    Netchannels.with_in_obj_channel
+	      (new Netchannels.input_channel ch_local)
+	      (fun obj_local ->
+		 Netchannels.with_out_obj_channel
+		   (self # write wflags filename)
+		   (fun out ->
+		      out # output_channel obj_local
+		   )
+	      );
+	  );
+	  local#close()
+	with
+	  | error ->
+	      local#close();
+	      raise error
+
 
       method size flags filename =
 	let fn = real_root ^ check_and_norm_path filename in
@@ -516,6 +601,11 @@ let local_fs ?encoding ?root ?(enable_relative_paths=false) () : stream_fs =
 
       method copy flags srcfilename destfilename =
 	copy_prim ~streaming:false self srcfilename self destfilename
+
+      method cancel () = ()
+	(* This is totally legal here - the user has to invoke close_out
+	   anyway as part of the cancellation protocol.
+	 *)
     end
   )
 

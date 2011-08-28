@@ -78,8 +78,18 @@
 type read_flag =
     [ `Skip of int64 | `Binary | `Streaming | `Dummy ]
 
+type read_file_flag =
+    [ `Binary | `Dummy ]
+
 type write_flag =
     [ `Create | `Exclusive | `Truncate | `Binary | `Streaming | `Dummy ]
+
+type write_file_flag =
+    [ `Create | `Exclusive | `Truncate | `Binary | `Link | `Dummy ]
+
+type write_common =
+    [ `Create | `Exclusive | `Truncate | `Binary | `Dummy ]
+      (** The intersection of [write_flag] and [write_file_flag] *)
 
 type size_flag =
     [ `Dummy ]
@@ -133,6 +143,16 @@ type test_type =
 	 - [`S]: the file exists and is non-empty
       *)
 
+class type local_file =
+object
+  method filename : string
+    (** The filename *)
+
+  method close : unit -> unit
+    (** Indicate that we are done with the file *)
+end
+
+
 class type stream_fs =
 object
   method path_encoding : Netconversion.encoding option
@@ -175,6 +195,18 @@ object
 	  there is no extra streaming mode.
      *)
 
+  method read_file : read_file_flag list -> string -> local_file
+    (** [read_file flags filename]:  Opens the file [filename] for reading,
+	and returns the contents as a [local_file]. Use the method
+	[filename] to get the file name of the local file. The file
+	may be temporary, but this is not required. The method [close]
+	of the returned object should be called when the file is no
+	longer needed. In case of a temporary file, the file can then
+	be deleted. Flags:
+	- [`Binary]: Opens the file in binary mode (if there is such
+	  a distinction)
+     *)
+
   method write : write_flag list -> string -> Netchannels.out_obj_channel
     (** [write flags filename]: Opens (and optionally creates) the [filename]
 	for writing, and returns the output stream. Flags:
@@ -194,6 +226,23 @@ object
 
 	It is unspecified whether the file appears in the directory directly
 	after calling [write] or first when the stream is closed.
+     *)
+
+  method write_file : write_file_flag list -> string -> local_file -> unit
+    (** [write_file flags filename localfile]:  Opens the file [filename] 
+	for writing, and copies the contents of the [localfile] to it.
+	It is ensured that the method [close] of [localfile] is called
+	once the operation is finished (whether successful or not).
+        Flags:
+	- [`Create]: If the (remote) file does not exist, create it
+	- [`Truncate]: If the file exists, truncate it to zero before
+	  writing
+	- [`Exclusive]: The [`Create] is done exclusively
+	- [`Binary]: Opens the file in binary mode (if there is such
+	  a distinction)
+        - [`Link]: Allows that the destination file is created as a hard
+	  link of the original file. This is tried whatever other mode
+	  is specified. If not successful, a copy is done instead.
      *)
 
   method size : size_flag list -> string -> int64
@@ -257,6 +306,12 @@ object
   method copy : copy_flag list -> string -> string -> unit
     (** Copies a file to a new name. This does not descent into directories.
 	Also, symlinks are resolved, and the linked file is copied.
+     *)
+
+  method cancel : unit -> unit
+    (** Cancels any ongoing [write]. The user must also call
+	the [close_out] method after cancelling. The effect
+	is that after the close no more network activity will occur.
      *)
 end
 

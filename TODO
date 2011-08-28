@@ -45,6 +45,8 @@ OCAMLNET
   netcgi2: Netcgi_common, class cgi: prep of properties searches
   for ':' in SERVER_NAME. This won't work anymore.
 
+- add utility functions for password hashing
+  (see /etc/passwd under Linux)
 
 - export Netcgi_common.error_page - DONE
 - Netmcore_mempool.shm_name_of_pool - DONE

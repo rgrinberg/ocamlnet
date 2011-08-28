@@ -603,10 +603,10 @@ object
       It is possible to change the channel binding to establish further
       types of security requirements (e.g. that certain client certificates
       are used), or even other details of the transport connection.
-   *)
 
-  method channel_binding : channel_binding_id
-    (** Reports the current channel binding *)
+      The method [channel_binding] is gone from this object type.
+      It is now available as part of [pipeline].
+   *)
 
   method set_channel_binding : channel_binding_id -> unit
     (** Sets the channel binding. Note that [set_request_uri] also sets
@@ -1047,6 +1047,8 @@ val new_cb_id : unit -> channel_binding_id
 val http_transport_channel_type : transport_channel_type
   (** Transport via HTTP *)
 
+type proxy_type = [`Http_proxy | `Socks5 ] 
+
 
 (** {1 Pipelines} *)
 
@@ -1151,6 +1153,34 @@ class pipeline :
 	   {!Http_client.http_cb_id}, i.e. for normal unencrypted channels.
 	*)
 
+    method set_transport_proxy : channel_binding_id ->
+                                 string ->
+                                 int ->
+                                 (string * string) option ->
+                                 proxy_type -> unit
+      (** [set_transport_proxy id host port auth ptype]: Sets a special
+	  proxy for the transport identified by [id]. This overrides
+	  [set_proxy], [set_proxy_auth], and [set_socks5_proxy] for the
+	  given transport.
+       *)
+
+    method set_transport_proxy_from_environment : 
+             (string * channel_binding_id) list -> unit
+      (** Like [set_proxy_from_environment], this method inspects environment
+	  variables and configures the proxy settings. This function, however,
+	  is more flexible, and can use different environment variables for
+	  different transports.
+
+	  The argument list has pairs [(var_name, id)] meaning that the
+	  environment variable [var_name] configures the proxy for [id].
+	  For instance, 
+	  {[ [("http_proxy", http_cb_id); ("https_proxy", https_cb_id)] ]}
+	  means that these two variables are used for the respective
+	  transports.
+
+	  The variable ["no_proxy"] is interpreted anyway.
+       *)
+
     method reset : unit -> unit
 	(** Empties the pipeline and inactivates any open connection.
 	 * The currently active operation is interrupted, and every request
@@ -1189,6 +1219,18 @@ class pipeline :
 	  when it is processed, the returned engine transitions to the
 	  state [`Done()].
        *)
+
+    method proxy_type : string -> proxy_type option
+      (** [proxy_type url] returns [Some pt] if a proxy would be used for this
+	  [url], and [None] if a direct connection would be made.
+       *)
+
+    method proxy_type_of_call : http_call -> proxy_type option
+      (** Same for an already created call object *)
+
+    method channel_binding : http_call -> channel_binding_id
+      (** Reports the current channel binding of this call *)
+
 
     method run : unit -> unit
       (** Runs through the requests in the pipeline. If a request can be
@@ -1293,6 +1335,21 @@ class pipeline :
   * | ...
   * ]}
  *)
+
+(** {2 Auxiliary pipeline functions} *)
+
+val parse_proxy_setting : string -> (string * int * (string * string) option)
+  (** Parses the value of an environment variable like [http_proxy],
+      i.e. an HTTP URL. The argument is the URL.
+      Returns [(host,port,auth)] where [auth] may include user name and
+      password.
+   *)
+
+val parse_no_proxy : string -> string list
+  (** Parses the value of an environment variable like [no_proxy]. Returns
+      the list of domains.
+   *)
+
 
 (** {1 Convenience module for simple applications} *)
 

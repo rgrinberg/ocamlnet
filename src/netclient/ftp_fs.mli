@@ -12,6 +12,9 @@ object
   method last_ftp_state : Ftp_client.ftp_state
     (** The last state of the last operation, or [Not_found] *)
 
+  method translate : string -> string
+    (** Translates a path into a URL *)
+
   method close : unit -> unit
     (** Forces that the FTP client is closed. (See [keep_open] option.)
 	The client remains functional - the next operation will re-open
@@ -23,8 +26,8 @@ end
 class ftp_fs : ?config_client:(Ftp_client.ftp_client -> unit) ->
                ?tmp_directory:string ->
                ?tmp_prefix:string ->
-               ?get_password:(unit -> string) ->
-               ?get_account:(unit -> string) ->
+               ?get_password:(string -> string) ->
+               ?get_account:(string -> string) ->
                ?keep_open:bool ->
                string -> ftp_stream_fs
   (** [ftp_fs base_url]: Access the FTP file system rooted at [base_url].
@@ -77,9 +80,9 @@ class ftp_fs : ?config_client:(Ftp_client.ftp_client -> unit) ->
       - [tmp_directory]: directory for temporary files
       - [tmp_prefix]: file prefix for temporary files (w/o directory)
       - [get_password]: This function should return the password for 
-        the user. Defaults to "".
+        the user (passed in as argument). Defaults to "".
       - [get_account]: This function should return the account name for 
-        the user. Defaults to "".
+        the user (passed in as argument). Defaults to "".
       - [keep_open]: By default, a new FTP connection is started for
         each operation, and it is shut down afterward. By setting [keep_open]
         the connection is kept open. The user has to call [close] when done.
@@ -89,8 +92,8 @@ class ftp_fs : ?config_client:(Ftp_client.ftp_client -> unit) ->
 val ftp_fs : ?config_client:(Ftp_client.ftp_client -> unit) ->
              ?tmp_directory:string ->
              ?tmp_prefix:string ->
-             ?get_password:(unit -> string) ->
-             ?get_account:(unit -> string) ->
+             ?get_password:(string -> string) ->
+             ?get_account:(string -> string) ->
              ?keep_open:bool ->
              string -> ftp_stream_fs
   (** Same as function *)
