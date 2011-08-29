@@ -10,6 +10,11 @@
     uses. Resolvers can be both synchronous or asynchronous. Note however,
     that the default resolver is synchronous and simply bases on
     [Unix.gethostbyname].
+
+    Requirements of the resolver:
+    - IP addresses may be enclosed in square brackets, but also given without
+      such brackets. If such an IP address is passed to the resolver, the
+      string address is just converted to a [Unix.inet_addr].
  *)
 
 (** {1 Asynchronous Interface} *)
@@ -73,6 +78,24 @@ val sockaddr_of_socksymbol : ?resolver:resolver ->
       pluggable resolver is used.
    *)
 
+(** {1 Resolvers} *)
+
+val default_resolver : unit -> resolver
+  (** The default resolver uses [Unix.gethostbyname] to look up names.
+      Note that this usually means that no IPv6 addresses are returned.
+   *)
+
+val gai_resolver : ?ipv4:bool -> ?ipv6:bool -> unit -> resolver
+  (** This resolver uses [Unix.getaddrinfo]. One can set whether IPv4
+      or IPv6 addresses may be returned (only one type is returned).
+      The order of addresses cannot
+      be set, but there is a global config file [/etc/gai.info].
+
+      The [h_aliases] field of the result is not set.
+
+      By default, both [ipv4] and [ipv6] are enabled.
+   *)
+
 
 (** {1 Plugins} *)
 
@@ -81,6 +104,3 @@ val current_resolver : unit -> resolver
 
 val set_current_resolver : resolver -> unit
   (** Set the pluggable resolver *)
-
-
-(* TODO: Set IPv6 behavior *)

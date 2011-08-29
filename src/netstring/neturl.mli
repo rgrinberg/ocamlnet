@@ -81,6 +81,9 @@
  * - Authorities may be terminated by a question mark, as in
  *   ["http://host?query"]. This is illegal in RFC 1738. The consequence
  *   is, however, that question marks in user strings must be escaped.
+ *
+ * RFC 3986 introduces IPv6 addresses. These are now supported (but see
+ * the comments below).
  *)
 
 exception Malformed_URL
@@ -237,7 +240,9 @@ val make_url :
       ?user_param:string list ->
       ?password:string ->
       ?host:string ->
+      ?addr:Unix.inet_addr ->
       ?port:int ->
+      ?socksymbol: Netsockaddr.socksymbol ->
       ?path:string list ->
       ?param:string list ->
       ?query:string ->
@@ -248,9 +253,14 @@ val make_url :
   (** Creates a URL from components:
    *
    * - The components [scheme] and [host] are simple strings to which the
-   *   [%]-encoding is not applicable.
+   *   [%]-encoding is not applicable. [host] may be a (DNS) name, an
+   *   IPv4 address as "dotted quad", or an IPv6 address enclosed in
+   *   brackets.
+   * - [addr] also sets [host], but directly from an [inet_addr].
    * - The component [port] is a simple number. Of course, the [%]-encoding
    *   is not applicable, too.
+   * - [socksymbol] sets both [host] and [port] from the socksymbol of
+   *   type [`Inet] or [`Inet_byname].
    * - The components [user], [password], [query], [fragment], and [other]
    *   are strings which may contain [%]-encoded characters. By default,
    *   you can pass any string for these components, and problematic characters
@@ -267,6 +277,9 @@ val make_url :
    *   for encoding the strings. Passing empty lists for these components
    *   means that they are not part of the constructed URL.
    *   See below for the respresentation of these components.
+   *
+   * [socksymbol] has precedence over [addr], which has precedence over
+   * [host]. [socksymbol] also has precedence over [port].
    *
    * The strings representing the components do not
    * contain the characters separating the components from each other.
@@ -308,7 +321,9 @@ val modify_url :
       ?user_param:string list ->
       ?password:string ->
       ?host:string ->
+      ?addr:Unix.inet_addr ->
       ?port:int ->
+      ?socksymbol: Netsockaddr.socksymbol ->
       ?path:string list ->
       ?param:string list ->
       ?query:string ->
@@ -421,11 +436,14 @@ val parse_url :
 
 val fixup_url_string : ?escape_hash:bool -> string -> string
   (** Escapes some unsafe or "unwise" characters that are commonly used
-    * in URL strings: space, < > \{ \} \[ \] ^ \\ | and double quotes.
+    * in URL strings: space, < > \{ \} ^ \\ | and double quotes.
     * Call this function before parsing the URL to support these
     * characters.
     *
     * If [escape_hash] is set, '#' is also escaped.
+    * 
+    * Change: Since Ocamlnet-3.4, square brackets are no longer fixed up,
+    * because they have now a legal use to denote IPv6 addresses.
    *)
 
 val url_provides :
@@ -461,6 +479,22 @@ val url_other     : ?encoded:bool -> url -> string
    * unless [encoded:true] is set.
    * If the component does not exist, the exception [Not_found]
    * is raised.
+   *
+   * Note that IPv6 addresses, when returned by [url_host], are enclosed
+   * in square brackets. Modules calling [url_host] may require porting
+   * to support this syntax variant.
+   *)
+
+val url_addr : url -> Unix.inet_addr
+  (** If the [host] part of the URL is an IP address, the address is returned.
+      Works for IPv4 and IPv6 addresses. Otherwise [Not_found] is raised.
+   *)
+
+val url_socksymbol : url -> int -> Netsockaddr.socksymbol
+  (** [url_socksymbol url default_port]: Returns the [host] and [port] parts
+      of the URL as [socksymbol]. If the port is missing in the URL,
+      [default_port] is substituted. If the [host] is missing in the URL
+      the exception [Not_found] is raised.
    *)
 
 val split_path : string -> string list

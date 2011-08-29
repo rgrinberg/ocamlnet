@@ -1,3 +1,19 @@
+2011-08-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Http_client: one can set a different proxy server for each
+	transport type
+
+	* Netfs: new methods read_file and write_file, for file-based
+	downloads and uploads, respectively.
+
+	* Netfs: new method cancel to stop an upload prematurely
+
+	* Http_fs, Ftp_fs: new method translate to get the URL for a file
+	operation
+
+	* Ftp_fs: the get_password and get_account functions take the user
+	name as input 
+
 2011-08-23  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Build fixes for Ocaml-3.11. There were some regressions.

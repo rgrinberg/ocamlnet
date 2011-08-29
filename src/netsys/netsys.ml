@@ -27,6 +27,27 @@ external int64_of_file_descr : Unix.file_descr -> int64
   = "netsys_int64_of_file_descr"
   (* Also occurs in netsys_win32.ml! *)
 
+let is_letter =
+  function
+    | 'a'..'z' -> true
+    | 'A'..'Z' -> true
+    | _ -> false
+
+let is_absolute path =
+  if is_win32 then
+    (String.length path >= 3 &&
+      is_letter path.[0] &&
+      path.[1] = ':' &&
+        (path.[2] = '/' || path.[2] = '\\')
+    ) ||
+      (String.length path >= 2 &&
+	 (path.[0] = '/' || path.[0] = '\\') &&
+	 (path.[1] = '/' || path.[1] = '\\')
+      )
+  else
+    path <> "" && path.[0] = '/'
+
+
 let restart = Netsys_impl_util.restart
 let restart_tmo = Netsys_impl_util.restart_tmo
 
@@ -576,14 +597,26 @@ let connect_check fd =
       ()
     with
       | Unix.Unix_error(Unix.ENOTCONN,_,_) ->
+	  let detail =
+	    try
+	      let own_addr = Unix.getsockname fd in
+	      string_of_sockaddr own_addr
+	    with _ -> "n/a" in
 	  raise(Unix.Unix_error(unix_error_of_code e_code,
-				"connect_check", ""))
+				"connect_check", detail))
   )
 
 (* Misc *)
 
 let domain_of_inet_addr addr =
   Unix.domain_of_sockaddr(Unix.ADDR_INET(addr,0))
+
+let protostring_of_inet_addr ip = (Obj.magic ip)
+
+let inet_addr_of_protostring s =
+  let l = String.length s in
+  if l = 4 || l = 16 then (Obj.magic s) else
+    invalid_arg "Netsys.inet_addr_of_protostring"
 
 external _exit : int -> unit = "netsys__exit";;
 (* same external also in netsys_signal.ml *)

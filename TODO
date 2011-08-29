@@ -1,5 +1,10 @@
 OCAMLNET
 
+- Finish Neturl (~addr, ~socksymbol, url_addr, url_socksymbol) - DONE
+- Uq_resolver: support IP addresses enclosed in brackets - DONE
+
+- add support options to docs
+
 - bug netcgi2-apache:
   add -Wl,--rpath,$(APACHE_OCAMLLIBDIR) to $(APXS) for builing the .so
   the --rpath option is platform-dependent, though
@@ -12,24 +17,26 @@ OCAMLNET
   servers down at this moment.
 
 - Better exceptions: connect_check should include the socket address
-  as third string
-- Netplex: startup_directory: make this also visible in controller_config
+  as third string - DONE
+- Netplex: startup_directory: make this also visible in container - DONE
+- LIne number in errors like
+  Netplex_config.Config_error("./twincastd.conf: Syntax error") - DONE
+
 - Rpc_server.auth_limit (m:auth_method) ...:
   limits authentication to certain programs/versions/procedures
 - Rpc_server.name_auth_method (n:name) (m:auth_method)
   sets the name of the method
 - RPc_server: preflight mode for XDR
-- LIne number in errors like
-  Netplex_config.Config_error("./twincastd.conf: Syntax error")
 - Netplex:
   * Easier way to catch controller termination
     Netplex_cenv.on_system_shutdown
-    (can use a plugin internally for the controller case)
+    (can use a plugin internally for the controller case) UNCLEAR
   * Netplex_cenv.container_count : service_name -> int
-    (useful in pre_start_hook, post_finish_hook)
-  * container # is_first : bool
-  * make startup_directory accessible in containers
-    also: eff_socket_directory (absolute path)
+    (useful in pre_start_hook, post_finish_hook) - DONE (as container meth)
+  * container # is_first : bool - WONT
+  * container # once f: The function f is only run once per socket service
+  * make startup_directory accessible in containers - DONE
+  * socket_directory should be an absolute path - DONE
 
 - Nethttpd should respect Netcgi.*.default_exn_handler
   * Need more information
@@ -43,7 +50,7 @@ OCAMLNET
 
 - IPv6 list:
   netcgi2: Netcgi_common, class cgi: prep of properties searches
-  for ':' in SERVER_NAME. This won't work anymore.
+  for ':' in SERVER_NAME. This won't work anymore. - DONE
 
 - add utility functions for password hashing
   (see /etc/passwd under Linux)
@@ -70,7 +77,7 @@ OCAMLNET
 
 
 - WebDAV, Haddop_fs: use Netfs.empty_fs
-- Netfs.abort_write
+- Netfs.abort_write - DONE (cancel)
 
 Fixme:
  - Netstring_pcre.quote: does not work for NULL bytes - DONE
@@ -230,9 +237,10 @@ GSSAPI:
 
 - Http: factor streaming access functions out
 
-- function for parsing "host:port" strings (also with IPv6 support)
+- function for parsing "host:port" strings (also with IPv6 support) -
+  DONE (Netsockaddr)
 
-- Neturl: IPv6 support 
+- Neturl: IPv6 support  - DONE
 
 - Neturl: internationalized URLs
   RFC 3492
@@ -252,6 +260,9 @@ GSSAPI:
     + open: Use Uq_resolver in an async way
   * raise Host_not_found if lookups fail! - DONE. We are now using
     Uq_resolver in Uq_engines.connector.
+  * Set IPv6 prefs in Uq_resolver - DONE
+  * integrate netdns
+  * IPv6 for netdns
 
 - Finish FTP client - DONE
 

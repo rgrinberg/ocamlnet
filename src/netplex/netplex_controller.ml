@@ -1342,7 +1342,9 @@ class controller_sockserv setup controller : socket_service =
 	method controller_config = controller#controller_config
       end
     ) in
-  let sockserv' = Netplex_sockserv.create_socket_service processor config in
+  let sockserv' = 
+    Netplex_sockserv.create_socket_service
+      processor config in
 object(self)
   method name = sockserv' # name
   method sockets = sockserv' # sockets
@@ -1352,6 +1354,8 @@ object(self)
     Netplex_container.create_admin_container controller#event_system p s
   method shutdown() =
     sockserv'#shutdown()
+  method on_add ctrl = sockserv'#on_add ctrl
+  method startup_directory = sockserv'#startup_directory
 end
 
 
@@ -1434,6 +1438,7 @@ object(self)
 	cs_directory
 	self#ctrl_detach in
     services <- (sockserv, sockctrl, wrkmng) :: services;
+    sockserv # on_add (self : #controller :> controller);
     wrkmng # hello
       (self : #controller :> controller);
     sockserv # processor # post_add_hook
@@ -1666,6 +1671,20 @@ object(self)
 	 services
       )
 
+  method containers_for name =
+    try
+      let _, sockctrl, _ =
+	List.find 
+	  (fun (sockserv,_,_) -> sockserv#name = name)
+	  services in
+      List.map
+	(fun (cid,_,_,_) -> cid)
+	sockctrl#container_state
+    with Not_found -> []
+      
+  method container_count name =
+    List.length (self # containers_for name)
+
   method startup_directory = startup_dir	    
 
   method register_lever f =
@@ -1762,12 +1781,17 @@ let extract_config (loggers : logger_factory list) (cf : config_file) =
     | [ ctrladdr ] ->
 	cf # restrict_subsections ctrladdr [ "logging" ];
 	cf # restrict_parameters ctrladdr [ "socket_directory"; "max_level" ];
-	let socket_directory =
+	let socket_directory0 =
 	  try 
 	    cf # string_param 
 	      (cf # resolve_parameter ctrladdr "socket_directory")
 	  with
 	    | Not_found -> default_socket_directory in
+	let socket_directory =
+	  if Netsys.is_absolute socket_directory0 then
+	    socket_directory0
+	  else
+	    Filename.concat (Unix.getcwd()) socket_directory0 in
 	let create_logger cur_max_level ctrl =
 	  ( match cf # resolve_section ctrladdr "logging" with
 	      | [] ->

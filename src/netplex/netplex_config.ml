@@ -79,20 +79,35 @@ let parse_config_file filename =
       | [< 'Ident "true" >] -> `Bool true
   in
 
+  let line = ref 1 in
   let ch = open_in filename in
-  let s = Stream.of_channel ch in
-  let lexer = Genlex.make_lexer [ "{"; "}"; "="; ";" ] s in
+  let s1 = Stream.of_channel ch in
+  let s2 =
+    Stream.from
+      (fun _ ->
+	 match Stream.peek s1 with
+	   | None -> None
+	   | Some '\n' ->
+	       ignore(Stream.next s1);
+	       incr line;
+	       Some '\n'
+	   | (Some _) as p ->
+	       ignore(Stream.next s1);
+	       p
+      ) in
+  let lexer = Genlex.make_lexer [ "{"; "}"; "="; ";" ] s2 in
   try
     let tree =
       parse_tree_semi lexer in
     Stream.empty lexer;
     tree
   with
-    (* TODO: would be nice if the error contained the line number *)
     | Stream.Failure ->
-	raise(Config_error(filename ^ ": Syntax error"))
+	raise(Config_error(filename ^ ", line " ^ string_of_int !line ^ 
+			     ": Syntax error"))
     | Stream.Error _ ->
-	raise(Config_error(filename ^ ": Syntax error"))
+	raise(Config_error(filename ^ ", line " ^ string_of_int !line ^ 
+			     ": Syntax error"))
 ;;
 
 
@@ -343,23 +358,8 @@ let inet6_binding =
 let host_binding =
   Netstring_str.regexp "^\\(.*\\):\\([0-9]+\\)$" ;;
 
-let is_letter =
-  function
-    | 'a'..'z' -> true
-    | 'A'..'Z' -> true
-    | _ -> false
-
 let mk_absolute dir path =
-  let is_abs =
-    if is_win32 then
-      String.length path >= 3 &&
-	is_letter path.[0] &&
-	path.[1] = ':' &&
-	  (path.[2] = '/' || path.[2] = '\\')
-    else
-      path <> "" && path.[0] = '/'
-  in
-  if is_abs then
+  if Netsys.is_absolute path then
     path
   else
     Filename.concat dir path

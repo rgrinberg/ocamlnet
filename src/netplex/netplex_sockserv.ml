@@ -71,6 +71,7 @@ class std_socket_service
 	proc
         config : socket_service =
   let sockets = open_master_sockets config#name config#protocols in
+  let startup_directory = ref None in
 object(self)
   method name = config#name
   method sockets = sockets
@@ -80,15 +81,16 @@ object(self)
     Netplex_container.create_container sockserv
   method shutdown () =
     close_master_sockets sockets
+  method on_add ctrl =
+    startup_directory := Some(ctrl#startup_directory)
+  method startup_directory = 
+    match !startup_directory with
+      | None -> failwith "startup_directory"
+      | Some d -> d
 end
 
 
-let create_socket_service
-      proc
-      config =
-  new std_socket_service 
-    proc config
-;;
+let create_socket_service = new std_socket_service 
 
 
 let any_file_client_connector =

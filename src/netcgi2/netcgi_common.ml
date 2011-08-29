@@ -453,19 +453,27 @@ class cgi_environment ~config ~(properties:(string * string) list)
   let properties =
     try
       let server_name = List.assoc "SERVER_NAME" properties in
-      let i = String.index server_name ':' in
-      let j = i + 1 in
-      let port = String.sub server_name j (String.length server_name - j) in
-      ignore(int_of_string port); (* raise Failure if incorrect *)
-      let name = ("SERVER_NAME", String.sub server_name 0 i) in
+      let (host,port) =
+	(* socksymbol_of_string can also handle IPv6 addresses *)
+	match Netsockaddr.socksymbol_of_string server_name with
+	  | `Inet(addr,port) ->
+	      (Unix.string_of_inet_addr addr, port)
+	  | `Inet_byname(host,port) ->
+	      (host,port)
+	  | `Unix _ ->
+	      failwith "unsupported" in
+      let prop_name = ("SERVER_NAME", host) in
+      let prop_port = ("SERVER_PORT", string_of_int port) in
       let properties =
-        List.filter (fun (n,_) -> n <> "SERVER_NAME") properties in
+        List.filter 
+	  (fun (n,_) -> n <> "SERVER_NAME")
+	  properties in
       (try
          ignore(int_of_string(List.assoc "SERVER_PORT" properties));
          (* A port number is already given -- leave it *)
-         name :: properties
+         prop_name :: properties
        with Not_found | Failure _ ->
-         name :: ("SERVER_PORT", port) :: properties)
+         prop_name :: prop_port :: properties)
     with Not_found | Failure _ -> properties in
 object(self)
   val config = config

@@ -790,7 +790,9 @@ object(self)
 	  Netplex_ctrl_clnt.System.V1.lookup_container_sockets
 	    r (service,protocol)
 
- 
+
+  method startup_directory =
+    sockserv # startup_directory
 end
 
 

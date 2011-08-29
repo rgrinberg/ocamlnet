@@ -290,12 +290,21 @@ val domain_of_inet_addr : Unix.inet_addr -> Unix.socket_domain
     * address is IPv4 or IPv6
    *)
 
+val protostring_of_inet_addr : Unix.inet_addr -> string
+val inet_addr_of_protostring : string -> Unix.inet_addr
+  (** Converts an IP address to the 4 bytes (IPv4) or 16 bytes (IPv6)
+      representation in network byte order, and vice-versa
+   *)
+
 val getpeername : Unix.file_descr -> Unix.sockaddr
   (** like [Unix.getpeername], but errors are fixed up. [ENOTCONN] is
       ensured when the socked is unconnected or shut down.
    *)
 
 (** {1 Helper functions} *)
+
+val is_absolute : string -> bool
+  (** Whether this file path is absolute. Works for Unix and Win32. *)
 
 val restart : ('a -> 'b) -> 'a -> 'b
   (** [restart f arg] calls [f arg], and restarts this call if the

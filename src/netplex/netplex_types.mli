@@ -241,6 +241,12 @@ object
   method containers : container_id list
     (** Lists the containers *)
 
+  method containers_for : string -> container_id list
+    (** Lists the containers for a certain socket service name *)
+
+  method container_count : string -> int
+    (** The number of containers for a certain socket service name *)
+
   method free_resources : unit -> unit
     (** Should be called when the controller is finished, in order to
         free resources again. E.g. plugins are unplugged, and the master
@@ -258,6 +264,9 @@ object
     (** The directory where Unix domain sockets are created. For every
       * service a subdirectory is created, and the socket has the name
       * of the protocol.
+      *
+      * This is always an absolute path, even if it is only given as
+      * relative path in the config file.
      *)
 
   method create_logger : controller -> logger
@@ -309,6 +318,14 @@ object
       * provided for the container.
       *)
 
+  method on_add : controller -> unit
+    (** Get some runtime configuration aspects from this controller. This
+	is called when the socket service is added to the controller
+     *)
+
+  method startup_directory : string
+    (** The current directory at Netplex startup time (same view as controller)
+     *)
 end
 
 and socket_service_config =
@@ -639,6 +656,10 @@ object
         and the returned exception is the result. See also
         {!Netplex_cenv.Make_lever} for a convenient way to create
         and use levers.
+     *)
+
+  method startup_directory : string
+    (** The current directory at Netplex startup time (same view as controller)
      *)
 end
 

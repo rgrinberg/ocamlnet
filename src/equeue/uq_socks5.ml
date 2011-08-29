@@ -173,9 +173,13 @@ end
 let create_socks_request rq_type sockspec =
   let dst_addr_len = 
     match sockspec with
-	`Sock_inet(_, _, port) ->  (* IP version 4 *)
+	`Sock_inet(_, ip, port) ->
 	  if port < 0 || port > 65535 then socks_error "Illegal port";
-	  4
+	  ( match Netsys.domain_of_inet_addr ip with
+	      | Unix.PF_INET -> 4
+	      | Unix.PF_INET6 -> 16
+	      | _ -> assert false
+	  )
       | `Sock_inet_byname(_, name, port) ->
 	  if port < 0 || port > 65535 then socks_error "Illegal port";
 	  let l = String.length name in
@@ -196,15 +200,21 @@ let create_socks_request rq_type sockspec =
   rq.[2] <- '\000';
   ( match sockspec with
 	`Sock_inet(_, addr, port) ->
-	  rq.[3] <- '\001';
-	  let s = Unix.string_of_inet_addr addr in
-	  Scanf.sscanf s "%d.%d.%d.%d" (fun a3 a2 a1 a0 -> 
-					  rq.[4] <- Char.chr a3;
-					  rq.[5] <- Char.chr a2;
-					  rq.[6] <- Char.chr a1;
-					  rq.[7] <- Char.chr a0);
-	  rq.[8] <- Char.chr (port lsr 8);
-	  rq.[9] <- Char.chr (port land 0xff);
+	  ( match Netsys.domain_of_inet_addr addr with
+	      | Unix.PF_INET ->
+		  rq.[3] <- '\001';
+		  let p = Netsys.protostring_of_inet_addr addr in
+		  String.blit p 0 rq 4 4;
+		  rq.[8] <- Char.chr (port lsr 8);
+		  rq.[9] <- Char.chr (port land 0xff);
+	      | Unix.PF_INET6 ->
+		  rq.[3] <- '\004';
+		  let p = Netsys.protostring_of_inet_addr addr in
+		  String.blit p 0 rq 4 16;
+		  rq.[20] <- Char.chr (port lsr 8);
+		  rq.[21] <- Char.chr (port land 0xff);
+	      | _ -> assert false
+	  )
        | `Sock_inet_byname(_, name, port) ->
 	  rq.[3] <- '\003';
 	  let l = String.length name in
@@ -222,9 +232,13 @@ let create_socks_request rq_type sockspec =
 let fill_udp_header buf sockspec =
   let dst_addr_len = 
     match sockspec with
-	`Sock_inet(_, _, port) ->  (* IP version 4 *)
+	`Sock_inet(_, ip, port) ->
 	  if port < 0 || port > 65535 then socks_error "Illegal port";
-	  4
+	  ( match Netsys.domain_of_inet_addr ip with
+	      | Unix.PF_INET -> 4
+	      | Unix.PF_INET6 -> 16
+	      | _ -> assert false
+	  )
       | `Sock_inet_byname(_, name, port) ->
 	  if port < 0 || port > 65535 then socks_error "Illegal port";
 	  let l = String.length name in
@@ -240,15 +254,21 @@ let fill_udp_header buf sockspec =
   buf.[2] <- '\000';   (* no fragmentation *)
   ( match sockspec with
 	`Sock_inet(_, addr, port) ->
-	  buf.[3] <- '\001';
-	  let s = Unix.string_of_inet_addr addr in
-	  Scanf.sscanf s "%d.%d.%d.%d" (fun a3 a2 a1 a0 -> 
-					  buf.[4] <- Char.chr a3;
-					  buf.[5] <- Char.chr a2;
-					  buf.[6] <- Char.chr a1;
-					  buf.[7] <- Char.chr a0);
-	  buf.[8] <- Char.chr (port lsr 8);
-	  buf.[9] <- Char.chr (port land 0xff);
+	  ( match Netsys.domain_of_inet_addr addr with
+	      | Unix.PF_INET ->
+		  buf.[3] <- '\001';
+		  let p = Netsys.protostring_of_inet_addr addr in
+		  String.blit p 0 buf 4 4;
+		  buf.[8] <- Char.chr (port lsr 8);
+		  buf.[9] <- Char.chr (port land 0xff);
+	      | Unix.PF_INET6 ->
+		  buf.[3] <- '\004';
+		  let p = Netsys.protostring_of_inet_addr addr in
+		  String.blit p 0 buf 4 16;
+		  buf.[20] <- Char.chr (port lsr 8);
+		  buf.[21] <- Char.chr (port land 0xff);
+	      | _ -> assert false
+	  )
        | `Sock_inet_byname(_, name, port) ->
 	  buf.[3] <- '\003';
 	  let l = String.length name in
@@ -260,15 +280,6 @@ let fill_udp_header buf sockspec =
 	  assert false
   );
   len
-;;
-
-
-let inet_addr_of_ipv4 msg =
-  let n3 = Char.code msg.[0] in
-  let n2 = Char.code msg.[1] in
-  let n1 = Char.code msg.[2] in
-  let n0 = Char.code msg.[3] in
-  Unix.inet_addr_of_string(Printf.sprintf "%d.%d.%d.%d" n3 n2 n1 n0)
 ;;
 
 
@@ -284,9 +295,17 @@ let read_udp_header buf len =
       '\001' ->
 	(* IP version 4 address *)
 	if len < 10 then socks_error "Protocol error";
-	let addr = inet_addr_of_ipv4 (String.sub buf 4 4) in
+	let addr = Netsys.inet_addr_of_protostring (String.sub buf 4 4) in
 	let p1 = Char.code buf.[8] in
 	let p0 = Char.code buf.[9] in
+	let port = (p1 lsl 8) lor p0 in
+	(10, `Sock_inet(Unix.SOCK_DGRAM, addr, port))
+    | '\004' ->
+	(* IP version 6 address *)
+	if len < 22 then socks_error "Protocol error";
+	let addr = Netsys.inet_addr_of_protostring (String.sub buf 4 16) in
+	let p1 = Char.code buf.[20] in
+	let p0 = Char.code buf.[21] in
 	let port = (p1 lsl 8) lor p0 in
 	(10, `Sock_inet(Unix.SOCK_DGRAM, addr, port))
     | '\003' ->
@@ -298,9 +317,6 @@ let read_udp_header buf len =
 	let p0 = Char.code buf.[6+namelen] in
 	let port = (p1 lsl 8) lor p0 in
 	(7+namelen, `Sock_inet_byname(Unix.SOCK_DGRAM, name, port))
-    | '\004' ->
-	(* IP version 6 address *)
-	socks_error "IP version 6 not supported"
     | _ ->
 	socks_error "Protocol error";
 ;;
@@ -536,15 +552,25 @@ let receive_socks_reply socks_in stype followup =
 	  socks_in # expect 1;  (* length of domainname *)
 	  Trans got_reply_domainname_state
       | '\003' ->  (* IPV6 address *)
-	  socks_error "IP version 6 not supported";
+	  socks_in # expect 16;
+	  Trans got_reply_ipv6_state
       | _ ->
 	  socks_error "Protocol error (2)";
 
   and got_reply_ipv4_state() =
-    (* Interpret incoming message: Four bytes forming an IP address *)
+    (* Interpret incoming message: Four bytes forming an IPv4 address *)
     let msg = socks_in # message in
     assert(String.length msg = 4);
-    let addr = inet_addr_of_ipv4 msg in
+    let addr = Netsys.inet_addr_of_protostring msg in
+    let bnd_spec = `Sock_inet(stype, addr, 0) in
+    socks_in # expect 2;
+    Trans (got_reply_port_state bnd_spec)
+
+  and got_reply_ipv6_state() =
+    (* Interpret incoming message: 16 bytes forming an IPv6 address *)
+    let msg = socks_in # message in
+    assert(String.length msg = 16);
+    let addr = Netsys.inet_addr_of_protostring msg in
     let bnd_spec = `Sock_inet(stype, addr, 0) in
     socks_in # expect 2;
     Trans (got_reply_port_state bnd_spec)

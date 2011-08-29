@@ -123,6 +123,10 @@ let ualpha = [ 'A'; 'B'; 'C'; 'D'; 'E'; 'F'; 'G'; 'H'; 'I'; 'J'; 'K'; 'L'; 'M';
 
 let digit = [ '0'; '1'; '2'; '3'; '4'; '5'; '6'; '7'; '8'; '9' ]
 
+let hex_digit = [ 'a'; 'b'; 'c'; 'd'; 'e'; 'f';
+		  'A'; 'B'; 'C'; 'D'; 'E'; 'F';
+		] @ digit
+
 let safe = [ '$'; '-'; '_'; '.'; '+' ]
 
 let extra = [ '!'; '*'; '\''; '('; ')'; ',' ]
@@ -175,13 +179,21 @@ let host_cats =
     (lalpha @ ualpha @ digit @ ['.'; '-'])
     []
 ;;
-
     (* host_cats: character categorization to _check_ whether the host name
      * is formed only by legal characters.
      * Especially '%' is not allowed here!
-     *
-     * CHECK: IPv6
+     * IPv6 addresses are checked separately.
      *)
+
+let ipv6_cats =
+  make_cats
+    (hex_digit @ [ ':' ])
+    [ ]
+
+let ipv6_sep_cats =
+  make_cats
+    (hex_digit @ [ ':' ])
+    [ ']' ]
 
 let port_cats =
   make_cats
@@ -254,7 +266,6 @@ let other_cats_from_syntax syn =
     (* other_cats: character categorization to extract or check the
      * "other" part of the URL.
      *)
-
 
 
 let extract_url_scheme s = 
@@ -588,6 +599,13 @@ let url_syntax_of_url url = url.url_syntax
 ;;
 
 
+let host_of_addr ip =
+  match Netsys.domain_of_inet_addr ip with
+    | Unix.PF_INET -> Unix.string_of_inet_addr ip
+    | Unix.PF_INET6 -> "[" ^ Unix.string_of_inet_addr ip ^ "]"
+    | _ -> assert false
+
+
 let modify_url
       ?syntax
       ?(encoded = false)
@@ -596,7 +614,9 @@ let modify_url
       ?user_param
       ?password
       ?host
+      ?addr
       ?port
+      ?socksymbol
       ?path
       ?param
       ?query
@@ -649,7 +669,36 @@ let modify_url
       p
   in
 
+  let check_host s =
+    let l = String.length s in
+    if String.length s >= 2 && s.[0] = '[' then (
+      if s.[l-1] <> ']' then raise Malformed_URL;
+      let ipv6 = String.sub s 1 (l-2) in
+      check_string (Some ipv6) ipv6_cats
+    )
+    else
+      check_string (Some s) host_cats
+  in
+
   (* Create the modified record: *)
+  let url_host_0 =
+    match addr with
+      | Some a -> Some(host_of_addr a)
+      | None ->
+	  ( match host with
+	      | Some h -> Some h
+	      | None -> url.url_host
+	  ) in
+  let url_port_0 =
+    match port with
+      | Some p -> Some p
+      | None -> url.url_port in
+  let (url_host, url_port) =
+    match (socksymbol : Netsockaddr.socksymbol option) with
+      | Some(`Inet(ip,p)) -> (Some(host_of_addr ip), Some p)
+      | Some(`Inet_byname(h,p)) -> (Some h, Some p)
+      | Some _ -> failwith "Neturl: Unacceptable socksymbol"
+      | None -> (url_host_0, url_port_0) in
   let url' =
     { 
       url_syntax   = new_syntax;
@@ -660,8 +709,8 @@ let modify_url
 			     None -> url.url_user_param
 			   | Some p -> enc_list p);
       url_password = if password = None then url.url_password else enc password;
-      url_host     = if host     = None then url.url_host     else host;
-      url_port     = if port     = None then url.url_port     else port;
+      url_host     = url_host;
+      url_port     = url_port;
       url_path     = (match path with
 			  None -> url.url_path
 			| Some p -> enc_list p);
@@ -685,7 +734,10 @@ let modify_url
   check_string url'.url_user            login_cats;
   check_string_list url'.url_user_param login_cats ';';
   check_string url'.url_password        login_cats;
-  check_string url'.url_host            host_cats;
+  ( match url'.url_host with
+      | None -> ()
+      | Some s -> check_host s
+  );
   (match url'.url_port with 
        None -> ()
      | Some p -> if p < 0 || p > 65535 then raise Malformed_URL
@@ -758,7 +810,9 @@ let make_url
       ?user_param
       ?password
       ?host
+      ?addr
       ?port
+      ?socksymbol
       ?path
       ?param
       ?query
@@ -778,7 +832,9 @@ let make_url
     ?user_param
     ?password
     ?host
+    ?addr
     ?port
+    ?socksymbol
     ?path
     ?param
     ?query
@@ -995,6 +1051,36 @@ let url_fragment   ?(encoded=false) url = decode_if encoded url.url_fragment;;
 let url_other      ?(encoded=false) url = decode_if encoded url.url_other;;
 
 
+let url_addr url =
+  match url.url_host with
+    | None -> raise Not_found
+    | Some h ->
+	let l = String.length h in
+	if l >= 2 && h.[0] = '[' && h.[l-1] = ']' then
+	  let a = String.sub h 1 (l-2) in
+	  try Unix.inet_addr_of_string a
+	  with _ -> raise Not_found
+	else (
+	  try Unix.inet_addr_of_string h
+	  with _ -> raise Not_found
+	)
+
+let url_socksymbol url dp =
+  let p =
+    match url.url_port with
+      | None -> dp
+      | Some p -> p in
+  try
+    let a = url_addr url in
+    `Inet(a, p)
+  with
+    | Not_found ->
+	(match url.url_host with
+	   | None -> raise Not_found
+	   | Some h -> `Inet_byname(h, p)
+	)
+
+
 let string_of_url url =
   if not (url.url_validity) then
     failwith "Neturl.string_of_url: URL not flagged as valid";
@@ -1063,22 +1149,39 @@ let url_of_string url_syntax s =
   let l = String.length s in
   let recognized x = x <> Url_part_not_recognized in
 
-  let rec collect_words terminators eof_char cats k =
+  let rec collect_words ?(ipv6=false) terminators eof_char cats k =
     (* Collect words as recognized by 'cats', starting at position 'k' in
      * 's'. Collection stops if one the characters listed in 'terminators'
      * is found. If the end of the string is reached, it is treated as
      * 'eof_char'.
+     * 
+     * if ipv6: words "[ipv6addr]" are also recognized.
      *)
-    let k' = scan_url_part s k l cats url_syntax.url_accepts_8bits in  
-             (* or raise Malformed_URL *)
-    let word, sep =
-      String.sub s k (k'-k), (if k'<l then s.[k'] else eof_char) in
+    let word, sep, k_end =
+      if ipv6 && k < l && s.[k] = '[' then (
+	let k' = scan_url_part s (k+1) l ipv6_sep_cats false in
+	if k' >= l then raise Malformed_URL;
+	if s.[k'] <> ']' then raise Malformed_URL;
+	let word, sep =
+	  String.sub s k (k'+1-k), (if k'+1<l then s.[k'+1] else eof_char) in
+	if sep <> eof_char then (
+	  if cats.(Char.code sep) <> Separator then raise Malformed_URL
+	);
+	(word, sep, k'+1)
+      )
+      else (
+	let k' = scan_url_part s k l cats url_syntax.url_accepts_8bits in  
+	(* or raise Malformed_URL *)
+	let word, sep =
+	  String.sub s k (k'-k), (if k'<l then s.[k'] else eof_char) in
+	(word, sep, k')
+      ) in
     if List.mem sep terminators then
-      [word, sep], k'
+      [word, sep], k_end
     else
-      let word_sep_list', k'' = 
-	collect_words terminators eof_char cats (k'+1) in
-      ((word, sep) :: word_sep_list'), k''
+      let word_sep_list', k_end' = 
+	collect_words ~ipv6 terminators eof_char cats (k_end+1) in
+      ((word, sep) :: word_sep_list'), k_end'
   in
 
   (* Try to extract the scheme name: *)
@@ -1101,8 +1204,8 @@ let url_of_string url_syntax s =
     if recognized url_syntax.url_enable_host  &&
        k1 + 2 <= l  &&  s.[k1]='/'  && s.[k1+1]='/' then begin
 
-      let word_sep_list, k' = collect_words [ '/'; '?'; '#' ] '/' login_cats (k1+2) 
-      in
+      let word_sep_list, k' = 
+	collect_words ~ipv6:true [ '/'; '?'; '#' ] '/' login_cats (k1+2) in
           (* or raise Malformed_URL *)
 
       let int x =
@@ -1281,8 +1384,8 @@ let url_of_string url_syntax s =
 
 
 
-let problem_re = Netstring_str.regexp "[] <>\"{}|\\^[`]"
-let problem_hash_re = Netstring_str.regexp "[] <>\"{}|\\^[`]#"
+let problem_re = Netstring_str.regexp "[ <>\"{}|\\^`]"
+let problem_hash_re = Netstring_str.regexp "[ <>\"{}|\\^`#]"
 
 let fixup_url_string ?(escape_hash=false) =
   Netstring_str.global_substitute 
