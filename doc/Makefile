@@ -18,7 +18,7 @@ html-doc:
 	$(OCAMLDOC) -d html-main -stars -t "Ocamlnet 3 Reference Manual" \
 		-html -css-style style.css \
 		-intro intro.txt intro.txt \
-		platform.txt foreword.txt \
+		platform.txt foreword.txt ipv6.txt \
                `cat loadopts.tmp`
 	cp style.css html-main
 	cp html-main/index.html html-main/Intro.html

@@ -1,0 +1,55 @@
+{1 IPv6 Support}
+
+Ocamlnet supports IPv6 if the Ocaml runtime detects that IPv6 is
+available on the OS. For Win32 the Ocaml runtime has no IPv6 support.
+
+{2 String-processing functions}
+
+The {!Neturl} module can parse URLs containing IPv6 addresses, e.g.
+[http://[fe80::224:7eff:fedf:59ff]/path]. The address must be included
+in square brackets, following common Internet standards. These square
+brackets remain in place if the host part of the URL is extracted from
+the URL with {!Neturl.url_host}. Note that [Unix.inet_addr_of_string]
+cannot process such brackets. Because of this, another function
+{!Neturl.url_addr} has been added which returns the IP address
+directly.
+
+For simple host/port pairs like [localhost:3128] another abstraction
+has been added, {!Netsockaddr}. With
+{!Netsockaddr.socksymbol_of_string} one can parse such pairs, and IPv6
+addresses are supported. Again, these addresses need to be enclosed in
+square brackets.
+
+{2 Protocols}
+
+The protocol interpreters for HTTP, FTP, and SOCKS have been carefully
+reviewed, and the necessary changes have been done.
+
+The implementations for SMTP, POP, and the web connectors do not
+contain IP addresses (or are uncritical).
+
+{2 Name service}
+
+The central name service module is now {!Uq_resolver}. The name resolver
+is now pluggable, and there are two versions:
+
+ - {!Uq_resolver.default_resolver} bases on [gethostbyname], and is
+   typically IPv4-only (but this is OS-dependent).
+ - {!Uq_resolver.gai_resolver} bases on [getaddrinfo], and supports
+   both IPv4 and IPv6. One can set which address types are enabled.
+   [getaddrinfo] may not be available on all platforms, but it always
+   available for platforms supporting IPv6.
+
+So, one has to change the default resolver to [gai_resolver] in order
+to enable IPv6 name lookups:
+
+{[
+Uq_resolver.set_current_resolver (Uq_resolver.gai_resolver())
+]}
+
+It is OS-depended what else needs to be done to enable IPv6. For
+example, on Linux one needs
+
+- a kernel with IPv6 support, and
+- at least one network interface with a global IPv6 address
+  (i.e. other than the fe80:* addresses)
