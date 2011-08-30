@@ -442,7 +442,6 @@ struct
   let reg_module_name = ref None
 
   let register_module handler full_name =
-prerr_endline ("register_module " ^ full_name);
     Hashtbl.replace reg_table full_name handler
 
   (* Register the module's handler. *)
@@ -475,7 +474,6 @@ prerr_endline ("register_module " ^ full_name);
 
   let init_findlib() =
     if not !init_findlib_var then (
-prerr_endline "init_findlib";
       Findlib.init();
       init_findlib_var := true
     )
@@ -500,7 +498,6 @@ prerr_endline "init_findlib";
   let cmd_require pkg =
     (* Findlib-supported package loading. Also see topfind.ml in findlib *)
     init_findlib();
-prerr_endline ("require " ^ pkg);
     try
       let eff_pkglist =
 	Findlib.package_deep_ancestors !predicates [pkg] in
@@ -524,7 +521,6 @@ prerr_endline ("require " ^ pkg);
 		    reg_module_name := 
 		      Some(String.capitalize(Filename.chop_extension
 					       (Filename.basename arch')));
-prerr_endline ("load " ^ arch');
 		    try Dynlink.loadfile arch';
 		    with Dynlink.Error(e) ->
 		      log_error(Dynlink.error_message e)
