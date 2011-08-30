@@ -114,6 +114,26 @@ val input_line_e : ?max_len:int -> in_bdevice -> string Uq_engines.engine
       [`Error Line_too_long].
    *)
 
+val input_lines_e : ?max_len:int -> in_bdevice -> string list Uq_engines.engine
+  (** [let e = input_lines_e d]: Reads as many lines from [d] as can be
+      found in the buffer of [d], and transitions to [`Done lines]. If
+      no complete line is in the buffer, the function extends the buffer and
+      waits until at least one line is added to the buffer (if necessary,
+      this process is repeated).
+
+      If the end of the file is already reached when this function is 
+      called, the engine transitions to [`Error End_of_file].
+      The function never returns an empty list of lines.
+
+      [input_lines_e] is just an optimized version of [input_line_e] that
+      requires fewer and cheaper blitting operations.
+
+      If [max_len] is set, this is the maximum length of the line
+      (including LF). If exceeded, the engine transitions to
+      [`Error Line_too_long].
+   *)
+
+
 val eof_as_none :
        'a Uq_engines.final_state -> 'a option Uq_engines.final_state
   (** Represents EOF as [None]. Useful in the combination

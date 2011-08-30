@@ -1,9 +1,63 @@
 OCAMLNET
 
+----------------------------------------------------------------------
+Major future directions:
+
+- Continue SSL
+  * Nethttpd
+  * Ftp_client
+
+- Integrate more protocols/improve implementations
+  * NetDNS: integrate
+  * sftp: develop
+  * async fastcgi client
+
+- Security
+  * GSS-API wrapper on C level (Kerberos support)
+  * GSS-API and HTTP
+  * GSS-API and FTP
+  * SASL
+  * SASL and POP
+  * SASL and SMTP
+  * Containers for credentials
+  * Password hashing suite
+  * Protect RPC better against DoS attacks
+  * Nethttpd w/ authentication
+
+- Performance
+  * epoll
+  * posix_spawn
+  * RPC marshalling
+  * Service monitors
+
+- Documentation
+  * Intro for netcgi
+  * Better equeue docs  
+  * Better RPC docs (enterprise topics)
+
+- Usability
+  * smoothen Netplex APIs
+  * more delegation classes
+  * Nethttpd: include more real web server features
+
+- More async
+  * Nethttpd services
+  * async local file I/O
+
+----------------------------------------------------------------------
+
 - Finish Neturl (~addr, ~socksymbol, url_addr, url_socksymbol) - DONE
 - Uq_resolver: support IP addresses enclosed in brackets - DONE
 
 - add support options to docs
+
+Optimization:
+  - Uq_io.input_lines: reads as much lines as possible from in_buffer
+    and returns list of lines
+    -> useful in Mapred_task_exec, emap implementation
+
+
+
 
 - bug netcgi2-apache:
   add -Wl,--rpath,$(APACHE_OCAMLLIBDIR) to $(APXS) for builing the .so
@@ -31,10 +85,11 @@ OCAMLNET
   * Easier way to catch controller termination
     Netplex_cenv.on_system_shutdown
     (can use a plugin internally for the controller case) UNCLEAR
+  * container # once f: The function f is only run once per socket service
+
   * Netplex_cenv.container_count : service_name -> int
     (useful in pre_start_hook, post_finish_hook) - DONE (as container meth)
   * container # is_first : bool - WONT
-  * container # once f: The function f is only run once per socket service
   * make startup_directory accessible in containers - DONE
   * socket_directory should be an absolute path - DONE
 
@@ -82,11 +137,6 @@ OCAMLNET
 Fixme:
  - Netstring_pcre.quote: does not work for NULL bytes - DONE
 
-Optimization:
-  - Uq_io.input_lines: reads as much lines as possible from in_buffer
-    and returns list of lines
-    -> useful in Mapred_task_exec, emap implementation
-
 Netstring:
  - add "parse_ls_l"
  - Ftp_fs: use parser for the output of "LIST" when there is no MLST command
@@ -128,12 +178,12 @@ IDEAS FOR OCAMLNET RECIPES:
 
 
 Enhanced stream_fs:
- - read_file
- - write_file
+ - read_file - DONE
+ - write_file - DONE
  - metadata operations: ???
  - problem with normal write: how to signal that the operation is
    aborted?
-   * abort_write method
+   * abort_write method - DONE (cancel)
 
 Enhanced token scanner:
   Mimestring.create_mime_scanner: Support further options:
@@ -673,8 +723,8 @@ Further ideas
   * Ftp_client: DONE
 
 - Netplex documentation:
-   * netplex-admin
-   * configuration manual
+   * netplex-admin - DONE
+   * configuration manual - DONE
 
 - more engine-style interfaces:
    * Http_client.pipeline: add requests via an engine - DONE

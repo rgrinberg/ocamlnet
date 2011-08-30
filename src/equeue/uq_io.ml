@@ -340,6 +340,59 @@ let input_line_e ?(max_len = Sys.max_string_length) (`Buffer_in b) =
   look_ahead b#eof
 
 
+exception Cont of (unit -> string list Uq_engines.engine)
+
+let input_lines_e ?(max_len = Sys.max_string_length) (`Buffer_in b) =
+  let copy_string i l =
+    let s = String.create l in
+    b#buffer#blit_out i (`String s) 0 l;
+    s in
+  let consume k =
+    b#buffer#delete_hd k in
+  let rec look_ahead i acc eof =
+    try
+      let k = b#buffer#index_from i '\n' in
+      if k-i+1 > max_len then raise Line_too_long;
+      let s = copy_string i (k-i) in
+      raise(Cont(fun () -> look_ahead (k+1) (s::acc) eof))
+    with
+      | Not_found ->
+	  if eof then (
+	    let n = b#buffer#length in
+	    if n = 0 then (
+	      assert(acc = []);
+	      eps_e (`Error End_of_file) b#event_system
+	    )
+	    else (
+	      let s = copy_string i (n-i) in
+	      if n-i > max_len then raise Line_too_long;
+	      consume n;
+	      eps_e (`Done (List.rev (s :: acc))) b#event_system
+	    )
+	  )
+	  else (
+	    assert(not b#eof);
+	    if acc <> [] then (
+	      consume i;
+	      eps_e (`Done (List.rev acc)) b#event_system
+	    ) else (
+	      assert(i = 0);
+	      if b#buffer#length > max_len then raise Line_too_long;
+	      let fe =
+		match b#fill_e_opt with
+		  | None -> b#start_fill_e ()
+		  | Some fe -> fe in
+	      fe ++ (look_ahead 0 [])
+	    )
+	  )
+      | Line_too_long ->
+	   eps_e (`Error Line_too_long) b#event_system
+      | Cont f ->  (* make the recursion tail-recursive *)
+	  f ()
+  in
+  look_ahead 0 [] b#eof
+
+
 let ach_output_e ch esys s pos len =
   (* case: async channel *)
 

@@ -1,5 +1,7 @@
 2011-08-30  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
+	* Uq_io: adding input_lines_e
+
 	* IPv6 support for Neturl and Uq_resolver. Also fixes in Uq_socks5
 	and netcgi2.
 
