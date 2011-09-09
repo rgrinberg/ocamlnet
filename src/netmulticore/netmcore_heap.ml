@@ -659,7 +659,9 @@ let add mut newval =
     let _, size =
       Netsys_mem.init_value
 	heap_mem 0 newval 
-	[Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom] in
+	[ Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom; 
+	  Netsys_mem.Copy_custom_int
+	] in
     assert(size mod bytes_per_word = 0);
     (* We need [size] bytes to store [newval] *)
     let (mem, offs) = alloc heap size in
@@ -669,7 +671,7 @@ let add mut newval =
     let voffs, size' =
       Netsys_mem.init_value
 	mem offs newval 
-	[Netsys_mem.Copy_atom] in
+	[Netsys_mem.Copy_atom; Netsys_mem.Copy_custom_int] in
     assert(size = size');
     (* Return the new value: *)
     dlog "add done";
@@ -745,7 +747,9 @@ let add_uniform_array mut n x_orig =
       snd (
 	Netsys_mem.init_value
 	  heap_mem 0 x_orig
-	  [Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom])
+	  [ Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom;
+	    Netsys_mem.Copy_custom_int
+	  ])
     else
       0 in
   let a_size = 
@@ -761,7 +765,7 @@ let add_uniform_array mut n x_orig =
       let x_voffs, _ =
 	Netsys_mem.init_value
 	  mem offs x_orig
-	  [Netsys_mem.Copy_atom] in
+	  [Netsys_mem.Copy_atom; Netsys_mem.Copy_custom_int] in
       Netsys_mem.as_value mem x_voffs
     )
     else x_orig in
@@ -860,7 +864,7 @@ let modify heap mutate =
 
 let copy x =
   if Obj.is_block (Obj.repr x) then
-    Netsys_mem.copy_value [Netsys_mem.Copy_atom] x
+    Netsys_mem.copy_value [Netsys_mem.Copy_atom; Netsys_mem.Copy_custom_int] x
   else
     x
 
@@ -956,7 +960,9 @@ let minimum_size x =
     let (_, n) =
       Netsys_mem.init_value
 	dummy_mem 0 x
-	[Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom] in
+	[ Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom; 
+	  Netsys_mem.Copy_custom_int
+	] in
     n + ((40 + fl_size + n_roots) * bytes_per_word)
       (* this is just an estimate *)
   else

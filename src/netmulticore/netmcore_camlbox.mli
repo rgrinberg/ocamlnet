@@ -20,7 +20,7 @@ val create_camlbox : string -> int -> int -> 'a camlbox * res_id
       It is suggested that the result of [create_camlbox] is immediately
       coerced to the right type [t], e.g.
       {[
-        let box = (create_camlbox prefix n size : t camlbox)
+        let box = (create_camlbox prefix n size : t camlbox * res_id)
       ]}
       as this ensures type safety for all following operations.
 

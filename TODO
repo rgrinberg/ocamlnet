@@ -39,12 +39,26 @@ Major future directions:
   * smoothen Netplex APIs
   * more delegation classes
   * Nethttpd: include more real web server features
+  * ASN.1 string functions
 
 - More async
   * Nethttpd services
   * async local file I/O
 
 ----------------------------------------------------------------------
+
+- Fix Netmcore:
+  get_resource should do all the process and resource table cleanup
+  from post_start when it is called the first time in container
+  context. This way the cleanup is also done when a process uses
+  the machinery that was not started via Netmcore.
+
+- Optimization Netmcore_heap.add_immutable:
+  If a pointer into the target heap is found, the data pointed to is
+  not copied. Benefit: Immutable data structures (Set, Map)
+  USER: plasma, Nn_notify
+
+- Equeue_ssl: include function to extract cert fingerprint
 
 - Finish Neturl (~addr, ~socksymbol, url_addr, url_socksymbol) - DONE
 - Uq_resolver: support IP addresses enclosed in brackets - DONE
@@ -55,9 +69,28 @@ Optimization:
   - Uq_io.input_lines: reads as much lines as possible from in_buffer
     and returns list of lines
     -> useful in Mapred_task_exec, emap implementation
+    DONE
 
+- Bug Http_client:
+  OPTIONS with authentication does not work!
+  Symptom: request fails with `No_reply status.
+  Problem: OPTIONS is not idempotent. So
+   - after first attempt: the request is checked, and as a result it is
+     re-added to fragile_pipeline
+     (and implicitly reinitialized)
+   - server closes connection
+   - robust pipeline: finds the fresh request, but does not reschedule
+     it because a second check is done, and it is found that the request is
+     not idempotent
+  Solution: When the request is added by authentication the second
+  check in robust_pipeline must be skipped. Add a flag to message class
+  to remember the decision of the first check
 
-
+- Bug Http_client:
+  Digest auth where the server uses a domain string with several URLs!
+  e.g. domain="/path http://server/path" (legal according to RFC).
+  Symptom: The authenticated request is not tried at all after getting
+  the 401 response
 
 - bug netcgi2-apache:
   add -Wl,--rpath,$(APACHE_OCAMLLIBDIR) to $(APXS) for builing the .so
@@ -155,6 +188,7 @@ Netmulticore:
 
 Advanced:
  - Special form of condition variables one can poll on
+   (See Plasma: pfs_condition)
 
 Examples:
  - pipeline - DONE
@@ -552,6 +586,10 @@ Implementation improvements after Ocamlnet 3.0
    can be more easily integrated with equeue)
 
 - Fix netplex + nethttpd + async API: netcgi cannot be used right now
+  * Cheap impl.: uploaded data is always stored as file or in mem;
+    generated data, too; make esys available in environment
+  * Better impl: provide clean engine API in Nethttpd_engines
+    (or new module Nethttpd_async_service)
 
 - Netclient: Support for CONNECT - DONE
 

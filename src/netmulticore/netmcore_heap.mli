@@ -61,7 +61,8 @@ val create_heap : Netmcore.res_id -> int -> 'a -> 'a heap
       - Function types
       - Lazy values
       - Objects
-      - Custom blocks (including bigarrays, [int32], [int64], [nativeint])
+      - Custom blocks (including bigarrays, but excluding
+        [int32], [int64], [nativeint] which are specially supported)
       - I/O references like [in_channel] and [out_channel]
       - empty arrays are only partially supported (in particular,
         comparisons [x = [| |]] do not work)

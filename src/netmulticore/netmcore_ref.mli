@@ -9,7 +9,7 @@ type 't sref_descr
 
 val sref : Netmcore.res_id -> 't -> 't sref
   (** The shared version of [ref]: Creates a mutable shared variable in
-      the give memory pool
+      the given memory pool
    *)
 
 val assign : 't sref -> 't -> unit
