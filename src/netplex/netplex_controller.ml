@@ -550,6 +550,12 @@ object(self)
 	   name (Oo.id container));
     controller # plugin_container_finished 
       (container :> container_id) (clist = []);
+    (* If a system shutdown is in progress, notify now: *)
+    ( match c.shutting_down_system with
+	| `None -> ()
+	| `Notify f -> f()
+	| `Notified f -> f()
+    );
     (* Maybe we have to start new containers: *)
     self # adjust();
     (* Maybe the dead container was selected for accepting connections.
@@ -1530,9 +1536,11 @@ object(self)
     dlog "Sending system_shutdown notification to services";
     let n = ref 0 in
     List.iter
-      (fun (_, ctrl, _) ->
+      (fun (sserv, ctrl, _) ->
 	 ctrl # forward_system_shutdown
 	   (fun () ->
+	      dlog 
+		(sprintf "Received ACK for system_shutdown from %s" sserv#name);
 	      decr n;
 	      if !n = 0 then   (* all notifications arrived *)
 		real_shutdown()

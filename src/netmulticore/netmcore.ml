@@ -504,7 +504,7 @@ let create_process f arg (`Process pid)
 	  dlogr (fun () -> sprintf "End worker pid=%d" pid);
 	  c # shutdown()
 
-	method post_finish_hook _ ctrl cont_id =
+	method post_finish_hook sockserv ctrl cont_id =
 	  dlogr (fun () -> sprintf "post_finish_hook pid=%d" pid);
 	  if not (is_delivered ctrl (`Process pid)) then (
 	    dlogr
@@ -519,6 +519,16 @@ let create_process f arg (`Process pid)
 	    resource_table;
 	  if not (Hashtbl.mem resource_table join_res_id) then
 	    forget_process pid;
+	  ( try
+	      let (_, sock_ctrl, _) =
+		List.find 
+		  (fun (sserv, _, _) -> sserv = sockserv) 
+		  ctrl#services in
+	      sock_ctrl # shutdown()
+	    with Not_found ->
+	      Netlog.logf `Err
+		"Netmcore: socket controller for process not found (pid=%d)" pid
+	  );
 	  if Some(`Process pid) = !initial_process then (
 	    dlog "shutting down";
 	    ctrl#shutdown()
