@@ -47,6 +47,10 @@ Major future directions:
 
 ----------------------------------------------------------------------
 
+- Fix Netmcore, when forking:
+  do not unmap anymore if a mapping is not inherited (or make this
+  configurable)
+
 - Fix Netmcore:
   get_resource should do all the process and resource table cleanup
   from post_start when it is called the first time in container

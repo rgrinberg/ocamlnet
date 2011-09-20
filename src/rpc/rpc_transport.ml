@@ -374,6 +374,7 @@ class stream_rpc_multiplex_controller sockname peername peer_user_name_opt
 	       (Oo.id mplex))
   in
 
+(*
   let wr_buffer, free_wr_buffer =
     if mplex#mem_supported then
       let (m, f) = mem_alloc2() in
@@ -382,6 +383,7 @@ class stream_rpc_multiplex_controller sockname peername peer_user_name_opt
       (r, free)
     else
       (ref `None, (fun () -> ())) in
+ *)
 
 
 object(self)
@@ -618,72 +620,107 @@ object(self)
     assert(not mplex#writing);
 
     (* - `String(s,p,l): We have still to write s[p] to s[p+l-1]
-       - `Memory(m,p,l,ms,q): We have still to write
-          m[p] to m[p+l-1], followed by ms[q] to end of ms
-          (where ms is the managed string)
+       - `Memory(m,p,l): We have still to write
+          m[p] to m[p+l-1]
      *)
 
-    let item_of_mstring ms r =
-      (* Create the item for ms, starting at offset r *)
-      let l = ms#length in
-      assert(r <= l);
-      match ms # preferred with
-	| `String ->
-	    if mplex#mem_supported then (
-	      let m =
-		match !wr_buffer with
-		  | `Mem m -> m
-		  | `None -> 
-		      failwith "Rpc_transport: read/write not possible" in
-	      let n = min (l-r) mem_size in
-	      ms#blit_to_memory r m 0 n;
-	      `Memory(m, 0, n, ms, r+n)
-	    )
+    (* Do our own buffer concatenation (instead of enabling the Nagle algo).
+       If there are multiple strings to write, we avoid here to write
+       small strings (smaller than a typical MSS). Instead, the strings
+       are buffered up, and a single write is done.
+
+       For some systems, we could also use TCP_CORK - however, this option
+       is not available in the Unix module.
+     *)
+
+    let mss = 2000 in  (* assumed MSS *)
+    let acc_limit = 65536 in (* avoid very large buffers *)
+
+    let rec items_of_mstrings acc acc_len mstrings =
+      let next_round() =
+	create_item (List.rev acc) acc_len :: items_of_mstrings [] 0 mstrings in
+      match mstrings with
+	| ms :: mstrings' ->
+	    let l = ms#length in
+	    if (l < mss || acc_len < mss) && acc_len+l < acc_limit then
+	      items_of_mstrings (ms :: acc) (acc_len + ms#length) mstrings'
 	    else
-	      let (s,pos) = ms#as_string in (* usually only r=0 *)
-	      `String(s,pos+r,l-r)
-	| `Memory ->
-	    if mplex#mem_supported then (
-	      let (m,pos) = ms#as_memory in
-	      `Memory(m, pos+r, l-r, ms, l)
-	    )
+	      next_round()
+	| [] ->
+	    if acc_len > 0 then
+	      next_round()
 	    else
-	      let (s,pos) = ms#as_string in
-	      `String(s,pos+r,l-r)
+	      []
+
+    and create_item acc acc_len =
+      if mplex#mem_supported then
+	create_item_mem acc acc_len
+      else
+	create_item_string acc acc_len
+
+    and create_item_mem acc acc_len =
+      match acc with
+	| [ms] ->
+	    let (m,pos) = ms#as_memory in
+	    `Memory(m, pos, acc_len)
+	| _ ->
+	    let m_all = 
+	      Bigarray.Array1.create Bigarray.char Bigarray.c_layout acc_len in
+	    let k = ref 0 in
+	    List.iter
+	      (fun ms ->
+		 let l = ms#length in
+		 ms#blit_to_memory 0 m_all !k l;
+		 k := !k + l
+	      )
+	      acc;
+	    assert(!k = acc_len);
+	    `Memory(m_all, 0, acc_len)
+
+    and create_item_string acc acc_len =
+      match acc with
+	| [ms] ->
+	    let (s,pos) = ms#as_string in
+	    `String(s, pos, acc_len)
+	| _ ->
+	    let s_all = String.create acc_len in
+	    let k = ref 0 in
+	    List.iter
+	      (fun ms ->
+		 let l = ms#length in
+		 ms#blit_to_string 0 s_all !k l;
+		 k := !k + l
+	      )
+	      acc;
+	    assert(!k = acc_len);
+	    `String(s_all, 0, acc_len)
     in
 
     let item_is_empty =
       function
 	| `String(_,_,l) -> l=0
-	| `Memory(_,_,l,ms,q) -> l=0 && ms#length=q in
+	| `Memory(_,_,l) -> l=0 in
 
-    let rec est_writing item mstrings =
-      (* [item] is the current buffer to write; and [mstrings] need to be
-	 written after that
+    let rec est_writing item items =
+      (* [item] is the current buffer to write followed by items
        *)
       let mplex_when_done exn_opt n = (* n bytes written *)
 	self # timer_event `Stop `W;
 	match exn_opt with
 	  | None ->
 	      ( match item with
-		  | `Memory(m,p,l,ms,q) ->
+		  | `Memory(m,p,l) ->
 		      let l' = l-n in
 		      if l' > 0 then
-			est_writing (`Memory(m,p+n,l',ms,q)) mstrings
-		      else (
-			let mlen = ms#length in
-			if q < mlen then
-			  let item' = item_of_mstring ms q in
-			  est_writing item' mstrings
-			else
-			  est_writing_next mstrings
-		      )
+			est_writing (`Memory(m,p+n,l')) items
+		      else
+			est_writing_next items
 		  | `String(s,p,l) ->
 		      let l' = l-n in
 		      if l' > 0 then
-			est_writing (`String(s,p+n,l')) mstrings
+			est_writing (`String(s,p+n,l')) items
 		      else 
-			est_writing_next mstrings
+			est_writing_next items
 	      )
 	  | Some Uq_engines.Cancelled ->
 	      ()  (* ignore *)
@@ -693,7 +730,7 @@ object(self)
       in
 
       ( match item with
-	  | `Memory(m,p,l,_,_) ->
+	  | `Memory(m,p,l) ->
 	      dlogr (fun () ->
 		       sprintf "Writing [mem]: %s%s" 
 			 (Rpc_util.hex_dump_m m p (min l 200))
@@ -712,14 +749,13 @@ object(self)
       );
       self # timer_event `Start `W
 
-    and  est_writing_next mstrings =
-      match mstrings with
-	| ms :: mstrings' ->
-	    let item' = item_of_mstring ms 0 in
-	    if item_is_empty item' then
-	      est_writing_next mstrings'
+    and  est_writing_next items =
+      match items with
+	| item :: items' ->
+	    if item_is_empty item then
+	      est_writing_next items'
 	    else
-	      est_writing item' mstrings'
+	      est_writing item items'
 	| [] ->
 	    if not aborted then
 	      when_done (`Ok ())
@@ -739,27 +775,12 @@ object(self)
     let rm = Rtypes.uint4_of_int payload_len in
     Rtypes.write_uint4 s 0 rm;
     s.[0] <- Char.chr (Char.code s.[0] lor 0x80);
-    (* If the first mstring is small, just concatenate *)
-    let mstrings =
-      match mstrings0 with
-	| ms0 :: mstrings0 when ms0#length < 1000 ->
-	    let s' =
-	      String.create (ms0#length + 4) in
-	    String.blit s 0 s' 0 4;
-	    ms0 # blit_to_string 0 s' 4 ms0#length;
-	    let ms0' =
-	      Xdr_mstring.string_based_mstrings # create_from_string
-		s' 0 (String.length s') false in
-	    ms0' :: mstrings0
-	| _ ->
-	    (* For longer stuff we assume that two syscalls are cheaper 
-	       than copying
-	     *)
-	    let ms = 
-	      Xdr_mstring.string_based_mstrings # create_from_string 
-		s 0 4 false in
-	    ms :: mstrings0 in
-    est_writing_next mstrings
+    let ms = 
+      Xdr_mstring.string_based_mstrings # create_from_string 
+	s 0 4 false in
+    let mstrings = ms :: mstrings0 in
+    let items = items_of_mstrings [] 0 mstrings in
+    est_writing_next items
 
 
   method cancel_rd_polling () =
@@ -771,14 +792,12 @@ object(self)
     mplex # cancel_reading();
     mplex # cancel_writing();
     Netpagebuffer.clear rd_buffer;
-    free_wr_buffer()
     
   method start_shutting_down ~when_done () =
     dlogr (fun () ->
 	     sprintf "start_shutting_down mplex=%d"
 	       (Oo.id mplex));
     Netpagebuffer.clear rd_buffer;
-    free_wr_buffer();
     mplex # start_shutting_down
       ~when_done:(fun exn_opt ->
 		    dlogr (fun () ->
@@ -801,7 +820,6 @@ object(self)
 	     sprintf "inactivate mplex=%d"
 	       (Oo.id mplex));
     Netpagebuffer.clear rd_buffer;
-    free_wr_buffer();
     self # stop_timer();
     mplex # inactivate()
 

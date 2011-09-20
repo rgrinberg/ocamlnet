@@ -1,3 +1,14 @@
+2011-09-20  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Rpc_client and Rpc_server: disabling the Nagle
+	  algorithm. At the same time, Rpc_transport is improved
+	  so it almost never calls write() several times with
+	  small strings.
+
+2011-09-10  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* bugfixes in the Netplex shutdown procedure
+
 2011-08-30  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Uq_io: adding input_lines_e
@@ -11,6 +22,8 @@
 	path. The method startup_directory is now also available in
 	containers.
 
+	* Release 3.4
+	
 2011-08-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Http_client: one can set a different proxy server for each

@@ -1097,6 +1097,12 @@ let track_server fd =
     fd
 
 
+let disable_nagle fd =
+  try
+    Unix.setsockopt fd Unix.TCP_NODELAY true
+  with _ -> ()
+
+
 let create2_multiplexer_endpoint ?fd mplex =
   let prot = mplex#protocol in
   let srv  = create2_srv prot mplex#event_system in
@@ -1163,6 +1169,7 @@ let default_socket_config = new default_socket_config
 
 let create2_socket_endpoint ?(close_inactive_descr=true) 
                             prot fd esys =
+  disable_nagle fd;
   if close_inactive_descr then track fd;
   let mplex = mplex_of_fd ~close_inactive_descr prot fd esys in
   create2_multiplexer_endpoint ~fd mplex 
@@ -1175,6 +1182,7 @@ let create2_socket_server ?(config = default_socket_config)
   let srv = create2_srv prot esys in
 
   let create_multiplexer_eng ?(close_inactive_descr = true) fd prot =
+    disable_nagle fd;
     if close_inactive_descr then track fd;
     config # multiplexing ~close_inactive_descr prot fd esys in
 

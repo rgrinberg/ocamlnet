@@ -1534,6 +1534,11 @@ let rec internal_create initial_xid
   let track fd =
     Netlog.Debug.track_fd ~owner:"Rpc_client" ~descr:id_s fd in
 
+  let disable_nagle fd =
+    try
+      Unix.setsockopt fd Unix.TCP_NODELAY true
+    with _ -> () in
+
   let open_socket_non_blocking addr prot conf =
     new Uq_engines.seq_engine
       (connect_engine addr esys)
@@ -1542,6 +1547,7 @@ let rec internal_create initial_xid
 	    (fun () -> 
 	       "Non-blocking socket connect successful for " ^ id_s);
 	 let fd = Uq_engines.client_endpoint status in
+	 disable_nagle fd;
 	 track fd;
 	 conf # multiplexing ~close_inactive_descr:true prot fd esys
       ) in
@@ -1556,6 +1562,7 @@ let rec internal_create initial_xid
 	    (fun () ->
 	       "Blocking socket connect successful for " ^ id_s);
 	  let fd = Uq_engines.client_endpoint status in
+	  disable_nagle fd;
 	  track fd;
 	  conf # multiplexing ~close_inactive_descr:true prot fd esys
       | `Error err ->
@@ -1573,6 +1580,7 @@ let rec internal_create initial_xid
   let (prot, establish_engine) =
     match mode with
       | `Socket_endpoint(prot,fd) ->
+	  disable_nagle fd;
 	  track fd;
 	  let m = mplex_of_fd ~close_inactive_descr:true prot fd esys in
 	  (prot, new Uq_engines.epsilon_engine (`Done m) esys)
