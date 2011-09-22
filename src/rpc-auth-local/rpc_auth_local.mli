@@ -48,6 +48,7 @@ val get_peer_credentials : Unix.file_descr -> (int * int);;
    * operating system.
    *)
 
+(*
 val peek_peer_credentials : Unix.file_descr -> (int * int);;
   (** Peeks at the next message and returns the pair (euid,egid) for a
    * Unix domain socket. This function must be called before data is
@@ -59,3 +60,5 @@ val peek_peer_credentials : Unix.file_descr -> (int * int);;
    * [peek_peer_credentials] seems to be more portable than
    * [get_peer_credentials].
    *)
+*)
+

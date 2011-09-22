@@ -898,11 +898,12 @@ and handle_before_record srv conn filter_var n trans_addr =
   )
 
 and peek_credentials srv conn =
-  if not conn.peeked && srv.prot = Tcp && srv.auth_peekers <> [] then begin
+  if not conn.peeked && (* srv.prot = Tcp && *) srv.auth_peekers <> [] then begin
     (* This is used by AUTH_LOCAL to get the credentials of the peer. Thus
      * we need the file descriptor. Without descriptor, we just cannot
      * authenticate!
      *)
+    dlog srv "peek_credentials";
     let u = ref None in
     let m = ref auth_none in
     try
@@ -938,7 +939,14 @@ and peek_credentials srv conn =
 	Exit ->
 	  conn.peeked <- true;
 	  conn.peeked_user <- !u;
-	  conn.peeked_method <- !m
+	  conn.peeked_method <- !m;
+	  dlogr srv (fun () ->
+		       sprintf "peek_credentials: user=%s" 
+			 ( match !u with
+			     | None -> "./."
+			     | Some s -> s
+			 )
+		    );
   end
 ;;
 

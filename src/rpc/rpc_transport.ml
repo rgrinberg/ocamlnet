@@ -636,21 +636,25 @@ object(self)
     let mss = 2000 in  (* assumed MSS *)
     let acc_limit = 65536 in (* avoid very large buffers *)
 
-    let rec items_of_mstrings acc acc_len mstrings =
+    let rec items_of_mstrings acc iacc iacc_len mstrings =
       let next_round() =
-	create_item (List.rev acc) acc_len :: items_of_mstrings [] 0 mstrings in
+	let item = create_item (List.rev iacc) iacc_len in
+        items_of_mstrings (item::acc) [] 0 mstrings in
       match mstrings with
 	| ms :: mstrings' ->
 	    let l = ms#length in
-	    if (l < mss || acc_len < mss) && acc_len+l < acc_limit then
-	      items_of_mstrings (ms :: acc) (acc_len + ms#length) mstrings'
+	    if (l < mss || iacc_len < mss) && 
+	      (iacc_len=0 || iacc_len+l < acc_limit) 
+	    then
+	      items_of_mstrings 
+		acc (ms :: iacc) (iacc_len + ms#length) mstrings'
 	    else
 	      next_round()
 	| [] ->
-	    if acc_len > 0 then
+	    if iacc_len > 0 then
 	      next_round()
 	    else
-	      []
+	      List.rev acc
 
     and create_item acc acc_len =
       if mplex#mem_supported then
@@ -779,7 +783,7 @@ object(self)
       Xdr_mstring.string_based_mstrings # create_from_string 
 	s 0 4 false in
     let mstrings = ms :: mstrings0 in
-    let items = items_of_mstrings [] 0 mstrings in
+    let items = items_of_mstrings [] [] 0 mstrings in
     est_writing_next items
 
 

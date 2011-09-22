@@ -314,7 +314,6 @@ done
 ######################################################################
 # Check OS
 
-with_rpc_auth_local=0
 with_rpc_xti=0
 
 printf "%s" "Checking operating system... "
@@ -332,7 +331,6 @@ case "$u" in
 		;;
         Linux)
 	        echo "Linux"
-		with_rpc_auth_local=1
 		[ -n "$adh_style" ] || adh_style=unixdomain
 		;;
         *FreeBSD)             # also GNU/kFreeBSD
@@ -360,11 +358,6 @@ case "$u" in
 	*)
 		echo "Generic" ;;
 esac
-
-if [ $with_rpc_auth_local -gt 0 ]; then
-    echo "    This OS supports passing credentials over Unix domain sockets"
-    echo "    Building rpc-auth-local"
-fi
 
 if [ $with_rpc_xti -gt 0 ]; then
     echo "    This OS supports XTI networking"
@@ -498,6 +491,8 @@ fi
 # Netsys
 
 ( cd src/netsys; ./configure )
+
+( cd src/rpc-auth-local; ./configure )
 
 ######################################################################
 # TCL
@@ -827,18 +822,17 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="netsys netshm netstring equeue shell netgssapi rpc-generator rpc pop smtp netclient netcgi2 netplex netcgi2-plex netcamlbox netmulticore"
+pkglist="netsys netshm netstring equeue shell netgssapi rpc-generator rpc rpc-auth-local pop smtp netclient netcgi2 netplex netcgi2-plex netcamlbox netmulticore"
 
 full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi2 netzip netcgi2-apache netmech-scram"
 
 if [ $disable_core -gt 0 ]; then
     # Omit the core packages:
     pkglist=""
-    with_rpc_auth_local=0
     with_rpc_xti=0
 fi
 
-for opt in rpc_xti $woptions rpc_auth_local equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl netzip; do
+for opt in rpc_xti $woptions equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_ssl netzip; do
 	e="o=\$with_$opt"
 	eval "$e"
 	if [ $o -gt 0 ]; then

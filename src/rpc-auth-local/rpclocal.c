@@ -10,6 +10,8 @@
 #include "caml/alloc.h"
 #include "caml/memory.h"
 #include "caml/fail.h"
+
+#ifndef _WIN32
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -18,6 +20,13 @@
 #include <string.h>
 #include <stdio.h>
 #include <limits.h>
+#endif
+
+#ifdef HAVE_GETPEERUCRED
+#include <ucred.h>
+#endif
+
+#include "config.h"
 
 /**********************************************************************/
 /* From unixsupport.h                                                 */
@@ -30,13 +39,22 @@ extern void uerror (char * cmdname, value arg) Noreturn;
 
 /**********************************************************************/
 
-value unix_get_peer_credentials(value fd) {
+/* Inspired by PostgreSQL's fe-connect.c */
+
+value netsys_get_peer_credentials(value fd) {
     CAMLparam1(fd);
     CAMLlocal1(result);
-    int uid;
-    int gid;
+    uid_t uid;
+    gid_t gid;
 
-#ifdef SO_PEERCRED
+#if defined(HAVE_GETPEEREID)
+    /* BSD, AIX, Cygwin */
+    /* http://cr.yp.to/docs/secureipc.html */
+    if (getpeereid(Int_val(fd), &uid, &gid) != 0) {
+	uerror("getpeereid", Nothing);
+    }
+
+#elif defined(SO_PEERCRED)
     /* Linux */
     {
 	socklen_t len;
@@ -53,11 +71,25 @@ value unix_get_peer_credentials(value fd) {
 	uid = credentials.uid;       /* Effective user ID */
 	gid = credentials.gid;       /* Effective group ID */
     }
+#elif defined(HAVE_GETPEERUCRED)
+    /* Solaris */
+    { 
+	ucred_t    *ucred;
+	ucred = NULL;			/* must be initialized to NULL */
+	if (getpeerucred(Int_val(fd), &ucred) == -1) {
+	    uerror("getpeerucred",Nothing);
+	};
+	if ((uid = ucred_geteuid(ucred)) == -1) {
+	    uerror("ucred_geteuid",Nothing);
+	    ucred_free(ucred);
+	};
+	if ((gid = ucred_getegid(ucred)) == -1) {
+	    uerror("ucred_getegid",Nothing);
+	    ucred_free(ucred);
+	};
+	ucred_free(ucred);
+    }
 #else
-    /* FreeBSD: Seems to use socket option LOCAL_PEERCRED. I have currently
-     * no system to test it.
-     */
-
     invalid_argument("get_peer_credentials");
 #endif
 
@@ -78,7 +110,8 @@ value unix_get_peer_credentials(value fd) {
  * the receiver can request credentials.
  */
 
-value unix_peek_peer_credentials(value fd) {
+#if 0
+value netsys_peek_peer_credentials(value fd) {
     CAMLparam1(fd);
     CAMLlocal1(result);
     int uid;
@@ -212,3 +245,4 @@ value unix_peek_peer_credentials(value fd) {
 
     CAMLreturn(result);
 }
+#endif

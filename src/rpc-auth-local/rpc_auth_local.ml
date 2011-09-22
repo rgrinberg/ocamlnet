@@ -4,12 +4,15 @@
  *)
 
 external get_peer_credentials : Unix.file_descr -> (int * int)
-  = "unix_get_peer_credentials"
+  = "netsys_get_peer_credentials"
 ;;
 
+(*
 external peek_peer_credentials : Unix.file_descr -> (int * int)
-  = "unix_peek_peer_credentials"
+  = "netsys_peek_peer_credentials"
 ;;
+*
+ *)
 
 
 class server_auth_method : Rpc_server.auth_method =
@@ -23,7 +26,7 @@ object
 	     Unix.ADDR_UNIX _ ->
 	       (* Try now peek_peer_credentials: *)
 	       begin try
-		 let uid, gid = peek_peer_credentials d in
+		 let uid, gid = get_peer_credentials d in
 		 let username =
 		   string_of_int uid ^ "." ^ string_of_int gid ^ "@localhost" in
 		 Some username
