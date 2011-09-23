@@ -27,6 +27,7 @@ object(self)
 			 sockname
 			 peername
 			 None
+			 (Some fd)
 			 (ssl_mplex :> Uq_engines.multiplex_controller)
 			 esys in
 		     `Done rpc_mplex
@@ -74,6 +75,7 @@ object(self)
 			 sockname
 			 peername
 			 peer_user_name_opt
+			 (Some fd)
 			 (ssl_mplex :> Uq_engines.multiplex_controller)
 			 esys in
 		     `Done rpc_mplex

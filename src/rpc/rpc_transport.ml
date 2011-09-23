@@ -64,6 +64,7 @@ object
   method getpeername : sockaddr
   method peer_user_name : string option
   method protocol : protocol
+  method file_descr : Unix.file_descr option
   method reading : bool
   method read_eof : bool
   method start_reading : 
@@ -111,7 +112,8 @@ let mem_dummy() =
   
 
 
-class datagram_rpc_multiplex_controller sockname peername_opt peer_user_name_opt
+class datagram_rpc_multiplex_controller 
+        sockname peername_opt peer_user_name_opt file_descr_opt
         (mplex : Uq_engines.datagram_multiplex_controller) esys 
       : rpc_multiplex_controller =
   let rd_buffer, free_rd_buffer = 
@@ -150,6 +152,7 @@ object(self)
       | Some a -> a
   method protocol = Udp
   method peer_user_name = peer_user_name_opt
+  method file_descr = file_descr_opt
   method reading = mplex # reading
   method read_eof = mplex # read_eof
   method writing = mplex # writing
@@ -361,11 +364,13 @@ let datagram_rpc_multiplex_controller ?(close_inactive_descr=true)
     Uq_engines.create_multiplex_controller_for_datagram_socket
       ~close_inactive_descr ~preclose
       fd esys in
-  new datagram_rpc_multiplex_controller sockname peername_opt None mplex esys
+  new datagram_rpc_multiplex_controller 
+    sockname peername_opt None (Some fd) mplex esys
 ;;
 
 
-class stream_rpc_multiplex_controller sockname peername peer_user_name_opt
+class stream_rpc_multiplex_controller 
+        sockname peername peer_user_name_opt file_descr_opt
         (mplex : Uq_engines.multiplex_controller) esys 
       : rpc_multiplex_controller =
   let () = 
@@ -408,6 +413,7 @@ object(self)
   method getpeername = peername
   method protocol = Tcp
   method peer_user_name = peer_user_name_opt
+  method file_descr = file_descr_opt
   method reading = mplex # reading
   method read_eof = mplex # read_eof
   method writing = mplex # writing
@@ -888,5 +894,6 @@ let stream_rpc_multiplex_controller ?(close_inactive_descr=true)
     Uq_engines.create_multiplex_controller_for_connected_socket
       ~close_inactive_descr ~preclose
       fd esys in
-  new stream_rpc_multiplex_controller sockname peername None mplex esys
+  new stream_rpc_multiplex_controller 
+    sockname peername None (Some fd) mplex esys
 ;;

@@ -76,6 +76,12 @@ object
       * peer, it can return the name here.
      *)
 
+  method file_descr : Unix.file_descr option
+    (** If the transport mechanism is on top of a file descriptor, this
+	is returned here. This can be useful for getting more information
+	about the descriptor (e.g. credentials associated with it).
+     *)
+
   method reading : bool
     (** True iff there is a reader *)
 
@@ -209,7 +215,7 @@ val datagram_rpc_multiplex_controller :
 
 
 class stream_rpc_multiplex_controller : 
-         sockaddr -> sockaddr -> string option ->
+         sockaddr -> sockaddr -> string option -> Unix.file_descr option -> 
          Uq_engines.multiplex_controller -> 
          Unixqueue.event_system ->
             rpc_multiplex_controller

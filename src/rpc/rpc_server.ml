@@ -1111,12 +1111,12 @@ let disable_nagle fd =
   with _ -> ()
 
 
-let create2_multiplexer_endpoint ?fd mplex =
+let create2_multiplexer_endpoint mplex =
   let prot = mplex#protocol in
   let srv  = create2_srv prot mplex#event_system in
   let conn = connection srv mplex in
   srv.main_socket_name <- mplex # getsockname;
-  conn.fd <- fd;
+  conn.fd <- mplex # file_descr;
   (* Start serving not before the event loop is entered. *)
   Unixqueue.once 
     mplex#event_system
@@ -1129,7 +1129,7 @@ let create2_multiplexer_endpoint ?fd mplex =
 	   (fun () ->
 	      sprintf "(sock=%s,peer=%s): Serving connection"
 		(Rpc_transport.string_of_sockaddr mplex#getsockname)
-		(portoptname fd));
+		(portoptname mplex#file_descr));
 	 if srv.transport_timeout >= 0.0 then
 	   mplex # set_timeout 
 	     ~notify:(on_trans_timeout srv conn) srv.transport_timeout;
@@ -1180,7 +1180,7 @@ let create2_socket_endpoint ?(close_inactive_descr=true)
   disable_nagle fd;
   if close_inactive_descr then track fd;
   let mplex = mplex_of_fd ~close_inactive_descr prot fd esys in
-  create2_multiplexer_endpoint ~fd mplex 
+  create2_multiplexer_endpoint mplex 
 ;;
 
 
