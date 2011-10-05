@@ -447,7 +447,8 @@ let do_gc heap =
       ( match Netsys_mem.color v with
 	  | Netsys_mem.White ->
 	      dlogr (fun () -> sprintf "freeing 0x%nx"
-		       (Nativeint.add ext.ext_addr (Nativeint.of_int !offs)));
+		       (Nativeint.add ext.ext_addr
+			  (Nativeint.of_int (!offs + bytes_per_word))));
 	      ( match !cur_fl_entry with
 		  | None ->
 		      cur_fl_entry := Some(!offs, (sz+1)*bytes_per_word)
@@ -458,7 +459,8 @@ let do_gc heap =
 	      )
 	  | _ ->
 	      dlogr (fun () -> sprintf "keeping 0x%nx"
-		       (Nativeint.add ext.ext_addr (Nativeint.of_int !offs)));
+		       (Nativeint.add ext.ext_addr 
+			  (Nativeint.of_int (!offs + bytes_per_word))));
 	      all_free := false;
 	      Netsys_mem.set_color v Netsys_mem.White;
 	      push()
@@ -716,10 +718,10 @@ let set_tmp_root heap x =
     if not !found then (
       dlog "set_tmp_root: reallocation";
       let r_orig = Array.make (2*n) null_obj in
-      Array.blit heap.heap_roots 0 r_orig 0 n;
       let mut = create_mutator heap in
       let r = add mut r_orig in
-      heap.heap_roots <- r
+      heap.heap_roots <- r;
+      Array.blit heap.heap_roots 0 r 0 n;
     );
     !k
   )
