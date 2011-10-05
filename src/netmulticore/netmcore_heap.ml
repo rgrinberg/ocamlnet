@@ -720,8 +720,8 @@ let set_tmp_root heap x =
       let r_orig = Array.make (2*n) null_obj in
       let mut = create_mutator heap in
       let r = add mut r_orig in
-      heap.heap_roots <- r;
       Array.blit heap.heap_roots 0 r 0 n;
+      heap.heap_roots <- r;
     );
     !k
   )
