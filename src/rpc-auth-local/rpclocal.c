@@ -6,6 +6,8 @@
 #define _GNU_SOURCE
 /* Required on some systems to enable struct ucred in sys/socket.h */
 
+#include "config.h"
+
 #include "caml/mlvalues.h"
 #include "caml/alloc.h"
 #include "caml/memory.h"
@@ -26,7 +28,6 @@
 #include <ucred.h>
 #endif
 
-#include "config.h"
 
 /**********************************************************************/
 /* From unixsupport.h                                                 */
