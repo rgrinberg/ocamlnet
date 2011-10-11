@@ -34,6 +34,7 @@ Major future directions:
   * Intro for netcgi
   * Better equeue docs  
   * Better RPC docs (enterprise topics)
+  * Lwt
 
 - Usability
   * smoothen Netplex APIs

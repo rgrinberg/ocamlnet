@@ -174,6 +174,7 @@ and t =
 	mutable next_xid : uint4;
 	mutable used_xids : unit SessionMap.t;
 	mutable last_replier : Unix.sockaddr option;
+	mutable last_xid : uint4 option;
 
 	(* configs: *)
 	mutable timeout : float;
@@ -478,6 +479,22 @@ let remove_pending_call cl call =
   stop_retransmission_timer cl call
 ;;
 
+
+let abandon_call cl xid =
+  try
+    let call = SessionMap.find xid cl.pending_calls in
+    remove_pending_call cl call
+  with
+    | Not_found ->
+	let q = Queue.create() in
+	Queue.transfer cl.waiting_calls q;
+	while not(Queue.is_empty q) do
+	  let call = Queue.take q in
+	  if call.xid <> xid then Queue.add call cl.waiting_calls
+	done;
+	cl.used_xids <- SessionMap.remove xid cl.used_xids
+
+
   (*****)
 
 let continue_call cl call =
@@ -759,6 +776,7 @@ let unbound_async_call_r cl prog procname param receiver authsess_opt =
 	  )
   in
 
+  cl.last_xid <- Some new_call.xid;
   cl.used_xids <- SessionMap.add new_call.xid () cl.used_xids;
   cl.next_timeout <- cl.timeout;
   cl.next_max_retransmissions <- cl.max_retransmissions;
@@ -1435,6 +1453,7 @@ let rec internal_create initial_xid
       user_name = None;
       mstring_factories = Hashtbl.create 1;
       last_replier = None;
+      last_xid = None;
       timeout = (-1.0);
       max_retransmissions = 0;
       exception_handler = (fun _ -> ());
@@ -1806,6 +1825,14 @@ let get_sender_of_last_response cl =
   match cl.last_replier with
     | None -> failwith "Rpc_client.get_sender_of_last_response: nothing received yet or sender's address not available from transport layer"
     | Some addr -> addr
+
+
+let get_xid_of_last_call cl =
+  match cl.last_xid with
+    | None ->
+	failwith "Rpc_client.get_xid_of_last_call: nothing called"
+    | Some xid -> xid
+
 
 let get_protocol cl =
   cl.prot

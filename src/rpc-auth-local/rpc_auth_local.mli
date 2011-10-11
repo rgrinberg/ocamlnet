@@ -45,7 +45,12 @@ val server_auth_method : unit -> Rpc_server.auth_method
 val get_peer_credentials : Unix.file_descr -> (int * int);;
   (** Return the pair (euid,egid) for a Unix domain socket.
    * The function raises [Invalid_argument] if it is not available for this
-   * operating system.
+   * operating system. (Generally, this should work on Linux, BSD, and
+   * Solaris, and OS with compatible system functions - supported methods are
+   * [SO_PEERCRED], [getpeerucred], and [getpeereid]).
+   *
+   * Some OS support this only for named Unix domain sockets but not for
+   * socketpairs.
    *)
 
 (*

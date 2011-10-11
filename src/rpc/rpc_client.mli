@@ -380,8 +380,19 @@ val get_peer_name : t -> Unix.sockaddr
 val get_sender_of_last_response : t -> Unix.sockaddr
   (** Return the address of the sender of the last received response. *)
 
+val get_xid_of_last_call : t -> Rtypes.uint4
+  (** Returns the session identifier used in the just made call *)
+
 val get_protocol : t -> Rpc.protocol
   (** Get the protocol flavour *)
+
+val abandon_call : t -> Rtypes.uint4 -> unit
+  (** To be used in conjunction with {!Rpc_client.Keep_call}: The call
+      with this session identifier is no longer expected, and removed
+      from the internal data structures.
+
+      Restriction: for now, this does not work when there is authentication.
+   *)
 
 val is_up : t -> bool
   (** Return whether the client is up *)
