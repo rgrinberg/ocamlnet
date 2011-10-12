@@ -1,5 +1,9 @@
-2011-10-11  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+2011-10-12  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
+	* Release 3.4.1
+
+2011-10-11  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+	
 	* Rpc_client: new functions get_xid_of_last_call, and
 	  abandon_call
 

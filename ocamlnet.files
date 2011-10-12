@@ -326,6 +326,10 @@ d src/rpc-auth-local
 f src/rpc-auth-local/META.in
 f src/rpc-auth-local/Makefile
 f src/rpc-auth-local/Makefile.pre
+f src/rpc-auth-local/configure
+d src/rpc-auth-local/configtests
+p src/rpc-auth-local/configtests/.*\.c
+p src/rpc-auth-local/configtests/.*\.ml
 p src/rpc-auth-local/.*\.ml
 p src/rpc-auth-local/.*\.mli
 p src/rpc-auth-local/.*\.c
