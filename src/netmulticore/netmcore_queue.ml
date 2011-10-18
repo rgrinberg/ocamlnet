@@ -115,9 +115,11 @@ let iter f sq =
        while !len > 0 do
 	 ( match !r with
 	     | None -> assert false
-	     | Some c -> f c.conts
+	     | Some c ->
+		 r := c.next;
+		 f c.conts
 	 );
-	 decr len
+	 decr len;
        done
     )
 
