@@ -48,6 +48,40 @@ Major future directions:
 
 ----------------------------------------------------------------------
 
+- Bug Win32: (godi-list, 2011-12-05)
+
+ocamlfind ocamlc -g  -I ../../src/equeue -I ../../src/netsys -I ../../src/netstring -I ../../src/netg
+ssapi -package "unix"  -c  rpc_proxy.ml
+if [ "X" = "X" ]; then  ocamlfind ocamlc -g  -I ../../src/equeue -I ../../src/netsys -I ../../src/net
+string -I ../../src/netgssapi -package "unix"  -a -o rpc.cma rpc.cmo rpc_common.cmo  rpc_program.cmo 
+rpc_util.cmo rpc_portmapper_aux.cmo  rpc_packer.cmo rpc_transport.cmo rpc_client.cmo  rpc_simple_clie
+nt.cmo rpc_portmapper_clnt.cmo rpc_portmapper.cmo  rpc_server.cmo rpc_auth_sys.cmo  rpc_auth_gssapi_a
+ux.cmo rpc_auth_gssapi.cmo  rpc_proxy.cmo;  else  ../../tools/mkstublib -o rpc rpc.cmo rpc_common.cmo
+  rpc_program.cmo rpc_util.cmo rpc_portmapper_aux.cmo  rpc_packer.cmo rpc_transport.cmo rpc_client.cm
+o  rpc_simple_client.cmo rpc_portmapper_clnt.cmo rpc_portmapper.cmo  rpc_server.cmo rpc_auth_sys.cmo 
+ rpc_auth_gssapi_aux.cmo rpc_auth_gssapi.cmo  rpc_proxy.cmo  ;  fi
+sed -e 's/@VERSION@/3.4.1/'  -e 's/@AUTHDHREQS@//'  -e 's/@PREFERRED_CGI_PKG@//'  -e 's/@REGEXP_PROVI
+DER@/pcre/'  META.in >META
+ocamlfind ocamldep   *.ml *.mli >depend || { rm -f depend; exit 1; }
+ocamlfind ocamlc -g  -I ../../src/rpc -I ../../src/netsys -package "unix" -c  rpc_auth_local.mli
+ocamlfind ocamlc -g  -I ../../src/rpc -I ../../src/netsys -package "unix"  -c  rpc_auth_local.ml
+../../tools/stubcc -ocamlc ocamlc -ccopt -O   rpclocal.c
++ gcc -mno-cygwin -O -mms-bitfields -Wall -Wno-unused -c  -O  -I"C:/cygwin/work/godi-3.12.1-mingw//lib/ocaml/std-lib" "rpclocal.c"
+rpclocal.c: In function `netsys_get_peer_credentials':
+rpclocal.c:48: error: `uid_t' undeclared (first use in this function)
+rpclocal.c:48: error: (Each undeclared identifier is reported only once
+rpclocal.c:48: error: for each function it appears in.)
+rpclocal.c:48: error: parse error before "uid"
+rpclocal.c:49: error: `gid_t' undeclared (first use in this function)
+rpclocal.c:99: error: `uid' undeclared (first use in this function)
+rpclocal.c:100: error: `gid' undeclared (first use in this function)
+Error: Exec error: File /work/godi-3.12.1-mingw/build/godi/godi-ocamlnet/work/ocamlnet-3.4.1/src/rpc-auth-local/./../../Makefile.rules, line 122: Command returned with non-zero exit code
+Error: Exec error: File /work/godi-3.12.1-mingw/build/godi/godi-ocamlnet/work/ocamlnet-3.4.1/./Makefile, line 19: Command returned with non-zero exit code
+Error: Exec error: File /work/godi-3.12.1-mingw/build/godi/godi-ocamlnet/./../../mk/bsd.pkg.mk, line 1040: Command returned with non-zero exit code
+Error: Exec error: File /work/godi-3.12.1-mingw/build/godi/godi-ocamlnet/./../../mk/bsd.pkg.mk, line 1379: Command returned with non-zero exit code
+Error: Command fails with code 1: godi_console
+
+
 - Fix Netmcore, when forking:
   do not unmap anymore if a mapping is not inherited (or make this
   configurable)
