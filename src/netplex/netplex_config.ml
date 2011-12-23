@@ -81,33 +81,39 @@ let parse_config_file filename =
 
   let line = ref 1 in
   let ch = open_in filename in
-  let s1 = Stream.of_channel ch in
-  let s2 =
-    Stream.from
-      (fun _ ->
-	 match Stream.peek s1 with
-	   | None -> None
-	   | Some '\n' ->
-	       ignore(Stream.next s1);
-	       incr line;
-	       Some '\n'
-	   | (Some _) as p ->
-	       ignore(Stream.next s1);
-	       p
-      ) in
-  let lexer = Genlex.make_lexer [ "{"; "}"; "="; ";" ] s2 in
   try
-    let tree =
-      parse_tree_semi lexer in
-    Stream.empty lexer;
-    tree
+    let s1 = Stream.of_channel ch in
+    let s2 =
+      Stream.from
+	(fun _ ->
+	   match Stream.peek s1 with
+	     | None -> None
+	     | Some '\n' ->
+		 ignore(Stream.next s1);
+		 incr line;
+		 Some '\n'
+	     | (Some _) as p ->
+		 ignore(Stream.next s1);
+		 p
+	) in
+    let lexer = Genlex.make_lexer [ "{"; "}"; "="; ";" ] s2 in
+    try
+      let tree =
+	parse_tree_semi lexer in
+      Stream.empty lexer;
+      close_in ch;
+      tree
+    with
+      | Stream.Failure ->
+	  raise(Config_error(filename ^ ", line " ^ string_of_int !line ^ 
+			       ": Syntax error"))
+      | Stream.Error _ ->
+	  raise(Config_error(filename ^ ", line " ^ string_of_int !line ^ 
+			       ": Syntax error"))
   with
-    | Stream.Failure ->
-	raise(Config_error(filename ^ ", line " ^ string_of_int !line ^ 
-			     ": Syntax error"))
-    | Stream.Error _ ->
-	raise(Config_error(filename ^ ", line " ^ string_of_int !line ^ 
-			     ": Syntax error"))
+    | error ->
+	close_in ch;
+	raise error
 ;;
 
 
