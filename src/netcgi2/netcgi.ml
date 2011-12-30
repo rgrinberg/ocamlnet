@@ -90,6 +90,7 @@ type config = Netcgi_common.config = {
   permitted_http_methods : http_method list;
   permitted_input_content_types : string list;
   input_content_length_limit : int;
+  max_arguments : int;
   workarounds :
     [ `MSIE_Content_type_bug | `Backslash_bug
     | `Work_around_MSIE_Content_type_bug
@@ -105,6 +106,7 @@ let default_config =
     permitted_input_content_types = [ "multipart/form-data";
 				      "application/x-www-form-urlencoded" ];
     input_content_length_limit = max_int;
+    max_arguments = 10000;
     workarounds = [ `MSIE_Content_type_bug; `Backslash_bug ];
     default_exn_handler = true;
   }

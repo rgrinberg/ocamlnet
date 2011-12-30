@@ -57,52 +57,52 @@ type setatom =
 
 type re_term =
   | Texact of string
-  | Tnullchar
-  | Tany
-  | Tnull
-  | Tconcat of re_term list
+  | (* literal characters (except NUL) *)
+  Tnullchar
+  | (* NUL characer *)
+  Tany
+  | (* . but no newline *)
+  Tnull
+  | (* emptiness *)
+  Tconcat of re_term list
   | Tstar of re_term
-  | Tplus of re_term
-  | Toption of re_term
-  | Tset of set
-  | Tnegset of set
-  | Tbegline
-  | Tendline
-  | Talt of re_term list
-  | Tgroup of (int * re_term)
-  | Trefer of int
-  | Tinterval of (re_term * int * int)
-  | Twordchar
-  | Tnowordchar
-  | Twordbeg
-  | Twordend
-  | Twordbound
-  | Tnowordbound
-  | Tbegbuf
-  | Tendbuf
+  | (* x* *)
+  Tplus of re_term
+  | (* x+ *)
+  Toption of re_term
+  | (* x? *)
+  Tset of set
+  | (* [...] *)
+  Tnegset of set
+  | (* [^...] *)
+  Tbegline
+  | (* ^ *)
+  Tendline
+  | (* $ *)
+  Talt of re_term list
+  | (* x\|y *)
+  Tgroup of (int * re_term)
+  | (* \(...\) *)
+  Trefer of int
+  | (* \i *)
+  Tinterval of (re_term * int * int)
+  | (* x{n,m}. m=-1 means infinite *)
+  Twordchar
+  | (* \w *)
+  Tnowordchar
+  | (* \W *)
+  Twordbeg
+  | (* \< *)
+  Twordend
+  | (* \> *)
+  Twordbound
+  | (* \b *)
+  Tnowordbound
+  | (* \B *)
+  Tbegbuf
+  | (* \` *)
+  Tendbuf
 
-(* literal characters (except NUL) *)
-(* NUL characer *)
-(* . but no newline *)
-(* emptiness *)
-(* x* *)
-(* x+ *)
-(* x? *)
-(* [...] *)
-(* [^...] *)
-(* ^ *)
-(* $ *)
-(* x\|y *)
-(* \(...\) *)
-(* \i *)
-(* x{n,m}. m=-1 means infinite *)
-(* \w *)
-(* \W *)
-(* \< *)
-(* \> *)
-(* \b *)
-(* \B *)
-(* \` *)
 (* \' *)
 (**********************************************************************)
 (* Final types *)

@@ -1,3 +1,12 @@
+2011-12-30 Gerd Stolpmann <gerd@gerd-stolpmann.de>
+
+        * Security: adding limit max_arguments to Netcgi. This is more
+          a general measure of precaution against DoS attacks where
+          a specially crafted POST request contains many keys that
+          collide massively in the hash table. Actually, Ocamlnet is
+          not directly vulnerable; however, application programs can
+          nevertheless be when they access a degenerated hash table.
+
 2011-10-12  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Release 3.4.1

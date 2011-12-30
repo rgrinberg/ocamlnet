@@ -91,6 +91,7 @@ struct
     Netcgi.permitted_input_content_types = c.permitted_input_content_types;
 
     Netcgi.input_content_length_limit = c.input_content_length_limit;
+    Netcgi.max_arguments = 10000;
 
     Netcgi.workarounds =
       List.map (function

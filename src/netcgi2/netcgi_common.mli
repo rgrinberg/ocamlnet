@@ -59,6 +59,9 @@ type store = [`Memory | `File of string]
 exception Oversized
   (** See {!Netcgi.Argument.Oversized}. *)
 
+exception Too_many_arguments
+  (** Hit the limit [max_arguments] *)
+
 (** See {!Netcgi.cgi_argument}. *)
 class type cgi_argument =
 object
@@ -186,6 +189,7 @@ type config = {
   permitted_http_methods : [`GET | `HEAD | `POST | `DELETE | `PUT] list;
   permitted_input_content_types : string list;
   input_content_length_limit : int;
+  max_arguments : int;
   workarounds : [ `MSIE_Content_type_bug | `Backslash_bug
                 | `Work_around_MSIE_Content_type_bug (* @deprecated *)
                 | `Work_around_backslash_bug (* @deprecated *)

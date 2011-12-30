@@ -318,6 +318,8 @@ type config = Netcgi_common.config = {
       If the list is empty, all content types are allowed. *)
   input_content_length_limit : int;
   (** The maximum size of the request, in bytes. *)
+  max_arguments : int;
+  (** The maximum number of CGI arguments *)
   workarounds : [ `MSIE_Content_type_bug | `Backslash_bug
                 | `Work_around_MSIE_Content_type_bug
                 | `Work_around_backslash_bug ] list;
@@ -351,6 +353,7 @@ val default_config : config
       - [permitted_input_content_types]: ["multipart/form-data"],
       ["application/x-www-form-urlencoded"].
       - [input_content_length_limit]: [maxint] (i.e., no limit).
+      - [max_arguments = 10000] (for security reasons)
       - [workarounds]: all of them.
       - [default_exn_handler]: set to [true].
 

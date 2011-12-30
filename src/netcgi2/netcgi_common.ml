@@ -383,6 +383,7 @@ type config = {
   permitted_http_methods : [`GET | `HEAD | `POST | `DELETE | `PUT] list;
   permitted_input_content_types : string list;
   input_content_length_limit : int;
+  max_arguments : int;
   workarounds :
     [ `MSIE_Content_type_bug | `Backslash_bug
     | `Work_around_MSIE_Content_type_bug
@@ -752,6 +753,9 @@ let last_char s =
   s.[ String.length s - 1 ]
 
 
+exception Too_many_arguments
+
+
 (* CGI abstractions independent of the connector. *)
 class cgi (env:cgi_environment) (op:output_type)
   (request_method:request_method) (args:cgi_argument list)
@@ -785,7 +789,17 @@ object(self)
 
   initializer
     (* Add the arguments in the reverse order for [find_all] to give
-       expected results.  Allow a redefinition of [#arguments]. *)
+       expected results.  Allow a redefinition of [#arguments].
+
+       Security note: It is essential for preventing DoS attacks that
+       we use here Hashtbl.add and not Hashtbl.replace. Otherwise a
+       malicious user could craft arguments specially so that the
+       argument names cause lots of collisions in the hash table,
+       and the performance of Hashtbl.replace would decrease dramatically
+       (to O(n) per operation, leading to O(n^2) for the whole iteration).
+     *)
+    if List.length args > env#config.max_arguments then
+      raise Too_many_arguments;
     List.iter (fun a -> Hashtbl.add arguments a#name a)
       (List.rev self#arguments)
 
