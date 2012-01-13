@@ -483,17 +483,21 @@ CAMLprim value netsys_pollfd_size (value dummy) {
 }
 
 
+#define Poll_mem_val(v) ((struct pollfd **) (Data_custom_val(v)))
+
 #ifdef HAVE_POLL
+static void finalize_poll_mem(value r) {
+    caml_stat_free(*(Poll_mem_val(r)));
+}
+
 static struct custom_operations poll_mem_ops = {
     "",
-    custom_finalize_default,
+    finalize_poll_mem,
     custom_compare_default,
     custom_hash_default,
     custom_serialize_default,
     custom_deserialize_default
 };
-
-#define Poll_mem_val(v) ((struct pollfd **) (Data_custom_val(v)))
 
 static value alloc_poll_mem(int n) {
     struct pollfd *p;
