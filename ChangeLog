@@ -1,3 +1,11 @@
+2012-01-13  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Fix memory leak: Adding finalizer for Netsys_posix.poll_mem
+	  values (thanks to Henry Hughes)
+
+	* Fix (build): ocamlrpcgen respects existing OCAMLPATH
+	  (Dmitry Grebeniuk)
+
 2011-12-30 Gerd Stolpmann <gerd@gerd-stolpmann.de>
 
         * Security: adding limit max_arguments to Netcgi. This is more

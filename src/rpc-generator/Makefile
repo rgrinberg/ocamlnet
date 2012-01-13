@@ -18,7 +18,7 @@ include $(TOP_DIR)/Makefile.rules
 
 ocamlrpcgen$(EXEC_SUFFIX): $(ARCHIVE).cma main.cmo
 	rm -f ocamlrpcgen ocamlrpcgen$(EXEC_SUFFIX)
-	OCAMLPATH=.. \
+	OCAMLPATH="..:$$OCAMLPATH" \
 	$(OCAMLC) -custom -o ocamlrpcgen -package unix,netstring \
 		$(ARCHIVE).cma main.cmo -linkpkg
 
