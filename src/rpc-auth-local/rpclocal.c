@@ -45,8 +45,14 @@ extern void uerror (char * cmdname, value arg) Noreturn;
 value netsys_get_peer_credentials(value fd) {
     CAMLparam1(fd);
     CAMLlocal1(result);
+
+#if defined(HAVE_GETPEEREID) || defined(SO_PEERCRED) || defined(HAVE_GETPEERUCRED)
     uid_t uid;
     gid_t gid;
+#else
+    int uid;
+    int gid;
+#endif
 
 #if defined(HAVE_GETPEEREID)
     /* BSD, AIX, Cygwin */
