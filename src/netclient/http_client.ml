@@ -5214,7 +5214,7 @@ module Convenience =
 	~enable_auth_in_advance:true (new simple_key_handler)
 
     let auth_digest =
-      new basic_auth_handler 
+      new digest_auth_handler 
 	~enable_auth_in_advance:true (new simple_key_handler)
 
     let get_default_pipe() =
