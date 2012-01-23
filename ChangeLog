@@ -1,3 +1,9 @@
+2012-01-23  Gerd Stolpmann  <gerd@samsung>
+
+	* Http_client: forgot to configure Digest authentication
+	  for the convenience module (thanks to Paolo Donadeo for
+	  finding it)
+
 2012-01-13  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Fix memory leak: Adding finalizer for Netsys_posix.poll_mem
@@ -20,7 +26,7 @@
 	* Release 3.4.1
 
 2011-10-11  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
-	
+
 	* Rpc_client: new functions get_xid_of_last_call, and
 	  abandon_call
 
