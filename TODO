@@ -1,5 +1,11 @@
 inet addr functions from Plasma_util
 
+netmcore pools: option to initialize the pool (avoid SIGBUS)
+
+Fix Uq_io.read for Plasma
+
+docs: Depict mem architecture of netmcore (multiple heaps, pool)
+
 OCAMLNET
 
 ----------------------------------------------------------------------
