@@ -46,19 +46,62 @@ let month =
   [| "Jan"; "Feb"; "Mar"; "Apr"; "May"; "Jun";
      "Jul"; "Aug"; "Sep"; "Oct"; "Nov"; "Dec" |]
 
+type format = [ `Std | `ISO ]
+
+let rec ten_power n =
+  if n<=0 then 1 else 10 * (ten_power (n-1))
+
+let billion = 1_000_000_000
+
+let format_timestamp (fmt:format) digits (s,ns) =
+  let s0 = floor s in
+  let ns0 = truncate ( (s -. s0) *. 1E9 ) in
+  let ns1 = if ns0 >= billion - ns then (ns-billion)+ns0 else ns+ns0 in
+  let s1 = if ns0 >= billion - ns then s0 +. 1.0 else s0 in
+  let ns_string = 
+    if digits > 0 then
+      sprintf ".%0*d" digits (ns1 / ten_power(9-digits))
+    else 
+      "" in
+
+  let t = Unix.localtime s1 in
+  match fmt with
+    | `Std ->
+	sprintf
+	  "%s %s %2d %02d:%02d:%02d%s %4d"
+	  weekday.(t.Unix.tm_wday)
+	  month.(t.Unix.tm_mon)
+	  t.Unix.tm_mday
+	  t.Unix.tm_hour
+	  t.Unix.tm_min
+	  t.Unix.tm_sec
+	  ns_string
+	  (1900 + t.Unix.tm_year)
+    | `ISO ->
+	sprintf
+	  "%4d-%02d-%02d %02d:%02d:%02d%s"
+	  (1900 + t.Unix.tm_year)
+	  (t.Unix.tm_mon+1)
+	  t.Unix.tm_mday
+	  t.Unix.tm_hour
+	  t.Unix.tm_min
+	  t.Unix.tm_sec
+	  ns_string
+
+let current_formatter =
+  ref(format_timestamp `Std 0)
+
+
 let channel_logger ch max_lev lev msg = 
   if level_weight lev <= level_weight max_lev then (
-    let t = Unix.localtime(Unix.gettimeofday()) in
+    let (sec,ns) =
+      try Netsys_posix.clock_gettime Netsys_posix.CLOCK_REALTIME
+      with Invalid_argument _ ->
+	(Unix.gettimeofday(), 0) in
     let s =   (* Netdate is unavailable here *)
       sprintf
-	"[%s %s %2d %02d:%02d:%02d %4d] [%s] %s%s\n"
-	weekday.(t.Unix.tm_wday)
-	month.(t.Unix.tm_mon)
-	t.Unix.tm_mday
-	t.Unix.tm_hour
-	t.Unix.tm_min
-	t.Unix.tm_sec
-	(1900 + t.Unix.tm_year)
+	"[%s] [%s] %s%s\n"
+	(!current_formatter (sec,ns))
 	(string_of_level lev)
 	( match lev with
 	    | `Debug ->

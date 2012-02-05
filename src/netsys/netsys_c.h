@@ -1,5 +1,8 @@
 /* $Id$ */
 
+#ifndef NETSYS_C_H
+#define NETSYS_C_H
+
 #include "config.h"
 
 /* Linux: make all system prototypes available */
@@ -8,19 +11,15 @@
 /* POSIX: we want POSIX.1-2008 if possible */
 /* #define _XOPEN_SOURCE 700 */
 
-
 #ifdef _WIN32
 #include "config_win32.h"
-#include <stdio.h>
 
 #define _WIN32_WINNT 0x0502
 #define WIN32_LEAN_AND_MEAN
 #include <wtypes.h>
 #include <winbase.h>
-#include <stdlib.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <errno.h>
 #include <aclapi.h>
 
 #ifndef FILE_FLAG_FIRST_PIPE_INSTANCE
@@ -31,10 +30,10 @@
 
 #include "config_posix.h"
 #include <unistd.h>
-#include <stdio.h>
 #include <fcntl.h>
-#include <errno.h>
 #include <signal.h>
+#include <time.h>
+#include <grp.h>
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -42,10 +41,16 @@
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-
 #endif
 
+
+/* Standard C headers (all OS) */
+
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
+
 
 #include "caml/misc.h"
 /* misc.h also includes OCaml's config.h
@@ -195,3 +200,7 @@ union sock_addr_union {
 /**********************************************************************/
 
 extern int caml_ba_element_size[];
+
+
+#endif
+

@@ -1,3 +1,21 @@
+2012-02-05  Gerd Stolpmann  <gerd@samsung>
+
+	* Netsys_posix: Adding POSIX clock functions. These allow
+	  operations with nanosecond resolution
+
+	* Netlog and Netdate have been extended to support high
+	  resolution clocks
+
+	* Netsys_posix: Adding event abstraction. Under Linux this is backed by
+	  eventfd and timerfd. For other OS, an emulation with pipes is
+	  available.
+
+	* Netsys_posix: Adding POSIX timers. They can be connected with
+	  events (the event is signaled when the timer expires).
+
+	* Netsys in general: Splitting netsys_c.c up into several files.
+	  Improved configure script.
+
 2012-01-23  Gerd Stolpmann  <gerd@samsung>
 
 	* Http_client: forgot to configure Digest authentication

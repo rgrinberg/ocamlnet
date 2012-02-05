@@ -210,20 +210,27 @@ let rec buf_input_e b ms pos len =
   )
 
 
+and gread_e fd ms pos len =
+  try
+    match ms with
+      | `String s ->
+	  let n = Netsys.gread style fd s pos len in
+	  (n, n=0)
+      | `Memory m ->
+	  let n = mem_gread style fd m pos len in
+	  (n, n=0)
+  with
+    | Unix.Unix_error((Unix.EAGAIN|Unix.EWOULDBLOCK),_,_) ->
+	(0, false)
+
 and dev_input_e (d : in_device) ms pos len =
   match d with
     | `Polldescr(style, fd, esys) ->
 	new Uq_engines.input_engine
 	  (fun fd -> 
-	     match ms with
-	       | `String s ->
-		   let n = Netsys.gread style fd s pos len in
-		   if len > 0 && n = 0 then raise End_of_file;
-		   n
-	       | `Memory m ->
-		   let n = mem_gread style fd m pos len in
-		   if len > 0 && n = 0 then raise End_of_file;
-		   n
+	     let (n, eof) = gread_e fd ms pos len in
+	     if len > 0 && n = 0 && eof then raise End_of_file;
+	     n
 	  )
 	  fd (-1.0) esys
 

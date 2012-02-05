@@ -59,7 +59,7 @@ CAMLprim value netsys_s_read_string_array(value sv, value pv, value lv,
     int av_in_heap;
     int err;
     value r;
-    value **old_reftbl;
+    /* value **old_reftbl; */
     CAMLparam2(sv,av);
 
     /* fprintf(stderr, "netsys_s_read_string_array\n"); fflush(stderr); */

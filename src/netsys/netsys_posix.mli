@@ -82,7 +82,7 @@ val poll_array_length : poll_array -> int
 
 val poll : poll_array -> int -> float -> int
   (** [poll a n tmo]: Poll for the events of the cells 0 to [n-1] of 
-      poll array [a], and set the [poll_revents] member of all cells.
+      poll array [a], and set the [poll_act_events] member of all cells.
       Wait for at most [tmo] seconds (a negative value means there is
       no timeout). Returns the number of ready file descriptors.
 
@@ -223,7 +223,7 @@ val readlinkat : Unix.file_descr -> string -> string
 
 (* TODO: futimens *)
 
-(** {1 Misc} *)
+(** {1 Files, Processes, TTYs, Users, Groups} *)
 
 val int_of_file_descr : Unix.file_descr -> int
   (** Return the file descriptor as integer. See also
@@ -255,6 +255,14 @@ external fdopendir : Unix.file_descr -> Unix.dir_handle = "netsys_fdopendir"
       This is a recent addition to the POSIX standard; be prepared to
       get [Invalid_argument] because it is unavailable.
    *)
+
+external realpath : string -> string = "netsys_realpath"
+  (** Returns a pathname pointing to the same filesystem object so that
+      the pathname does not include "." or ".." or symbolic links.
+   *)
+
+external get_nonblock : Unix.file_descr -> bool = "netsys_get_nonblock"
+  (** Returns whether the nonblock flag is set *)
 
 (* Process groups, sessions, terminals *)
 
@@ -336,6 +344,38 @@ val tty_read_password : ?tty:Unix.file_descr -> string -> string
       CTRL-C) to abort the input of a password.
    *)
 
+external posix_openpt : bool -> Unix.file_descr = "netsys_posix_openpt"
+  (** [posix_openpt noctty]: Opens an unused PTY master.
+
+      [noctty]: If true, the descriptor will not become the controlling
+      terminal.
+
+      If this function is not provided by the OS, an emulation is used.
+
+      On some OS, System V style PTY's are unavailable (but they get
+      rare).
+   *)
+
+external grantpt : Unix.file_descr -> unit = "netsys_grantpt"
+  (** Grant access to this PTY *)
+
+external unlockpt : Unix.file_descr -> unit = "netsys_unlockpt"
+  (** Unlock a PTY master/slave pair *)
+
+external ptsname : Unix.file_descr -> string = "netsys_ptsname"
+  (** Get the name of the slave PTY *)
+
+type node_type = 
+  | S_IFREG 
+  | S_IFCHR of int  (* major + minor *)
+  | S_IFBLK of int  (* major + minor *)
+  | S_IFIFO
+  | S_IFSOCK
+      
+external mknod : string -> int -> node_type -> unit = "netsys_mknod"
+    (** Creates the node with the given permissions and the given type *)
+
+
 (* Users and groups *)
 
 external setreuid : int -> int -> unit = "netsys_setreuid"
@@ -348,11 +388,16 @@ external setregid : int -> int -> unit = "netsys_setregid"
    * process.
    *)
 
+external initgroups : string -> int -> unit = "netsys_initgroups"
+  (** See initgroups(3). This is a non-POSIX function but widely
+      available.
+   *)
+
 
 (** {1 Fork+exec} *)
 
 (** The following function has some similarity with posix_spawn, but
-    is changed to our needs, Only special (although frequent) cases
+    is extended to our needs, Only special (although frequent) cases
     can be implemented with posix_spawn.
  *)
 
@@ -393,6 +438,8 @@ val spawn : ?chdir:wd_spec ->
               int
   (** [spawn cmd args]: Fork the process and exec [cmd] which gets the
       arguments [args]. On success, the PID of the new process is returned.
+      This function does not wait for the completion of the process, use
+      [Unix.waitpid] for this purpose.
 
       - [chdir]: If set, the new process starts with this working directory
         (this is done before anything else)
@@ -411,6 +458,115 @@ val spawn : ?chdir:wd_spec ->
       in [sig_actions].
    *)
 
+
+(** {1 Notification via file descriptor events} *)
+
+(** Often, it is advantageous to report asynchronous events via
+    file descriptors. On Linux, this is available via the [eventfd]
+    system call. On other platforms, pipes are used for emulation.
+
+    A [not_event] can have two states: off and on. Initially, the
+    [not_event] is off. By signalling it, the state changes to on,
+    and the underlying real file descriptor becomes readable.
+    By consuming the event, the state is switched back to off.
+
+    Note that a similar API exists for Win32: See {!Netsys_win32.w32_event}.
+ *)
+
+type not_event
+
+val create_event : unit -> not_event
+  (** Creates a new event file descriptor. *)
+
+external set_nonblock_event : not_event -> unit
+  = "netsys_set_nonblock_not_event"
+  (** Sets the event fd to non-blocking mode *)
+
+external get_event_fd : not_event -> Unix.file_descr = "netsys_get_not_event_fd"
+  (** Returns a duplicate of the underlying file descriptor. This should only 
+      be used for one thing: checking whether the desciptor becomes readable.
+      As this is a duplicate, the caller has to close the descriptor.
+   *)
+
+external set_event : not_event -> unit = "netsys_set_not_event"
+  (** Signals the event *)
+
+external wait_event : not_event -> unit = "netsys_wait_not_event"
+  (** If the event fd is not signalled, the function blocks until
+      it gets signalled, even in non-blocking mode.
+   *)
+
+external consume_event : not_event -> unit = "netsys_consume_not_event"
+  (** Consumes the event, and switches the event fd to off again.
+      If the event fd is not signalled, the function blocks until
+      it gets signalled (in blocking mode), or it raises [EAGAIN]
+      or [EWOULDBLOCK] (in non-blocking mode).
+
+      This is effectively an atomic "wait-and-reset" operation.
+   *)
+
+external destroy_event : not_event -> unit = "netsys_destroy_not_event"
+  (** Releases the OS resources. Note that there can be a hidden second
+      file descriptor, so closing the descriptor returned by [get_event_fd]
+      is not sufficient.
+   *)
+
+val report_signal_as_event : not_event -> int -> unit
+  (** [report_signal_as_event ev sig] Installs a new signal handler for
+      signal [sig] so that [ev] is signalled when a signal arrives.
+   *)
+
+(** {1 Notification queues} *)
+
+(** Unimplemented, but a spec exists. Notification queues are intended
+    for forwarding events from C level to OCaml level. Possible uses:
+    - POSIX timers
+    - Realtime signals
+    - Subprocess monitoring
+    - AIO completion
+ *)
+
+(*
+(** This is a helper data structure only. This type of queue is a FIFO
+    implemented in C. When the queue is filled with data, a notification
+    mechanism is triggered to inform user code. Note that the notification
+    only happens when the first element is added to an empty queue, but not when
+    more elements are added. Also note that there can only be one notification
+    mechanism.
+
+    Only C code can add new elements!
+ *)
+ *)
+
+(*
+type 'a not_queue
+
+val create_nqueue : unit -> 'a not_queue
+  (** create a new notification queue *)
+
+val nqueue_length : 'a not_queue -> int
+  (** returns the number of elements in the queue *)
+
+val nqueue_take : 'a not_queue -> 'a
+  (** takes the front element off the queue and returns it.
+      Raises [Not_found] if the queue is empty
+   *)
+
+val nqueue_reset_notification : 'a not_queue -> unit
+  (** Do not notify *)
+
+val nqueue_notify_via_event : 'a not_queue -> not_event -> unit
+  (** Arranges that the event is signalled when the first element is added
+      to the queue
+   *)
+
+val nqueue_notify_via_condition : 'a not_queue -> Condition.t -> unit
+  (** Arranges that the condition variable is signalled  when the first 
+      element is added to the queue
+   *)
+
+(** Another notification mechanism is described in {!Netsys_posix.sem_not}. *)
+ *)
 
 (** {1 Subprocesses and signals} *)
 
@@ -625,7 +781,32 @@ external fdatasync : Unix.file_descr -> unit = "netsys_fdatasync"
   (** Syncs only data to disk. If this is not implemented, same effect
       as [fsync]
    *)
- 
+
+(** {1 Sending file descriptors over Unix domain sockets} *)
+
+(** These functions can be used to send file descriptors from one process
+    to another one. The descriptor [sock] must be a connected 
+    Unix domain socket.
+
+    The functionality backing this is non-standard but widely available.
+ *)
+
+(*
+val have_scm_rights : unit -> bool
+  (** Whether this functionality is available *)
+
+val send_fd : Unix.file_descr -> Unix.file_descr -> unit
+  (** [send_fd sock fd]: Sends [fd] via [sock] as ancillary message.
+      Also sends a single byte 'X' over the main message channel.
+   *)
+
+val receive_fd : Unix.file_descr -> Unix.file_descr
+  (** [receive_fd sock]: Receives a single byte over the main message
+      channel, and checks whether a file descriptor accompanies the
+      byte. If so, it is returned. If not, the function will raise [Not_found].
+   *)
+ *)
+
 (** {1 Optional POSIX functions} *)
 
 external have_fadvise : unit -> bool = "netsys_have_posix_fadvise"
@@ -827,6 +1008,23 @@ val sem_wait : 'kind semaphore -> sem_wait_behavior -> unit
       [sem_wait] may be interrupted by signals.
    *)
 
+(** {2:sem_not Semaphores and notification} *)
+
+(*
+val nqueue_notify_via_sem : 'a not_queue -> _ semaphore -> unit
+  (** Arranges that the semaphore is signalled (posted)  when the first 
+      element is added to the queue
+   *)
+
+
+val sem_wait_via_event : _ semaphore -> not_event -> unit
+  (** Runs [sem_wait] in a thread, and arranges that the [not_event] is 
+      signalled when 
+      the blocking [sem_wait] succeeds. This function is only available on
+      platforms with [pthread] support, because a helper thread is started.
+   *)
+ *)
+
 (** {1 Locales} *)
 
 type langinfo =
@@ -896,6 +1094,143 @@ val query_langinfo : string -> langinfo
       The value for "" is cached.
    *)
 
+(** {1 Clocks} *)
+
+(** Support for clocks can be assumed to exist on all current POSIX
+    systems.
+ *)
+
+type timespec = float * int
+    (** [(t,t_nanos)]: Specifies a time by a base time [t] to which the
+	nanoseconds [t_nanos] are added.
+
+	If this pair is returned by a function [t] will always be integral.
+	If a pair is passed to a function, it does not matter whether this
+	is the case or not, but using integral values for [t] ensure
+	maximum precision.
+     *)
+
+external nanosleep : timespec -> timespec ref -> unit = "netsys_nanosleep"
+  (** [nanosleep t t_rem]: Sleeps for [t] seconds. The sleep can either be
+      finished, or the sleep can be interrupted by a signal. In the
+      latter case, the function will raise [EÍNTR], and write to [t_rem]
+      the remaining seconds.
+   *)
+
+type clock_id
+
+type clock =
+  | CLOCK_REALTIME        (** A clock measuring wallclock time *)
+  | CLOCK_MONOTONIC       (** A clock measuring kernel time (non-settable). Optional, i.e. not supported by all OS *)
+  | CLOCK_ID of clock_id  (** A clock ID *)
+
+external clock_gettime : clock -> timespec = "netsys_clock_gettime"
+  (** Get the time of this clock *)
+
+external clock_settime : clock -> timespec -> unit = "netsys_clock_settime"
+  (** Set the time of this clock *)
+
+external clock_getres : clock -> timespec = "netsys_clock_getres"
+  (** Get the resolution of this clock *)
+
+external clock_getcpuclockid : int -> clock_id = "netsys_clock_getcpuclockid"
+  (** Return the ID of a clock that counts the CPU seconds of the given
+      process. Pass the PID or 0 for the current process.
+
+      This function is not supported on all OS.
+   *)
+
+(*
+val clock_nanosleep : clock -> bool -> timespec -> timespec ref -> unit
+  (** [clock_nanosleep c abstime t t_rem]: Uses the clock [c] to time
+      a sleep. If [abstime], the function sleeps until [t]. If not
+      [abstime], the function sleeps for [t] seconds.
+
+      The sleep can either be
+      finished, or the sleep can be interrupted by a signal. In the
+      latter case, the function will raise [EÍNTR]. If also [abstime] is
+      not specified, it writes to [t_rem] the remaining seconds.
+
+      This function is not supported on all OS.
+   *)
+ *)
+
+(** {1 POSIX timers} *)
+
+type posix_timer
+
+type timer_expiration =
+  | TEXP_NONE
+  | TEXP_EVENT of not_event
+  | TEXP_EVENT_CREATE
+  | TEXP_SIGNAL of int
+
+(* Future: 
+   TEXP_NQ of ??? not_queue
+   TEXP_THREAD of ??? -> unit
+   TEXP_EVENT_KQUEUE: Like TEXP_EVENT_CREATE, but backed by a kqueue (BSD),
+      and with restrictions (only CLOCK_MONOTONIC, only milliseconds prevision,
+      only oneshot timers)
+ *)
+
+val have_posix_timer : unit -> bool
+
+val timer_create : clock -> timer_expiration -> posix_timer
+  (** Create a new timer that will report expiration as given by the arg:
+      - [TEXP_NONE]: no notification
+      - [TEXP_EVENT e]: the [not_event] [e] is signalled
+      - [TEXP_EVENT_CREATE]: a special [not_event] is created for the timer.
+        (Get the event via [timer_event], see below.)
+      - [TEXP_SIGNAL n]: the signal [n] is sent to the process
+
+      Note that [TEXP_EVENT_CREATE] is much faster on Linux than
+      [TEXP_EVENT], because it can be avoided to start a new thread
+      whenever the timer expires. Instead, the timerfd machinery is used.
+
+      [TEXP_EVENT] and [TEXP_EVENT_CREATE] are only supported on systems
+      with pthreads.
+   *)
+
+val timer_settime : posix_timer -> bool -> timespec -> timespec -> unit
+  (** [timer_settime tm abstime interval value]:
+
+      If [value=(0.0,0)], the timer is stopped.
+
+      If [value] is a positive time, the timer is started (or the timeout
+      is changed if it is already started).  If [abstime], [value] is
+      interpreted as the absolute point in time of the expiration.
+      Otherwise [value] sets the number of seconds until the expiration.
+
+      If [interval] is positive, the started timer will repeat to expire
+      after this many seconds once it has expired for the first time.
+      If [interval=(0.0,0)], the timer is a one-shot timer.
+   *)
+
+val timer_gettime : posix_timer -> timespec
+  (** Returns the number of seconds until the expiration, or [(0.0,0)]
+      if the timer is off
+   *)
+
+val timer_delete : posix_timer -> unit
+  (** Deletes the timer *)
+
+val timer_event : posix_timer -> not_event
+  (** Returns the notification event for the timer styles [TEXP_EVENT] and
+      [TEXP_EVENT_CREATE].
+
+      Note that the latter type of event does not allow to call [set_event].
+   *)
+
+(** Intentionally there is no wrapper for [timer_getoverrun].
+    Additional overruns can occur because of the further processing
+    of the notifications: The OCaml runtime can merge signals,
+    which would not be noticed by the kernel overrun counter,
+    and events can also be merged. The workaround is to use one-shot timers
+    with absolute expiration timestamps, and to check for overruns
+    manually. Once we have [TEXP_NQ] the issue is solved.
+ *)
+
+
 (** {1 Linux I/O Priorities} *)
 
 (** These system calls are only available on Linux since kernel 2.6.13,
@@ -930,6 +1265,43 @@ external ioprio_get : ioprio_target -> ioprio = "netsys_ioprio_get"
 external ioprio_set : ioprio_target -> ioprio -> unit = "netsys_ioprio_set"
     (** Sets the priority of the target processes. *)
 
+
+
+(** {1 Linux [epoll]} *)
+
+(* BSD: kqueue
+   Solaris: ports (port_create, port_associate)
+ *)
+
+(*
+val have_epoll : unit -> bool
+
+val epoll_create : unit -> Unix.file_descr
+  (** [epoll_create()]: Returns a new epoll descriptor. It is created with
+      set close-on-exec flag.
+   *)
+
+type epoll_flag =
+    EPOLLET | EPOLLONESHOT
+
+val epoll_add : 
+      Unix.file_descr -> Unix.file_descr -> epoll_flag list -> 
+      poll_req_events ->  unit
+val epoll_mod : 
+      Unix.file_descr -> Unix.file_descr -> epoll_flag list -> 
+      poll_req_events ->  unit
+  (** [epoll_add/mod efd fd flags events]: Adds or modifies the events that may
+      occur for [fd]. The epoll descriptor is passed in [efd].
+   *)
+
+val epoll_del : Unix.file_descr -> Unix.file_descr -> unit
+  (** [epoll_del efd fd]: Removes [fd] from the set of watched descriptors *)
+
+val epoll_wait : Unix.file_descr -> int -> float -> poll_cell list 
+  (** [epoll_wait efd n tmo]: Returns the up to [n] next events. [tmo]
+      is the timeout ([] is returned in this case).
+   *)
+ *)
 
 (** {1 Debugging} *)
 

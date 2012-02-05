@@ -5,6 +5,30 @@
 
 (* Thanks to Nicolas George for contributing the parsing and format code *)
 
+open Printf
+
+(* Calculate local zone offset in minutes *)
+let get_localzone() =
+  let t = Unix.time () in
+  let gt = Unix.gmtime t
+  and lt = Unix.localtime t in
+
+  let min_diff = (lt.Unix.tm_hour * 60 + lt.Unix.tm_min) - 
+                 (gt.Unix.tm_hour * 60 + gt.Unix.tm_min) in
+  let day_diff = lt.Unix.tm_yday - gt.Unix.tm_yday in
+
+  if day_diff < -1 || day_diff = 1 then      (* local day is UTC day + 1 *)
+    min_diff + 24*60
+  else if day_diff > 1 || day_diff = -1 then (* local day is UTC day - 1 *)
+    min_diff - 24*60
+  else                                       (* local day is UTC day *)
+    min_diff
+;;
+
+let localzone = get_localzone() ;;
+
+
+
 type token =
   | Number of int * int   (* number of digits, value *)
   | Day of int
@@ -132,6 +156,9 @@ let find_token =
     with Not_found -> Invalid
 ;;
 
+let rec ten_power n =
+  if n<=0 then 1 else 10 * (ten_power (n-1))
+
 let tokens_of_string str =
   let rec scan_any = parser
     | [< ' ('0'..'9') as c; rest >] ->
@@ -152,6 +179,7 @@ let tokens_of_string str =
     | [< >] -> [< >]
   and scan_number (l,a) = parser
     | [< ' ('0'..'9') as c; rest >] ->
+	if l = 9 then failwith "Netdate: number too large";
 	scan_number (l+1, a * 10 + (int_of_char c - 48)) rest
     | [< rest >] -> [< 'Number(l,a); scan_any rest >]
   and scan_word b = parser
@@ -177,21 +205,25 @@ type t = {
   hour : int;
   minute : int;
   second : int;
+  nanos : int;
   zone : int;		(* in minutes; 60 = UTC+0100 *)
   week_day : int	(* 0 = sunday; -1 if not given *)
 } ;;
 
-let parse ?zone:(dzone=0) str =
+let parse ?(localzone=false) 
+          ?zone:(dzone=if localzone then get_localzone() else 0) 
+          str =
   let tokens = tokens_of_string str in
   let hour = ref None
   and minute = ref None
   and second = ref None
+  and nanos = ref None
   and zone = ref None
   and week_day = ref None
   and day = ref None
   and month = ref None
   and year = ref None in
-  let add_data ?h ?m ?s ?mdn ?tz ?dst ?wd ?md ?mo ?y ?y2 () =
+  let add_data ?h ?m ?s ?ns ?mdn ?tz ?dst ?wd ?md ?mo ?y ?y2 () =
     (* tz as in the above table *)
     let may_store r = function
       | None -> ()
@@ -210,7 +242,8 @@ let parse ?zone:(dzone=0) str =
 	  | Some false when h > 0 && h <= 11 -> Some h
 	  | Some false when h = 12 -> Some 0
 	  | Some true when h > 0 && h <= 11 -> Some (h + 12)
-	  | Some true when h = 12 -> Some 12 in
+	  | Some true when h = 12 -> Some 12 
+	  | _ -> invalid_arg "Netdate.parse" in
     let y = match y with
       | None ->
 	  ( match y2 with
@@ -221,6 +254,7 @@ let parse ?zone:(dzone=0) str =
     may_store hour h;
     may_store minute m;
     may_store second s;
+    may_store nanos ns;
     may_store zone tz;
     may_store week_day wd;
     may_store day md;
@@ -283,16 +317,17 @@ let parse ?zone:(dzone=0) str =
     | [< >] ->
 	sign * 100 * tz1
   and scan_hour_second_frac h m s = parser
-    | [< 'Dot; 'Number(_,_); rest >] ->  (* e.g. 12:50:48.12345 *)
-	scan_hour_second h m s rest
+    | [< 'Dot; 'Number(l,f); rest >] ->  (* e.g. 12:50:48.12345 *)
+	let ns = f * ten_power (9-l) in
+	scan_hour_second h m s ns rest
     | [< rest >] ->
-	scan_hour_second h m s rest
-  and scan_hour_second h m s = parser
+	scan_hour_second h m s 0 rest
+  and scan_hour_second h m s ns = parser
     | [< tz = scan_tz; rest >] ->
-	add_data ~h ~m ~s ~tz ();
+	add_data ~h ~m ~s ~ns ~tz ();
 	scan_gen rest
     | [< mdn = scan_opt_meridian; rest >] ->
-	add_data ~h ~m ~s ?mdn ();
+	add_data ~h ~m ~s ~ns ?mdn ();
 	scan_gen rest
   and scan_date_s (ln,n) m = parser
     | [< 'Slash; 'Number(lp,p); rest >] ->
@@ -373,6 +408,7 @@ let parse ?zone:(dzone=0) str =
     hour = get_default 0 hour;
     minute = get_default 0 minute;
     second = get_default 0 second;
+    nanos = get_default 0 nanos;
     zone = get_default dzone zone;
     week_day = get_default (-1) week_day
   }
@@ -399,12 +435,37 @@ let since_epoch date =
   86400.0 *. (float_of_int days) +. in_day
 ;;
 
-let parse_epoch ?zone str = since_epoch (parse ?zone str) ;;
+let since_epoch_timespec date =
+  (since_epoch date, date.nanos)
 
-let create ?(zone = 0) time =
-  let time = time +. (float_of_int (zone * 60)) in
-  let days = floor (time /. 86400.0) in
-  let in_day = int_of_float (time -. 86400.0 *. days) in
+let since_epoch_approx date =
+  since_epoch date +. (float date.nanos) *. 1E-9
+
+let parse_epoch ?localzone ?zone str = 
+  since_epoch (parse ?localzone ?zone str) ;;
+
+let parse_epoch_timespec ?localzone ?zone str = 
+  since_epoch_timespec (parse ?localzone ?zone str) ;;
+
+let parse_epoch_approx ?localzone ?zone str = 
+  since_epoch_approx (parse ?localzone ?zone str) ;;
+
+
+let billion = 1_000_000_000
+
+let create ?(localzone=false) 
+           ?(zone=if localzone then get_localzone() else 0) 
+	   ?(nanos=0)
+           time =
+  (* Add nanos to time: *)
+  let t0 = floor time in
+  let ns0 = truncate ( (time -. t0) *. 1E9 ) in
+  let ns1 = if ns0 >= billion - nanos then (nanos-billion)+ns0 else nanos+ns0 in
+  let t1 = if ns0 >= billion - nanos then t0 +. 1.0 else t0 in
+
+  let t2 = t1 +. (float_of_int (zone * 60)) in
+  let days = floor (t2 /. 86400.0) in
+  let in_day = int_of_float (t2 -. 86400.0 *. days) in
   let days = days +. 719528.0 in
   let n400 = floor (days /. 146097.0) in
   let r400 = int_of_float (days -. n400 *. 146097.0) in
@@ -442,6 +503,7 @@ let create ?(zone = 0) time =
     hour = hour;
     minute = minute;
     second = second;
+    nanos = ns1;
     zone = zone;
     week_day = int_of_float (mod_float (days +. 6.0) 7.0)
   }
@@ -488,7 +550,7 @@ let format_to out_ch ~fmt date =
     date.week_day in
   let yd () =
     months_start.(date.month - 1) + date.day in
-  let rec do_format ?(have_colon=false) = function
+  let rec do_format ?(have_colon=false) ?(precision=0) = function
     | 'a' -> add_string abbr_day_names.(date.week_day)
     | 'A' -> add_string full_day_names.(date.week_day)
     | 'b' | 'h' -> add_string abbr_month_names.(date.month - 1)
@@ -506,7 +568,14 @@ let format_to out_ch ~fmt date =
     | 'n' -> add_char '\n'
     | 'p' -> add_string (if date.hour >= 12 then "PM" else "AM")
     | 'P' -> add_string (if date.hour >= 12 then "pm" else "am")
-    | 'S' -> add_digits false 10 date.second
+    | 'S' -> add_digits false 10 date.second;
+             if precision > 0 then (
+	       add_char '.';
+	       add_string
+		 (sprintf 
+		    "%0*d"
+		    precision (date.nanos / ten_power(9-precision)))
+	     )
     | 't' -> add_char '\t'
     | 'u' -> add_digits false 1 (match wd () with 0 -> 7 | n -> n)
     | 'y' -> add_digits false 10 (date.year mod 100)
@@ -557,18 +626,31 @@ let format_to out_ch ~fmt date =
 	add_char ':';
 	do_format 'S'
     | _ -> fail () in
+  let l_fmt = String.length fmt in
   let rec aux i =
-    if i = String.length fmt then ()
+    if i = l_fmt then ()
     else match fmt.[i] with
-      | '%' when i = String.length fmt - 1 -> fail ()
+      | '%' when i = l_fmt - 1 -> fail ()
       | '%' ->
 	  if fmt.[i + 1] = ':' then (
+	    if i+2 >= l_fmt then fail();
 	    do_format ~have_colon:true fmt.[i + 2];
 	    aux (i + 3)
 	  )
 	  else (
-	    do_format fmt.[i + 1];
-	    aux (i + 2)
+	    if fmt.[i + 1] = '.' then (
+	      if i+3 >= l_fmt then fail();
+	      match fmt.[i+2] with
+		| '0'..'9' as c ->
+		    let d = Char.code c - 48 in
+		    do_format ~precision:d fmt.[i + 3];
+		    aux (i + 4)
+		| _ -> fail()
+	    )
+	    else (
+	      do_format fmt.[i + 1];
+	      aux (i + 2)
+	    )
 	  )
       | c -> add_char c; aux (i + 1) in
   try aux 0
@@ -581,38 +663,28 @@ let format ~fmt date =
   Buffer.contents b
 ;;
 
-(* Calculate local zone offset in minutes *)
-let localzone =
-  let t = Unix.time () in
-  let gt = Unix.gmtime t
-  and lt = Unix.localtime t in
-
-  let min_diff = (lt.Unix.tm_hour * 60 + lt.Unix.tm_min) - 
-                 (gt.Unix.tm_hour * 60 + gt.Unix.tm_min) in
-  let day_diff = lt.Unix.tm_yday - gt.Unix.tm_yday in
-
-  if day_diff < -1 || day_diff = 1 then      (* local day is UTC day + 1 *)
-    min_diff + 24*60
-  else if day_diff > 1 || day_diff = -1 then (* local day is UTC day - 1 *)
-    min_diff - 24*60
-  else                                       (* local day is UTC day *)
-    min_diff
-;;
-
-
 (* The format routines above may want to support internationalization
  * in the future. The following must use the English conventions
  * described in the relevant RFCs.
  *)
 
-let mk_mail_date ?zone t =
-  format "%a, %d %b %Y %H:%M:%S %z" (create ?zone t)
+let mk_date ?localzone ?zone ?nanos ~fmt t =
+  format ~fmt (create ?localzone ?zone ?nanos t)
+
+let mk_mail_date ?localzone ?zone t =
+  format "%a, %d %b %Y %H:%M:%S %z" (create ?localzone ?zone t)
 ;;
 
-let mk_usenet_date ?zone t =
-  format "%A, %d-%b-%y %H:%M:%S %z" (create ?zone t)
+let mk_usenet_date ?localzone ?zone t =
+  format "%A, %d-%b-%y %H:%M:%S %z" (create ?localzone ?zone t)
 ;;
 
-let mk_internet_date ?zone t =
-  format "%Y-%m-%dT%H:%M:%S%:z" (create ?zone t)
+let mk_internet_date ?localzone ?zone ?(digits=0) t =
+  if digits < 0 || digits > 9 then
+    failwith "Netdate.mk_internet_date: digits out of bounds";
+  let fmt =
+    sprintf 
+      "%%Y-%%m-%%dT%%H:%%M:%%.%dS%%:z"
+      digits in
+  format ~fmt (create ?localzone ?zone t)
 ;;

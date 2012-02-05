@@ -52,6 +52,26 @@ val string_of_level : level -> string
 val level_names : string array
   (** The level names indexed by weight *)
 
+type format = [ `Std | `ISO ]
+
+val format_timestamp : format -> int -> (float * int) -> string
+  (** [format_timestamp fmt digits (seconds,nanos)]: Formats the timestamp
+      [(seconds,nanos)] and returns the string. Pass in [digits] the number
+      of digits for fractional seconds.
+
+      - [`Std]: This is the "%c" format of [Netdate]
+      - [`ISO]: ISO-8601 format
+   *)
+
+val current_formatter : ((float * int) -> string) ref
+  (** The current timestamp formatter
+
+      Example: Change the format of timestamps to ISO with a precision
+      of milliseconds:
+      {[
+        Netlog.current_formatter := Netlog.format_timestamp `ISO 3
+      ]}
+   *)
 
 module Debug : sig
   (** Controlling messages for debugging Ocamlnet *)

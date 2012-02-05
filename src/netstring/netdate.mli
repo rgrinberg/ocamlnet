@@ -12,20 +12,34 @@ type t = {
   year : int;		(** complete year *)
   month : int;		(** 1..12 *)
   day : int;		(** 1..31 *)
-  hour : int;
-  minute : int;
-  second : int;
+  hour : int;           (** 0..23 *)
+  minute : int;         (** 0..59 *)
+  second : int;         (** 0..60 (60=leapsecond) *)
+  nanos : int;          (** nanoseconds, new since Ocamlnet-3.5 *)
   zone : int;		(** in minutes; 60 = UTC+0100 *)
   week_day : int	(** 0 = sunday; -1 if not given *)
 }
 
 val localzone : int
-  (** The offset in minutes for the local time zone from the UTC *)
+  (** The offset in minutes for the local time zone from the UTC.
+      This is the zone from the time when the program was started.
+      For long-running programs, it is possible that the zone changes.
+   *)
 
-val create : ?zone:int -> float -> t
-  (** Convert the time (seconds since the epoch) to a date/time record *)
+val get_localzone : unit -> int
+  (** Retrieves the current offset for the local time zone *)
 
-val parse : ?zone:int -> string -> t
+val create : ?localzone:bool -> ?zone:int -> ?nanos:int -> float -> t
+  (** Convert the time (seconds since the epoch) to a date/time record 
+
+      The [nanos] are added to the float as nanoseconds.
+
+      If [zone] is set this zone is taken. Otherwise, if
+      [localzone] is set, the current local timezone is used. Otherwise,
+      UTC is used.
+   *)
+
+val parse : ?localzone:bool -> ?zone:int -> string -> t
   (** Parse a string and return a date/time record.
 
       The following particles are recognized (by example):
@@ -61,7 +75,8 @@ val parse : ?zone:int -> string -> t
       A date must be given. Time, time zones, and weekdays are optional.
       A missing time is reported as "00:00:00". A missing weekday is
       reported by setting [week_day=(-1)]. A missing time zone is 
-      reported by setting [zone] to the passed default.
+      reported by setting [zone] to the passed default (which is determined
+      from the [zone] and [localzone] arguments as for [create]).
 
       It is not checked whether the parsed numbers make sense
       (e.g. whether months are between 1 and 12).
@@ -71,10 +86,28 @@ val parse : ?zone:int -> string -> t
    *)
 
 val since_epoch : t -> float
-  (** Convert a date/time record into the time (seconds since the epoch) *)
+  (** Convert a date/time record into the time (seconds since the epoch),
+      rounded down to the next integral number.
+   *)
 
-val parse_epoch : ?zone:int -> string -> float
-  (** Parse a string and return the time (seconds since the epoch *)
+val since_epoch_timespec : t -> (float * int)
+  (** Returns the seconds since the epoch as pair [(seconds,nanos)] *)
+
+val since_epoch_approx : t -> float
+  (** Same, but the nanos are added to the seconds. The precision of
+      floats is not sufficient to represent this precisely, so the
+      result is only an approximation.
+   *)
+
+val parse_epoch : ?localzone:bool -> ?zone:int -> string -> float
+  (** Parse a string and return the time (integral seconds since the epoch) *)
+
+val parse_epoch_timespec : ?localzone:bool -> ?zone:int -> string -> float * int
+  (** Parse a string and return the time (seconds and nanos since the epoch) *)
+  
+val parse_epoch_approx  : ?localzone:bool -> ?zone:int -> string -> float
+  (** Parse a string and return the time (approximate seconds since the epoch)
+   *)
 
 val format_to : Netchannels.out_obj_channel -> fmt:string -> t -> unit
   (** Format a date/time record according to the format string and outputs
@@ -112,7 +145,9 @@ val format_to : Netchannels.out_obj_channel -> fmt:string -> t -> unit
    *  - [%P]: either "am" or "pm" as appropriate.
    *  - [%R]: equivalent to ["%H:%M"].
    *  - [%r]: equivalent to ["%I:%M:%S %p"].
-   *  - [%S]: second as an integer (00-60).
+   *  - [%S]: second as an integer (00-60). This format accepts a precision
+        argument, e.g. [%.3S] to print the second with three digits after the
+        dot.
    *  - [%T]: equivalent to ["%H:%M:%S"].
    *  - [%t]: a tab.
    *  - [%U]: week number of the year (Sunday as the first day
@@ -137,14 +172,18 @@ val format_to : Netchannels.out_obj_channel -> fmt:string -> t -> unit
 val format : fmt:string -> t -> string
   (** Format a date/time record as a string *)
 
-val mk_mail_date : ?zone:int -> float -> string
+val mk_date : ?localzone:bool -> ?zone:int -> ?nanos:int -> fmt:string -> 
+                 float -> string
+  (** Format the seconds (plus nanos if present) as a string *)
+
+val mk_mail_date : ?localzone:bool -> ?zone:int -> float -> string
   (** Convert the time (seconds since the epoch) to a date string that
    * conforms to RFC 1123 (which updates RFC 822).
    *
    * Example: ["Sun, 06 Nov 1994 08:49:37 -0500"].
    *)
 
-val mk_usenet_date : ?zone:int -> float -> string
+val mk_usenet_date : ?localzone:bool -> ?zone:int -> float -> string
   (** Convert the time (seconds since the epoch) to a date string that
    * conforms to RFC 1036 (which obsoletes RFC 850).
    *
@@ -153,10 +192,12 @@ val mk_usenet_date : ?zone:int -> float -> string
    * Note that this format has only two digits for the year.
    *)
 
-val mk_internet_date : ?zone:int -> float -> string
+val mk_internet_date : ?localzone:bool -> ?zone:int -> ?digits:int ->
+                         float -> string
   (** Convert the time (seconds since the epoch) to a date string that
    * conforms to RFC 3339. This is the most modern format, and should
-   * be used if permitted by the network protocol.
+   * be used if permitted by the network protocol. Pass in [digits] the
+   * number of digits for the fractional part of seconds.
    *
    * Example: ["1996-12-19T16:39:57.89-08:00"].
    *)

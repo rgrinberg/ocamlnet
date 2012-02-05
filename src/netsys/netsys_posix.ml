@@ -39,6 +39,8 @@ external sysconf_open_max : unit -> int = "netsys_sysconf_open_max";;
 
 external fchdir : Unix.file_descr -> unit = "netsys_fchdir" ;;
 external fdopendir : Unix.file_descr -> Unix.dir_handle = "netsys_fdopendir" ;;
+external realpath : string -> string = "netsys_realpath"
+external get_nonblock : Unix.file_descr -> bool = "netsys_get_nonblock"
 
 (* Process groups, sessions, terminals *)
 
@@ -54,6 +56,12 @@ external ctermid : unit -> string = "netsys_ctermid";;
 external ttyname : file_descr -> string = "netsys_ttyname";;
 
 external getsid : int -> int = "netsys_getsid";;
+
+external posix_openpt : bool -> Unix.file_descr = "netsys_posix_openpt"
+external grantpt : Unix.file_descr -> unit = "netsys_grantpt"
+external unlockpt : Unix.file_descr -> unit = "netsys_unlockpt"
+external ptsname : Unix.file_descr -> string = "netsys_ptsname"
+
 
 let with_tty f =
   let fd = 
@@ -131,6 +139,18 @@ let tty_read_password ?(tty=Unix.stdin) prompt =
 
 external setreuid : int -> int -> unit = "netsys_setreuid";;
 external setregid : int -> int -> unit = "netsys_setregid";;
+external initgroups : string -> int -> unit = "netsys_initgroups"
+
+(* mknod *)
+
+type node_type = 
+  | S_IFREG 
+  | S_IFCHR of int  (* major + minor *)
+  | S_IFBLK of int  (* major + minor *)
+  | S_IFIFO
+  | S_IFSOCK
+      
+external mknod : string -> int -> node_type -> unit = "netsys_mknod"
 
 (* poll *)
 
@@ -366,6 +386,34 @@ let int_of_act_events n = n
 let req_events_of_int n = n
 let int_of_req_events n = n
 
+(* events *)
+
+type not_event
+
+external nsys_create_event : bool -> not_event = "netsys_create_not_event"
+external set_nonblock_event : not_event -> unit = "netsys_set_nonblock_not_event"
+external get_event_fd : not_event -> Unix.file_descr = "netsys_get_not_event_fd"
+external set_event : not_event -> unit = "netsys_set_not_event"
+external wait_event : not_event -> unit = "netsys_wait_not_event"
+external consume_event : not_event -> unit = "netsys_consume_not_event"
+external destroy_event : not_event -> unit = "netsys_destroy_not_event"
+
+let create_event() = nsys_create_event true
+
+let report_signal_as_event ne signum =
+  (* This is simpler to implement in Ocaml than in C:
+     - [ne] is kept reachable all the time
+     - we can pass [ne] to the handler via a closure
+     - we can run non-async-signal-safe stuff in Ocaml signal handlers,
+       because they are actually called indirectly
+   *)
+  Sys.set_signal 
+    signum
+    (Sys.Signal_handle
+       (fun _ ->
+	  set_event ne
+       )
+    )
 
 (* post fork handlers *)
 
@@ -450,6 +498,50 @@ external mkfifoat : Unix.file_descr -> string -> int -> unit
 external readlinkat : Unix.file_descr -> string -> string
   = "netsys_readlinkat"
 
+(* Clocks *)
+
+type timespec = float * int
+type clock_id
+type clock =
+  | CLOCK_REALTIME
+  | CLOCK_MONOTONIC
+  | CLOCK_ID of clock_id
+
+external nanosleep : timespec -> timespec ref -> unit = "netsys_nanosleep"
+external clock_gettime : clock -> timespec = "netsys_clock_gettime"
+external clock_settime : clock -> timespec -> unit = "netsys_clock_settime"
+external clock_getres : clock -> timespec = "netsys_clock_getres"
+external clock_getcpuclockid : int -> clock_id = "netsys_clock_getcpuclockid"
+
+type timer_expiration =
+  | TEXP_NONE
+  | TEXP_EVENT of not_event
+  | TEXP_EVENT_CREATE
+  | TEXP_SIGNAL of int
+type posix_timer
+
+external have_posix_timer : unit -> bool
+  = "netsys_have_posix_timer"
+
+external nsys_timer_create : clock -> timer_expiration -> posix_timer
+  = "netsys_timer_create"
+
+external timer_settime : posix_timer -> bool -> timespec -> timespec -> unit
+  = "netsys_timer_settime"
+
+external timer_gettime : posix_timer -> timespec
+  = "netsys_timer_gettime"
+
+external timer_delete : posix_timer -> unit
+  = "netsys_timer_delete"
+
+external timer_event : posix_timer -> not_event
+  = "netsys_timer_event"
+
+let timer_create clock texp =
+  let v = nsys_timer_create clock texp in
+  Gc.finalise timer_delete v;
+  v
 
 (* Spawn *)
 
