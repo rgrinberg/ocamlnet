@@ -1862,10 +1862,13 @@ let extract_time s =
   | None ->
       failwith ("Cannot parse time-val: " ^ s)
   | Some m ->
-      let fraction =
-        try if (Netstring_str.matched_group m 8 s).[0] < '5' then 0 else 1
-        with Not_found -> 0
-      in
+      let nanos =
+        try 
+	  let ns0 = Netstring_str.matched_group m 8 s in
+	  let ns1 = if String.length ns0 > 9 then String.sub ns0 0 9 else ns0 in
+	  let d = String.length ns1 in
+	  int_of_string ns1 * Netlog.ten_power (9-d)
+	with Not_found -> 0 in
       let get_int i = int_of_string (Netstring_str.matched_group m i s) in
       Netdate.since_epoch
         { Netdate.year = get_int 1;
@@ -1873,7 +1876,8 @@ let extract_time s =
           Netdate.day = get_int 3;
           Netdate.hour = get_int 4;
           Netdate.minute = get_int 5;
-          Netdate.second = get_int 6 + fraction;
+          Netdate.second = get_int 6;
+	  Netdate.nanos = nanos;
           Netdate.zone = 0;  (* GMT *)
           Netdate.week_day = -1 }
 

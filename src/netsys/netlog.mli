@@ -234,3 +234,7 @@ module Debug : sig
         logged.
      *)
 end
+
+(**/**)
+
+val ten_power : int -> int

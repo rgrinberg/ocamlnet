@@ -42,17 +42,20 @@ end
 
 
 let format_message fmt component subchannel level message =
-  let t = Unix.time() in
-  let nd = Netdate.create ~zone:(Netdate.localzone) t in
+  let (sec,ns) =
+    try Netsys_posix.clock_gettime Netsys_posix.CLOCK_REALTIME
+    with Invalid_argument _ ->
+      (Unix.gettimeofday(), 0) in
+  let nd = lazy(Netdate.create ~localzone:true ~nanos:ns sec) in
   let b = Buffer.create 100 in
   Buffer.add_substitute
     b
     (fun var ->
        match var with
 	 | "timestamp" ->
-	     Netdate.format "%c" nd
+	     !Netlog.current_formatter (sec,ns)
 	 | "timestamp:unix" ->
-	     sprintf "%.0f" t
+	     sprintf "%.0f" (Netdate.since_epoch (Lazy.force nd))
 	 | "component" ->
 	     component
 	 | "subchannel" ->
@@ -66,7 +69,7 @@ let format_message fmt component subchannel level message =
 		   String.sub var 0 10 = "timestamp:") then
 	       let nd_fmt =
 		 String.sub var 10 (String.length var - 10) in
-	       Netdate.format nd_fmt nd
+	       Netdate.format nd_fmt (Lazy.force nd)
 	     else
 	       ""
     )

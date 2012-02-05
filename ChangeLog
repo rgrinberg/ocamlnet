@@ -4,7 +4,7 @@
 	  operations with nanosecond resolution
 
 	* Netlog and Netdate have been extended to support high
-	  resolution clocks
+	  resolution clocks. New "nanos" field in Netdate.t.
 
 	* Netsys_posix: Adding event abstraction. Under Linux this is backed by
 	  eventfd and timerfd. For other OS, an emulation with pipes is
@@ -15,6 +15,8 @@
 
 	* Netsys in general: Splitting netsys_c.c up into several files.
 	  Improved configure script.
+
+	* Netplex_log: Using the new standard formatter.
 
 2012-01-23  Gerd Stolpmann  <gerd@samsung>
 

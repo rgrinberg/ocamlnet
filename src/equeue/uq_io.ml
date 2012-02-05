@@ -210,7 +210,7 @@ let rec buf_input_e b ms pos len =
   )
 
 
-and gread_e fd ms pos len =
+and gread_e style fd ms pos len =
   try
     match ms with
       | `String s ->
@@ -228,7 +228,7 @@ and dev_input_e (d : in_device) ms pos len =
     | `Polldescr(style, fd, esys) ->
 	new Uq_engines.input_engine
 	  (fun fd -> 
-	     let (n, eof) = gread_e fd ms pos len in
+	     let (n, eof) = gread_e style fd ms pos len in
 	     if len > 0 && n = 0 && eof then raise End_of_file;
 	     n
 	  )

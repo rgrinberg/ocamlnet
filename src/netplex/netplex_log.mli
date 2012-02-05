@@ -180,7 +180,8 @@ val level_of_string : string -> level
   * The format string may include variable
   * parts in the syntax [$name] or [${name}]. The following variable
   * specifications are defined:
-  * - [timestamp]: the time in standard format
+  * - [timestamp]: the time in standard format (as set in
+      {!Netlog.current_formatter})
   * - [timestamp:<format>] the time in custom format where [<format>] is a
   *   {!Netdate} format string
   * - [timestamp:unix]: the time in seconds since the epoch
