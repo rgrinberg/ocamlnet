@@ -85,7 +85,7 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
     value v_signals_l;
     value v_signals_hd;
 
-    int j, k, l;
+    int j, k, nofile;
     int fd1, fd2, fd1_flags;
 
     uerror_errno = 0;
@@ -100,6 +100,8 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
     sub_env = NULL;
     return_value = Val_int(0);
     uerror_function = "<uninit>";
+
+    nofile = sysconf(_SC_OPEN_MAX);
 
     /* First thing is that we have to block all signals. In a multi-threaded
        program this is only done for the thread calling us, otherwise for the
@@ -316,8 +318,7 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
 	case 2:  /* Fda_close_except */
 	    v_fd_actions_0 = Field(v_fd_actions_hd, 0);
 	    j = Wosize_val(v_fd_actions_0);   /* array length */
-	    l = sysconf(_SC_OPEN_MAX);
-	    for (k=0; k<l; k++) {
+	    for (k=0; k<nofile; k++) {
 		if (k>=j || !Bool_val(Field(v_fd_actions_0,k))) {
 		    if (k != ctrl_pipe[1])
 			close(k);   /* ignore any error */
@@ -536,7 +537,8 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 
     int fd1, fd2;
     int signr;
-    long j,k,l;
+    long j,k;
+    long nofile;
 
     uerror_errno = 0;
     cleanup_sub_argv = 0;
@@ -551,6 +553,8 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
     uerror_function = "<uninit>";
     flags = 0;
     fd_known = 0;
+
+    nofile = sysconf(_SC_OPEN_MAX);
 
     /* Set fd_known to a valid file descriptor */
     code = open(".", O_RDONLY, 0);
@@ -703,8 +707,7 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 	case 2:  /* Fda_close_except */
 	    v_fd_actions_0 = Field(v_fd_actions_hd, 0);
 	    j = Wosize_val(v_fd_actions_0);   /* array length */
-	    l = sysconf(_SC_OPEN_MAX);
-	    for (k=0; k<l; k++) {
+	    for (k=0; k<nofile; k++) {
 		if (k>=j || !Bool_val(Field(v_fd_actions_0,k))) {
 		    if (k != fd_known) {
 			code = posix_spawn_file_actions_adddup2
