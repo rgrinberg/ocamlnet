@@ -565,28 +565,51 @@ type fd_action =
 type sig_action =
   | Sig_default of int
   | Sig_ignore of int
+  | Sig_mask of int list
 
 external netsys_spawn : wd_spec -> pg_spec -> fd_action list -> 
                         sig_action list -> string array ->
                         string -> string array -> int
   = "netsys_spawn_byte" "netsys_spawn_nat"
 
-let spawn ?(chdir = Wd_keep) ?(pg = Pg_keep) ?(fd_actions = [])
-          ?(sig_actions = []) ?(env = Unix.environment()) cmd args =
-  (* Fixup: if pg = Pg_new_fg_group, we remove any Sig_default for
-     SIGTTOU from sig_actions. Because of special handling, the effect
-     of Sig_default is enforced by the implementation, but this must be
-     done at [execve] time.
-   *)
-  let sig_actions =
-    if pg = Pg_new_fg_group then
-      List.filter 
-	(fun spec -> spec <> Sig_default Sys.sigttou)
-	sig_actions
-    else
-      sig_actions in
-  netsys_spawn chdir pg fd_actions sig_actions env cmd args
+external netsys_posix_spawn : pg_spec -> fd_action list -> 
+                              sig_action list -> string array ->
+                              string -> string array -> int
+  = "netsys_posix_spawn_byte" "netsys_posix_spawn_nat"
 
+external have_posix_spawn : unit -> bool
+  = "netsys_have_posix_spawn"
+
+let spawn ?(chdir = Wd_keep) ?(pg = Pg_keep) ?(fd_actions = [])
+          ?(sig_actions = []) ?(env = Unix.environment()) 
+          ?(no_posix_spawn=false) cmd args =
+  (* Check whether we can use the faster netsys_posix_spawn *)
+  let use_posix_spawn =
+    not no_posix_spawn &&
+    have_posix_spawn() &&
+    chdir = Wd_keep &&
+    pg <> Pg_new_fg_group &&
+    not (List.exists
+	   (fun sa -> match sa with Sig_ignore _ -> true | _ -> false) 
+	   sig_actions) in
+  
+  if use_posix_spawn then
+    netsys_posix_spawn pg fd_actions sig_actions env cmd args
+  else (
+    (* Fixup: if pg = Pg_new_fg_group, we remove any Sig_default for
+       SIGTTOU from sig_actions. Because of special handling, the effect
+       of Sig_default is enforced by the implementation, but this must be
+       done at [execve] time.
+     *)
+    let sig_actions =
+      if pg = Pg_new_fg_group then
+	List.filter 
+	  (fun spec -> spec <> Sig_default Sys.sigttou)
+	  sig_actions
+      else
+	sig_actions in
+    netsys_spawn chdir pg fd_actions sig_actions env cmd args
+  )
 
 type watched_subprocess = 
     { atom_idx : int;

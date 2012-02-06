@@ -390,19 +390,20 @@ let posix_run
    *)
 
   let sig_actions =
-    List.flatten
-      (List.map
-	 (fun signo ->
-	    if signo = Sys.sigint || signo = Sys.sigquit then
-	      [ ]  
-		(* keep them as-is. If a handler exists, it will be reset
-		   to the default action by [exec]
-		 *)
-	    else
-	      [ Netsys_posix.Sig_default signo ]
-	 )
-	 all_signals
-      ) in
+    (Netsys_posix.Sig_mask []) ::
+      List.flatten
+        (List.map
+	   (fun signo ->
+	      if signo = Sys.sigint || signo = Sys.sigquit then
+		[ ]  
+		  (* keep them as-is. If a handler exists, it will be reset
+		     to the default action by [exec]
+		   *)
+	      else
+		[ Netsys_posix.Sig_default signo ]
+	   )
+	   all_signals
+	) in
 
   (* Descriptor assignments. We have to translate the parallel
      pipe_assigmnents into a list of [dup2] operations. Also, we have

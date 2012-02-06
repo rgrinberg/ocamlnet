@@ -273,12 +273,14 @@ CAMLprim value netsys_get_not_event_fd(value nev)
 {
 #ifdef HAVE_POLL
     struct not_event *ne;
-    int fd;
+    int fd, code;
     ne = *(Not_event_val(nev));
     if (ne->fd1 == -1) 
 	failwith("Netsys_posix.get_event_fd: already destroyed");
     fd = dup(ne->fd1);
     if (fd == -1) uerror("dup", Nothing);
+    code = fcntl(fd, F_SETFD, FD_CLOEXEC);
+    if (code == -1) uerror("fcntl", Nothing);
     return Val_int(fd);
 #else
     invalid_arg("Netsys_posix.get_event_fd not available");

@@ -6,6 +6,9 @@
 #include <pthread.h>
 #endif
 
+#ifdef HAVE_POSIX_SPAWN
+#include <spawn.h>
+#endif
 
 /**********************************************************************/
 /* spawn                                                              */
@@ -31,6 +34,8 @@ typedef union {
    Hence, file descriptors are simply ints.
 */
 
+/* netsys_spawn_nat is the full-featured version using fork/exec */
+
 CAMLprim value netsys_spawn_nat(value v_chdir,
 				value v_pg,
 				value v_fd_actions,
@@ -38,7 +43,7 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
 				value v_env,
 				value v_cmd,
 				value v_args) {
-#ifdef HAVE_FORK_EXEC
+#if defined(HAVE_FORK_EXEC) && defined(HAVE_POSIX_SIGNALS)
     int   uerror_errno;
     char *uerror_function;
     value return_value;
@@ -46,6 +51,7 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
     int code;
     sigset_t mask;
     sigset_t save_mask;
+    sigset_t spawn_mask;
     int   cleanup_mask;
 
     int ctrl_pipe[2];
@@ -75,6 +81,9 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
     value v_fd_actions_l;
     value v_fd_actions_hd;
     value v_fd_actions_0;
+
+    value v_signals_l;
+    value v_signals_hd;
 
     int j, k, l;
     int fd1, fd2, fd1_flags;
@@ -108,11 +117,10 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
     if (code != 0) unix_error(code, "netsys_spawn/pthread_sigmask [001]", 
 			      Nothing);
 #else
-#ifdef HAVE_POSIX_SIGNALS
     code = sigprocmask(SIG_SETMASK, &mask, &save_mask);
     if (code == -1) uerror("netsys_spawn/sigprocmask [002]", Nothing);
 #endif
-#endif
+    memcpy(&spawn_mask, &save_mask, sizeof(sigset_t));
 
     /* From now on, we don't jump out with uerror, but leave via "exit" 
        below.
@@ -237,7 +245,6 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
     }
 
     /* do the signal stuff: */
-#ifdef HAVE_POSIX_SIGNALS
     v_sig_actions_l = v_sig_actions;
     while (Is_block(v_sig_actions_l)) {
 	v_sig_actions_hd = Field(v_sig_actions_l, 0);
@@ -265,11 +272,22 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
 	    code = sigaction(signr, &sigact, NULL);
 	    if (code == -1) SUB_ERROR(errno, "netsys_spawn/sigaction [181]");
 	    break;
+	case 2: /* Sig_mask */
+	    sigemptyset(&spawn_mask);
+	    v_signals_l = Field(v_sig_actions_hd, 0);
+	    while (Is_block(v_signals_l)) {
+		v_signals_hd = Field(v_signals_l, 0);
+		v_signals_l  = Field(v_signals_l, 1);
+		signr = caml_convert_signal_number(Int_val(v_signals_hd));
+		code = sigaddset(&spawn_mask, signr);
+		if (code == -1) 
+		    SUB_ERROR(EINVAL, "netsys_spawn/sigaddset [190]");
+	    };
+	    break;
 	default:
-	    SUB_ERROR(EINVAL, "netsys_spawn/assert_sig [190]");
+	    SUB_ERROR(EINVAL, "netsys_spawn/assert_sig [199]");
 	}
     };
-#endif
 
     /* do the fd stuff: */
     v_fd_actions_l = v_fd_actions;
@@ -333,11 +351,9 @@ CAMLprim value netsys_spawn_nat(value v_chdir,
 	};
     };
 
-    /* reset the signal mask: */
-#ifdef HAVE_POSIX_SIGNALS
-    code = sigprocmask(SIG_SETMASK, &save_mask, NULL);
+    /* set the signal mask: */
+    code = sigprocmask(SIG_SETMASK, &spawn_mask, NULL);
     if (code == -1) SUB_ERROR(errno, "netsys_spawn/sigprocmask [241]");
-#endif
 
     /* exec the new program: */
     code = execve(String_val(v_cmd),
@@ -424,13 +440,11 @@ main_exit:
 	    uerror_function = "netsys_spawn/pthread_sigmask [400]";
 	}
 #else
-#ifdef HAVE_POSIX_SIGNALS
 	code = sigprocmask(SIG_SETMASK, &save_mask, NULL);
 	if (code == -1 && uerror_errno == 0) {
 	    uerror_errno = errno;
 	    uerror_function = "netsys_spawn/sigprocmask [401]";
 	}
-#endif
 #endif
     };
 
@@ -473,6 +487,312 @@ CAMLprim value netsys_spawn_byte(value * argv, int argn)
     return netsys_spawn_nat(argv[0], argv[1], argv[2], argv[3],
 			    argv[4], argv[5], argv[6]);
 }
+
+
+CAMLprim value netsys_have_posix_spawn(value dummy) {
+#ifdef HAVE_POSIX_SPAWN
+    return Val_bool(1);
+#else
+    return Val_bool(0);
+#endif
+}
+
+
+CAMLprim value netsys_posix_spawn_nat(value v_pg,
+				      value v_fd_actions,
+				      value v_sig_actions,
+				      value v_env,
+				      value v_cmd,
+				      value v_args) {
+#ifdef HAVE_POSIX_SPAWN
+    int   uerror_errno;
+    char *uerror_function;
+    value return_value;
+    int code;
+    short flags;
+
+    pid_t pid;
+    char **sub_argv;
+    char **sub_env;
+    int cleanup_sub_argv;
+    int cleanup_sub_env;;
+
+    posix_spawn_file_actions_t fd_actions;
+    posix_spawnattr_t attr;
+    int cleanup_fd_actions;
+    int cleanup_attr;
+    value v_fd_actions_l;
+    value v_fd_actions_hd;
+    value v_fd_actions_0;
+
+    int fd_known;
+    int cleanup_fd_known;
+    value v_sig_actions_l;
+    value v_sig_actions_hd;
+    value v_signals_l;
+    value v_signals_hd;
+    sigset_t sigdfl;
+    sigset_t spawn_mask;
+
+    int fd1, fd2;
+    int signr;
+    long j,k,l;
+
+    uerror_errno = 0;
+    cleanup_sub_argv = 0;
+    cleanup_sub_env = 0;
+    cleanup_fd_actions = 0;
+    cleanup_attr = 0;
+    cleanup_fd_known = 0;
+
+    sub_argv = NULL;
+    sub_env = NULL;
+    return_value = Val_int(0);
+    uerror_function = "<uninit>";
+    flags = 0;
+    fd_known = 0;
+
+    /* Set fd_known to a valid file descriptor */
+    code = open(".", O_RDONLY, 0);
+    if (code == -1) MAIN_ERROR(errno, "netsys_posix_spawn/open");
+    fd_known = code;
+    cleanup_fd_known = 1;
+    code = fcntl(fd_known, F_SETFD, FD_CLOEXEC);
+    if (code == -1) MAIN_ERROR(errno, "netsys_posix_spawn/fcntl");
+    
+    /* Prepare sub_argv and sub_env: */
+    sub_argv = malloc((Wosize_val(v_args) + 1) * sizeof(char *));
+    if (sub_argv == NULL) MAIN_ERROR(ENOMEM, "netsys_posix_spawn/malloc [1]");
+    for (k = 0; k < Wosize_val(v_args); k++) {
+	sub_argv[k] = String_val(Field(v_args, k));
+    }
+    sub_argv[ Wosize_val(v_args)] = NULL;
+    cleanup_sub_argv = 1;
+
+    sub_env = malloc((Wosize_val(v_env) + 1) * sizeof(char *));
+    if (sub_env == NULL) MAIN_ERROR(ENOMEM, "netsys_posix_spawn/malloc [2]");
+    for (k = 0; k < Wosize_val(v_env); k++) {
+	sub_env[k] = String_val(Field(v_env, k));
+    }
+    sub_env[ Wosize_val(v_env)] = NULL;
+    cleanup_sub_env = 1;
+
+    /* Init fd_actions */
+    code = posix_spawn_file_actions_init(&fd_actions);
+    if (code != 0) 
+	MAIN_ERROR(code, "netsys_posix_spawn/posix_spawn_file_actions_init");
+    cleanup_fd_actions = 1;
+
+    code = posix_spawnattr_init(&attr);
+    if (code != 0) 
+	MAIN_ERROR(code, "netsys_posix_spawn/posix_spawnattr_init");
+    cleanup_attr = 1;
+
+    /* initialize the attributes */
+
+    /* If required, create/join the process group */
+    if (Is_block(v_pg)) {
+	/* Must be Pg_join_group */
+	code = posix_spawnattr_setpgroup(&attr, Int_val(Field(v_pg, 0)));
+	if (code != 0) MAIN_ERROR(errno, "netsys_spawn/psa_setpgroup [1]");
+	flags |= POSIX_SPAWN_SETPGROUP;
+    }
+    else {
+	switch (Int_val(v_pg)) {
+	case 0: /* Pg_keep */
+	    break;
+	case 1: /* Pg_new_bg_group */
+	    code = posix_spawnattr_setpgroup(&attr, 0);
+	    if (code != 0) MAIN_ERROR(errno, "netsys_spawn/psa_setpgroup [2]");
+	    flags |= POSIX_SPAWN_SETPGROUP;
+	    break;
+	case 2: /* Pg_new_fg_group */
+	    invalid_argument
+		("Netsys_posix.posix_spawn: Pg_new_fg_group not supported");
+	    break;
+	default:
+	    MAIN_ERROR(EINVAL, "netsys_posix_spawn/assert_pg");
+	}
+    }
+
+    /* do the signal stuff: */
+    sigemptyset(&sigdfl);
+    sigemptyset(&spawn_mask);
+    v_sig_actions_l = v_sig_actions;
+    while (Is_block(v_sig_actions_l)) {
+	v_sig_actions_hd = Field(v_sig_actions_l, 0);
+	v_sig_actions_l  = Field(v_sig_actions_l, 1);
+	switch(Tag_val(v_sig_actions_hd)) {
+	case 0:  /* Sig_default */
+	    signr = caml_convert_signal_number
+	  	       (Int_val(Field(v_sig_actions_hd,0)));
+	    code = sigaddset(&sigdfl, signr);
+	    if (code == -1) MAIN_ERROR(EINVAL,"netsys_posix_spawn/sigemptyset");
+	    flags |= POSIX_SPAWN_SETSIGDEF;
+	    break;
+	case 1: /* Sig_ignore */
+	    invalid_argument
+		("Netsys_posix.posix_spawn: Sig_ignore not supported");
+	    break;
+	case 2: /* Sig_mask */
+	    v_signals_l = Field(v_sig_actions_hd, 0);
+	    while (Is_block(v_signals_l)) {
+		v_signals_hd = Field(v_signals_l, 0);
+		v_signals_l  = Field(v_signals_l, 1);
+		signr = caml_convert_signal_number(Int_val(v_signals_hd));
+		code = sigaddset(&spawn_mask, signr);
+		if (code == -1) 
+		    MAIN_ERROR(errno, "netsys_spawn/sigaddset [190]");
+	    };
+	    flags |= POSIX_SPAWN_SETSIGMASK;
+	    break;
+	default:
+	    MAIN_ERROR(EINVAL, "netsys_posix_spawn/assert_sig");
+	}
+    };
+    code = posix_spawnattr_setsigdefault(&attr, &sigdfl);
+    if (code != 0)
+	MAIN_ERROR(code, "netsys_posix_spawn/psa_setsigdefault");
+
+    code = posix_spawnattr_setsigmask(&attr, &spawn_mask);
+    if (code != 0)
+	MAIN_ERROR(code, "netsys_posix_spawn/psa_setsigmask");
+
+    /* See http://sources.redhat.com/bugzilla/show_bug.cgi?id=378
+       This is Linux-specific. However, contrary to this discussion
+       recent versions of glibc always use vfork.
+    */
+#ifdef POSIX_SPAWN_USEVFORK
+    flags |= POSIX_SPAWN_USEVFORK;
+#endif
+
+    code = posix_spawnattr_setflags(&attr, flags);
+    if (code != 0)
+	MAIN_ERROR(code, "netsys_posix_spawn/psa_setflags");
+
+    /* do the fd stuff: */
+    v_fd_actions_l = v_fd_actions;
+    while (Is_block(v_fd_actions_l)) {
+	v_fd_actions_hd = Field(v_fd_actions_l, 0);
+	v_fd_actions_l  = Field(v_fd_actions_l, 1);
+	switch(Tag_val(v_fd_actions_hd)) {
+	case 0: /* Fda_close */
+	    fd1 = Int_val(Field(v_fd_actions_hd, 0));
+	    if (fd1 != fd_known) {
+		code = posix_spawn_file_actions_addclose(&fd_actions, fd1);
+		if (code != 0)
+		    MAIN_ERROR(code, 
+			       "netsys_posix_spawn/psfa_addclose [1]");
+	    };
+	    break;
+	case 1: /* Fda_close_ignore */
+	    /* We translate this into a dup2 + close */
+	    fd1 = Int_val(Field(v_fd_actions_hd, 0));
+	    if (fd1 != fd_known) {
+		code = posix_spawn_file_actions_adddup2(&fd_actions, fd_known, fd1);
+		if (code != 0)
+		    MAIN_ERROR(code, 
+			       "netsys_posix_spawn/psfa_adddup2 [1]");
+		
+		code = posix_spawn_file_actions_addclose(&fd_actions, fd1);
+		if (code != 0)
+		    MAIN_ERROR(code, 
+			       "netsys_posix_spawn/psfa_addclose [2]");
+	    };
+	    break;
+	case 2:  /* Fda_close_except */
+	    v_fd_actions_0 = Field(v_fd_actions_hd, 0);
+	    j = Wosize_val(v_fd_actions_0);   /* array length */
+	    l = sysconf(_SC_OPEN_MAX);
+	    for (k=0; k<l; k++) {
+		if (k>=j || !Bool_val(Field(v_fd_actions_0,k))) {
+		    if (k != fd_known) {
+			code = posix_spawn_file_actions_adddup2
+			    (&fd_actions, fd_known, k);
+			if (code != 0)
+			    MAIN_ERROR
+				(code, 
+				 "netsys_posix_spawn/psfa_actions_adddup2 [2]");
+			code = posix_spawn_file_actions_addclose
+			    (&fd_actions, k);
+			if (code != 0)
+			    MAIN_ERROR
+				(code, 
+				 "netsys_posix_spawn/psfa_addclose [3]");
+		    }
+		}
+	    }
+	    break;
+	case 3: /* Fda_dup2 */
+	    /* Ignore here fd_known - even if fd1 or fd2 is fd_known it will
+	       remain open, and that's all we need
+	    */
+	    fd1 = Int_val(Field(v_fd_actions_hd, 0));
+	    fd2 = Int_val(Field(v_fd_actions_hd, 1));
+	    code = posix_spawn_file_actions_adddup2(&fd_actions, fd1, fd2);
+	    if (code != 0)
+		MAIN_ERROR(code, "netsys_posix_spawn/psfa_actions_adddup2 [3]");
+	    break;
+	default:
+	    MAIN_ERROR(EINVAL, "netsys_posix_spawn/assert_fd");
+	};
+    };
+
+
+    code = posix_spawn(&pid,
+		       String_val(v_cmd),
+		       &fd_actions,
+		       &attr,
+		       sub_argv,
+		       sub_env);
+    if (code != 0)
+	MAIN_ERROR(code, "netsys_posix_spawn/posix_spawn");
+
+    return_value = Val_int(pid);
+
+main_exit:
+    /* Policy: If we already have an error to report, and any of the
+       cleanup actions also indicates an error, we return the first
+       error to the caller.
+    */
+    
+    if (cleanup_sub_argv) {
+	free(sub_argv);
+    }
+
+    if (cleanup_sub_env) {
+	free(sub_env);
+    }
+
+    if (cleanup_fd_known) {
+	close(fd_known);
+    };
+
+    if (cleanup_fd_actions) {
+	posix_spawn_file_actions_destroy(&fd_actions);
+    };
+
+    if (cleanup_attr) {
+	posix_spawnattr_destroy(&attr);
+    };
+
+    if (uerror_errno != 0)
+	unix_error(uerror_errno, uerror_function, Nothing);
+
+    return return_value;
+
+#else
+     invalid_argument("netsys_posix_spawn not available");
+#endif
+}
+
+
+CAMLprim value netsys_posix_spawn_byte(value * argv, int argn) 
+{
+    return netsys_posix_spawn_nat(argv[0], argv[1], argv[2], argv[3],
+				  argv[4], argv[5]);
+}
+
 
 #undef MAIN_ERROR
 #undef SUB_ERROR

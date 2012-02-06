@@ -1,3 +1,8 @@
+2012-02-06  Gerd Stolpmann  <gerd@samsung>
+
+	* Netsys_posix: Adding a second implementation for spawn
+	  basing on posix_spawn
+
 2012-02-05  Gerd Stolpmann  <gerd@samsung>
 
 	* Netsys_posix: Adding POSIX clock functions. These allow
