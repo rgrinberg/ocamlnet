@@ -386,6 +386,169 @@ let int_of_act_events n = n
 let req_events_of_int n = n
 let int_of_req_events n = n
 
+(* poll aggregation *)
+
+type netsys_event_source
+type netsys_event_aggreg
+
+type tagged_event =
+  | EV_FD of Unix.file_dexcr
+
+type event_push =
+    { event_id : int;
+      event_tag : tagged_event;
+      event_api_req : int;
+    }
+
+class fd_event_source fd req =
+  let event_id = ref 0 in
+  let event_api_req = ref req in
+  let event_kernel_req = ref 0 in
+  let event_tag = EV_FD fd in
+  let post_modify_callback = ref None in
+object(self)
+  initializer (
+    let id = Oo.id self in
+    event_id := id
+  )
+    
+  method event_id = !event_id
+  method event_tag = event_tag
+  method push_record =
+    { event_id = !event_id;
+      event_tag = event_tag;
+      event_api_req= !event_api_req
+    }
+  method need_push = !event_api_req <> !event_kernel_req
+  method post_poll mask = 
+    event_kernel_req := !event_kernel_req land mask
+  method set_post_modify_callback f =
+    match !post_modify_callback with
+      | None -> post_modify_callback := Some f
+      | Some _ ->
+	  failwith "Netsys_posix.add_event_source: the source is already \
+                    added to an aggregator"
+  method clear_post_modify_callback () =
+    post_modify_callback := None
+  method modify_fd_event_source req =
+    event_api_req := req;
+    match !post_modify_callback with
+      | Some f -> f !event_id
+      | None -> ()
+end
+
+let fd_event_source fd req = 
+  new fd_event_source fd req
+
+let modify_fd_event_source es req =
+  es # modify_fd_event_source req
+
+
+external have_event_aggregation : unit -> bool
+
+external netsys_create_event_aggreg :
+  unit -> netsys_event_aggreg
+
+external netsys_destroy_event_aggreg :
+  netsys_event_aggreg -> unit
+
+external netsys_event_aggreg_fd :
+  netsys_event_aggreg -> Unix.file_descr
+
+external netsys_push_event_sources : 
+  netsys_event_aggreg -> event_push list -> unit
+
+external netsys_add_event_source :
+  netsys_event_aggreg -> event_push -> unit
+
+external netsys_del_event_source :
+  netsys_event_aggreg -> int -> tagged_event -> unit
+
+external netsys_poll_event_sources :
+  netsys_event_aggreg -> int -> float -> (int * int) list
+  (* The list are pairs (event_id, mask) *)
+
+class event_aggregator() =
+  let up = ref true in
+  let all_sources = Hashtbl.create 27 in
+  let upd_sources = Hashtbl.create 27 in
+  let netsys = netsys_create_event_aggreg() in
+  let check_up() =
+    if not !up then
+      failwith "Netsys_posix: This event_aggregator is already destroyed" in
+object
+  method add_event_source (es : event_source) =
+    check_up();
+    es # set_post_modify_callback self#post_modify_callback;
+    try
+      netsys_add_event_source netsys es#push_record;
+      Hashtbl.replace all_sources es#event_id es;
+      Hashtbl.replace upd_sources es#event_id es
+    with
+      | error ->
+	  es # clear_post_modify_callback();
+	  raise error
+  method del_event_source (es : event_source) =
+    check_up();
+    if not(Hashtbl.mem all_sources es#event_id) then
+      failwith "Netsys_posix.del_event_source: not member of this aggregator";
+    netsys_del_event_source netsys es#event_id es#event_tag;
+    es # clear_post_modify_callback();
+    Hashtbl.remove all_sources es#event_id;
+    Hashtbl.remove upd_sources es#event_id
+  method post_modify_callback id =
+    check_up();
+    if (Hashtbl.mem all_sources id) then (
+      let es = Hashtbl.find all_sources id in
+      Hashtbl.replace upd_sources id es
+    )
+  method push_event_updates() =
+    check_up();
+    let l =
+      Hashtbl.fold 
+	(fun _ es cc -> 
+	   if es # need_push then
+	     es#push_record :: acc
+	   else
+	     acc
+	) 
+	!upd_sources [] in
+    netsys_push_event_sources netsys l
+  method poll_event_sources n tmo =
+    check_up();
+    let evpairs0 = netsys_poll_event_sources netsys n tmo in
+    let evpairs1 = (* without spurious events *)
+      List.filter
+	(fun (id,_) ->
+	   Hashtbl.mem all_sources id
+	)
+	evpairs0 in
+    List.map
+      (fun (id,mask) ->
+	 let es = Hashtbl.find all_sources id in
+	 es#post_poll mask;
+	 es
+      )
+      evpairs1
+  method event_aggregator_fd =
+    check_up();
+    netsys_event_aggreg_fd netsys
+  method destroy_event_aggregator () =
+    if !up then (
+      netsys_destroy_event_aggreg netsys;
+      up := false
+    )
+end
+
+let create_event_aggregator = new event_aggregator
+let add_event_source ea = ea # add_event_source
+let del_event_source ea = ea # del_event_source
+let push_event_updates ea = ea # push_event_updates()
+let poll_event_sources ea = ea # poll_event_sources
+let event_aggregator_fd ea = ea # event_aggregator_fd
+let destroy_event_aggregator ea = ea # destroy_event_aggregator()
+
+
 (* events *)
 
 type not_event

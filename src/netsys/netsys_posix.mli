@@ -122,6 +122,124 @@ val const_hup_event : int
 val const_nval_event : int
 
 
+
+(** {1 Event aggregation} *)
+
+(** Support for "high-speed" poll implementations. Currently, only
+    [epoll] for Linux is supported.
+
+    The model exhibited in this API is the smallest common denominator
+    of Linux epoll, BSD kqueue, and Solaris ports. The [event_aggregator]
+    represents the set of monitored event sources. There is, so far,
+    only one source, namely file descriptors, i.e. one can check whether
+    a descriptor is readable or writable (like [poll]). The source can
+    be added to the [event_aggregator] to monitor the source.
+
+    By calling [poll_event_sources] one can determine sources that
+    are currently active (i.e. in signalling state). The aggregator always
+    operates in "oneshot" mode, and the source is automatically disabled
+    after it was returned by [poll_event_sources]. In order to
+    enable it again, just call [add_event_source] again.
+
+    Note that the descriptors, although disabled, are not necessarily
+    deleted from the aggregator after [poll_event_sources]. This is
+    implementation-defined. In order to delete the sources properly,
+    call [del_event_source].
+
+    It is undefined what happens when a file descriptor is closed while
+    being member of the aggregator.
+ *)
+
+type event_aggregator
+type event_source
+
+val have_event_aggregation : unit -> bool
+  (** Whether there is an implementation for this OS *)
+
+val create_event_aggregator : unit -> event_aggregator
+
+val destroy_event_aggregator : event_aggregator -> unit
+
+val fd_event_source : Unix.file_descr -> poll_req_events -> event_source
+  (** Wraps a file descriptor as event_source, and monitors the
+      events in [poll_req_events].
+
+      The [event_source] contains
+      state about the relation to the aggregator, and because of this,
+      the [event_source] should only be used together with one aggregator
+      (at a time).
+   *)
+
+val modify_fd_event_source : event_source ->  poll_req_events -> unit
+  (** Modifies the set of events monitored at this event source *)
+
+val add_event_source : event_aggregator -> event_source ->  unit
+  (** Adds the event source to the aggregator *)
+
+val del_event_source : event_aggregator -> event_source ->  unit
+  (** Removes the source from the aggregator *)
+
+val push_event_updates : event_aggregator -> unit
+  (** Pushes all modifications of the sources to the kernel *)
+
+val poll_event_sources : event_aggregator -> int -> float -> event_list
+  (** [poll_event_sources ea n tmo]: First, all modifications are pushed
+      to the kernel, and polling is set up to get events. If no events
+      can currently be delivered, the function waits up to [tmo] seconds
+      (or endlessly if negative) for events. The function returns up
+      to [n] events at a time. It is allowed that the function returns
+      fewer than [n] events, even if more than [n] events are in
+      signalled state.
+
+      Call the function with [tmo=0.0] for non-blocking behavior.
+
+      Note that this is the "level-triggered" behavior: If a source
+      remains active it will be reported again by the next [poll_event_sources],
+      just as [poll] would do.
+   *)
+
+val event_aggregator_fd : event_aggregator -> Unix.file_descr
+  (** Returns the underlying file descriptor. It is implementation-defined
+      whether this descriptor can also be polled for events. Generally,
+      you should run [push_event_updates] before polling from the descriptor.
+   *)
+
+
+(* BSD: kqueue
+   Solaris: ports (port_create, port_associate)
+ *)
+
+(*
+val have_epoll : unit -> bool
+
+val epoll_create : unit -> Unix.file_descr
+  (** [epoll_create()]: Returns a new epoll descriptor. It is created with
+      set close-on-exec flag.
+   *)
+
+type epoll_flag =
+    EPOLLET | EPOLLONESHOT
+
+val epoll_add : 
+      Unix.file_descr -> Unix.file_descr -> epoll_flag list -> 
+      poll_req_events ->  unit
+val epoll_mod : 
+      Unix.file_descr -> Unix.file_descr -> epoll_flag list -> 
+      poll_req_events ->  unit
+  (** [epoll_add/mod efd fd flags events]: Adds or modifies the events that may
+      occur for [fd]. The epoll descriptor is passed in [efd].
+   *)
+
+val epoll_del : Unix.file_descr -> Unix.file_descr -> unit
+  (** [epoll_del efd fd]: Removes [fd] from the set of watched descriptors *)
+
+val epoll_wait : Unix.file_descr -> int -> float -> poll_cell list 
+  (** [epoll_wait efd n tmo]: Returns the up to [n] next events. [tmo]
+      is the timeout ([] is returned in this case).
+   *)
+ *)
+
+
 (** {1 Fork helpers} *)
 
 (** Ocamlnet invokes [Unix.fork] at some places to create child processes
@@ -1298,43 +1416,6 @@ external ioprio_get : ioprio_target -> ioprio = "netsys_ioprio_get"
 external ioprio_set : ioprio_target -> ioprio -> unit = "netsys_ioprio_set"
     (** Sets the priority of the target processes. *)
 
-
-
-(** {1 Linux [epoll]} *)
-
-(* BSD: kqueue
-   Solaris: ports (port_create, port_associate)
- *)
-
-(*
-val have_epoll : unit -> bool
-
-val epoll_create : unit -> Unix.file_descr
-  (** [epoll_create()]: Returns a new epoll descriptor. It is created with
-      set close-on-exec flag.
-   *)
-
-type epoll_flag =
-    EPOLLET | EPOLLONESHOT
-
-val epoll_add : 
-      Unix.file_descr -> Unix.file_descr -> epoll_flag list -> 
-      poll_req_events ->  unit
-val epoll_mod : 
-      Unix.file_descr -> Unix.file_descr -> epoll_flag list -> 
-      poll_req_events ->  unit
-  (** [epoll_add/mod efd fd flags events]: Adds or modifies the events that may
-      occur for [fd]. The epoll descriptor is passed in [efd].
-   *)
-
-val epoll_del : Unix.file_descr -> Unix.file_descr -> unit
-  (** [epoll_del efd fd]: Removes [fd] from the set of watched descriptors *)
-
-val epoll_wait : Unix.file_descr -> int -> float -> poll_cell list 
-  (** [epoll_wait efd n tmo]: Returns the up to [n] next events. [tmo]
-      is the timeout ([] is returned in this case).
-   *)
- *)
 
 (** {1 Debugging} *)
 
