@@ -1,3 +1,13 @@
+2012-02-08  Gerd Stolpmann  <gerd@samsung>
+
+	* epoll: Adding support. This is exported as "event aggregator" in
+	  Netsys_posix (the API is prepared for other poll implementations).
+	  There is also Netsys_pollset_posix.accelerated_pollset.
+
+	* Netplex: Adding container_event_system and container_run
+	  to [processor_hooks] so users can override these functions
+	  (for using Lwt in Netplex containers).
+
 2012-02-06  Gerd Stolpmann  <gerd@samsung>
 
 	* Netsys_posix: Adding a second implementation for spawn

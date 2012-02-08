@@ -34,35 +34,29 @@ let oothr = !Netsys_oothr.provider
 let while_locked mutex f =
   Netsys_oothr.serialize mutex f ()
 
-let pipe_limit = 4
-  (* We keep up to [pipe_limit] pairs of pipes for interrupting [poll].
-     If more than this number of pairs become unused, they are closed.
+let ne_limit = 4
+  (* We keep up to [ne_limit] obejcts of type [not_event] for interrupting
+     [poll].
+     If more than this number of objects become unused, they are closed.
    *)
 
-let pipes = ref []
-let pipes_m = oothr # create_mutex()
-let pipe_pid = ref None
-  (* When the process is forked, we give up our saved pipes, to avoid the
+let ne_list = ref []
+let ne_m = oothr # create_mutex()
+let ne_pid = ref None
+  (* When the process is forked, we give up our saved [not_event]s, to avoid the
      confusion when several processes use the same descriptors
    *)
 
 let reset_locked() =
-  let l = !pipes in
-  pipes := [];
-  pipe_pid := None;
-  List.iter
-    (fun (p1,p1_sn,p2,p2_sn) -> 
-       Netlog.Debug.release_fd ~sn:p1_sn p1;
-       Netlog.Debug.release_fd ~sn:p2_sn p2;
-       Unix.close p1; 
-       Unix.close p2
-    )
-    l
+  let l = !ne_list in
+  ne_list := [];
+  ne_pid := None;
+  List.iter Netsys_posix.destroy_event l
 
 
 let reset() =
   while_locked 
-    pipes_m
+    ne_m
     reset_locked
 
 
@@ -75,53 +69,36 @@ let() =
     )
 
 
-let get_pipe_pair() =
+let get_not_event() =
   while_locked
-    pipes_m
+    ne_m
     (fun () ->
        let pid = Unix.getpid() in
-       if !pipe_pid <> None && !pipe_pid <> Some pid then (
+       if !ne_pid <> None && !ne_pid <> Some pid then (
 	 reset_locked();
        );
-       pipe_pid := Some pid;
-       let pp =
-	 match !pipes with
-	   | [] ->
-	       let (p1,p2) = Unix.pipe() in
-	       Netsys.set_close_on_exec p1;
-	       Netsys.set_close_on_exec p2;
-	       let p1_sn = Netlog.Debug.new_serial() in
-	       let p2_sn = Netlog.Debug.new_serial() in
-	       Netlog.Debug.track_fd
-		 ~sn:p1_sn 
-		 ~owner:"Netsys_pollset_posix" 
-		 ~descr:"Event injection (rd)"
-		 p1;
-	       Netlog.Debug.track_fd
-		 ~sn:p2_sn 
-		 ~owner:"Netsys_pollset_posix" 
-		 ~descr:"Event injection (wr)"
-		 p2;
-	       (p1,p1_sn,p2,p2_sn)
-	   | (p1,p1_sn,p2,p2_sn) :: r ->
-	       pipes := r;
-	       (p1,p1_sn,p2,p2_sn) in
-       pp
+       ne_pid := Some pid;
+       match !ne_list with
+	 | [] ->
+	     let ne = Netsys_posix.create_event() in
+	     Netsys_posix.set_nonblock_event ne;
+	     ne
+	 | ne :: r ->
+	     ne_list := r;
+	     ne
     )
 
 
-let return_pipe_pair ((p1,p1_sn,p2,p2_sn) as pp) =
+let return_not_event ne =
   while_locked 
-    pipes_m
+    ne_m
     (fun () ->
-       if List.length !pipes >= pipe_limit then (
-	 Netlog.Debug.release_fd ~sn:p1_sn p1;
-	 Netlog.Debug.release_fd ~sn:p2_sn p2;
-	 Unix.close p1;
-	 Unix.close p2
+       if List.length !ne_list >= ne_limit then (
+	 Netsys_posix.destroy_event ne;
        )
-       else
-	 pipes := pp :: !pipes
+       else (
+	 ne_list := ne :: !ne_list;
+       )
     )
 
 
@@ -133,22 +110,15 @@ let rounded_pa_size l =
   !n
 
 
+let reset_not_event ne =
+  try Netsys.restart Netsys_posix.consume_event ne 
+  with Unix.Unix_error((Unix.EAGAIN|Unix.EWOULDBLOCK),_,_) -> ()
+
 
 let poll_based_pollset () : pollset =
 object(self)
-  val mutable ht = FdTbl.create 10
-    (* maps fd to req events *)
-
-  val mutable spa = Netsys_posix.create_poll_array 32
-    (* saved poll array - for the next time, so we don't have to allocate
-       it again for every [wait]
-     *)
-
-  val mutable intr_fd = None
-    (* The pipe that can be written to for interrupting waiting *)
-
-  val mutable intr_flag = false
-    (* Whether interruption happened *)
+  val mutable intr_ne = None
+    (* The not_event that can be signalled for interrupting waiting *)
 
   val mutable cancel_flag = false
     (* The cancel flag and its mutex *)
@@ -156,8 +126,13 @@ object(self)
   val mutable intr_m = oothr # create_mutex()
     (* Mutex protecting intr_fd, intr_flag, and cancel_flag *)
 
-  val s1 = String.make 1 'X'
+  val mutable ht = FdTbl.create 10
+    (* maps fd to req events *)
 
+  val mutable spa = Netsys_posix.create_poll_array 32
+    (* saved poll array - for the next time, so we don't have to allocate
+       it again for every [wait]
+     *)
 
   method find fd =
     FdTbl.find ht fd
@@ -176,7 +151,7 @@ object(self)
 	self # wait_1 tmo None
     )
     else (
-      let (p_rd, p_rd_sn, p_wr, p_wr_sn) = get_pipe_pair() in
+      let ne = get_not_event() in
       let have_intr_lock = ref false in
       let r =
 	try
@@ -184,14 +159,13 @@ object(self)
 	    intr_m # lock();
 	    have_intr_lock := true;
 	    if cancel_flag then (
-	      intr_fd <- None;
+	      intr_ne <- None;
 	      have_intr_lock := false;
 	      intr_m # unlock();
 	      true
 	    )
 	    else (
-	      intr_flag <- false;
-	      intr_fd <- Some p_wr;
+	      intr_ne <- Some ne;
 	      have_intr_lock := false;
 	      intr_m # unlock();
 	      false
@@ -200,14 +174,19 @@ object(self)
 	  if no_wait then
 	    []
 	  else (
-	    let r = self # wait_1 tmo (Some p_rd) in
+	    let ne_fd =
+	      Netsys_posix.get_event_fd ne in  (* this is a dup *)
+	    let r = 
+	      try
+		self # wait_1 tmo (Some ne_fd)
+	      with error ->
+		Unix.close ne_fd;
+		raise error in
+	    Unix.close ne_fd;
 	    intr_m # lock();
 	    have_intr_lock := true;
-	    if intr_flag then (
-	      try let _ = Netsys.restart(Unix.read p_rd s1 0) 1 in ()
-	      with _ -> assert false
-	    );
-	    intr_fd <- None;
+	    reset_not_event ne;
+	    intr_ne <- None;
 	    have_intr_lock := false;
 	    intr_m # unlock();
 	    r
@@ -215,11 +194,26 @@ object(self)
 	with
 	  | err ->
 	      if !have_intr_lock then intr_m # unlock();
-	      return_pipe_pair (p_rd, p_rd_sn, p_wr, p_wr_sn);
+	      reset_not_event ne;
+	      return_not_event ne;
 	      raise err in
-      return_pipe_pair (p_rd, p_rd_sn, p_wr, p_wr_sn);
+      return_not_event ne;
       r
     )
+
+
+  method cancel_wait b =
+    while_locked
+      intr_m
+      (fun () ->
+	 cancel_flag <- b;
+	 if b then (
+	   match intr_ne with
+	     | None -> ()
+	     | Some ne ->
+		 Netsys_posix.set_event ne
+	 )
+      )
 
   method private wait_1 tmo extra_fd_opt =
     let have_extra_fd = extra_fd_opt <> None in
@@ -270,25 +264,117 @@ object(self)
       incr k
     done;
     !r
-    
 
   method dispose() = ()
 
+end
+
+
+let accelerated_pollset () : pollset =
+  let agg = 
+    ref(Some(Netsys_posix.create_event_aggregator true)) in
+object(self)
+  val mutable cancel_flag = false
+
+  val mutable ht = FdTbl.create 10
+    (* maps fd to (req_events, event_source) *)
+
+  method find fd =
+    fst(FdTbl.find ht fd)
+
+  method add fd ev =
+    try
+      let (_, es) = FdTbl.find ht fd in
+      Netsys_posix.modify_fd_event_source es ev;
+      FdTbl.replace ht fd (ev, es)
+    with
+      | Not_found ->
+	  let es = Netsys_posix.fd_event_source fd ev in
+	  ( match !agg with
+	      | Some g -> Netsys_posix.add_event_source g es
+	      | None -> ()
+	  );
+	  FdTbl.replace ht fd (ev, es)
+
+  method remove fd =
+    try
+      let (_, es) = FdTbl.find ht fd in
+      ( match !agg with
+	  | Some g -> Netsys_posix.del_event_source g es
+	  | None -> ()
+      );
+      FdTbl.remove ht fd
+    with Not_found -> ()
+
+  method private restore() =
+    match !agg with
+      | None ->
+	  let g = Netsys_posix.create_event_aggregator true in
+	  FdTbl.iter
+	    (fun fd (ev,es) ->
+	       Netsys_posix.add_event_source g es
+	    )
+	    ht;
+	  agg := Some g;
+	  g
+      | Some g -> g
+
+  method wait tmo =
+    let g = self # restore() in
+    if cancel_flag then
+      Netsys_posix.interrupt_event_aggregator g;
+    let es_list = Netsys_posix.poll_event_sources g tmo in
+    let triples =
+      List.map
+	(fun es ->
+	   let fd = Netsys_posix.get_fd_of_event_source es in
+	   let (req_ev, es') = 
+	     try FdTbl.find ht fd
+	     with Not_found ->
+	       (* Actually, this is a bug in the OS *)
+	       assert false in
+	   assert(es == es');
+	   let resp_ev = Netsys_posix.act_events_of_event_source es in
+	   (fd, req_ev, resp_ev)
+	)
+	es_list in
+    triples
 
   method cancel_wait b =
-    while_locked
-      intr_m
-      (fun () ->
-	 cancel_flag <- b;
-	 if b && not intr_flag then (
-	   match intr_fd with
-	     | None -> ()
-	     | Some fd ->
-		 let _n = 
-		   try Netsys.restart(Unix.single_write fd s1 0) 1
-		   with _ -> assert false
-		 in
-		 intr_flag <- true
-	 )
-      )
+    cancel_flag <- b;
+    match !agg with
+      | None -> ()
+      | Some g ->
+	  if b then
+	    Netsys_posix.interrupt_event_aggregator g
+    (* else: do nothing. Sure, the current/next wait will be interrupted,
+       but the internal cancel flag of the aggregator is automatically
+       reset
+     *)
+
+  method dispose() =
+    match !agg with
+      | None -> ()
+      | Some g ->
+	  (* CHECK: Catch errors from del_event_source? We would also
+	     have to delete the erroneous descriptors from ht.
+	     Pro: If dispose is called from an error handler this creates
+	          less confusion
+	     Contra: Hiding errors is never good
+	   *)
+	  FdTbl.iter
+	    (fun _ (_,es) ->
+	       Netsys_posix.del_event_source g es
+	    )
+	    ht;
+	  Netsys_posix.destroy_event_aggregator g;
+	  agg := None
+
 end
+
+
+let accelerated_pollset() =
+  if Netsys_posix.have_event_aggregation() then
+    accelerated_pollset()
+  else
+    poll_based_pollset()

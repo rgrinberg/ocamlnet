@@ -392,7 +392,7 @@ type netsys_event_source
 type netsys_event_aggreg
 
 type tagged_event =
-  | EV_FD of Unix.file_dexcr
+  | EV_FD of Unix.file_descr
 
 type event_push =
     { event_id : int;
@@ -400,11 +400,26 @@ type event_push =
       event_api_req : int;
     }
 
-class fd_event_source fd req =
+class type event_source =
+object
+  method event_id : int
+  method event_tag : tagged_event
+  method push_record : event_push
+  method need_push : bool
+  method post_poll : int -> int -> unit
+  method upd_kernel_events : int -> unit
+  method set_post_modify_callback : (int -> unit) -> unit
+  method clear_post_modify_callback : unit -> unit
+  method modify_fd_event_source : int -> unit
+  method act_events : int
+end
+
+class fd_event_source fd req : event_source =
   let event_id = ref 0 in
   let event_api_req = ref req in
   let event_kernel_req = ref 0 in
   let event_tag = EV_FD fd in
+  let act_events = ref 0 in
   let post_modify_callback = ref None in
 object(self)
   initializer (
@@ -420,8 +435,11 @@ object(self)
       event_api_req= !event_api_req
     }
   method need_push = !event_api_req <> !event_kernel_req
-  method post_poll mask = 
-    event_kernel_req := !event_kernel_req land mask
+  method upd_kernel_events req =
+    event_kernel_req := req;
+  method post_poll mask act = 
+    event_kernel_req := !event_kernel_req land mask;
+    act_events := act
   method set_post_modify_callback f =
     match !post_modify_callback with
       | None -> post_modify_callback := Some f
@@ -435,6 +453,7 @@ object(self)
     match !post_modify_callback with
       | Some f -> f !event_id
       | None -> ()
+  method act_events = !act_events
 end
 
 let fd_event_source fd req = 
@@ -443,40 +462,59 @@ let fd_event_source fd req =
 let modify_fd_event_source es req =
   es # modify_fd_event_source req
 
+let get_fd_of_event_source es =
+  match es # event_tag with
+    | EV_FD fd -> fd
+
+let act_events_of_event_source es =
+  es # act_events
+
 
 external have_event_aggregation : unit -> bool
+  = "netsys_have_event_aggregation"
 
 external netsys_create_event_aggreg :
-  unit -> netsys_event_aggreg
+  bool -> netsys_event_aggreg
+  = "netsys_create_event_aggreg"
 
 external netsys_destroy_event_aggreg :
   netsys_event_aggreg -> unit
+  = "netsys_destroy_event_aggreg"
 
 external netsys_event_aggreg_fd :
   netsys_event_aggreg -> Unix.file_descr
+  = "netsys_event_aggreg_fd"
 
 external netsys_push_event_sources : 
   netsys_event_aggreg -> event_push list -> unit
+  = "netsys_push_event_sources"
 
 external netsys_add_event_source :
   netsys_event_aggreg -> event_push -> unit
+  = "netsys_add_event_source"
 
 external netsys_del_event_source :
   netsys_event_aggreg -> int -> tagged_event -> unit
+  = "netsys_del_event_source"
 
 external netsys_poll_event_sources :
-  netsys_event_aggreg -> int -> float -> (int * int) list
-  (* The list are pairs (event_id, mask) *)
+  netsys_event_aggreg -> int -> (int * int * int) list
+  (* The list are triples (event_id, mask, act) *)
+  = "netsys_poll_event_sources"
 
-class event_aggregator() =
+external netsys_interrupt_aggreg :
+  netsys_event_aggreg -> unit
+  = "netsys_interrupt_aggreg"
+
+class event_aggregator is_interruptible =
   let up = ref true in
   let all_sources = Hashtbl.create 27 in
   let upd_sources = Hashtbl.create 27 in
-  let netsys = netsys_create_event_aggreg() in
+  let netsys = netsys_create_event_aggreg is_interruptible in
   let check_up() =
     if not !up then
       failwith "Netsys_posix: This event_aggregator is already destroyed" in
-object
+object(self)
   method add_event_source (es : event_source) =
     check_up();
     es # set_post_modify_callback self#post_modify_callback;
@@ -506,33 +544,53 @@ object
     check_up();
     let l =
       Hashtbl.fold 
-	(fun _ es cc -> 
+	(fun _ es acc -> 
 	   if es # need_push then
-	     es#push_record :: acc
+	     let p = es#push_record in
+	     es # upd_kernel_events p.event_api_req;
+	     p :: acc
 	   else
 	     acc
 	) 
-	!upd_sources [] in
-    netsys_push_event_sources netsys l
-  method poll_event_sources n tmo =
-    check_up();
-    let evpairs0 = netsys_poll_event_sources netsys n tmo in
-    let evpairs1 = (* without spurious events *)
-      List.filter
-	(fun (id,_) ->
-	   Hashtbl.mem all_sources id
+	upd_sources
+	[] in
+    netsys_push_event_sources netsys l;
+    Hashtbl.clear upd_sources
+  method poll_event_sources tmo =
+    self # push_event_updates();
+    let v =
+      Netsys_impl_util.slice_time_ms
+	(fun millis ->
+	   let evpairs0 = netsys_poll_event_sources netsys millis in
+	   let evpairs1 = (* without spurious events *)
+	     List.filter
+	       (fun (id,_,_) ->
+		  Hashtbl.mem all_sources id
+	       )
+	       evpairs0 in
+	   let evpairs2 =
+	     List.map
+	       (fun (id,mask,act) ->
+		  let es = Hashtbl.find all_sources id in
+		  es#post_poll mask act;
+		  Hashtbl.replace upd_sources id es;
+		  es
+	       )
+	       evpairs1 in
+	   if evpairs2 = [] then
+	     None
+	   else
+	     Some evpairs2
 	)
-	evpairs0 in
-    List.map
-      (fun (id,mask) ->
-	 let es = Hashtbl.find all_sources id in
-	 es#post_poll mask;
-	 es
-      )
-      evpairs1
+	tmo in
+    match v with
+      | None -> []
+      | Some l -> l
   method event_aggregator_fd =
     check_up();
     netsys_event_aggreg_fd netsys
+  method interrupt_event_aggregator() =
+    netsys_interrupt_aggreg netsys
   method destroy_event_aggregator () =
     if !up then (
       netsys_destroy_event_aggreg netsys;
@@ -544,9 +602,10 @@ let create_event_aggregator = new event_aggregator
 let add_event_source ea = ea # add_event_source
 let del_event_source ea = ea # del_event_source
 let push_event_updates ea = ea # push_event_updates()
-let poll_event_sources ea = ea # poll_event_sources
+let poll_event_sources (ea : event_aggregator) = ea # poll_event_sources
 let event_aggregator_fd ea = ea # event_aggregator_fd
 let destroy_event_aggregator ea = ea # destroy_event_aggregator()
+let interrupt_event_aggregator ea = ea # interrupt_event_aggregator()
 
 
 (* events *)
@@ -559,9 +618,29 @@ external get_event_fd : not_event -> Unix.file_descr = "netsys_get_not_event_fd"
 external set_event : not_event -> unit = "netsys_set_not_event"
 external wait_event : not_event -> unit = "netsys_wait_not_event"
 external consume_event : not_event -> unit = "netsys_consume_not_event"
-external destroy_event : not_event -> unit = "netsys_destroy_not_event"
+external nsys_destroy_event : not_event -> unit = "netsys_destroy_not_event"
+external nsys_return_all_event_fd : not_event -> Unix.file_descr list
+  = "netsys_return_all_not_event_fd"
 
-let create_event() = nsys_create_event true
+let create_event() = 
+  let e = nsys_create_event true in
+  List.iter
+    (fun fd ->
+       Netlog.Debug.track_fd
+	 ~owner:"Netsys_posix" 
+	 ~descr:"create_event"
+	 fd;
+    )
+    (nsys_return_all_event_fd e);
+  e
+
+let destroy_event e =
+  List.iter
+    (fun fd ->
+       Netlog.Debug.release_fd fd;
+    )
+    (nsys_return_all_event_fd e);
+  nsys_destroy_event e
 
 let report_signal_as_event ne signum =
   (* This is simpler to implement in Ocaml than in C:

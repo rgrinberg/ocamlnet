@@ -82,8 +82,10 @@ void netsys_not_event_signal(struct not_event *ne)
 	   for documentation
 	*/
 	if (__sync_bool_compare_and_swap(&(ne->state), 0, 1)) {
-	    if (ne->fd2 >= 0)
-		write(ne->fd2, "X", 1);
+	    if (ne->fd2 >= 0) {
+		int code;
+		code = write(ne->fd2, "X", 1);
+	    }
 	}
 
 #else
@@ -140,8 +142,10 @@ void netsys_not_event_signal(struct not_event *ne)
 	{
 	    int64 buf;
 	    buf = 1;
-	    if (ne->fd1 >= 0)
-		write(ne->fd1, (char *) &buf, 8);
+	    if (ne->fd1 >= 0) {
+		int code;
+		code = write(ne->fd1, (char *) &buf, 8);
+	    };
 	    break;
 	}
 
@@ -301,6 +305,34 @@ int netsys_return_not_event_fd(value nev)
     return fd;
 #else
     invalid_arg("Netsys_posix.get_event_fd not available");
+#endif
+}
+
+
+CAMLprim value netsys_return_all_not_event_fd(value nev)
+{
+#ifdef HAVE_POLL
+    struct not_event *ne;
+    CAMLparam1(nev);
+    CAMLlocal2(v1, v2);
+
+    ne = *(Not_event_val(nev));
+    v1 = Val_int(0);
+    if (ne->fd1 != -1) {
+	v2 = caml_alloc(2,0);
+	Store_field(v2, 0, Val_int(ne->fd1));
+	Store_field(v2, 0, v1);
+	v1 = v2;
+    };
+    if (ne->fd2 != -1) {
+	v2 = caml_alloc(2,0);
+	Store_field(v2, 0, Val_int(ne->fd2));
+	Store_field(v2, 0, v1);
+	v1 = v2;
+    };
+    CAMLreturn(v1);
+#else
+    return Val_int(0);
 #endif
 }
 

@@ -76,6 +76,13 @@ let standard_event_system() =
 let create_unix_event_system =
   standard_event_system
 
+class performance_event_system() =
+  Unixqueue_pollset.pollset_event_system
+    (Netsys_pollset_generic.performance_pollset())
+
+let performance_event_system() = new performance_event_system()
+  
+
 let new_group ues =
   ues # new_group()
 

@@ -29,6 +29,10 @@ object
   method system_shutdown () = ()
   method global_exception_handler _ = true
     (* i.e. we continue running by default *)
+  method container_event_system() =
+    Unixqueue.standard_event_system()
+  method container_run esys =
+    esys#run()
 end
 
 
@@ -58,6 +62,10 @@ object(self)
     hooks # system_shutdown()
   method global_exception_handler e = 
     hooks # global_exception_handler e
+  method container_event_system() =
+    hooks # container_event_system()
+  method container_run esys =
+    hooks # container_run esys
 end
 
 
@@ -150,6 +158,10 @@ object(self)
   method global_exception_handler e = 
     List.for_all
       (fun (_,hooks) -> hooks # global_exception_handler e) merge_list
+  method container_event_system() =
+    (snd(List.hd merge_list)) # container_event_system()
+  method container_run esys =
+    (snd(List.hd merge_list)) # container_run esys
 
 end
 

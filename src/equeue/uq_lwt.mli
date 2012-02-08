@@ -39,6 +39,24 @@
 
     For an example, see [tests/equeue/manual/relay.ml] in the distribution
     tarball.
+
+    Netplex users: If you want to use [lwt_engine] for driving the
+    event loop of the container, you can do so by overriding the
+    processor hooks [container_event_system] and [container_run], e.g.
+
+    {[
+    method container_event_system () =
+      let esys = Unixqueue.create_unix_event_system() in
+      Lwt_engine.set (new lwt_engine esys);
+      esys
+
+    method container_run esys =
+      Lwt_main.run <something>
+    ]}
+
+    The Lwt thread [<something>] must at least run until the container is
+    shut down. You can catch this moment by also defining the [shutdown]
+    method.
  *)
 class lwt_backend : Unixqueue.event_system ->
   object
@@ -48,4 +66,3 @@ class lwt_backend : Unixqueue.event_system ->
       method private register_writable : Unix.file_descr -> (unit -> unit) -> unit Lazy.t
       method private register_timer : float -> bool -> (unit -> unit) -> unit Lazy.t
     end
- 

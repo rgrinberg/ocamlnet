@@ -32,9 +32,13 @@ let string_of_sys_id =
     | `Process id -> "process " ^ string_of_int id
 
 
-class std_container ?(esys = Unixqueue.create_unix_event_system()) 
+class std_container ?esys
                     ptype sockserv =
   let ssn = sockserv # name in
+  let esys =
+    match esys with
+      | Some esys -> esys
+      | None -> sockserv # processor # container_event_system() in
 object(self)
   val sys_esys = Unixqueue.create_unix_event_system()
   val mutable rpc = None
@@ -138,7 +142,7 @@ object(self)
 
   method private protect_run () =
     try 
-      Unixqueue.run esys
+      sockserv # processor # container_run esys
     with
       | error ->
 	  self # log `Crit ("run: Exception " ^ Netexn.to_string error);

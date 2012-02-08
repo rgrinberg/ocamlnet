@@ -1,6 +1,246 @@
 (* $Id$ *)
 
-(** POSIX-specific system calls missing in the [Unix] module *)
+(** POSIX-specific system calls missing in the [Unix] module, and
+    further API's from POSIX-style operating systems.
+ *)
+
+(** {1 Files, Processes, TTYs, Users, Groups} *)
+
+val int_of_file_descr : Unix.file_descr -> int
+  (** Return the file descriptor as integer. See also
+      {!Netsys.int64_of_file_descr} which works for all OS.
+   *)
+
+val file_descr_of_int : int -> Unix.file_descr
+  (** Make a file descriptor from an integer *)
+
+external sysconf_open_max : unit -> int = "netsys_sysconf_open_max"
+  (** Return the maximum number of open file descriptor per process.
+   * It is also ensured that for every file descriptor [fd]:
+   * [fd < sysconf_open_max()]
+   *)
+
+external get_nonblock : Unix.file_descr -> bool = "netsys_get_nonblock"
+  (** Returns whether the nonblock flag is set *)
+
+external fchdir : Unix.file_descr -> unit = "netsys_fchdir"
+  (** Set the current directory to the directory referenced by the
+      file descriptor
+   *)
+
+external fdopendir : Unix.file_descr -> Unix.dir_handle = "netsys_fdopendir"
+  (** Make a directory handle from a file descriptor. The descriptor
+      is then "owned" by the directory handle, and will be closed by
+      [Unix.closedir].
+
+      This function is useful in conjunction with {!Netsys_posix.openat}
+      to read directories relative to a parent directory.
+
+      This is a recent addition to the POSIX standard; be prepared to
+      get [Invalid_argument] because it is unavailable.
+   *)
+
+external realpath : string -> string = "netsys_realpath"
+  (** Returns a pathname pointing to the same filesystem object so that
+      the pathname does not include "." or ".." or symbolic links.
+   *)
+
+(* Process groups, sessions, terminals *)
+
+external getpgid : int -> int = "netsys_getpgid"
+  (** Return the process group ID of the process with the passed PID.
+   * For the number 0, the process group ID of the current process is
+   * returned.
+   *)
+
+val getpgrp : unit -> int
+  (** Same as [getpgid 0], i.e. returns the process group ID of the
+   * current process.
+   *)
+
+external setpgid : int -> int -> unit = "netsys_setpgid"
+  (** [setpgid pid pgid]: Set the process group ID of the process [pid]
+   * to [pgid]. If [pid = 0], the process group ID of the current process
+   * is changed. If [pgid = 0], as process group ID the process ID of the
+   * process referenced by [pid] is used.
+   *
+   * It is only possible for a process to join a process group if both
+   * belong to the same session.
+   *)
+
+val setpgrp : unit -> unit
+  (** Same as [setpgid 0 0]: A new process group ID is created, and the
+   * current process becomes its sole member.
+   *)
+
+external tcgetpgrp : Unix.file_descr -> int = "netsys_tcgetpgrp"
+  (** Return the process group ID of the foreground process group of
+   * the session associated with the file descriptor, which must be
+   * a tty.
+   *)
+
+external tcsetpgrp : Unix.file_descr -> int -> unit = "netsys_tcsetpgrp"
+  (** Sets the foreground process group ID of the session associated
+   * with the file descriptor, which must be a tty.
+   *)
+
+external ctermid : unit -> string = "netsys_ctermid"
+  (** Returns the name of the controlling tty of the current process 
+   * as pathname to a device file
+   *)
+
+external ttyname : Unix.file_descr -> string = "netsys_ttyname"
+  (** Returns the name of the controlling tty referred to by the
+   * file descriptor.
+   *)
+
+external getsid : int -> int = "netsys_getsid"
+  (** Returns the session ID of the process with the passed PID.
+   * For the PID 0, the session ID of the current process is returned.
+   *)
+
+val with_tty : (Unix.file_descr -> unit) -> unit
+  (** [with_tty f]: Runs [f fd] where [fd] is the terminal of the process.
+      If the process does not have a terminal (because it is a daemon) 
+      [with_tty] will fail.
+   *)
+
+val tty_read_password : ?tty:Unix.file_descr -> string -> string
+  (** [tty_read_password prompt]: If [tty] is a terminal, the [prompt]
+      is printed, and a password is read from the terminal (echo off).
+      If [tty] is not a terminal, no [prompt] is printed, and just a
+      line is read from the [tty] descriptor (non-interactive case).
+
+      [tty] defaults to [Unix.stdin]. If this function is used in a
+      program where stdin is not redirected, and the program is started
+      in a terminal, it will read the password with prompt and 
+      echo disabled. If stdin is redirected, it is assumed that the program is
+      used in a script, and the password is piped into it.
+
+      Use in conjunction with [with_tty] to ensure that [tty] is
+      the terminal even if a redirection is in effect, e.g.
+      {[ with_tty (fun tty -> tty_read_password ~tty prompt) ]}
+
+      Raises [Sys.Break] if the user triggers SIGINT (i.e. presses
+      CTRL-C) to abort the input of a password.
+   *)
+
+external posix_openpt : bool -> Unix.file_descr = "netsys_posix_openpt"
+  (** [posix_openpt noctty]: Opens an unused PTY master.
+
+      [noctty]: If true, the descriptor will not become the controlling
+      terminal.
+
+      If this function is not provided by the OS, an emulation is used.
+
+      On some OS, System V style PTY's are unavailable (but they get
+      rare).
+   *)
+
+external grantpt : Unix.file_descr -> unit = "netsys_grantpt"
+  (** Grant access to this PTY *)
+
+external unlockpt : Unix.file_descr -> unit = "netsys_unlockpt"
+  (** Unlock a PTY master/slave pair *)
+
+external ptsname : Unix.file_descr -> string = "netsys_ptsname"
+  (** Get the name of the slave PTY *)
+
+type node_type = 
+  | S_IFREG 
+  | S_IFCHR of int  (* major + minor *)
+  | S_IFBLK of int  (* major + minor *)
+  | S_IFIFO
+  | S_IFSOCK
+      
+external mknod : string -> int -> node_type -> unit = "netsys_mknod"
+    (** Creates the node with the given permissions and the given type *)
+
+
+(* Users and groups *)
+
+external setreuid : int -> int -> unit = "netsys_setreuid"
+  (** Changes both the real and the effective user ID of the current
+   * process.
+   *)
+
+external setregid : int -> int -> unit = "netsys_setregid"
+  (** Changes both the real and the effective group ID of the current
+   * process.
+   *)
+
+external initgroups : string -> int -> unit = "netsys_initgroups"
+  (** See initgroups(3). This is a non-POSIX function but widely
+      available.
+   *)
+
+
+(** {1 The "at" variants of system calls} *)
+
+(** Note that a few "at" calls have been omitted because the same
+    functionality can be achieved by first opening the file with
+    [openat] and then by using a function that references the file
+    by descriptor. An example for this is [fstatat]: After the
+    [openat] call one can use [fstat] to get the stat record of the
+    file.
+ *)
+
+val have_at : unit -> bool
+  (** Whether the [*at] functions are available (they were only recently
+      standardized and cannot be expected on all OS yet)
+   *)
+
+val at_fdcwd : Unix.file_descr
+  (** Pseudo descriptor value to be used as first argument of [*at]
+      functions
+   *)
+
+type at_flag = AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_REMOVEDIR
+  (** Flags one can pass to "at" functions. Not all functions support
+      all flags
+   *)
+
+val openat : Unix.file_descr -> string -> Unix.open_flag list -> 
+             Unix.file_perm -> 
+                Unix.file_descr
+  (** Same as [Unix.openfile] but open relative to the directory given
+      by first argument
+   *)
+
+val faccessat : Unix.file_descr -> string -> Unix.access_permission list ->
+                at_flag list ->
+                  unit
+  (** Same as [Unix.access] but the file is taken relative to the directory
+      given by first argument
+   *)
+
+val mkdirat : Unix.file_descr -> string -> int -> unit
+  (** Same as [Unix.mkdir] but the file is taken relative to the directory
+      given by first argument
+   *)
+ 
+val renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit
+  (** [renameat olddirfd oldpath newdirfd newpath] *)
+
+val linkat : Unix.file_descr -> string -> Unix.file_descr -> string ->
+             at_flag list -> unit
+  (** [linkat olddirfd oldpath newdirfd newpath flags] *)
+
+val unlinkat : Unix.file_descr -> string -> at_flag list -> unit
+  (** Same as [Unix.unlink] but unlink the file relative to the directory
+      given by first argument
+   *)
+
+val symlinkat : string -> Unix.file_descr -> string -> unit
+  (** [symlinkat oldpath newdirfd newpath flags] *)
+
+val mkfifoat : Unix.file_descr -> string -> int -> unit
+  (** [mkfifoat dirfd path mode] *)
+
+val readlinkat : Unix.file_descr -> string -> string
+  (** [readlinkat dirfd path] *)
+
+(* TODO: futimens *)
 
 (** {1 File descriptor polling} *)
 
@@ -136,15 +376,7 @@ val const_nval_event : int
     be added to the [event_aggregator] to monitor the source.
 
     By calling [poll_event_sources] one can determine sources that
-    are currently active (i.e. in signalling state). The aggregator always
-    operates in "oneshot" mode, and the source is automatically disabled
-    after it was returned by [poll_event_sources]. In order to
-    enable it again, just call [add_event_source] again.
-
-    Note that the descriptors, although disabled, are not necessarily
-    deleted from the aggregator after [poll_event_sources]. This is
-    implementation-defined. In order to delete the sources properly,
-    call [del_event_source].
+    are currently active (i.e. in signalling state). 
 
     It is undefined what happens when a file descriptor is closed while
     being member of the aggregator.
@@ -156,9 +388,16 @@ type event_source
 val have_event_aggregation : unit -> bool
   (** Whether there is an implementation for this OS *)
 
-val create_event_aggregator : unit -> event_aggregator
+val create_event_aggregator : bool -> event_aggregator
+  (** [create_event_aggregator is_interruptible]: Creates a new aggregator,
+      and allocates the required OS resources.
+
+      If [is_interruptible], the aggregator can be interrupted from a
+      different thread. See [interrupt_event_aggregator] below.
+   *)
 
 val destroy_event_aggregator : event_aggregator -> unit
+  (** Frees all OS resources *)
 
 val fd_event_source : Unix.file_descr -> poll_req_events -> event_source
   (** Wraps a file descriptor as event_source, and monitors the
@@ -173,23 +412,41 @@ val fd_event_source : Unix.file_descr -> poll_req_events -> event_source
 val modify_fd_event_source : event_source ->  poll_req_events -> unit
   (** Modifies the set of events monitored at this event source *)
 
+val get_fd_of_event_source : event_source -> Unix.file_descr
+  (** Get the file descriptor wrapped by this event source *)
+
+val act_events_of_event_source : event_source -> poll_act_events
+  (** Return the actual events of the source. This is updated when
+      [poll_event_sources] returns the source.
+   *)
+
 val add_event_source : event_aggregator -> event_source ->  unit
   (** Adds the event source to the aggregator *)
 
 val del_event_source : event_aggregator -> event_source ->  unit
   (** Removes the source from the aggregator *)
 
+val interrupt_event_aggregator : event_aggregator -> unit
+  (** If [create_event_aggregator] was called with [true] as argument, the
+      aggregator is interruptible, and this function interrupts it. The
+      effect is that a currently running [poll_event_sources], or, if
+      it is not running, the next invocation of [poll_event_sources] 
+      returns immediately.
+
+      If the aggregator is not interruptible, this function is a NOP.
+   *)
+
 val push_event_updates : event_aggregator -> unit
   (** Pushes all modifications of the sources to the kernel *)
 
-val poll_event_sources : event_aggregator -> int -> float -> event_list
-  (** [poll_event_sources ea n tmo]: First, all modifications are pushed
+val poll_event_sources : event_aggregator -> float -> event_source list
+  (** [poll_event_sources ea tmo]: First, all modifications are pushed
       to the kernel, and polling is set up to get events. If no events
       can currently be delivered, the function waits up to [tmo] seconds
-      (or endlessly if negative) for events. The function returns up
-      to [n] events at a time. It is allowed that the function returns
-      fewer than [n] events, even if more than [n] events are in
-      signalled state.
+      (or endlessly if negative) for events. The function returns only a
+      limited number of events at a time. It is allowed that the function 
+      returns fewer events than are currently in signalled state, even
+      none.
 
       Call the function with [tmo=0.0] for non-blocking behavior.
 
@@ -207,36 +464,6 @@ val event_aggregator_fd : event_aggregator -> Unix.file_descr
 
 (* BSD: kqueue
    Solaris: ports (port_create, port_associate)
- *)
-
-(*
-val have_epoll : unit -> bool
-
-val epoll_create : unit -> Unix.file_descr
-  (** [epoll_create()]: Returns a new epoll descriptor. It is created with
-      set close-on-exec flag.
-   *)
-
-type epoll_flag =
-    EPOLLET | EPOLLONESHOT
-
-val epoll_add : 
-      Unix.file_descr -> Unix.file_descr -> epoll_flag list -> 
-      poll_req_events ->  unit
-val epoll_mod : 
-      Unix.file_descr -> Unix.file_descr -> epoll_flag list -> 
-      poll_req_events ->  unit
-  (** [epoll_add/mod efd fd flags events]: Adds or modifies the events that may
-      occur for [fd]. The epoll descriptor is passed in [efd].
-   *)
-
-val epoll_del : Unix.file_descr -> Unix.file_descr -> unit
-  (** [epoll_del efd fd]: Removes [fd] from the set of watched descriptors *)
-
-val epoll_wait : Unix.file_descr -> int -> float -> poll_cell list 
-  (** [epoll_wait efd n tmo]: Returns the up to [n] next events. [tmo]
-      is the timeout ([] is returned in this case).
-   *)
  *)
 
 
@@ -274,249 +501,11 @@ val run_post_fork_handlers : unit -> unit
    *)
 
 
-(** {1 The "at" variants of system calls} *)
-
-(** Note that a few "at" calls have been omitted because the same
-    functionality can be achieved by first opening the file with
-    [openat] and then by using a function that references the file
-    by descriptor. An example for this is [fstatat]: After the
-    [openat] call one can use [fstat] to get the stat record of the
-    file.
- *)
-
-val have_at : unit -> bool
-  (** Whether the [*at] functions are available (they were only recently
-      standardized and cannot be expected on all OS yet)
-   *)
-
-val at_fdcwd : Unix.file_descr
-  (** Pseudo descriptor value to be used as first argument of [*at]
-      functions
-   *)
-
-type at_flag = AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_REMOVEDIR
-  (** Flags one can pass to "at" functions. Not all functions support
-      all flags
-   *)
-
-val openat : Unix.file_descr -> string -> Unix.open_flag list -> 
-             Unix.file_perm -> 
-                Unix.file_descr
-  (** Same as [Unix.openfile] but open relative to the directory given
-      by first argument
-   *)
-
-val faccessat : Unix.file_descr -> string -> Unix.access_permission list ->
-                at_flag list ->
-                  unit
-  (** Same as [Unix.access] but the file is taken relative to the directory
-      given by first argument
-   *)
-
-val mkdirat : Unix.file_descr -> string -> int -> unit
-  (** Same as [Unix.mkdir] but the file is taken relative to the directory
-      given by first argument
-   *)
- 
-val renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit
-  (** [renameat olddirfd oldpath newdirfd newpath] *)
-
-val linkat : Unix.file_descr -> string -> Unix.file_descr -> string ->
-             at_flag list -> unit
-  (** [linkat olddirfd oldpath newdirfd newpath flags] *)
-
-val unlinkat : Unix.file_descr -> string -> at_flag list -> unit
-  (** Same as [Unix.unlink] but unlink the file relative to the directory
-      given by first argument
-   *)
-
-val symlinkat : string -> Unix.file_descr -> string -> unit
-  (** [symlinkat oldpath newdirfd newpath flags] *)
-
-val mkfifoat : Unix.file_descr -> string -> int -> unit
-  (** [mkfifoat dirfd path mode] *)
-
-val readlinkat : Unix.file_descr -> string -> string
-  (** [readlinkat dirfd path] *)
-
-(* TODO: futimens *)
-
-(** {1 Files, Processes, TTYs, Users, Groups} *)
-
-val int_of_file_descr : Unix.file_descr -> int
-  (** Return the file descriptor as integer. See also
-      {!Netsys.int64_of_file_descr} which works for all OS.
-   *)
-
-val file_descr_of_int : int -> Unix.file_descr
-  (** Make a file descriptor from an integer *)
-
-external sysconf_open_max : unit -> int = "netsys_sysconf_open_max"
-  (** Return the maximum number of open file descriptor per process.
-   * It is also ensured that for every file descriptor [fd]:
-   * [fd < sysconf_open_max()]
-   *)
-
-external fchdir : Unix.file_descr -> unit = "netsys_fchdir"
-  (** Set the current directory to the directory referenced by the
-      file descriptor
-   *)
-
-external fdopendir : Unix.file_descr -> Unix.dir_handle = "netsys_fdopendir"
-  (** Make a directory handle from a file descriptor. The descriptor
-      is then "owned" by the directory handle, and will be closed by
-      [Unix.closedir].
-
-      This function is useful in conjunction with {!Netsys_posix.openat}
-      to read directories relative to a parent directory.
-
-      This is a recent addition to the POSIX standard; be prepared to
-      get [Invalid_argument] because it is unavailable.
-   *)
-
-external realpath : string -> string = "netsys_realpath"
-  (** Returns a pathname pointing to the same filesystem object so that
-      the pathname does not include "." or ".." or symbolic links.
-   *)
-
-external get_nonblock : Unix.file_descr -> bool = "netsys_get_nonblock"
-  (** Returns whether the nonblock flag is set *)
-
-(* Process groups, sessions, terminals *)
-
-external getpgid : int -> int = "netsys_getpgid"
-  (** Return the process group ID of the process with the passed PID.
-   * For the number 0, the process group ID of the current process is
-   * returned.
-   *)
-
-val getpgrp : unit -> int
-  (** Same as [getpgid 0], i.e. returns the process group ID of the
-   * current process.
-   *)
-
-external setpgid : int -> int -> unit = "netsys_setpgid"
-  (** [setpgid pid pgid]: Set the process group ID of the process [pid]
-   * to [pgid]. If [pid = 0], the process group ID of the current process
-   * is changed. If [pgid = 0], as process group ID the process ID of the
-   * process referenced by [pid] is used.
-   *
-   * It is only possible for a process to join a process group if both
-   * belong to the same session.
-   *)
-
-val setpgrp : unit -> unit
-  (** Same as [setpgid 0 0]: A new process group ID is created, and the
-   * current process becomes its sole member.
-   *)
-
-external tcgetpgrp : Unix.file_descr -> int = "netsys_tcgetpgrp"
-  (** Return the process group ID of the foreground process group of
-   * the session associated with the file descriptor, which must be
-   * a tty.
-   *)
-
-external tcsetpgrp : Unix.file_descr -> int -> unit = "netsys_tcsetpgrp"
-  (** Sets the foreground process group ID of the session associated
-   * with the file descriptor, which must be a tty.
-   *)
-
-external ctermid : unit -> string = "netsys_ctermid"
-  (** Returns the name of the controlling tty of the current process 
-   * as pathname to a device file
-   *)
-
-external ttyname : Unix.file_descr -> string = "netsys_ttyname"
-  (** Returns the name of the controlling tty referred to by the
-   * file descriptor.
-   *)
-
-external getsid : int -> int = "netsys_getsid"
-  (** Returns the session ID of the process with the passed PID.
-   * For the PID 0, the session ID of the current process is returned.
-   *)
-
-val with_tty : (Unix.file_descr -> unit) -> unit
-  (** [with_tty f]: Runs [f fd] where [fd] is the terminal of the process.
-      If the process does not have a terminal (because it is a daemon) 
-      [with_tty] will fail.
-   *)
-
-val tty_read_password : ?tty:Unix.file_descr -> string -> string
-  (** [tty_read_password prompt]: If [tty] is a terminal, the [prompt]
-      is output, and a password is read from the terminal (echo off).
-      If [tty] is not a terminal, no [prompt] is printed, and just a
-      line is read from the [tty] descriptor (non-interactive case).
-
-      [tty] defaults to [Unix.stdin]. If this function is used in a
-      program where stdin is not redirected, and the program is started
-      in a terminal, it will read the password with prompt and 
-      echo disabled. If stdin is redirected, it is assumed that the program is
-      used in a script, and the password is piped into it.
-
-      Use in conjunction with [with_tty] to ensure that [tty] is
-      the terminal even if a redirection is in effect, e.g.
-      {[ with_tty (fun tty -> tty_read_password ~tty prompt) ]}
-
-      Raises [Sys.Break] if the user triggers SIGINT (i.e. presses
-      CTRL-C) to abort the input of a password.
-   *)
-
-external posix_openpt : bool -> Unix.file_descr = "netsys_posix_openpt"
-  (** [posix_openpt noctty]: Opens an unused PTY master.
-
-      [noctty]: If true, the descriptor will not become the controlling
-      terminal.
-
-      If this function is not provided by the OS, an emulation is used.
-
-      On some OS, System V style PTY's are unavailable (but they get
-      rare).
-   *)
-
-external grantpt : Unix.file_descr -> unit = "netsys_grantpt"
-  (** Grant access to this PTY *)
-
-external unlockpt : Unix.file_descr -> unit = "netsys_unlockpt"
-  (** Unlock a PTY master/slave pair *)
-
-external ptsname : Unix.file_descr -> string = "netsys_ptsname"
-  (** Get the name of the slave PTY *)
-
-type node_type = 
-  | S_IFREG 
-  | S_IFCHR of int  (* major + minor *)
-  | S_IFBLK of int  (* major + minor *)
-  | S_IFIFO
-  | S_IFSOCK
-      
-external mknod : string -> int -> node_type -> unit = "netsys_mknod"
-    (** Creates the node with the given permissions and the given type *)
-
-
-(* Users and groups *)
-
-external setreuid : int -> int -> unit = "netsys_setreuid"
-  (** Changes both the real and the effective user ID of the current
-   * process.
-   *)
-
-external setregid : int -> int -> unit = "netsys_setregid"
-  (** Changes both the real and the effective group ID of the current
-   * process.
-   *)
-
-external initgroups : string -> int -> unit = "netsys_initgroups"
-  (** See initgroups(3). This is a non-POSIX function but widely
-      available.
-   *)
-
-
 (** {1 Fork+exec} *)
 
 (** The following function has some similarity with posix_spawn, but
     is extended to our needs, Only special (although frequent) cases
-    can be implemented with posix_spawn.
+    are implemented with posix_spawn.
  *)
 
 type wd_spec =
@@ -573,7 +562,7 @@ val spawn : ?chdir:wd_spec ->
               int
   (** [spawn cmd args]: Fork the process and exec [cmd] which gets the
       arguments [args]. On success, the PID of the new process is returned.
-      This function does not wait for the completion of the process, use
+      This function does not wait for the completion of the process; use
       [Unix.waitpid] for this purpose.
 
       - [chdir]: If set, the new process starts with this working directory
@@ -656,7 +645,7 @@ external consume_event : not_event -> unit = "netsys_consume_not_event"
       This is effectively an atomic "wait-and-reset" operation.
    *)
 
-external destroy_event : not_event -> unit = "netsys_destroy_not_event"
+val destroy_event : not_event -> unit
   (** Releases the OS resources. Note that there can be a hidden second
       file descriptor, so closing the descriptor returned by [get_event_fd]
       is not sufficient.
@@ -940,6 +929,8 @@ external fdatasync : Unix.file_descr -> unit = "netsys_fdatasync"
     Unix domain socket.
 
     The functionality backing this is non-standard but widely available.
+
+    {b Not yet implemented, but spec exists.}
  *)
 
 (*
@@ -1160,6 +1151,8 @@ val sem_wait : 'kind semaphore -> sem_wait_behavior -> unit
    *)
 
 (** {2:sem_not Semaphores and notification} *)
+
+(** {b Not yet implemented.} *)
 
 (*
 val nqueue_notify_via_sem : 'a not_queue -> _ semaphore -> unit

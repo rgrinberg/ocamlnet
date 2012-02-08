@@ -264,6 +264,13 @@ compile_emit timerfd HAVE_TIMERFD
 
 ######################################################################
 
+printf "Checking for epoll (Linux)..."
+
+cclib=""
+compile_emit epoll_create HAVE_EPOLL
+
+######################################################################
+
 printf "Checking for compare_and_swap (GCC)..."
 
 cclib=""

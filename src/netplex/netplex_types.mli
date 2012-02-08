@@ -519,6 +519,18 @@ object
       * the container continues running.
      *)
 
+  method container_event_system : unit -> Unixqueue.event_system
+    (** This method is called to get the event systems for containers.
+	This is normally a {!Unixqueue.standard_event_system}, but
+	users can override it.
+     *)
+
+  method container_run : Unixqueue.event_system -> unit
+    (** [container_run esys]: By default, it just runs [esys#run()].
+	This method is called to run the event system of the containers.
+	Users can override it.
+     *)
+
 end
 
 (** The processor is the object that is notified when a new TCP connection

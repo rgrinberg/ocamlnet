@@ -59,6 +59,9 @@ netsys_types.cmx: netsys_types.cmi
 
 CLEAN_LIST += netsys_types.ml
 
+.PHONY: cobjects
+cobjects: $(COBJECTS)
+
 netsys_oothr.cma: netsys_oothr.cmo
 	$(OCAMLC) -o netsys_oothr.cma -a netsys_oothr.cmo
 

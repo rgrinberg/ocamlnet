@@ -29,9 +29,10 @@ val performance_pollset : unit -> pollset
       suitable for cases where pollsets live only for a short time. Also,
       make sure the [dispose] method is called after use.
 
-      Currently, this is the same as [standard_pollset], because no better
-      implementations exist. In the future, [performance_pollset] will use
-      kernel-based polling on some OS ("epoll", "kqueue", "/dev/poll", etc.)
+      On some POSIX platforms this is backed by
+      {!Netsys_pollset_posix.accelerated_pollset}. See the documentation
+      there for possible problems. If no better implementation is available,
+      this is the same as [standard_pollset].
  *)
 
 val select_emulation : 

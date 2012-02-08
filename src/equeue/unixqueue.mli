@@ -247,6 +247,13 @@ val create_unix_event_system : unit -> event_system
       backward compatibility.
    *)
 
+class performance_event_system : unit -> event_system
+  (** The implementation using {!Netsys_pollset_generic.performance_pollset}.
+   *)
+
+val performance_event_system : unit -> event_system
+  (** Same as function *)
+
 
 (** {1 Using event systems} *)
 

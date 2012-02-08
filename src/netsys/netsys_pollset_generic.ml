@@ -13,7 +13,12 @@ let standard_pollset() =
 	Netsys_pollset_posix.poll_based_pollset()
 
 
-let performance_pollset = standard_pollset
+let performance_pollset() =
+  match Sys.os_type with
+    | "Win32" ->
+	standard_pollset()
+    | _ ->
+	Netsys_pollset_posix.accelerated_pollset()
 
 
 let select_emulation (pset : Netsys_pollset.pollset) =

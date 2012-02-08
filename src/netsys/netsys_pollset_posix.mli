@@ -21,4 +21,17 @@ val reset : unit -> unit
    *)
 
 
-(* TODO: pollsets for epoll, kqueue, /dev/poll etc. *)
+val accelerated_pollset : unit -> pollset
+  (** Returns a pollset using a "fast" poll mechanism, if available.
+      Otherwise this is the same as [poll_based_pollset].
+
+      Fast poll mechanisms are:
+      - [epoll] on Linux
+
+      Generally, these mechanisms are not 100% compatible with the
+      standard [poll]. In particular, the poll events may be slightly
+      differently interpreted. Also, there are many, many reports about
+      buggy implementations in the OS.
+   *)
+
+(* TODO: pollsets for kqueue, /dev/poll etc. *)
