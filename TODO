@@ -1,15 +1,42 @@
-Since Vista there is WSAPoll. Support it?
-
-inject custom esys into Netplex
-
 Make Netplex containers thread-safe
-
-Idea. If -debug Netlog.ms/us/ns log with higher precision
-  (Also for Netplex)
 
 inet addr functions from Plasma_util
 
 netmcore pools: option to initialize the pool (avoid SIGBUS)
+
+- Fix Netmcore, when forking:
+  do not unmap anymore if a mapping is not inherited (or make this
+  configurable)
+
+- Fix Netmcore:
+  get_resource should do all the process and resource table cleanup
+  from post_start when it is called the first time in container
+  context. This way the cleanup is also done when a process uses
+  the machinery that was not started via Netmcore.
+
+- Optimization Netmcore_heap.add_immutable:
+  If a pointer into the target heap is found, the data pointed to is
+  not copied. Benefit: Immutable data structures (Set, Map)
+  USER: plasma, Nn_notify
+
+Advanced:
+ - Special form of condition variables one can poll on
+   (See Plasma: pfs_condition)
+
+Netnumber plus add, sub
+
+RPC marshalling speedup
+
+--
+
+Since Vista there is WSAPoll. Support it?
+
+inject custom esys into Netplex
+- DONE
+
+Idea. If -debug Netlog.ms/us/ns log with higher precision
+  (Also for Netplex)
+- DONE VIA NEW FORMAT STRINGS
 
 Fix Uq_io.read for Plasma
  - WONT
@@ -42,11 +69,11 @@ Major future directions:
   * Containers for credentials
   * Password hashing suite
   * Protect RPC better against DoS attacks
-  * Nethttpd w/ authentication
+  * Netcgi2/Nethttpd w/ authentication
 
 - Performance
-  * epoll
-  * posix_spawn
+  * epoll - DONE
+  * posix_spawn - DONE
   * RPC marshalling
   * Service monitors
 
@@ -67,21 +94,6 @@ Major future directions:
   * async local file I/O
 
 ----------------------------------------------------------------------
-
-- Fix Netmcore, when forking:
-  do not unmap anymore if a mapping is not inherited (or make this
-  configurable)
-
-- Fix Netmcore:
-  get_resource should do all the process and resource table cleanup
-  from post_start when it is called the first time in container
-  context. This way the cleanup is also done when a process uses
-  the machinery that was not started via Netmcore.
-
-- Optimization Netmcore_heap.add_immutable:
-  If a pointer into the target heap is found, the data pointed to is
-  not copied. Benefit: Immutable data structures (Set, Map)
-  USER: plasma, Nn_notify
 
 - Equeue_ssl: include function to extract cert fingerprint
 
@@ -189,7 +201,7 @@ Optimization:
 - Performance: after lift_in, the input_line fn is slow
 
 
-- WebDAV, Haddop_fs: use Netfs.empty_fs
+- WebDAV, Haddop_fs: use Netfs.empty_fs - DONE
 - Netfs.abort_write - DONE (cancel)
 
 Fixme:
@@ -210,10 +222,6 @@ Netmulticore:
  - Netmcore_buffer.gc: remove all unreferenced mem blocks
  - Netmcore_hashtbl.gc: shrink the table as far as possible
  - Netmcore_mutex: also provide crash-resilient type of mutex
-
-Advanced:
- - Special form of condition variables one can poll on
-   (See Plasma: pfs_condition)
 
 Examples:
  - pipeline - DONE
@@ -271,8 +279,6 @@ Netnumber (in netstring): - DONE
  - plus comparisons - DONE
  - submodule BE (big endian) - DONE
  - submodule LE (little endian) - DONE
-
-Netnumber plus add, sub
 
 ***
 
