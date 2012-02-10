@@ -1,3 +1,12 @@
+2012-02-10  Gerd Stolpmann  <gerd@samsung>
+
+	* Xdr: additional check against invalid XDR messages.
+
+	* Xdr: calling Netnumber instead of Rtypes
+
+	* Netnumber: speeding int8 readers and writers up (only on
+	  64 bit systems)
+
 2012-02-08  Gerd Stolpmann  <gerd@samsung>
 
 	* epoll: Adding support. This is exported as "event aggregator" in

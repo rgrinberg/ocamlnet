@@ -579,7 +579,20 @@ module BE : ENCDEC = struct
     read_int4_unsafe s pos
       
 
+  IFDEF WORDSIZE_64 THEN
+    IFDEF USE_NETSYS_XDR THEN
+      DEFINE FAST_READ_INT8
+    END
+  END
 
+  IFDEF FAST_READ_INT8 THEN
+  let read_int8_unsafe s pos =
+    let x1 = Netsys_xdr.s_read_int4_64_unsafe s pos in
+    let x0 = Netsys_xdr.s_read_int4_64_unsafe s (pos+4) in
+    Int64.logor
+      (Int64.of_int x0)
+      (Int64.shift_left (Int64.of_int x1) 32)
+  ELSE
   let read_int8_unsafe s pos =
     let n7 = Int64.of_int (Char.code (String.unsafe_get s pos)) in
     let x = Int64.shift_left n7 56 in
@@ -604,7 +617,7 @@ module BE : ENCDEC = struct
     
     let n0 = Int64.of_int (Char.code (String.unsafe_get s (pos+7))) in
     Int64.logor x n0
-      
+  END      
 
 
   let read_int8 s pos =
@@ -658,8 +671,19 @@ module BE : ENCDEC = struct
       raise Out_of_range;
     write_int4_unsafe s pos x
 
+  IFDEF WORDSIZE_64 THEN
+    IFDEF USE_NETSYS_XDR THEN
+      DEFINE FAST_WRITE_INT8
+    END
+  END
 
-
+  IFDEF FAST_WRITE_INT8 THEN
+  let write_int8_unsafe s pos x =
+    Netsys_xdr.s_write_int4_64_unsafe s pos 
+      (Int64.to_int (Int64.logand x 0xFFFF_FFFFL));
+    Netsys_xdr.s_write_int4_64_unsafe s (pos+4)
+      (Int64.to_int (Int64.shift_right x 32))
+  ELSE
   let write_int8_unsafe s pos x =
     let n7 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 56)
 			     0xffL) in
@@ -692,7 +716,7 @@ module BE : ENCDEC = struct
     let n0 = Int64.to_int (Int64.logand x 0xffL) in
     String.unsafe_set s (pos+7) (Char.unsafe_chr n0);
     ()
-
+  END
 
 
   let write_int8 s pos x =
