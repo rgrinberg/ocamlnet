@@ -23,16 +23,20 @@ let matched_id_f x =
 let packed_id_f x =
   let y = _of_B'B'f'arg x in
   let z = Xdr.pack_xdr_value_as_string y xdrt [] in
-  let y' = Xdr.unpack_xdr_value z xdrt [] in
+  let y' = Xdr.unpack_xdr_value ~fast:true z xdrt [] in
   _to_B'B'f'arg y'
 ;;
 
+let failed = ref false ;;
 let counter = ref 1;;
 
 let check id x =
+  print_endline("Running test " ^ string_of_int !counter);
   let x' = id x in
-  if x <> x' then
+  if x <> x' then (
+    failed := true;
     print_endline ("Test " ^ string_of_int !counter ^ " failed");
+  );
   incr counter
 ;;
 
@@ -65,7 +69,7 @@ let test() =
     )
   in
   check id_f x1;
-  check matched_id_f x1;
+  (* check matched_id_f x1; *)
   check packed_id_f x1;
   ()
 ;;
@@ -73,5 +77,6 @@ let test() =
 
 
 test();
-print_endline "TEST PASSED"
+print_endline (if !failed then "TEST FAILED" else "TEST PASSED");
+exit (if !failed then 1 else 0)
 ;;

@@ -55,6 +55,9 @@ module type ENCDEC = sig
   val uint4_as_string : uint4 -> string
   val uint8_as_string : uint8 -> string
 
+  val write_fp4 : string -> int -> fp4 -> unit
+  val write_fp8 : string -> int -> fp8 -> unit
+
   val fp4_as_string : fp4 -> string
   val fp8_as_string : fp8 -> string
     
@@ -590,7 +593,7 @@ module BE : ENCDEC = struct
     let x1 = Netsys_xdr.s_read_int4_64_unsafe s pos in
     let x0 = Netsys_xdr.s_read_int4_64_unsafe s (pos+4) in
     Int64.logor
-      (Int64.of_int x0)
+      (Int64.logand (Int64.of_int x0) 0xFFFF_FFFFL)
       (Int64.shift_left (Int64.of_int x1) 32)
   ELSE
   let read_int8_unsafe s pos =
@@ -679,10 +682,10 @@ module BE : ENCDEC = struct
 
   IFDEF FAST_WRITE_INT8 THEN
   let write_int8_unsafe s pos x =
-    Netsys_xdr.s_write_int4_64_unsafe s pos 
-      (Int64.to_int (Int64.logand x 0xFFFF_FFFFL));
+    Netsys_xdr.s_write_int4_64_unsafe s pos
+      (Int64.to_int (Int64.shift_right x 32));
     Netsys_xdr.s_write_int4_64_unsafe s (pos+4)
-      (Int64.to_int (Int64.shift_right x 32))
+      (Int64.to_int (Int64.logand x 0xFFFF_FFFFL))
   ELSE
   let write_int8_unsafe s pos x =
     let n7 = Int64.to_int (Int64.logand (Int64.shift_right_logical x 56)
@@ -764,19 +767,19 @@ module BE : ENCDEC = struct
   (**********************************************************************)
       
   let fp4_as_string x = int4_as_string (int4_of_int32 x)
-  let fp8_as_string = int8_as_string
+  let fp8_as_string x = int8_as_string (int8_of_int64 x)
     
-    IFDEF WORDSIZE_64 THEN
   let read_fp4 s pos =
-    Int32.of_int(read_int4 s pos)
-    ELSE
-  let read_fp4 s pos =
-    read_int4 s pos
-    END
+    int32_of_int4(read_int4 s pos)
 
   let read_fp8 s pos =
-    read_int8 s pos
+    int64_of_int8(read_int8 s pos)
 
+  let write_fp4 s pos x =
+    write_int4 s pos (int4_of_int32 x)
+
+  let write_fp8 s pos x =
+    write_int8 s pos (int8_of_int64 x)
 end
 
 
@@ -983,19 +986,19 @@ module LE : ENCDEC = struct
   (**********************************************************************)
       
   let fp4_as_string x = int4_as_string (int4_of_int32 x)
-  let fp8_as_string = int8_as_string
+  let fp8_as_string x = int8_as_string (int8_of_int64 x)
     
-    IFDEF WORDSIZE_64 THEN
   let read_fp4 s pos =
-    Int32.of_int(read_int4 s pos)
-    ELSE
-  let read_fp4 s pos =
-    read_int4 s pos
-    END
+    int32_of_int4(read_int4 s pos)
 
   let read_fp8 s pos =
-    read_int8 s pos
+    int64_of_int8(read_int8 s pos)
 
+  let write_fp4 s pos x =
+    write_int4 s pos (int4_of_int32 x)
+
+  let write_fp8 s pos x =
+    write_int8 s pos (int8_of_int64 x)
 end
 
 

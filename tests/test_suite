@@ -36,6 +36,8 @@ dirs="netclient/hhamsters \
       netstring/bench \
       nethttpd/bench \
       netshm/bench \
+      rpc-generator/xdr \
+      rpc-generator/xdr-direct \
       rpc/basic \
       rpc/bench \
       shell"

@@ -136,6 +136,8 @@ let main() =
 	"-I", (Arg.String (fun s -> cpp_options := !cpp_options @ [ "-I" ^ s ])),
 	      "path Include this path into the cpp search path";
 
+	"-direct", Arg.Set Options.enable_direct,
+	      "  Enable direct mapping";
       ]
       (fun s -> targets := !targets @ [s])
 "usage: ocamlrpcgen [-aux] [-clnt] [-srv | -srv2]
@@ -144,6 +146,7 @@ let main() =
                    [-cpp   (/path/to/cpp | none) ]
                    [-D var=value]
                    [-U var]
+                   [-direct]
                    file.xdr ...";
   List.iter
     (fun target ->
@@ -170,6 +173,7 @@ let main() =
 	 Syntax.resolve_constants xdr_def;
 	 Syntax.check_type_constraints xdr_def;
 	 Syntax.check_program_definitions xdr_def;
+	 Direct.mark_decls_suited_for_direct_mapping xdr_def;
 	 Rename.simple_name_mapping xdr_def;
 	 let base = Filename.chop_extension target in
 	 let auxmodule = String.capitalize (Filename.basename base ^ "_aux") in

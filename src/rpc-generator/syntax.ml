@@ -91,6 +91,7 @@ and xdr_union =
 and xdr_decl =
     { decl_type : xdr_type;
       decl_symbol : xdr_id;
+      mutable decl_direct : bool;   (* whether direct mapping is possible here *)
     }
 ;;
 
@@ -124,7 +125,8 @@ type xdr_def =
 
 let mk_decl id t =
   { decl_type = t;
-    decl_symbol = id
+    decl_symbol = id;
+    decl_direct = false;   (* initially *)
   }
 ;;
 

@@ -3,7 +3,7 @@ TOP_DIR=../..
 PKGNAME  = rpc-generator
 ARCHIVE  = rpc_generator
 OBJECTS  = syntax.cmo options.cmo parser.cmo lexer.cmo rename.cmo \
-           generate.cmo
+           generate.cmo direct.cmo
 DOBJECTS = 
 
 ALL_EXTRA = ocamlrpcgen$(EXEC_SUFFIX) rpcgen-packlist

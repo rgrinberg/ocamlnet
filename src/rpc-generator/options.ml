@@ -10,3 +10,5 @@ let default_int_variant = ref Syntax.Abstract;;
    *)
 
 let default_hyper_variant = ref Syntax.Abstract;;
+
+let enable_direct = ref false ;;

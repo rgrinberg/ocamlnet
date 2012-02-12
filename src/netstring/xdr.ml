@@ -179,6 +179,7 @@ type xdr_type_term =
   | X_param of string
   | X_rec of (string * xdr_type_term)      (* define a recursive type *)
   | X_refer of string                      (* refer to a recursive type *)
+  | X_direct of xdr_type_term * (string -> int ref -> int -> exn)
 ;;
 
 
@@ -224,6 +225,7 @@ and xdr_term =
   | T_param of string
   | T_rec of (string * xdr_type0)
   | T_refer of (string * xdr_type0)
+  | T_direct of xdr_type0 * (string -> int ref -> int -> exn)
 ;;
 
 type xdr_type =
@@ -265,6 +267,7 @@ let t_name =
     | T_param _ -> "T_param"
     | T_rec _ -> "T_rec"
     | T_refer _ -> "T_refer"
+    | T_direct _ -> "T_direct"
 	
 
 let x_bool =
@@ -317,6 +320,7 @@ type xdr_value =
   | XV_union_over_enum_fast of (int * xdr_value)
   | XV_array_of_string_fast of string array
   | XV_mstring of Xdr_mstring.mstring
+  | XV_direct of exn * int * (string -> int ref -> unit)
 ;;
 
 let xv_true = XV_enum_fast 1 (* "TRUE" *);;
@@ -542,7 +546,7 @@ let rec validate_xdr_type_i1
       if nL > 0x3fff_ffff_ffffL then
 	raise (Propagate "Bad fixed array: bound too high");
       mktype (T_array_fixed(validate_xdr_type_i1 r b s, n))
-  | X_array (s,n)       -> mktype (T_array      (validate_xdr_type_i1 r b s, n))
+  | X_array (s,n)       -> mktype (T_array (validate_xdr_type_i1 r b s, n))
   | X_struct s ->
       let s_names, s_types = List.split s in
       if all_distinct s_names then
@@ -625,9 +629,10 @@ let rec validate_xdr_type_i1
       let t' = validate_xdr_type_i1 r ((name,node)::b) s in
       node.term <- T_rec (name, t');
       node
-
   | X_refer name ->
       mktype (T_refer (name, List.assoc name b))
+  | X_direct(s, read) ->
+      mktype (T_direct (validate_xdr_type_i1 r b s, read))
 ;;
 
 
@@ -669,6 +674,8 @@ let rec find_params (t:xdr_type0) : StringSet.t =
 			 | Some def -> find_params def)
                       u
   | T_rec (_,t') ->
+      find_params t'
+  | T_direct(t',_) ->
       find_params t'
   | _ ->
       StringSet.empty
@@ -732,6 +739,8 @@ let rec elim_rec t = (* get rid of T_rec and T_refer *)
 	elim_rec t'
     | T_refer(n,t') ->
 	t'
+    | T_direct(t',read) ->
+	{ t with term = T_direct(elim_rec t', read) }
 
 
 let rec calc_min_size t =
@@ -830,10 +839,15 @@ let rec calc_min_size t =
       | T_param p ->
 	  (* not optimal, but we do not know it better at this point *)
 	  t.min_size <- 0
-      | T_rec (_,_) ->
-	  assert false
-      | T_refer name ->
-	  assert false
+      | T_direct(t',_) ->
+	  calc_min_size t';
+	  t.min_size <- t'.min_size
+      | T_rec (_,t') ->
+	  calc_min_size t';
+	  t.min_size <- t'.min_size
+      | T_refer (_,t') ->
+	  calc_min_size t';
+	  t.min_size <- t'.min_size
   )
 
 
@@ -967,6 +981,7 @@ let rec xdr_type_term0 (t:xdr_type0) : xdr_type_term =
 	  )
       in
       X_union_over_enum (xdr_type_term0 e_term, u', conv_option d)
+  | T_direct (t', read) -> X_direct (xdr_type_term0 t',read)
   | _ ->
       assert false
 ;;
@@ -985,7 +1000,7 @@ let xdr_type_term_system (s:xdr_type_system) : xdr_type_term_system =
 (* expand X_type members relative to given systems                    *)
 (**********************************************************************)
 
-(* The implemantation of "expanded_xdr_type_term" repeats many phrases
+(* The implementation of "expanded_xdr_type_term" repeats many phrases
  * that have been defined for "validate_xdr_type" in a very similar
  * way.
  * TODO: Currently many checks have been left out
@@ -1054,6 +1069,8 @@ let rec expanded_xdr_type_term (s:xdr_type_term_system) (t:xdr_type_term)
       r [] s
   | X_rec (n, t') ->
       X_rec (n, expanded_xdr_type_term s t')
+  | X_direct (t',read) ->
+      X_direct ((expanded_xdr_type_term s t'), read)
   | _ ->
       t
 ;;
@@ -1123,6 +1140,16 @@ let get_string_decoration_size x_len n =
       (Xdr_failure "string is longer than allowed")
 
 
+let sizefn_string n x =
+  let x_len = String.length x in
+  get_string_decoration_size x_len n + x_len
+
+
+let sizefn_mstring n x =
+  let x_len = x#length in
+  get_string_decoration_size x_len n + x_len
+
+
 let pack_size
       (v:xdr_value)
       (t:xdr_type0)
@@ -1152,10 +1179,10 @@ let pack_size
 	  int_of_uint4 n
       | T_opaque n ->
 	  let x = dest_xv_opaque v in
-	  get_string_size x n
+	  sizefn_string n x
       | T_string n ->
 	  let x = dest_xv_string v in
-	  get_string_size x n
+	  sizefn_string n x
       | T_mstring(_,n) ->
 	  (* for an mstring we only count the length field plus padding *)
 	  let x = dest_xv_mstring v in
@@ -1222,6 +1249,11 @@ let pack_size
 	  get_size v t'
       | T_refer (n, t') ->
 	  get_size v t'
+      | T_direct(t', _) ->
+	  ( match v with
+	      | XV_direct(_,size,_) -> size
+	      | _ -> get_size v t'
+	  )
 
   and get_array_size v t' n cmp =  (* w/o array header *)
     (* TODO: optimize arrays of types with fixed repr length *)
@@ -1244,24 +1276,33 @@ let pack_size
 		  if cmp m n then (
 		    let sum = ref 0 in
 		    Array.iter
-		      (fun s -> sum := !sum ++ get_string_size s sn)
+		      (fun s -> sum := !sum ++ sizefn_string sn s)
 		      x;
 		    !sum
 		  )
 		  else 
 		    raise (Xdr_failure "array is longer than allowed")
+	      | T_direct(t1, _) ->
+		  get_array_size v t1 n cmp
 	      | _ -> 
 		  raise Dest_failure
 	  )
       | _ ->
 	  raise Dest_failure
 
-  and get_string_size x n =
-    let x_len = String.length x in
-    x_len + get_string_decoration_size x_len n
-
   in
   get_size v t
+
+
+let print_string_padding l buf pos =
+  let n = 4-(l land 3) in
+  if n < 4 then begin
+    let p = !pos in
+    if n >= 1 then String.unsafe_set buf p '\000';
+    if n >= 2 then String.unsafe_set buf (p + 1) '\000';
+    if n >= 3 then String.unsafe_set buf (p + 2) '\000';
+    pos := p + n
+  end
 
 
 let rec pack_mstring 
@@ -1295,21 +1336,10 @@ let rec pack_mstring
     )
   in
 
-  let print_string_padding l =
-    let n = 4-(l land 3) in
-    if n < 4 then begin
-      let l0 = !buf_pos in
-      if n >= 1 then String.unsafe_set buf l0 '\000';
-      if n >= 2 then String.unsafe_set buf (l0 + 1) '\000';
-      if n >= 3 then String.unsafe_set buf (l0 + 2) '\000';
-      buf_pos := l0 + n
-    end
-  in
-
   let print_string s l =
     String.unsafe_blit s 0 buf !buf_pos l;
     buf_pos := !buf_pos + l;
-    print_string_padding l
+    print_string_padding l buf buf_pos
   in
 
   let rec pack v t =
@@ -1366,7 +1396,7 @@ let rec pack_mstring
 	  buf_pos := !buf_pos + 4;
 	  save_buf();
 	  result := x :: !result;
-	  print_string_padding x_len
+	  print_string_padding x_len buf buf_pos
       | T_array_fixed (t',n) ->
 	  pack_array v t' n false
       | T_array (t',n) ->
@@ -1439,6 +1469,15 @@ let rec pack_mstring
 	  pack v t'
       | T_refer (n, t') ->
 	  pack v t'
+      | T_direct(t', _) ->
+	  ( match v with
+	      | XV_direct(_,size,write) ->
+		  let old = !buf_pos in
+		  write buf buf_pos;
+(* Printf.eprintf "old=%d new=%d size=%d\n" old !buf_pos size; *)
+		  assert(!buf_pos = old + size);
+	      | _ -> pack v t'
+	  )
 
   and pack_array v t' n have_array_header =
     match v with
@@ -1460,6 +1499,8 @@ let rec pack_mstring
 		       print_string s s_len
 		    )
 		    x
+	      | T_direct(t1,_) ->
+		  pack_array v t1 n have_array_header
 	      | _ -> raise Dest_failure
 	  )
       | _ -> raise Dest_failure
@@ -1472,6 +1513,23 @@ let rec pack_mstring
   save_buf();
   List.rev !result
 ;;
+
+
+let write_string_fixed n_max x buf pos =
+  let x_len = String.length x in
+  let _s = get_string_decoration_size x_len n_max in (* bounds check *)
+  String.unsafe_blit x 0 buf !pos x_len;
+  pos := !pos + x_len;
+  print_string_padding x_len buf pos
+  
+
+let write_string x buf pos =
+  let x_len = String.length x in
+  Netnumber.BE.write_uint4_unsafe buf !pos (uint4_of_int x_len);
+  pos := !pos + 4;
+  String.unsafe_blit x 0 buf !pos x_len;
+  pos := !pos + x_len;
+  print_string_padding x_len buf pos
 
 
 let value_matches_type
@@ -1559,6 +1617,8 @@ let pack_xdr_value_as_string
       Xdr_mstring.concat_mstrings mstrings
     with
       | Dest_failure ->
+(*let bt = Printexc.get_backtrace() in
+eprintf "Backtrace: %s\n" bt; *)
 	  raise(Xdr_failure
 		  "Xdr.pack_xdr_value_as_string [2]: XDR type mismatch")
       | Netnumber.Cannot_represent _ ->
@@ -1668,6 +1728,7 @@ let rec unpack_term
     ?(fast = false)
     ?(prefix = false)
     ?(mstring_factories = empty_mf)
+    ?(direct = false)
     (str:string)
     (t:xdr_type0)
     (get_param:string->xdr_type)
@@ -1748,7 +1809,7 @@ let rec unpack_term
   let rec unpack_array t' p =
     (* Estimate the maximum p *)
     assert(t'.min_size > 0);
-    let p_max = (len - !k) / t'.min_size in
+    let p_max = (k_end - !k) / t'.min_size in
     if p > p_max then 
       raise_xdr_format_too_short();
     match t'.term with
@@ -1846,7 +1907,7 @@ let rec unpack_term
 		assert( !k <= k_end );
 		let (v, p) = 
 		  unpack_term
-		    ~fast ~mstring_factories dec_s (snd t')
+		    ~fast ~mstring_factories ~direct dec_s (snd t')
 		    (fun _ -> assert false)
 		    (fun _ -> None) in
 		v
@@ -1854,6 +1915,16 @@ let rec unpack_term
     | T_rec (_, t')
     | T_refer (_, t') ->
 	unpack t'
+    | T_direct(t', read) ->
+	if direct then
+	  let k0 = !k in
+	  let xv = read str k k_end in
+	  XV_direct(xv, !k-k0, 
+		    (fun _ _ -> failwith "Xdr: Cannot write this value \
+                          (restriction because of direct mapping)")
+		   )
+	else
+	  unpack t'
     | _ ->
 	assert false
 
@@ -1926,7 +1997,7 @@ let rec unpack_term
 
 
 let unpack_xdr_value
-    ?pos ?len ?fast ?prefix ?mstring_factories ?(decode=[])
+    ?pos ?len ?fast ?prefix ?mstring_factories ?direct ?(decode=[])
     (str:string)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -1936,7 +2007,7 @@ let unpack_xdr_value
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
 
     fst(unpack_term 
-	  ?pos ?len ?fast ?prefix ?mstring_factories
+	  ?pos ?len ?fast ?prefix ?mstring_factories ?direct
 	  str t
 	  (fun n -> List.assoc n p)
 	  (fun n -> try Some(List.assoc n decode) with Not_found -> None)
@@ -1948,7 +2019,7 @@ let unpack_xdr_value
 
 
 let unpack_xdr_value_l
-    ?pos ?len ?fast ?prefix ?mstring_factories ?(decode=[])
+    ?pos ?len ?fast ?prefix ?mstring_factories ?direct ?(decode=[])
     (str:string)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -1958,7 +2029,7 @@ let unpack_xdr_value_l
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
 
     unpack_term
-      ?pos ?len ?fast ?prefix ?mstring_factories 
+      ?pos ?len ?fast ?prefix ?mstring_factories ?direct
       str t
       (fun n -> List.assoc n p)
       (fun n -> try Some(List.assoc n decode) with Not_found -> None)

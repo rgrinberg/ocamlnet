@@ -206,6 +206,9 @@ module type ENCDEC = sig
     (** <t>[_as_string]: Returns the corresponding string for an integer value
      *)
 
+  val write_fp4 : string -> int -> fp4 -> unit
+  val write_fp8 : string -> int -> fp8 -> unit
+
   val fp4_as_string : fp4 -> string
   val fp8_as_string : fp8 -> string
     
