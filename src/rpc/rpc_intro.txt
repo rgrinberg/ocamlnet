@@ -417,6 +417,7 @@ usage: ocamlrpcgen [-aux] [-clnt] [-srv] [-srv2]
                    [-cpp   (/path/to/cpp | none) ]
                    [-D var=value]
                    [-U var]
+                   [-direct]
                    file.xdr ...
 ]}
 
@@ -453,6 +454,17 @@ usage: ocamlrpcgen [-aux] [-clnt] [-srv] [-srv2]
 - [-D var=value]: Defines the C preprocessor variable [var]
   with the given [value].
 - [-U var]: Undefines the C preprocessor variable [var].
+- [-direct]: The effect of this switch is that ocamlrpcgen generates
+  different code that directly maps the XDR byte representation to
+  the final OCaml values, and bypasses {!Xdr.xdr_value} as much as
+  possible. This is the same style the traditional rpcgen preferred.
+  The code is faster (up to 50% for certain large values), but also much
+  longer. As a rule of thumb, this style is only a win if you have
+  arrays of structs, and these structs have many elements, and there
+  are not many strings (because there is no acceleration for strings).
+  For example, a numerical RPC interface would definetely profit from
+  this alternate code generation scheme. Besides generating more code,
+  there is no downside of this scheme. (Available since Ocamlnet-3.5.)
 
 {1:mapping The language mapping underlying ocamlrpcgen}
 
