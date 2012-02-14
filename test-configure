@@ -1,0 +1,4 @@
+#! /bin/sh
+
+./configure -with-nethttpd -enable-ssl -enable-zip -enable-crypto \
+   -with-rpc-auth-dh -auth-dh-style unixdomain "$@"

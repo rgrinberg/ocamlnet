@@ -2,14 +2,6 @@ TOP_DIR = ../../..
 include $(TOP_DIR)/Makefile.rules
 include $(TOP_DIR)/Makefile.xrules
 
-XDRFILES = proto.x
-
-RPCGEN_AUX_OPTIONS    = -int int32 -hyper int64
-RPCGEN_CLIENT_OPTIONS = -int int32 -hyper int64
-RPCGEN_SERVER_OPTIONS = -int int32 -hyper int64
-
-OCAMLRPCGEN = ../../src/generator/ocamlrpcgen
-
 all:
 	$(MAKE) generate
 	$(MAKE) depend
@@ -26,7 +18,7 @@ test: all
 read_int32: read_int32.ml
 	ocamlc -ccopt -O2 -ccopt -S -c read_int32_help.c
 	ocamlc -ccopt -O2 -c read_int32_help.c
-	OCAMLPATH=../../../src/ ocamlfind opt -o read_int32 -package rpc,bigarray -linkpkg -S -inline 5 read_int32_help.o read_int32.ml
+	OCAMLPATH=$(TOP_DIR)/src/ ocamlfind opt -o read_int32 -package rpc,bigarray -linkpkg -S -inline 5 read_int32_help.o read_int32.ml
 
 read_int32_c: read_int32_c.c
 	gcc -O2 -S read_int32_c.c
@@ -38,14 +30,12 @@ alloc_nativeint: alloc_nativeint.ml
 alloc_string: alloc_string.ml
 	ocamlopt -o alloc_string unix.cmxa -S alloc_string.ml
 
-
-generate: $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.sstamp)
-
-depend: *.ml *.mli
-	$(OCAMLDEP) *.ml *.mli >depend
-
 clean::
 	rm -f $(CLEAN_LIST) protospeed_byte protospeed_opt
+	rm -f proto_aux.ml proto_aux.mli
+	rm -f proto_clnt.ml proto_clnt.mli
+	rm -f proto_srv.ml proto_srv.mli
+	rm -f *.astamp *.cstamp *.sstamp
 
 CLEAN: clean
 

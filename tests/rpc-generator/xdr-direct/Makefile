@@ -1,4 +1,4 @@
-.PHONY: all build test
+.PHONY: all build test clean
 
 all: build
 	$(MAKE) test
@@ -9,4 +9,6 @@ build:
 test:
 	cd ../xdr && $(MAKE) test
 
+clean:
+	cd ../xdr && $(MAKE) clean
 

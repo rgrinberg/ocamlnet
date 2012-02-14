@@ -1,12 +1,12 @@
 TOP_DIR = ../../..
 include $(TOP_DIR)/Makefile.rules
 
-PACKAGES = rpc
+REQUIRES += rpc
 
 OBJ = proto_aux.cmo proto_clnt.cmo proto_srv.cmo proto_testcase.cmo
 XOBJ = $(OBJ:.cmo=.cmx)
 
-OCAMLPATH = ../../src
+OCAMLPATH = $(TOP_DIR)/src
 export OCAMLPATH
 
 all: proto.cma protospeed_byte

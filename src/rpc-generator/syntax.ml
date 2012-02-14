@@ -2,7 +2,7 @@
  * ----------------------------------------------------------------------
  *)
 
-open Rtypes;;
+open Netnumber;;
 
 exception Error of string;;
 
@@ -372,6 +372,13 @@ let check_type_constraints dl =
     ()
   in
 
+  let convertible_to_int (sign,v) =
+    (* Only relevant on 32 bit systems *)
+    try ignore(int_of_uint4 v)
+    with _ ->
+      error "The numerical argument is not representable as int"
+  in
+
   let rec get_type t =
     match t with
 	T_refer_to (r,n) ->
@@ -406,12 +413,15 @@ let check_type_constraints dl =
 
   let rec check_type t = (
     match t with
-	T_opaque_fixed c     -> unsigned_int (constant !c)
+	T_opaque_fixed c     -> unsigned_int (constant !c);
+                                convertible_to_int (constant !c)
       | T_opaque c           -> unsigned_int (constant !c)
       | T_string c           -> unsigned_int (constant !c)
       | T_mstring(_,c)       -> unsigned_int (constant !c)
       | T_option t'          -> check_type t'
-      | T_array_fixed(c,t')  -> unsigned_int (constant !c); check_type t'
+      | T_array_fixed(c,t')  -> unsigned_int (constant !c);
+                                convertible_to_int (constant !c);
+                                check_type t'
       | T_array(c,t')        -> unsigned_int (constant !c); check_type t'
       | T_array_unlimited t' -> check_type t'
       | T_refer_to n         -> ignore(get_type t)

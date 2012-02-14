@@ -1,0 +1,20 @@
+TOP_DIR=../../..
+
+PRE = 1
+PKGNAME = xdr_speed
+
+XDRFILES = proto.x
+
+RPCGEN_AUX_OPTIONS    = -int int32 -hyper int64
+RPCGEN_CLIENT_OPTIONS = -int int32 -hyper int64
+RPCGEN_SERVER_OPTIONS = -int int32 -hyper int64
+
+GENERATE = $(XDRFILES:.x=.astamp) $(XDRFILES:.x=.cstamp) $(XDRFILES:.x=.sstamp)
+
+
+include $(TOP_DIR)/Makefile.rules
+include $(TOP_DIR)/Makefile.xrules
+
+
+OCAMLRPCGEN = $(TOP_DIR)/src/rpc-generator/ocamlrpcgen -direct
+

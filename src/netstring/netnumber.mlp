@@ -486,6 +486,21 @@ let logical_uint8_of_int64 x = x
 let logical_int64_of_uint8 x = x
 
 (**********************************************************************)
+(* min/max                                                            *)
+(**********************************************************************)
+
+let min_int4 = int4_of_int32 Int32.min_int
+let min_uint4 = uint4_of_int 0
+let min_int8 = int8_of_int64 Int64.min_int
+let min_uint8 = uint8_of_int 0
+
+let max_int4 = int4_of_int32 Int32.max_int
+let max_uint4 = logical_uint4_of_int32 (-1l)
+let max_int8 = int8_of_int64 Int64.max_int
+let max_uint8 = logical_uint8_of_int64 (-1L)
+
+
+(**********************************************************************)
 (* floating point                                                     *)
 (**********************************************************************)
 

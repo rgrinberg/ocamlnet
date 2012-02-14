@@ -11,6 +11,12 @@ module StrMap = Map.Make(String)
    xdr_type_term, not an xdr_type
  *)
 
+let rec get_enum t =
+  match t with
+    | Xdr.X_enum enum -> enum
+    | Xdr.X_direct(t1,_,_,_) -> get_enum t1
+    | _ -> failwith "Rpc_util.get_enum"
+
 let fail_map_xv_enum_fast () =
   failwith "Rpc_util.map_xv_enum_fast"
 
@@ -75,8 +81,8 @@ let fail_map_xv_union_over_enum_fast () =
 
 let map_xv_union_over_enum_fast t v =
   match t with
-    | Xdr.X_union_over_enum(Xdr.X_enum e, u, u_dfl ) ->
-	let e = Array.of_list e in
+    | Xdr.X_union_over_enum(enum_t, u, u_dfl ) ->
+	let e = Array.of_list (get_enum enum_t) in
 	let u = Array.of_list u in
 	let m = Array.length e in
 	assert( m = Array.length u );
@@ -145,6 +151,7 @@ let string_of_array print_elem t v =
 	  (fun elem_v -> print_elem elem_t elem_v)
 	  vl)) ^ "]"
 
+
 let string_of_union print_elem t v =
   let elem_t, elem_v, case =
     match t with
@@ -170,10 +177,7 @@ let string_of_union print_elem t v =
 	  (elem_t, elem_v, sprintf "%lu" (Rtypes.logical_int32_of_uint4 n))
       | Xdr.X_union_over_enum(enum_t, l, default) ->
 	  let (k,_,elem_v) = map_xv_union_over_enum_fast t v in
-	  let enum =
-	    match enum_t with
-	      | Xdr.X_enum enum -> enum 
-	      | _ -> assert false in
+	  let enum = get_enum enum_t in
 	  let case, _ = List.nth enum k in
 	  let elem_t =
 	    try List.assoc case l
@@ -260,6 +264,9 @@ let rec string_of_rec_arg recdefs t v =
 	  with Not_found -> assert false in
 	string_of_rec_arg recdefs u v
 
+    | Xdr.X_direct(t1, _, _, _) ->
+	string_of_rec_arg recdefs t1 v
+
     | Xdr.X_type _
     | Xdr.X_param _ ->
 	assert false
@@ -317,13 +324,14 @@ let rec string_of_abbrev_arg t v =
 	let (n,_) = Xdr.dest_xv_union_over_uint v in
 	sprintf "union<case=%lu>" (Rtypes.logical_int32_of_uint4 n)
 
-    | Xdr.X_union_over_enum(Xdr.X_enum e,_,_) ->
+    | Xdr.X_union_over_enum(enum_t,_,_) ->
+	let e = get_enum enum_t in
 	let (k,_,_) = map_xv_union_over_enum_fast t v in
 	let (n,_) = List.nth e k in
 	sprintf "union<case=%s>" n
 
-    | Xdr.X_union_over_enum(_,_,_) ->
-	assert false
+    | Xdr.X_direct(t1, _,_,_) ->
+	string_of_abbrev_arg t1 v
 
     | Xdr.X_refer _
     | Xdr.X_type _
@@ -333,7 +341,7 @@ let rec string_of_abbrev_arg t v =
     | Xdr.X_rec(_,t') ->
 	string_of_abbrev_arg t' v
 
-let string_of_abbrev_args t v =
+let rec string_of_abbrev_args t v =
   match t with
     | Xdr.X_void ->
 	""
@@ -343,11 +351,14 @@ let string_of_abbrev_args t v =
 	  t
 	  v
 
+    | Xdr.X_direct(t1,_,_,_) ->
+	string_of_abbrev_args t1 v
+
     | _ ->
 	string_of_abbrev_arg t v
 
 
-let string_of_full_args t v =
+let rec string_of_full_args t v =
   match t with
     | Xdr.X_void ->
 	""
@@ -356,6 +367,9 @@ let string_of_full_args t v =
 	  string_of_full_arg
 	  t
 	  v
+
+    | Xdr.X_direct(t1,_,_,_) ->
+	string_of_full_args t1 v
 
     | _ ->
 	string_of_full_arg t v

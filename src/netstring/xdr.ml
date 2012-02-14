@@ -143,6 +143,7 @@ let equal_sets l1 l2 =
 ;;
 *)
 
+
 (**********************************************************************)
 (* definition of XDR types and type systems                           *)
 (**********************************************************************)
@@ -179,7 +180,10 @@ type xdr_type_term =
   | X_param of string
   | X_rec of (string * xdr_type_term)      (* define a recursive type *)
   | X_refer of string                      (* refer to a recursive type *)
-  | X_direct of xdr_type_term * (string -> int ref -> int -> exn)
+  | X_direct of xdr_type_term * 
+                (string -> int ref -> int -> exn) *
+                (exn -> string -> int ref -> unit) *
+                (exn -> int)
 ;;
 
 
@@ -225,7 +229,10 @@ and xdr_term =
   | T_param of string
   | T_rec of (string * xdr_type0)
   | T_refer of (string * xdr_type0)
-  | T_direct of xdr_type0 * (string -> int ref -> int -> exn)
+  | T_direct of xdr_type0 * 
+                (string -> int ref -> int -> exn) *
+                (exn -> string -> int ref -> unit) *
+                (exn -> int)
 ;;
 
 type xdr_type =
@@ -299,6 +306,9 @@ let x_array_max t =
 (* definition of XDR values                                           *)
 (**********************************************************************)
 
+type xdr_value_version =
+    [ `V1 | `V2 | `V3 | `V4 | `Ocamlrpcgen ]
+
 type xdr_value =
     XV_int of int4
   | XV_uint of uint4
@@ -320,7 +330,7 @@ type xdr_value =
   | XV_union_over_enum_fast of (int * xdr_value)
   | XV_array_of_string_fast of string array
   | XV_mstring of Xdr_mstring.mstring
-  | XV_direct of exn * int * (string -> int ref -> unit)
+  | XV_direct of exn * int
 ;;
 
 let xv_true = XV_enum_fast 1 (* "TRUE" *);;
@@ -495,6 +505,24 @@ let () =
 exception Xdr_failure of string
 
 
+let safe_add x y = (* exported *)
+  (* pre: x >= 0 && y >= 0 *)
+  let s = x + y in
+  if s < 0 then (* can only happen on 32 bit platforms *)
+    raise(Xdr_failure "int overflow while computing size");
+  s
+
+let safe_mul x y = (* exported *)
+  (* pre: x >= 0 && y >= 0 *)
+  if x=0 || y=0 then
+    0
+  else
+    let n = max_int / y in
+    if x > n then
+      raise(Xdr_failure "int overflow while computing size");
+    x * y
+
+
 (**********************************************************************)
 (* check if XDR types are well-formed                                 *)
 (**********************************************************************)
@@ -631,8 +659,8 @@ let rec validate_xdr_type_i1
       node
   | X_refer name ->
       mktype (T_refer (name, List.assoc name b))
-  | X_direct(s, read) ->
-      mktype (T_direct (validate_xdr_type_i1 r b s, read))
+  | X_direct(s, read, write, size) ->
+      mktype (T_direct (validate_xdr_type_i1 r b s, read, write, size))
 ;;
 
 
@@ -675,7 +703,7 @@ let rec find_params (t:xdr_type0) : StringSet.t =
                       u
   | T_rec (_,t') ->
       find_params t'
-  | T_direct(t',_) ->
+  | T_direct(t',_,_,_) ->
       find_params t'
   | _ ->
       StringSet.empty
@@ -739,8 +767,8 @@ let rec elim_rec t = (* get rid of T_rec and T_refer *)
 	elim_rec t'
     | T_refer(n,t') ->
 	t'
-    | T_direct(t',read) ->
-	{ t with term = T_direct(elim_rec t', read) }
+    | T_direct(t',read,write,size) ->
+	{ t with term = T_direct(elim_rec t', read, write, size) }
 
 
 let rec calc_min_size t =
@@ -787,67 +815,70 @@ let rec calc_min_size t =
 
   if t.min_size < 0 then (
     t.min_size <- 0;   (* for stopping recursions *)
-    match t.term with
-	T_int    -> t.min_size <- 4
-      | T_uint   -> t.min_size <- 4
-      | T_hyper  -> t.min_size <- 8
-      | T_uhyper -> t.min_size <- 8
-      | T_float  -> t.min_size <- 4
-      | T_double -> t.min_size <- 8
-      | T_void   -> t.min_size <- 0
-      | T_enum e -> t.min_size <- 4
-      | T_opaque_fixed n -> 
-	  let nL = int64_of_uint4 n in
-	  let min_size =
-	    if nL=0L then 0 
-	    else Int64.to_int(Int64.succ (Int64.div (Int64.pred nL) 4L)) in
-	  t.min_size <- min_size
-      | T_opaque n -> t.min_size <- 4
-      | T_string n -> t.min_size <- 4
-      | T_mstring (name,n) -> t.min_size <- 4
-      | T_array_fixed (s,n) -> 
-	  calc_min_size s;
-	  if s.min_size = 0 then
-	    raise(Propagate "Array elements must not have length 0");
-	  let nL = int64_of_uint4 n in
-	  let n_max = max_int / s.min_size in
-	  if nL > Int64.of_int n_max then
-	    raise(Propagate "Minimum size of type exceeds limit");
-	  let iL = Int64.of_int s.min_size in
-	  t.min_size <- Int64.to_int (Int64.mul nL iL)
-      | T_array (s,n) -> 
-	  calc_min_size s;
-	  if s.min_size = 0 then
-	    raise(Propagate "Array elements must not have length 0");
-	  t.min_size <- 4
-      | T_struct s ->
-	  Array.iter (fun (_,t') -> calc_min_size t') s;
-	  t.min_size <-
-	    (Array.fold_left
-	       (fun acc (_,x) ->
-		  acc ++ x.min_size
-	       )
-	       0
-	       s
-	    )
-      | T_union_over_int (u, default) ->
-	  t.min_size <- calc_for_union (hashtbl_vals u) default
-      | T_union_over_uint (u, default) ->
-	  t.min_size <- calc_for_union (hashtbl_vals u) default
-      | T_union_over_enum (e,u,default) ->
-	  t.min_size <- calc_for_union (optarray_elems u) default
-      | T_param p ->
-	  (* not optimal, but we do not know it better at this point *)
-	  t.min_size <- 0
-      | T_direct(t',_) ->
-	  calc_min_size t';
-	  t.min_size <- t'.min_size
-      | T_rec (_,t') ->
-	  calc_min_size t';
-	  t.min_size <- t'.min_size
-      | T_refer (_,t') ->
-	  calc_min_size t';
-	  t.min_size <- t'.min_size
+    ( match t.term with
+	  T_int    -> t.min_size <- 4
+	| T_uint   -> t.min_size <- 4
+	| T_hyper  -> t.min_size <- 8
+	| T_uhyper -> t.min_size <- 8
+	| T_float  -> t.min_size <- 4
+	| T_double -> t.min_size <- 8
+	| T_void   -> t.min_size <- 0
+	| T_enum e -> t.min_size <- 4
+	| T_opaque_fixed n -> 
+	    let nL = int64_of_uint4 n in
+	    let min_size =
+	      if nL=0L then 0 
+	      else Int64.to_int(Int64.succ (Int64.div (Int64.pred nL) 4L)) in
+	    t.min_size <- min_size
+	| T_opaque n -> t.min_size <- 4
+	| T_string n -> t.min_size <- 4
+	| T_mstring (name,n) -> t.min_size <- 4
+	| T_array_fixed (s,n) -> 
+	    calc_min_size s;
+	    if s.min_size = 0 then
+	      raise(Propagate "Array elements must not have length 0");
+	    let nL = int64_of_uint4 n in
+	    let n_max = max_int / s.min_size in
+	    if nL > Int64.of_int n_max then
+	      raise(Propagate "Minimum size of type exceeds limit");
+	    let iL = Int64.of_int s.min_size in
+	    t.min_size <- Int64.to_int (Int64.mul nL iL)
+	| T_array (s,n) -> 
+	    calc_min_size s;
+	    if s.min_size = 0 then
+	      raise(Propagate "Array elements must not have length 0");
+	    t.min_size <- 4
+	| T_struct s ->
+	    Array.iter (fun (_,t') -> calc_min_size t') s;
+	    t.min_size <-
+	      (Array.fold_left
+		 (fun acc (_,x) ->
+		    acc ++ x.min_size
+		 )
+		 0
+		 s
+	      )
+	| T_union_over_int (u, default) ->
+	    t.min_size <- calc_for_union (hashtbl_vals u) default
+	| T_union_over_uint (u, default) ->
+	    t.min_size <- calc_for_union (hashtbl_vals u) default
+	| T_union_over_enum (e,u,default) ->
+	    t.min_size <- calc_for_union (optarray_elems u) default
+	| T_param p ->
+	    (* not optimal, but we do not know it better at this point *)
+	    t.min_size <- 0
+	| T_direct(t',_,_,_) ->
+	    calc_min_size t';
+	    t.min_size <- t'.min_size
+	| T_rec (_,t') ->
+	    calc_min_size t';
+	    t.min_size <- t'.min_size
+	| T_refer (r,t') ->
+	    calc_min_size t';
+	    t.min_size <- t'.min_size;
+	    (* eprintf "%s: " r*)
+    );
+    (* eprintf "min_size(%s) = %d\n" (t_name t.term) t.min_size*)
   )
 
 
@@ -860,6 +891,7 @@ let rec validate_xdr_type (t:xdr_type_term) : xdr_type =
     let pl = find_params t0' in
     t0'.params <- pl;
     let t1' = elim_rec t0' in
+    calc_min_size t0';
     calc_min_size t1';
     (t0', t1')
   with
@@ -911,6 +943,8 @@ let validate_xdr_type_system (s:xdr_type_term_system) : xdr_type_system =
 	      let pl = find_params t0' in
 	      t0'.params <- pl;
 	      let t1' = elim_rec t0' in
+	      calc_min_size t0';
+	      calc_min_size t1';
 	      (t0',t1')
 	    with
 	      Not_found -> failwith "Xdr.validate_xdr_type_system: unspecified error"
@@ -981,7 +1015,8 @@ let rec xdr_type_term0 (t:xdr_type0) : xdr_type_term =
 	  )
       in
       X_union_over_enum (xdr_type_term0 e_term, u', conv_option d)
-  | T_direct (t', read) -> X_direct (xdr_type_term0 t',read)
+  | T_direct (t', read, write, size) -> 
+      X_direct (xdr_type_term0 t',read, write, size)
   | _ ->
       assert false
 ;;
@@ -1069,8 +1104,8 @@ let rec expanded_xdr_type_term (s:xdr_type_term_system) (t:xdr_type_term)
       r [] s
   | X_rec (n, t') ->
       X_rec (n, expanded_xdr_type_term s t')
-  | X_direct (t',read) ->
-      X_direct ((expanded_xdr_type_term s t'), read)
+  | X_direct (t',read, write, size) ->
+      X_direct ((expanded_xdr_type_term s t'), read, write, size)
   | _ ->
       t
 ;;
@@ -1080,6 +1115,8 @@ let expanded_xdr_type (s:xdr_type_system) (t:xdr_type_term) : xdr_type =
   try
     let t0 = validate_xdr_type_i1 (expand_X_type s) [] t in
     let t1 = elim_rec t0 in
+    calc_min_size t0;
+    calc_min_size t1;
     (t0,t1)
   with
     Not_found -> failwith "Xdr.expanded_xdr_type: unspecified error"
@@ -1249,9 +1286,9 @@ let pack_size
 	  get_size v t'
       | T_refer (n, t') ->
 	  get_size v t'
-      | T_direct(t', _) ->
+      | T_direct(t', _, _, _) ->
 	  ( match v with
-	      | XV_direct(_,size,_) -> size
+	      | XV_direct(_,size) -> size
 	      | _ -> get_size v t'
 	  )
 
@@ -1268,7 +1305,7 @@ let pack_size
 	    !s
 	  )
 	  else
-	    raise (Xdr_failure "array is longer than allowed")
+	    raise (Xdr_failure "array length mismatch")
       | XV_array_of_string_fast x ->
 	  ( match t'.term with
 	      | T_string sn ->
@@ -1281,8 +1318,8 @@ let pack_size
 		    !sum
 		  )
 		  else 
-		    raise (Xdr_failure "array is longer than allowed")
-	      | T_direct(t1, _) ->
+		    raise (Xdr_failure "array length mismatch")
+	      | T_direct(t1, _, _, _) ->
 		  get_array_size v t1 n cmp
 	      | _ -> 
 		  raise Dest_failure
@@ -1469,13 +1506,13 @@ let rec pack_mstring
 	  pack v t'
       | T_refer (n, t') ->
 	  pack v t'
-      | T_direct(t', _) ->
+      | T_direct(t', _, write, _) ->
 	  ( match v with
-	      | XV_direct(_,size,write) ->
+	      | XV_direct(x,xv_size) ->
 		  let old = !buf_pos in
-		  write buf buf_pos;
+		  write x buf buf_pos;
 (* Printf.eprintf "old=%d new=%d size=%d\n" old !buf_pos size; *)
-		  assert(!buf_pos = old + size);
+		  assert(!buf_pos = old + xv_size);
 	      | _ -> pack v t'
 	  )
 
@@ -1499,7 +1536,7 @@ let rec pack_mstring
 		       print_string s s_len
 		    )
 		    x
-	      | T_direct(t1,_) ->
+	      | T_direct(t1,_,_,_) ->
 		  pack_array v t1 n have_array_header
 	      | _ -> raise Dest_failure
 	  )
@@ -1515,15 +1552,16 @@ let rec pack_mstring
 ;;
 
 
-let write_string_fixed n_max x buf pos =
+let write_string_fixed n x buf pos = (* exported *)
   let x_len = String.length x in
-  let _s = get_string_decoration_size x_len n_max in (* bounds check *)
+  if x_len <> n then
+    raise (Xdr_failure "fixed string has bad length");
   String.unsafe_blit x 0 buf !pos x_len;
   pos := !pos + x_len;
   print_string_padding x_len buf pos
   
 
-let write_string x buf pos =
+let write_string x buf pos = (* exported *)
   let x_len = String.length x in
   Netnumber.BE.write_uint4_unsafe buf !pos (uint4_of_int x_len);
   pos := !pos + 4;
@@ -1711,7 +1749,7 @@ let hex_dump_s s pos len =
   Buffer.contents b
  *)
 
-let read_string str k k_end n =
+let read_string_fixed n str k k_end = (* exported *)
   let k0 = !k in
   let m = if n land 3 = 0 then n else n+4-(n land 3) in
   if k0 > k_end - m then raise_xdr_format_too_short ();
@@ -1719,6 +1757,17 @@ let read_string str k k_end n =
   String.unsafe_blit str k0 s 0 n;
   k := k0 + m;
   s
+
+let read_string n str k k_end = (* exported *)
+  let k0 = !k in
+  k := k0 + 4;
+  if !k > k_end then raise_xdr_format_too_short();
+  let m = Netnumber.BE.read_uint4_unsafe str k0 in
+    (* Test: n < m as unsigned int32: *)
+  if Netnumber.lt_uint4 n m then
+    raise_xdr_format_maximum_length ();
+  read_string_fixed (int_of_uint4 m) str k k_end
+  
 
 let empty_mf = Hashtbl.create 1
 
@@ -1728,7 +1777,7 @@ let rec unpack_term
     ?(fast = false)
     ?(prefix = false)
     ?(mstring_factories = empty_mf)
-    ?(direct = false)
+    ?(xv_version = if fast then `Ocamlrpcgen else `V1)
     (str:string)
     (t:xdr_type0)
     (get_param:string->xdr_type)
@@ -1738,6 +1787,13 @@ let rec unpack_term
   (* The recursion over unpack_term is only used for decoding encrypted
      parameters
    *)
+
+  let xv_version =
+    if xv_version = `Ocamlrpcgen then `V4 else xv_version in
+
+  let v2 = (xv_version <> `V1) in      (* meaning: at least v2 *)
+  let v3 = v2 && (xv_version <> `V2) in
+  let v4 = v3 && (xv_version <> `V3) in
 
   let len =
     match len with
@@ -1768,7 +1824,7 @@ let rec unpack_term
     if !k > k_end then raise_xdr_format_too_short();
     let i = Netnumber.int32_of_int4(Netnumber.BE.read_int4_unsafe str k0) in
     let j = find_enum e i in   (* returns array position, or Xdr_format *)
-    if fast then
+    if v2 then
       XV_enum_fast j
     else
       XV_enum(fst(e.(j)))
@@ -1781,7 +1837,7 @@ let rec unpack_term
     (* Test: n < m as unsigned int32: *)
     if Netnumber.lt_uint4 n m then
       raise_xdr_format_maximum_length ();
-    read_string str k k_end (int_of_uint4 m)
+    read_string_fixed (int_of_uint4 m) str k k_end
   in
 
   let rec read_mstring name n k0 =
@@ -1808,6 +1864,7 @@ let rec unpack_term
 
   let rec unpack_array t' p =
     (* Estimate the maximum p *)
+(* eprintf "unpack_array: t' = %s\n" (t_name t'.term);*)
     assert(t'.min_size > 0);
     let p_max = (k_end - !k) / t'.min_size in
     if p > p_max then 
@@ -1821,7 +1878,7 @@ let rec unpack_term
 	  if k' = (-1) then raise_xdr_format_too_short();
 	  if k' = (-2) then raise_xdr_format_maximum_length ();
 	  k := k';
-	  if fast then
+	  if v3 then
 	    XV_array_of_string_fast a
 	  else
 	    XV_array(Array.map (fun s -> XV_string s) a)
@@ -1859,7 +1916,7 @@ let rec unpack_term
     | T_double ->
 	XV_double (read_fp8 k0)
     | T_opaque_fixed n ->
-	XV_opaque (read_string str k k_end (int_of_uint4 n))
+	XV_opaque (read_string_fixed (int_of_uint4 n) str k k_end)
     | T_opaque n ->
 	XV_opaque (read_string_or_opaque n k0)
     | T_string n ->
@@ -1876,7 +1933,7 @@ let rec unpack_term
 	  raise_xdr_format_maximum_length ();
 	unpack_array t' (int_of_uint4 m)
     | T_struct s ->
-	if fast then
+	if v2 then
 	  XV_struct_fast
 	    ( Array.map
 		(fun (name,t') -> unpack t')
@@ -1907,7 +1964,7 @@ let rec unpack_term
 		assert( !k <= k_end );
 		let (v, p) = 
 		  unpack_term
-		    ~fast ~mstring_factories ~direct dec_s (snd t')
+		    ~mstring_factories ~xv_version dec_s (snd t')
 		    (fun _ -> assert false)
 		    (fun _ -> None) in
 		v
@@ -1915,14 +1972,11 @@ let rec unpack_term
     | T_rec (_, t')
     | T_refer (_, t') ->
 	unpack t'
-    | T_direct(t', read) ->
-	if direct then
+    | T_direct(t', read, _, _) ->
+	if v4 then
 	  let k0 = !k in
 	  let xv = read str k k_end in
-	  XV_direct(xv, !k-k0, 
-		    (fun _ _ -> failwith "Xdr: Cannot write this value \
-                          (restriction because of direct mapping)")
-		   )
+	  XV_direct(xv, !k-k0)
 	else
 	  unpack t'
     | _ ->
@@ -1970,7 +2024,7 @@ let rec unpack_term
 		    raise_xdr_format_undefined_descriminator()
 	    )
     in
-    if fast then
+    if v2 then
       XV_union_over_enum_fast(j, unpack t')
     else
       let name = fst(e.(j)) in
@@ -1997,7 +2051,7 @@ let rec unpack_term
 
 
 let unpack_xdr_value
-    ?pos ?len ?fast ?prefix ?mstring_factories ?direct ?(decode=[])
+    ?pos ?len ?fast ?prefix ?mstring_factories ?xv_version ?(decode=[])
     (str:string)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -2007,7 +2061,7 @@ let unpack_xdr_value
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
 
     fst(unpack_term 
-	  ?pos ?len ?fast ?prefix ?mstring_factories ?direct
+	  ?pos ?len ?fast ?prefix ?mstring_factories ?xv_version
 	  str t
 	  (fun n -> List.assoc n p)
 	  (fun n -> try Some(List.assoc n decode) with Not_found -> None)
@@ -2019,7 +2073,7 @@ let unpack_xdr_value
 
 
 let unpack_xdr_value_l
-    ?pos ?len ?fast ?prefix ?mstring_factories ?direct ?(decode=[])
+    ?pos ?len ?fast ?prefix ?mstring_factories ?xv_version ?(decode=[])
     (str:string)
     ((_,t):xdr_type)
     (p:(string * xdr_type) list)
@@ -2029,7 +2083,7 @@ let unpack_xdr_value_l
      List.for_all (fun (n,t') -> StringSet.is_empty (fst t').params) p then
 
     unpack_term
-      ?pos ?len ?fast ?prefix ?mstring_factories ?direct
+      ?pos ?len ?fast ?prefix ?mstring_factories ?xv_version
       str t
       (fun n -> List.assoc n p)
       (fun n -> try Some(List.assoc n decode) with Not_found -> None)

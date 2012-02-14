@@ -48,28 +48,42 @@ let rec get_type_from_map typemap t =
 
 let output_uint4_pattern f (sign,n) =
   assert (not sign);
-  let (n1,n2,n3,n4) = Rtypes.dest_uint4 n in
+  let n32 = Netnumber.logical_int32_of_uint4 n in
+  fprintf f "(%ldl)" n32
+(*
+  let (n1,n2,n3,n4) = Netnumber.dest_uint4 n in
   fprintf f "('\\%03d','\\%03d','\\%03d','\\%03d')"
             (Char.code n1)
             (Char.code n2)
             (Char.code n3)
             (Char.code n4);
+ *)
 ;;
+
+let max_int_as_uint4 =
+  Netnumber.uint4_of_int32 0x3fff_ffffl  (* assuming 32 bit system *)
+
 
 let output_uint4 f (sign,n) =
   assert (not sign);
-  fprintf f "(Rtypes.mk_uint4";
-  output_uint4_pattern f (sign,n);
-  fprintf f ")"
+  if Netnumber.le_uint4 n max_int_as_uint4 then
+    fprintf f "(Netnumber.uint4_of_int (%d))" (Netnumber.int_of_uint4 n)
+  else
+    let n32 = Netnumber.logical_int32_of_uint4 n in
+    fprintf f "(Netnumber.logical_uint4_of_int32 (%ldl))" n32
 ;;
 
 
 let int64_of_const (sign,n) =
-  let l = Rtypes.int64_of_uint4 n in
+  let l = Netnumber.int64_of_uint4 n in
   if sign then Int64.neg l else l
 
 
 let output_int4_pattern f (sign,n) =
+  let n32_0 = Netnumber.int32_of_uint4 n in
+  let n32 = if sign then Int32.neg n32_0 else n32_0 in
+  fprintf f "(%ldl)" n32
+(*
   let plus1 (a,b,c,d) =
     if d < 255 then
       (a,b,c,d+1)
@@ -88,7 +102,7 @@ let output_int4_pattern f (sign,n) =
   let neg (a,b,c,d) =
     plus1 (255-a, 255-b, 255-c, 255-d)
   in
-  let (n1,n2,n3,n4) = Rtypes.dest_uint4 n in
+  let (n1,n2,n3,n4) = Netnumber.dest_uint4 n in
   let (m1,m2,m3,m4) =
     if sign then
       neg (Char.code n1, Char.code n2, Char.code n3, Char.code n4)
@@ -97,12 +111,18 @@ let output_int4_pattern f (sign,n) =
   in
   fprintf f "('\\%03d','\\%03d','\\%03d','\\%03d')"
             m1 m2 m3 m4
+ *)
 ;;
 
 let output_int4 f (sign,n) =
-  fprintf f "(Rtypes.mk_int4";
-  output_int4_pattern f (sign,n);
-  fprintf f ")"
+  if Netnumber.le_uint4 n max_int_as_uint4 then
+    let k0 = Netnumber.int_of_uint4 n in
+    let k = if sign then -k0 else k0 in
+    fprintf f "(Netnumber.int4_of_int (%d))" k
+  else
+    let k0 = Netnumber.int32_of_uint4 n in
+    let k = if sign then Int32.neg k0 else k0 in
+    fprintf f "(Netnumber.int4_of_int32 (%ldl))" k
 ;;
 
 
@@ -126,9 +146,9 @@ let strip_enum_list l =
     let (sign2,v2) = constant !c2 in
     match (sign1,sign2) with
 	(false,false) ->
-	  compare (Rtypes.int32_of_uint4 v1) (Rtypes.int32_of_uint4 v2)
+	  compare (Netnumber.int32_of_uint4 v1) (Netnumber.int32_of_uint4 v2)
       | (true,true) ->
-	  -(compare (Rtypes.int32_of_uint4 v1) (Rtypes.int32_of_uint4 v2))
+	  -(compare (Netnumber.int32_of_uint4 v1) (Netnumber.int32_of_uint4 v2))
       | (false, true) ->
 	  1
       | (true, false) ->
@@ -171,7 +191,7 @@ let output_consts (mli:formatter) (f:formatter) (dl:xdr_def list) =
 
   let output_signed_const id c =
     (* MLI: *)
-    fprintf mli "val %s : Rtypes.int4;;@\n" id.ocaml_name;
+    fprintf mli "val %s : Netnumber.int4;;@\n" id.ocaml_name;
     (* ML: *)
     fprintf f "let %s = " id.ocaml_name;
     output_int4 f c;
@@ -180,7 +200,7 @@ let output_consts (mli:formatter) (f:formatter) (dl:xdr_def list) =
 
   let output_unsigned_const id c =
     (* MLI: *)
-    fprintf mli "val %s : Rtypes.uint4;;@\n" id.ocaml_name;
+    fprintf mli "val %s : Netnumber.uint4;;@\n" id.ocaml_name;
     (* ML: *)
     fprintf f "let %s = " id.ocaml_name;
     output_uint4 f c;
@@ -298,28 +318,28 @@ let output_type_declarations (f:formatter) (dl:xdr_def list) =
 	  fprintf f "@ array@]"
       | T_int v ->
 	  (match v with
-	       Abstract-> fprintf f "Rtypes.int4"
+	       Abstract-> fprintf f "Netnumber.int4"
 	     | INT32   -> fprintf f "int32"
 	     | INT64   -> fprintf f "int64"
 	     | Unboxed -> fprintf f "int"
 	  )
       | T_uint v ->
 	  (match v with
-	       Abstract-> fprintf f "Rtypes.uint4"
+	       Abstract-> fprintf f "Netnumber.uint4"
 	     | INT32   -> fprintf f "int32"
 	     | INT64   -> fprintf f "int64"
 	     | Unboxed -> fprintf f "int"
 	  )
       | T_hyper v ->
 	  (match v with
-	       Abstract-> fprintf f "Rtypes.int8"
+	       Abstract-> fprintf f "Netnumber.int8"
 	     | INT64   -> fprintf f "int64"
 	     | Unboxed -> fprintf f "int"
 	     | _       -> assert false
 	  )
       | T_uhyper v ->
 	  (match v with
-	       Abstract-> fprintf f "Rtypes.uint8"
+	       Abstract-> fprintf f "Netnumber.uint8"
 	     | INT64   -> fprintf f "int64"
 	     | Unboxed -> fprintf f "int"
 	     | _       -> assert false
@@ -338,7 +358,7 @@ let output_type_declarations (f:formatter) (dl:xdr_def list) =
 	  in
 	  fprintf f "%s" n
       | T_enum _ ->
-	  fprintf f "Rtypes.int4"
+	  fprintf f "Netnumber.int4"
       | T_struct tdl ->
 	  let n = "_t" ^ string_of_int !anontype in
 	  incr anontype;
@@ -641,7 +661,7 @@ let output_xdr_type (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	      fprintf f "@[<hv 2>Xdr.X_direct(";
 	    output_type (!s :: rectypes) false t';
 	    if direct then
-	      fprintf f ",@ (fun _ _ _ -> assert false))@]";
+	      fprintf f ",@ _read_%s,@ _write_%s,@ _size_%s)@]" !s !s !s;
 	    fprintf f ")@]";
 	  end
       | T_enum l ->
@@ -818,6 +838,509 @@ let output_xdr_type (mli:formatter) (f:formatter) (dl:xdr_def list) =
 
 
 (**********************************************************************)
+(* Get min size                                                       *)
+(**********************************************************************)
+
+(* Simplified so far. Look also into Xdr.calc_min_size *)
+
+let calc_min_size dl =
+  let (typenames,typemap) = extract_type_info dl in
+
+  let visiting = Hashtbl.create 15 in
+  let visited = Hashtbl.create 15 in
+
+  fun t ->
+
+    let ( ++ ) x y =
+      (* pre: x >= 0 && y >= 0 *)
+      let s = x + y in
+      if s < 0 then (* can only happen on 32 bit platforms *)
+	failwith "Minimum size of type exceeds limit";
+      s in
+
+    let rec calc t =
+      match t with
+	  T_int _    -> 4
+	| T_uint _   -> 4
+	| T_hyper _  -> 8
+	| T_uhyper _ -> 8
+	| T_float    -> 4
+	| T_double   -> 8
+	| T_void     -> 0
+	| T_bool     -> 4
+	| T_enum _   -> 4
+	| T_opaque_fixed c -> 
+	    let nL = int64_of_const (constant !c) in
+	    if nL=0L then 0 
+	    else Int64.to_int(Int64.succ (Int64.div (Int64.pred nL) 4L))
+	| T_opaque _ -> 4
+	| T_opaque_unlimited -> 4
+	| T_string _ -> 4
+	| T_string_unlimited -> 4
+	| T_mstring _ -> 4
+	| T_mstring_unlimited _ -> 4
+	| T_option t' -> 
+	    4 ++ (calc t')
+	| T_array_fixed (c,t') -> 
+	    let size = calc t' in
+	    if size = 0 then
+	      failwith "Array elements must not have length 0";
+	    let nL = int64_of_const(constant !c) in
+	    let n_max = max_int / size in
+	    if nL > Int64.of_int n_max then
+	      failwith "Minimum size of type exceeds limit";
+	    let iL = Int64.of_int size in
+	    Int64.to_int (Int64.mul nL iL)
+	| T_array (_,t')
+	| T_array_unlimited t' -> 
+	    let size = calc t' in
+	    if size = 0 then
+	      failwith "Array elements must not have length 0";
+	    4
+	| T_struct s ->
+	    List.fold_left
+	      (fun acc td ->
+		 acc ++ calc td.decl_type
+	      )
+	      0
+	      s
+	| T_union u ->
+	    let s1 =
+	      match u.default with
+		| None -> 0
+		| Some d -> calc d.decl_type in
+	    4 ++
+	      (List.fold_left
+		 (fun acc (_,_,d) ->
+		    max acc (calc d.decl_type)
+		 )
+		 s1
+		 u.cases
+	      )
+	| T_refer_to (_,r) ->
+	    ( try
+		Hashtbl.find visited !r
+	      with
+		| Not_found ->
+		    if Hashtbl.mem visiting !r then
+		      0
+		    else (
+		      Hashtbl.add visiting !r ();
+		      let t =
+			try Hashtbl.find typemap !r
+			with Not_found -> assert false in
+		      let size = calc t in
+		      Hashtbl.add visited !r size;
+		      Hashtbl.remove visiting !r;
+		      size
+		    )
+	    )
+    in
+    calc t
+
+(**********************************************************************)
+(* Helpers for ints                                                   *)
+(**********************************************************************)
+
+let conversion_custom_int_of_netnumber t =
+  match t with
+    | T_int Abstract     -> ""
+    | T_int INT32        -> "Netnumber.int32_of_int4"
+    | T_int INT64        -> "Netnumber.int64_of_int4"
+    | T_int Unboxed      -> "Netnumber.int_of_int4"
+    | T_uint Abstract    -> ""
+    | T_uint INT32       -> "Netnumber.logical_int32_of_uint4"
+    | T_uint INT64       -> "Netnumber.int64_of_uint4"
+    | T_uint Unboxed     -> "Netnumber.int_of_uint4"
+    | T_hyper Abstract   -> ""
+    | T_hyper INT32      -> assert false
+    | T_hyper INT64      -> "Netnumber.int64_of_int8"
+    | T_hyper Unboxed    -> "Netnumber.int_of_int8"
+    | T_uhyper Abstract  -> ""
+    | T_uhyper INT32     -> assert false
+    | T_uhyper INT64     -> "Netnumber.logical_int64_of_uint8"
+    | T_uhyper Unboxed   -> "Netnumber.int_of_uint8"
+    | _ -> assert false
+
+
+let conversion_netnumber_of_custom_int t =
+  match t with
+    | T_int Abstract     -> ""
+    | T_int INT32        -> "Netnumber.int4_of_int32"
+    | T_int INT64        -> "Netnumber.int4_of_int64"
+    | T_int Unboxed      -> "Netnumber.int4_of_int"
+    | T_uint Abstract    -> ""
+    | T_uint INT32       -> "Netnumber.logical_uint4_of_int32"
+    | T_uint INT64       -> "Netnumber.uint4_of_int64"
+    | T_uint Unboxed     -> "Netnumber.uint4_of_int"
+    | T_hyper Abstract   -> ""
+    | T_hyper INT32      -> assert false
+    | T_hyper INT64      -> "Netnumber.int8_of_int64"
+    | T_hyper Unboxed    -> "Netnumber.int8_of_int"
+    | T_uhyper Abstract  -> ""
+    | T_uhyper INT32     -> assert false
+    | T_uhyper INT64     -> "Netnumber.logical_uint8_of_int64"
+    | T_uhyper Unboxed   -> "Netnumber.uint8_of_int"
+    | _ -> assert false
+
+
+let name_of_int t =
+  match t with
+    | T_int _    -> "int"
+    | T_uint _   -> "uint"
+    | T_hyper _  -> "hyper"
+    | T_uhyper _ -> "uhyper"
+    | _ -> assert false
+
+let xv_name_of_int t =
+  match t with
+    | T_int _    -> "XV_int"
+    | T_uint _   -> "XV_uint"
+    | T_hyper _  -> "XV_hyper"
+    | T_uhyper _ -> "XV_uhyper"
+    | _ -> assert false
+
+let netnumber_name_of_int t =
+  match t with
+    | T_int _    -> "int4"
+    | T_uint _   -> "uint4"
+    | T_hyper _  -> "int8"
+    | T_uhyper _ -> "uint8"
+    | _ -> assert false
+
+
+let size_of_int t =
+  match t with
+    | T_int _    -> 4
+    | T_uint _   -> 4
+    | T_hyper _  -> 8
+    | T_uhyper _ -> 8
+    | _ -> assert false
+
+
+
+let output_any_int f t (sign,n) =  (* hyper, uhyper not needed *)
+  match t with
+    | T_int _    -> output_int4 f (sign,n)
+    | T_uint _   -> output_uint4 f (sign,n)
+    | _ -> assert false
+
+
+
+let conversion_int32_of_discr discr_type =
+  match discr_type with
+    | T_int _ -> "Netnumber.int32_of_int4"
+    | T_uint _ -> "Netnumber.logical_int32_of_uint4"
+    | _ -> assert false
+
+
+(**********************************************************************)
+(* Generators for unions                                              *)
+(**********************************************************************)
+
+let have_enum_default_with_arg u get_type_of_decl  =
+  let discr_type = get_type_of_decl u.discriminant in
+  match discr_type with
+    | T_int _ | T_uint _ -> false
+    | T_enum _ | T_bool ->
+	( match u.default with
+	    | None ->
+		false
+	    | Some d ->
+		get_type_of_decl d <> T_void
+	)
+    | _ -> assert false
+
+
+let output_match_union_by_cases f u var get_type_of_decl 
+                                f_case f_default f_let =
+  (* Outputs a "match" statement over the Ocaml variants. The variable var
+     is matched. For every variant of var the function f_case is called:
+     
+     f_case k (sign,n) decl have_x is_default
+     
+     with
+     - k: the k-th case (for unions over enums: the k-th enum variant)
+     - (sign,n): the corresponding XDR value
+     - decl: the xdr_decl of this case
+     - have_x: whether there is a generated "x" variable
+     - is_default: whether this is a default case (only for enum unions)
+     
+     At this moment, a branch like
+     
+     | `tag -> OR
+     | `tag x ->
+     
+     has already been generated.
+     
+     For unions over ints/uints, the function f_default can be called
+     for the default case. It is called as
+     
+     f_default decl have_x
+     
+     At this moment, a branch like
+     
+     | `default(discriminant,x) -> OR
+     | `default(discriminant) -> OR
+     
+     has already been generated.
+     
+     The function f_let can be used to generate "let v = ... in ..."
+     statements.
+   *)
+  let discr_type = get_type_of_decl u.discriminant in
+  match discr_type with
+    | T_int _ | T_uint _ ->
+	fprintf f "@[<v 2>";
+	fprintf f "( ";
+	f_let();
+	fprintf f "match %s with" var;
+	let k = ref 0 in
+	List.iter
+	  (fun (c,om,d) ->
+	     let (sign,n) = constant !c in
+	     let tag =
+	       match om with
+		   None ->
+		     (if sign then "__" else "_") ^ string_of_uint4 n
+		 | Some om_tag -> om_tag
+	     in
+	     fprintf f "@ @[<hv 6>| `%s " tag;
+	     let have_x = get_type_of_decl d <> T_void in
+	     if have_x then fprintf f "x ";
+	     fprintf f "->@ ";
+	     f_case !k (sign,n) d have_x false;
+	     fprintf f "@]";
+	     incr k;
+	  )
+	  u.cases;
+	( match u.default with
+	    | None ->
+		()
+	    | Some d ->
+		fprintf f "@ @[<hv 6>| ";
+		if get_type_of_decl d <> T_void then (
+		  fprintf f "`default(discriminant,x) ->@ ";
+		  f_default d true
+		)
+		else (
+		  fprintf f "`default discriminant ->@ ";
+		  f_default d false
+		);
+		fprintf f "@]";
+	);
+	fprintf f "@]@ )";
+	
+    | T_enum _
+    | T_bool ->
+	fprintf f "( @[<v>";
+	f_let();
+	fprintf f "match %s with" var;
+	let l = enum_type discr_type in
+	let k = ref 0 in
+	List.iter
+	  (fun (id,c) ->
+	     let (sign,n) = constant !c in
+	     let om, d_opt, d_is_default =
+	       try
+		 let _, om, d =
+		   (List.find
+		      (fun (c',_,d') -> !c' = !c)
+		      u.cases
+		   )
+		 in
+		 om, Some d, false
+	       with Not_found -> None, u.default, true in
+	     match d_opt with
+	       | Some d ->
+		   let tag = 
+		     match om with
+		       | None -> id.ocaml_name
+		       | Some om_tag -> om_tag in
+		   fprintf f "@ @[<hv 6>";
+		   fprintf f "| `%s " tag;
+		   let have_x = get_type_of_decl d <> T_void in
+		   if have_x then fprintf f "x ";
+		   fprintf f "->@ ";
+		   f_case !k (sign,n) d have_x d_is_default;
+		   fprintf f "@]";
+		   incr k
+	       | None ->
+		   incr k		     
+	  )
+	  l;
+	fprintf f "@]@ )"
+	  
+    | _ ->
+	assert false
+
+
+
+let output_match_union_by_number f u var by_k get_type_of_decl
+                                 f_case f_default f_let f_coerce =
+  let discr_type = get_type_of_decl u.discriminant in
+  match discr_type with
+    | T_int _ | T_uint _ ->
+	fprintf f "@[<v 2>( ";
+	f_let();
+	fprintf f "match %s with" var;
+	let printint_pattern =
+	  match discr_type with
+	    | T_int _ -> output_int4_pattern
+	    | T_uint _ -> output_uint4_pattern
+	    | _ -> assert false in
+	let k = ref 0 in
+	List.iter
+	  (fun (c, om, d) ->
+	     let (sign,n) = constant !c in
+	     let tag =
+	       match om with
+		   None ->
+		     (if sign then "__" else "_") ^ string_of_uint4 n
+		 | Some om_tag -> om_tag in
+	     fprintf f "@ @[<hv 4>";
+	     fprintf f "| ";
+	     if by_k then
+	       fprintf f "%d" !k
+	     else
+	       printint_pattern f (sign,n);
+	     fprintf f " ->@ ";
+	     f_case !k (sign,n) tag d false;
+	     fprintf f "@]";
+	     incr k
+	  )
+	  u.cases;
+	( match u.default with
+	    | None ->
+		fprintf f
+		  "@ | _ -> Xdr.raise_xdr_format_undefined_descriminator()"
+	    | Some d ->
+		fprintf f "@ @[<hv 4>";
+		fprintf f "| discriminant ->@ ";
+		f_default d;
+		fprintf f "@]"
+	);
+	f_coerce();
+	fprintf f "@]@ )"
+
+    | T_enum _
+    | T_bool ->
+	fprintf f "@[<v 2>( ";
+	f_let();
+	fprintf f "match %s with" var;
+	let l = enum_type discr_type in
+	let k = ref 0 in
+	List.iter
+	  (fun (id,c) ->
+	     let (sign,n) = constant !c in
+	     let om, d_opt, d_is_default =
+	       try
+		 let _, om, d =
+		   (List.find
+		      (fun (c',_,d') -> !c' = !c)
+		      u.cases
+		   )
+		 in
+		 om, Some d, false
+	       with Not_found -> None, u.default, true in
+	     match d_opt with
+	       | Some d ->
+		   let tag = 
+		     match om with
+		       | None -> id.ocaml_name
+		       | Some om_tag -> om_tag in
+		   fprintf f "@ @[<hv 6>";
+		   fprintf f "| ";
+		   if by_k then
+		     fprintf f "%d" !k
+		   else
+		     output_int4_pattern f (sign,n);
+		   fprintf f " ->@ ";
+		   f_case !k (sign,n) tag d d_is_default;
+		   fprintf f "@]";
+		   incr k
+	       | None ->
+		   incr k		     
+	  )
+	  l;
+	fprintf f
+	  "@ | _ -> Xdr.raise_xdr_format_undefined_descriminator()";
+	f_coerce();
+	fprintf f "@]@ )"
+
+    | _ ->
+	assert false
+
+
+let output_coerce_pattern f u get_type_of_decl =
+  (* outputs a type pattern to which values of [u] can be coerced to *)
+  let discr_type = get_type_of_decl u.discriminant in
+  match discr_type with
+    | T_int _ | T_uint _ ->
+	fprintf f "@[<hv>[";
+	List.iter
+	  (fun (c, om, d) ->
+	     let (sign,n) = constant !c in
+	     let tag =
+	       match om with
+		 | None ->
+		     (if sign then "__" else "_") ^ string_of_uint4 n
+		 | Some om_tag -> om_tag
+	     in
+	     fprintf f "@ | `%s" tag;
+	     if get_type_of_decl d <> T_void then
+	       fprintf f " of _";
+	  )
+	  u.cases;
+	begin match u.default with
+	    None ->
+	      ()
+	  | Some d ->
+	      fprintf f "@ | `default of ";
+	      if get_type_of_decl d <> T_void then
+		fprintf f "(_ * _)"
+	      else
+		fprintf f "_"
+	end;
+	fprintf f "@ ]@]"
+
+    | T_enum _
+    | T_bool ->
+	fprintf f "@[<hv>[";
+	let l = enum_type discr_type in
+	List.iter
+	  (fun (id, c) ->
+	     ( try
+		 let _, om, d =
+		   (List.find
+		      (fun (c',_,d') -> !c' = !c)
+		      u.cases
+		   )
+		 in
+		 let tag = match om with
+		   | None -> id.ocaml_name
+		   | Some om_tag -> om_tag
+		 in
+		 fprintf f "@ | `%s" tag;
+		 if get_type_of_decl d <> T_void then
+		   fprintf f " of _";
+	       with
+		   Not_found ->
+		     match u.default with
+		       | None -> ()
+		       | Some d ->
+			   fprintf f "@ | `%s" id.ocaml_name;
+			   if get_type_of_decl d <> T_void then
+			     fprintf f " of _"
+	     )
+	  )
+	  l;
+	fprintf f "@ ]@]"
+
+    | _ ->
+	assert false 
+
+(**********************************************************************)
 (* Output conversion functions                                        *)
 (**********************************************************************)
 
@@ -850,15 +1373,16 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 
   let get_type t = get_type_from_map typemap t in
   let get_type_of_decl td = get_type td.decl_type in
+  let min_size = calc_min_size dl in
 
   let generate_direct_case direct_opt =
     match direct_opt with
       | None -> ()
       | Some n -> 
-	  fprintf f "| Xdr.XV_direct(X_%s x, _, _) -> x@ " n in
+	  fprintf f "| Xdr.XV_direct(X_%s x, _) -> x@ " n in
 
   let generate_dest direct_opt var regname regconv =
-    fprintf f "@[<hv>( match %s with@ " var;
+    fprintf f "@[<hv 2>( match %s with@ " var;
     fprintf f "| Xdr.%s x -> %sx@ " 
       regname (if regconv <> "" then regconv ^ " " else "");
     generate_direct_case direct_opt;
@@ -887,51 +1411,27 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    generate_dest direct_opt var "XV_mstring" ""
 	| T_option t' ->
 	    fprintf f "@[<hv>";
-	    fprintf f "(match %s with@ " var;
+	    fprintf f "( match %s with@ " var;
 	    fprintf f "| Xdr.XV_union_over_enum_fast (0, _) -> None@ ";
-	    fprintf f "| Xdr.XV_union_over_enum_fast (1, x) -> Some ";
+	    fprintf f "@[<hv 4>| Xdr.XV_union_over_enum_fast (1, x) ->@ Some ";
 	    output_toconv_for_type "x" t' None;
+	    fprintf f "@]";
 	    fprintf f "@ ";
 	    generate_direct_case direct_opt;
 	    fprintf f "| _ -> raise Xdr.Dest_failure@]@ )";
 	| T_array_fixed(_,t') ->
-	    output_toconv_for_array var t'
+	    output_toconv_for_array var t' direct_opt
 	| T_array(_,t') ->
-	    output_toconv_for_array var t'
+	    output_toconv_for_array var t' direct_opt
 	| T_array_unlimited t' ->
-	    output_toconv_for_array var t'
-	| T_int Abstract ->
-	    generate_dest direct_opt var "XV_int" ""
-	| T_int INT32 ->
-	    generate_dest direct_opt var "XV_int" "Netnumber.int32_of_int4"
-	| T_int INT64 ->
-	    generate_dest direct_opt var "XV_int" "Netnumber.int64_of_int4"
-	| T_int Unboxed ->
-	    generate_dest direct_opt var "XV_int" "Netnumber.int_of_int4"
-	| T_uint Abstract ->
-	    generate_dest direct_opt var "XV_uint" ""
-	| T_uint INT32 ->
-	    generate_dest direct_opt var "XV_uint" 
-	      "Netnumber.logical_int32_of_uint4"
-	| T_uint INT64 ->
-	    generate_dest direct_opt var "XV_uint" "Netnumber.int64_of_uint4"
-	| T_uint Unboxed ->
-	    generate_dest direct_opt var "XV_uint" "Netnumber.int_of_uint4"
-	| T_hyper Abstract ->
-	    generate_dest direct_opt var "XV_hyper" ""
-	| T_hyper INT64 ->
-	    generate_dest direct_opt var "XV_hyper" "Netnumber.int64_of_int8"
-	| T_hyper Unboxed ->
-	    generate_dest direct_opt var "XV_hyper" "Netnumber.int_of_int8"
-	| T_hyper _ -> assert false
-	| T_uhyper Abstract ->
-	    generate_dest direct_opt var "XV_uhyper" ""
-	| T_uhyper INT64 ->
-	    generate_dest direct_opt var "XV_uhyper" 
-	      "Netnumber.logical_int64_of_uint8"
-	| T_uhyper Unboxed ->
-	    generate_dest direct_opt var "XV_uhyper" "Netnumber.int_of_uint8"
-	| T_uhyper _ -> assert false
+	    output_toconv_for_array var t' direct_opt
+	| T_int _
+	| T_uint _
+	| T_hyper _
+	| T_uhyper _ ->
+	    let xv_name = xv_name_of_int t in
+	    let conv = conversion_custom_int_of_netnumber t in
+	    generate_dest direct_opt var xv_name conv
 	| T_double ->
 	    generate_dest direct_opt var "XV_double" "Netnumber.float_of_fp8"
 	| T_float ->
@@ -945,8 +1445,8 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    in
 	    fprintf f "(_to_%s %s)" ocaml_n var
 	| T_enum l ->
-	    fprintf f "@[<hv>";
-	    fprintf f "(match %s with@ " var;
+	    fprintf f "@[<hv 2>";
+	    fprintf f "( match %s with@ " var;
 	    let k = ref 0 in
 	    List.iter
 	      (fun (id,c) ->
@@ -960,8 +1460,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	      (strip_enum_list l);
 	    generate_direct_case direct_opt;
 	    fprintf f "| _ -> raise Xdr.Dest_failure@ ";
-	    fprintf f ")";
-	    fprintf f "@]";
+	    fprintf f "@]@ )";
 	| T_struct tl ->
 	    fprintf f "@[<hv 2>";
 	    fprintf f "( let f s =@ ";
@@ -990,216 +1489,129 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    generate_dest direct_opt var "XV_struct_fast" "f";
 	    fprintf f "@]@ )"
 	| T_union u ->
-	    (* No need to cover here the XV_direct case *)
+	    let check_direct = direct_opt <> None in
+	    if check_direct then (
+	      fprintf f "@[<hv 2>( match %s with@ " var;
+	      generate_direct_case direct_opt;
+	      fprintf f "| _ ->@ ";
+	    );
 	    let discr_type = get_type_of_decl u.discriminant in
 	    if match discr_type with T_int _ | T_uint _ -> true
 	                                            | _ -> false
 	    then begin
 	      (* Unions of integers *)
-	      let dest1, dest2, printint_pattern =
-		match discr_type with
-		    T_int _  -> "Rtypes.dest_int4",
-		                "Xdr.dest_xv_union_over_int",
-			        output_int4_pattern
-		  | T_uint _ -> "Rtypes.dest_uint4",
-		                "Xdr.dest_xv_union_over_uint",
-			        output_uint4_pattern
-		  | _        -> assert false
-	      in
-	      fprintf f "@[<hv>";
-	      fprintf f "(let discriminant, value = %s %s in@ " dest2 var;
-	      fprintf f "match %s discriminant, value with" dest1;
-	      List.iter
-		(fun (c, om, d) ->
-		   let (sign,n) = constant !c in
-		   let tag =
-		     match om with
-			 None ->
-			   (if sign then "__" else "_") ^ string_of_uint4 n
-		       | Some om_tag -> om_tag
-		   in
-		   let (_n1,_n2,_n3,_n4) = Rtypes.dest_uint4 n in
-		   fprintf f "@ @[<hv>";
-		   fprintf f "| (";
-		   printint_pattern f (sign,n);
-		   fprintf f ", x) ->@;<1 6>";
+	      output_match_union_by_number
+		f
+		u
+		"discriminant"
+		false  (* by_k *)
+		get_type_of_decl
+		(fun k (sign,n) tag d d_is_default ->
+		   (* f_case *)
 		   fprintf f "`%s " tag;
 		   if get_type_of_decl d <> T_void then
 		     output_toconv_for_type "x" d.decl_type None;
-		   fprintf f "@]"
 		)
-		u.cases;
-	      begin match u.default with
-		  None ->
-		    fprintf f "@ | _ -> assert false";
-		| Some d ->
-		    fprintf f "@ @[<hv>";
-		    fprintf f "| (_, x) ->@;<1 6>";
+		(fun d ->
+		   (* f_default *)
 		    let int_conversion =
-		      match discr_type with
-			  T_int Abstract  -> ""
-			| T_int INT32     -> "Rtypes.int32_of_int4 "
-			| T_int INT64     -> "Rtypes.int64_of_int4 "
-			| T_int Unboxed   -> "Rtypes.int_of_int4 "
-			| T_uint Abstract -> ""
-			| T_uint INT32    -> "Rtypes.logical_int32_of_uint4 "
-			| T_uint INT64    -> "Rtypes.int64_of_uint4 "
-			| T_uint Unboxed  -> "Rtypes.int_of_uint4 "
-			| _ -> assert false
-		    in
-		    fprintf f "`default(@[<hv>%sdiscriminant" int_conversion;
+		      conversion_custom_int_of_netnumber discr_type in
+		    fprintf f "`default(@[<hv>%s discriminant0" int_conversion;
 		    if get_type_of_decl d <> T_void then begin
 		      fprintf f ",@ ";
 		      output_toconv_for_type "x" d.decl_type None;
 		    end;
 		    fprintf f "@])";
-		    fprintf f "@]"
-	      end;
-	      (* Add a type coercion: *)
-	      fprintf f "@ :> @[<hv>[";
-	      List.iter
-		(fun (c, om, d) ->
-		   let (sign,n) = constant !c in
-		   let tag =
-		     match om with
-			 None ->
-			   (if sign then "__" else "_") ^ string_of_uint4 n
-		       | Some om_tag -> om_tag
-		   in
-		   fprintf f "@ | `%s" tag;
-		   if get_type_of_decl d <> T_void then
-		     fprintf f " of _";
 		)
-		u.cases;
-	      begin match u.default with
-		  None ->
-		    ()
-		| Some d ->
-		    fprintf f "@ | `default of ";
-		    if get_type_of_decl d <> T_void then
-		      fprintf f "(_ * _)"
-		    else
-		      fprintf f "_"
-	      end;
-	      fprintf f "@ ]@]@ ";
-	      fprintf f ")";
-	      fprintf f "@]";
+		(fun () ->
+		   (* f_let *)
+		   fprintf f "let discriminant0, x = %s %s in@ "
+		     (match discr_type with
+			| T_int _  -> "Xdr.dest_xv_union_over_int"
+			| T_uint _ -> "Xdr.dest_xv_union_over_uint"
+			| _ -> assert false
+		     )
+		     var;
+		   fprintf f "let discriminant = %s discriminant0 in@ "
+		     (conversion_int32_of_discr discr_type)
+		)
+		(fun () ->
+		   (* f_coerce *)
+		   fprintf f "@ :> ";
+		   output_coerce_pattern f u get_type_of_decl
+		)
 	    end
 	    else begin
 	      (* Unions of enumerators (and bools) *)
-	      fprintf f "@[<hv>";
-	      fprintf f "(";
-	      let have_mkdefault = ref false in
-	      ( match u.default with
-		    None ->
-		      ()
-		  | Some d ->
-		      if get_type_of_decl d <> T_void then begin
-			fprintf f "let mkdefault x =@;<1 4>";
-			fprintf f "@[<hv>";
-			output_toconv_for_type "x" d.decl_type None;
-			fprintf f "@]";
-			fprintf f " in@ ";
-			have_mkdefault := true;
-		      end
-	      );
-	      fprintf f "match Xdr.dest_xv_union_over_enum_fast %s with" var;
-	      let l = enum_type discr_type in
-	      let k = ref 0 in
-	      List.iter
-		(fun (id,c) ->
-		   let om, d =
-		     try
-		       let c, om, d =
-			 (List.find
-			    (fun (c',om',d') -> !c' = !c)
-			    u.cases
-			 ) in
-		       om, Some d
-		     with
-			 Not_found -> None, None
-		   in
-		   if d <> None || u.default <> None then begin
-		     let tag =
-		       match om with
-			   None -> id.ocaml_name
-			 | Some om_tag -> om_tag
-		     in
-		     fprintf f "@ @[<hv>";
-		     fprintf f "| (%d, x) ->@;<1 6>" !k;
-		     fprintf f "`%s " tag;
-		     match d with
-			 Some dd ->
-			   if get_type_of_decl dd <> T_void then
-			     output_toconv_for_type "x" dd.decl_type None;
-		       | None ->
-			   if !have_mkdefault then
-			     fprintf f "(mkdefault x)"
-		   end;
-		   fprintf f "@]";
-		   incr k
-		)
-		l;
-	      fprintf f "@ | _ -> assert false";
-	      (* Add a type coercion: *)
-	      fprintf f "@ :> @[<hv>[";
-	      List.iter
-		(fun (id, c) ->
-		   begin try
-		     let _, om, d =
-		       (List.find
-			  (fun (c',_,d') -> !c' = !c)
-			  u.cases
-		       )
-		     in
-		     let tag = match om with
-			 None -> id.ocaml_name
-		       | Some om_tag -> om_tag
-		     in
-		     fprintf f "@ | `%s" tag;
+	      let have_mkdefault = 
+		have_enum_default_with_arg u get_type_of_decl in
+	      output_match_union_by_number
+		f
+		u
+		"k"
+		true  (* by_k *)
+		get_type_of_decl
+	      	(fun k (sign,n) tag d d_is_default ->
+		   (* f_case *)
+		   fprintf f "`%s " tag;
+		   if d_is_default then (
+		     if have_mkdefault then
+		       fprintf f "(mkdefault x)"
+		   ) else (
 		     if get_type_of_decl d <> T_void then
-		       fprintf f " of _";
-		   with
-		       Not_found ->
-			 if u.default <> None then begin
-			   fprintf f "@ | `%s" id.ocaml_name;
-			   if !have_mkdefault then
-			     fprintf f " of _"
-			 end
-		   end;
+		       output_toconv_for_type "x" d.decl_type None;
+		   )
 		)
-		l;
-	      fprintf f "@ ]@]@ ";
-	      fprintf f ")";
-	      fprintf f "@]";
-	    end
+		(fun d -> assert false)
+		(fun () ->
+		   (* f_let *)
+		   fprintf f 
+		     "let k, x = Xdr.dest_xv_union_over_enum_fast %s in@ "
+		     var;
+		   ( match u.default with
+			 None ->
+			   ()
+		       | Some d ->
+			   if have_mkdefault then begin
+			     fprintf f "let mkdefault x =@;<1 4>";
+			     fprintf f "@[<hv>";
+			     output_toconv_for_type "x" d.decl_type None;
+			     fprintf f "@]";
+			     fprintf f " in@ ";
+			   end
+		   )
+		)
+		(fun () ->
+		   (* f_coerce *)
+		   fprintf f "@ :> ";
+		   output_coerce_pattern f u get_type_of_decl
+		)
+	    end;
+	    if check_direct then
+	      fprintf f "@]@ )"
     );
     fprintf f "@]"
   )
 
-  and output_toconv_for_array var t' =
-    (* No need to cover here the XV_direct case *)
+  and output_toconv_for_array var t' direct_opt =
     let t1 = get_type_from_map typemap t' in
-    match t1 with
-      | T_string _
-      | T_string_unlimited ->
-	  fprintf f "@[<hv>";
-	  fprintf f "(match %s with@;" var;
-	  fprintf f "| Xdr.XV_array x ->@;<1 4>";
-	  fprintf f "Array.map@;<1 6>(fun x -> ";
-	  output_toconv_for_type "x" t' None;
-	  fprintf f ")@;<1 6>x@ ";
-	  fprintf f "| Xdr.XV_array_of_string_fast x ->@;<1 4>";
-	  fprintf f "x@ ";
-	  fprintf f "| _ -> raise Xdr.Dest_failure@ ";
-	  fprintf f ")";
-	  fprintf f "@]"
-      | _ ->
-	  fprintf f "@[<hv>";
-	  fprintf f "(Array.map@;<1 2>(fun x -> ";
-	  output_toconv_for_type "x" t' None;
-	  fprintf f ")@ (Xdr.dest_xv_array %s))" var;
-	  fprintf f "@]";
+    fprintf f "@[<hv 2>";
+    fprintf f "( match %s with@ " var;
+    fprintf f "@[<hv 4>| Xdr.XV_array x ->@ ";
+    fprintf f "@[<hv 2>Array.map@ ";
+    fprintf f "@[<hv 2>(fun x -> ";
+    output_toconv_for_type "x" t' None;
+    fprintf f ")@]@ x@]@]@ ";
+    ( match t1 with
+	| T_string _
+	| T_string_unlimited ->
+	    fprintf f "@[<hv 4>| Xdr.XV_array_of_string_fast x ->@ ";
+	    fprintf f "x@]@ ";
+	| _ -> ()
+    );
+    generate_direct_case direct_opt;
+    fprintf f "| _ -> raise Xdr.Dest_failure";
+    fprintf f "@]@ )";
 
   and output_toconv_for_tuple var tl =
     fprintf f "@[<hv>";
@@ -1264,7 +1676,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
     fprintf f "@]@\n"
   in
 
-  let rec output_ofconv_for_type (name:string) (var:string) (t:xdr_type) = (
+  let rec output_ofconv_for_type (name:string) (var:string) (t:xdr_type) =
     (* Generates an expression converting the O'Caml value contained in the
      * variable with name var to the corresponding XDR value
      *)
@@ -1283,53 +1695,29 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	| T_mstring_unlimited _ ->
 	    fprintf f "(Xdr.XV_mstring %s)" var
 	| T_option t' ->
-	    fprintf f "@[<hv>";
-	    fprintf f "(match %s with@ " var;
+	    fprintf f "@[<hv 2>";
+	    fprintf f "( match %s with@ " var;
 	    fprintf f "| None   -> Xdr.xv_none@ ";
 	    fprintf f "| Some x -> @[<hv 2>Xdr.xv_some@ ";
 	    output_ofconv_for_type name "x" t';
-	    fprintf f "@]@ ";
-	    fprintf f ")@]";
+	    fprintf f "@]@]@ )";
 	| T_array_fixed(_,t') ->
 	    output_ofconv_for_array name  var t'
 	| T_array(_,t') ->
 	    output_ofconv_for_array name var t'
 	| T_array_unlimited t' ->
 	    output_ofconv_for_array name var t'
-	| T_int Abstract ->
-	    fprintf f "(Xdr.XV_int %s)" var
-	| T_int INT32 ->
-	    fprintf f "(Xdr.XV_int (Rtypes.int4_of_int32 %s))" var
-	| T_int INT64 ->
-	    fprintf f "(Xdr.XV_int (Rtypes.int4_of_int64 %s))" var
-	| T_int Unboxed ->
-	    fprintf f "(Xdr.XV_int (Rtypes.int4_of_int %s))" var
-	| T_uint Abstract ->
-	    fprintf f "(Xdr.XV_uint %s)" var
-	| T_uint INT32 ->
-	    fprintf f "(Xdr.XV_uint (Rtypes.logical_uint4_of_int32 %s))" var
-	| T_uint INT64 ->
-	    fprintf f "(Xdr.XV_uint (Rtypes.uint4_of_int64 %s))" var
-	| T_uint Unboxed ->
-	    fprintf f "(Xdr.XV_uint (Rtypes.uint4_of_int %s))" var
-	| T_hyper Abstract ->
-	    fprintf f "(Xdr.XV_hyper %s)" var
-	| T_hyper INT64 ->
-	    fprintf f "(Xdr.XV_hyper (Rtypes.int8_of_int64 %s))" var
-	| T_hyper Unboxed ->
-	    fprintf f "(Xdr.XV_hyper (Rtypes.int8_of_int %s))" var
-	| T_hyper _ -> assert false
-	| T_uhyper Abstract ->
-	    fprintf f "(Xdr.XV_uhyper %s)" var
-	| T_uhyper INT64 ->
-	    fprintf f "(Xdr.XV_uhyper (Rtypes.logical_uint8_of_int64 %s))" var
-	| T_uhyper Unboxed ->
-	    fprintf f "(Xdr.XV_uhyper (Rtypes.uint8_of_int %s))" var
-	| T_uhyper _ -> assert false
+	| T_int _ 
+	| T_uint _
+	| T_hyper _
+	| T_uhyper _ ->
+	    let xv_name = xv_name_of_int t in
+	    let conv = conversion_netnumber_of_custom_int t in
+	    fprintf f "(Xdr.%s (%s %s))" xv_name conv var
 	| T_double ->
-	    fprintf f "(Xdr.XV_double (Rtypes.fp8_of_float %s))" var
+	    fprintf f "(Xdr.XV_double (Netnumber.fp8_of_float %s))" var
 	| T_float ->
-	    fprintf f "(Xdr.XV_float (Rtypes.fp4_of_float %s))" var
+	    fprintf f "(Xdr.XV_float (Netnumber.fp4_of_float %s))" var
 	| T_bool ->
 	    fprintf f "(if %s then Xdr.xv_true else Xdr.xv_false)" var
 	| T_refer_to (_,n) ->
@@ -1340,7 +1728,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    fprintf f "(_of_%s %s)" ocaml_n var
 	| T_enum l ->
 	    fprintf f "@[<hv>";
-	    fprintf f "(match Rtypes.dest_int4 %s with@ " var;
+	    fprintf f "(match Netnumber.int32_of_int4 %s with@ " var;
 	    let k = ref 0 in
 	    List.iter
 	      (fun (id,c) ->
@@ -1374,154 +1762,78 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    fprintf f "|]@])@]"
 	| T_union u ->
 	    let discr_type = get_type_of_decl u.discriminant in
-	    if match discr_type with T_int _ | T_uint _ -> true
-	                                            | _ -> false
-	    then begin
-	      (* Unions of integers *)
-	      let dest, constr, printint =
-		match discr_type with
-		    T_int _  -> "Rtypes.dest_int4",
-		                "Xdr.XV_union_over_int",
-			        output_int4
-		  | T_uint _ -> "Rtypes.dest_uint4",
-		                "Xdr.XV_union_over_uint",
-			        output_uint4
-		  | _        -> assert false
-	      in
-	      fprintf f "@[<hv>";
-	      fprintf f "(match %s with" var;
-	      List.iter
-		(fun (c,om,d) ->
-		   let (sign,n) = constant !c in
-		   let tag =
-		     match om with
-			 None ->
-			   (if sign then "__" else "_") ^ string_of_uint4 n
-		       | Some om_tag -> om_tag
-		   in
-		   fprintf f "@ @[<hv 6>| `%s " tag;
-		   if get_type_of_decl d <> T_void then fprintf f "x ";
-		   fprintf f "->@ ";
-		   fprintf f "%s(@[<hv>" constr;
-		   printint f (sign,n);
-		   fprintf f ",@ ";
-		   if get_type_of_decl d = T_void then
-		     fprintf f "Xdr.XV_void"
-		   else
-		     output_ofconv_for_type name "x" d.decl_type;
-		   fprintf f "@])";
-		   fprintf f "@]";
-		)
-		u.cases;
-	      begin match u.default with
-		  None ->
-		    ()
-		| Some d ->
-		    fprintf f "@ @[<hv 6>| ";
-		    let int_conversion =
-		      match discr_type with
-			  T_int Abstract  -> ""
-			| T_int INT32     -> "Rtypes.int4_of_int32 "
-			| T_int INT64     -> "Rtypes.int4_of_int64 "
-			| T_int Unboxed   -> "Rtypes.int4_of_int "
-			| T_uint Abstract -> ""
-			| T_uint INT32    -> "Rtypes.logical_uint4_of_int32 "
-			| T_uint INT64    -> "Rtypes.int4_of_uint64 "
-			| T_uint Unboxed  -> "Rtypes.int4_of_uint "
-			| _ -> assert false
-		    in
-		    if get_type_of_decl d <> T_void then begin
-		      fprintf f "`default(discriminant,value) ->@ ";
-		      fprintf f "let x = ";
-		      output_ofconv_for_type name "value" d.decl_type;
-		      fprintf f " in@ ";
-		      fprintf f "%s(%sdiscriminant, x)@]" constr int_conversion;
-		    end
-		    else begin
-		      fprintf f "`default discriminant ->@ ";
-		      fprintf f "%s(%sdiscriminant, Xdr.XV_void)@]" constr int_conversion
-		    end
-	      end;
-	      fprintf f "@ )@]";
-	    end
-	    else begin
-	      (* Unions of enumerators (and bools) *)
-	      fprintf f "@[<hv>";
-	      fprintf f "(";
-	      let have_mkdefault = ref false in
-	      let default_is_void = ref false in
-	      ( match u.default with
-		    None ->
-		      ()
-		  | Some d ->
-		      if get_type_of_decl d <> T_void then begin
-			fprintf f "let mkdefault x =@;<1 4>";
-			fprintf f "@[<hv>";
-			output_ofconv_for_type name "x" d.decl_type;
-			fprintf f "@]";
-			fprintf f " in@ ";
-			have_mkdefault := true;
-		      end
-		      else default_is_void := true
-	      );
-	      fprintf f "match %s with" var;
-	      let l = enum_type discr_type in
-	      let k = ref 0 in
-	      List.iter
-		(fun (id,c) ->
-		   let om, d =
-		     try
-		       let _, om, d =
-			 (List.find
-			    (fun (c',_,d') -> !c' = !c)
-			    u.cases
+	    let have_mkdefault =
+	      have_enum_default_with_arg u get_type_of_decl in
+	    output_match_union_by_cases
+	      f
+	      u
+	      var
+	      get_type_of_decl
+	      (fun k (sign,n) d have_x is_default ->
+		 (* f_case *)
+		 match discr_type with
+		   | T_int _ | T_uint _ ->
+		       fprintf f "Xdr.XV_union_over_%s(@[<hv>"
+			 (name_of_int discr_type);
+		       output_any_int f discr_type (sign,n);
+		       fprintf f ",@ ";
+		       if have_x then
+			 output_ofconv_for_type name "x" d.decl_type
+		       else
+			 fprintf f "Xdr.XV_void";
+		       fprintf f "@])";
+		   | _ ->
+		       fprintf f "@[<hv 2>Xdr.XV_union_over_enum_fast@ (%d," k;
+		       if is_default then (
+			 if have_x then (
+			   assert(have_mkdefault);
+			   fprintf f "(mkdefault x)"
 			 )
-		       in
-		       om, Some d
-		     with
-			 Not_found -> None, None
-		   in
-		   if d <> None || u.default <> None then begin
-		     let tag = match om with
-			 None -> id.ocaml_name
-		       | Some om_tag -> om_tag
-		     in
-		     fprintf f "@ @[<hv 6>";
-		     fprintf f "| `%s " tag;
-
-		     begin match d with
-			 None ->
-			   if not !default_is_void then fprintf f "x "
-		       | Some dd ->
-			   if get_type_of_decl dd <> T_void then fprintf f "x "
-		     end;
-
-		     fprintf f "->@ ";
-		     fprintf f "@[<hv 2>Xdr.XV_union_over_enum_fast(%d,@ " !k;
-
-		     begin match d with
-			 None ->
-			   if !have_mkdefault then
-			     fprintf f "(mkdefault x)"
-			   else
-			     fprintf f "Xdr.XV_void"
-		       | Some dd ->
-			   if get_type_of_decl dd <> T_void then
-			     output_ofconv_for_type name "x" dd.decl_type
-			   else
-			     fprintf f "Xdr.XV_void"
-		     end;
-
-		     fprintf f ")@]@]"
-		   end;
-		   incr k
-		)
-		l;
-	      fprintf f ")@]"
-	    end
+			 else
+			   fprintf f "Xdr.XV_void"
+		       )
+		       else (
+			 if have_x then
+			   output_ofconv_for_type name "x" d.decl_type
+			 else
+			   fprintf f "Xdr.XV_void"
+		       );
+		       fprintf f ")@]"
+	      )
+	      (fun d have_x ->
+		 (* f_default *)
+		 let constr =
+		   sprintf 
+		     "Xdr.XV_union_over_%s"
+		     (name_of_int discr_type) in
+		 let int_conversion =
+		   conversion_netnumber_of_custom_int discr_type in
+		 if have_x then (
+		   fprintf f "let x = ";
+		   output_ofconv_for_type name "x" d.decl_type;
+		   fprintf f " in@ ";
+		   fprintf f "%s(%s discriminant, x)@]" 
+		     constr int_conversion;
+		 ) else
+		   fprintf f "%s(%s discriminant, Xdr.XV_void)@]" 
+		     constr int_conversion
+	      )
+	      (fun () ->
+		 (* f_let *)
+		 if have_mkdefault then (
+		   match u.default with
+		     | None -> assert false
+		     | Some d ->
+			 fprintf f "let mkdefault x =@;<1 2>";
+			 fprintf f "@[<hv>";
+			 output_ofconv_for_type name "x" d.decl_type;
+			 fprintf f "@]";
+			 fprintf f " in@ ";
+		 )
+	      )
     );
     fprintf f "@]"
-  )
+
   and output_ofconv_for_array name var t' =
     let t1 = get_type_from_map typemap t' in
     match t1 with
@@ -1564,12 +1876,20 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 
   let rec output_sizefn_for_type (name:string) (tname:string) (t:xdr_type) =
     (* Generates a function returning the packed size *)
-    fprintf f "@[<hv>";
+    fprintf f "@[<hv 2>";
     begin_decl();
-    fprintf f "_size_%s (x:%s) : int =@;<1 2>"
+    fprintf f "_sizeexpr_%s (x:%s) : int =@ "
       name
       tname;
     output_sizeexpr_for_type name (calc_sizefn_for_type name t);
+    fprintf f "@]@\n";
+
+    fprintf f "@[<hv 2>";
+    begin_decl();
+    fprintf f "_size_%s (x:exn) : int =@ " name;
+    fprintf f "match x with@ ";
+    fprintf f "| X_%s y -> _sizeexpr_%s y@ " tname name;
+    fprintf f "| _ -> raise Xdr.Dest_failure";
     fprintf f "@]@\n"
 
   and output_sizeexpr_for_type name calcexpr =
@@ -1592,7 +1912,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	  List.iter
 	    (fun (component,calcexpr1) ->
 	       if not !first then
-		 fprintf f " +@ ";
+		 fprintf f " +!@ ";
 	       first := false;
 	       if component = "" then
 		 output_sizeexpr_for_type name calcexpr1
@@ -1604,6 +1924,82 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    )
 	    l;
 	  fprintf f ")@]"
+      | `Size_array (n_head,cond,calcexpr1) ->
+	  ( match cond with
+	      | None -> ()
+	      | Some (`Fixed n) ->
+		  fprintf f "@[<hv 2>( ";
+		  fprintf f "if Array.length x <> %d then@ " n;
+		  fprintf f 
+		    "  raise(Xdr.Xdr_failure \"array length mismatch\");@ ";
+	      | Some (`Limit n) ->
+		  fprintf f "@[<hv 2>( ";
+		  fprintf f "if Array.length x > %d then@ " n;
+		  fprintf f 
+		    "  raise(Xdr.Xdr_failure \"array length mismatch\");@ ";
+	  );
+	  ( match calcexpr1 with
+	      | `Size_const n ->
+		  fprintf f "(%Ld *! Array.length x +! %Ld)" n n_head
+	      | _ ->
+		  fprintf f "@[<hv 2>(Array.fold_left@ ";
+		  fprintf f "@[<hv 2>(fun s x ->@ ";
+		  fprintf f "s +! ";
+		  output_sizeexpr_for_type name calcexpr1;
+		  fprintf f "@]@ )@ ";
+		  fprintf f "%Ld@ " n_head;
+		  fprintf f "x";
+		  fprintf f "@]@ )"
+	  );
+	  ( match cond with
+	      | None -> ()
+	      | Some _ ->
+		  fprintf f "@]@ )"
+	  )
+      | `Size_union(u,sizeexpr_cases,sizeexpr_default) ->
+	  (* let discr_type = get_type_of_decl u.discriminant in *)
+	  let have_mkdefault =
+	    have_enum_default_with_arg u get_type_of_decl in
+	  fprintf f "@[<hv 2>( 4 +!@ ";
+	  output_match_union_by_cases
+	    f
+	    u
+	    "x"
+	    get_type_of_decl
+	    (fun k (sign,n) d have_x is_default ->       (* f_case *)
+	       if have_x then (
+		 if is_default && have_mkdefault then 
+		   fprintf f "mkdefault x"
+		 else
+		   let sizeexpr = List.nth sizeexpr_cases k in
+		   output_sizeexpr_for_type name sizeexpr
+	       )
+	       else
+		 fprintf f "0"
+	    )
+	    (fun d have_x ->                              (* f_default *)
+	       if have_x then
+		 match sizeexpr_default with
+		   | None -> assert false
+		   | Some sizeexpr ->
+		       output_sizeexpr_for_type name sizeexpr
+	       else
+		 fprintf f "0"
+	    )
+	    (fun () ->                                   (* f_let *)
+	       if have_mkdefault then (
+		 match sizeexpr_default with
+		   | None -> assert false
+		   | Some sizeexpr ->
+		       fprintf f "let mkdefault x =@;<1 2>";
+		       fprintf f "@[<hv>";
+		       output_sizeexpr_for_type name sizeexpr;
+		       fprintf f "@]";
+		       fprintf f " in@ ";
+	       )
+	    );
+	  fprintf f "@]@ )";
+
 
   and calc_sizefn_for_type (name:string) (t:xdr_type) = (
     match t with
@@ -1639,20 +2035,42 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 		  let component = "." ^ d.decl_symbol.ocaml_name in
 		  (component, calc_sizefn_for_type name d.decl_type)
 	       ) 
-	       tdl
+	       (List.filter
+		  (fun d -> d.decl_type <> T_void)
+		  tdl
+	       )
 	    )
       | T_refer_to (_,refname) ->
 	  let ocaml_name =
 	    try Hashtbl.find typenames !refname
 	    with Not_found -> assert false in
 	  `Size_fun
-	    (sprintf "_size_%s" ocaml_name)
+	    (sprintf "_sizeexpr_%s" ocaml_name)
+      | T_array_fixed(c,t') ->
+	  let n = Int64.to_int(int64_of_const (constant !c)) in
+	  `Size_array(0L, Some(`Fixed n),  calc_sizefn_for_type name t')
+      | T_array(c,t') ->
+	  let nL = int64_of_const (constant !c) in
+	  if nL >= Int64.of_int Sys.max_array_length then
+	    `Size_array(4L, None, calc_sizefn_for_type name t')
+	  else
+	    let n = Int64.to_int nL in
+	    `Size_array(4L, Some(`Limit n),  calc_sizefn_for_type name t')
+      | T_array_unlimited t' ->
+	  `Size_array(4L, None, calc_sizefn_for_type name t')
+      | T_union u ->
+	  let sizeexpr_cases =
+	    List.map
+	      (fun (_,_,td) -> calc_sizefn_for_type name td.decl_type)
+	      u.cases in
+	  let sizeexpr_default =
+	    match u.default with
+	      | None -> None
+	      | Some td -> Some(calc_sizefn_for_type name td.decl_type) in
+	  `Size_union(u, sizeexpr_cases, sizeexpr_default)
+
       | T_mstring(_,_)
-      | T_mstring_unlimited _
-      | T_array_fixed(_,_)
-      | T_array(_,_)
-      | T_array_unlimited _
-      | T_union _ ->
+      | T_mstring_unlimited _ ->
 	  failwith "output_sizefn_for_type"
   )
 
@@ -1681,6 +2099,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
       (if n_const > 0L then ["", `Size_const n_const] else []) @ l_other in
     match l2 with
       | [] -> `Size_const 0L
+      | ["", x] -> x
       | _ -> `Size_struct l2
   in
 
@@ -1688,22 +2107,31 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
     (* Generates a function writing directly *)
     fprintf f "@[<hv 2>";
     begin_decl();
-    fprintf f "_write_%s (x:%s) s p : unit =@ "
-      name
-      tname;
+    fprintf f "_writeexpr_%s (x:%s) s p : unit =@ " name tname;
     output_writeexpr_for_type name t;
     fprintf f "()";
+    fprintf f "@]@\n";
+
+    fprintf f "@[<hv 2>";
+    begin_decl();
+    fprintf f "_write_%s (x:exn) s p : unit =@ " name;
+    fprintf f "match x with@ ";
+    fprintf f "| X_%s y -> _writeexpr_%s y s p@ " tname name;
+    fprintf f "| _ -> raise Xdr.Dest_failure";
     fprintf f "@]@\n"
 
   and output_writeexpr_for_type name t =
     match t with
       | T_void ->
 	  ()
-      | T_opaque_fixed n ->
+      | T_opaque_fixed c ->
+	  let (_, n_uint4) = constant !c in
+	  let n =
+	    try Netnumber.int_of_uint4 n_uint4
+	    with _ -> assert false in (* already checked in Syntax *)
 	  fprintf f
-	    "Xdr.write_string_fixed \
-               (Netnumber.logical_uint4_of_int32 (%ldl)) x s p;@ "
-	    (Int64.to_int32 (int64_of_const (constant !n)))
+	    "Xdr.write_string_fixed %d x s p;@ "
+	    n
       | T_opaque _
       | T_opaque_unlimited
       | T_string _
@@ -1728,95 +2156,389 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	  fprintf f "@]@ )";
 
 	  fprintf f "@];@ ";
-	| T_int r ->
-	    fprintf f "Netnumber.BE.write_int4_unsafe s !p ";
-	    ( match r with
-		| Abstract -> fprintf f "x"
-		| INT32    -> fprintf f "(Netnumber.int4_of_int32 x)"
-		| INT64    -> fprintf f "(Netnumber.int4_of_int64 x)"
-		| Unboxed  -> fprintf f "(Netnumber.int4_of_int x)"
-	    );
-	    fprintf f ";@ ";
-	    fprintf f "p := !p + 4;@ "
-	| T_uint r ->
-	    fprintf f "Netnumber.BE.write_uint4_unsafe s !p ";
-	    ( match r with
-		| Abstract -> fprintf f "x"
-		| INT32    -> fprintf f "(Netnumber.logical_uint4_of_int32 x)"
-		| INT64    -> fprintf f "(Netnumber.uint4_of_int64 x)"
-		| Unboxed  -> fprintf f "(Netnumber.uint4_of_int x)"
-	    );
-	    fprintf f ";@ ";
-	    fprintf f "p := !p + 4;@ "
-	| T_hyper r ->
-	    fprintf f "Netnumber.BE.write_int8_unsafe s !p ";
-	    ( match r with
-		| Abstract -> fprintf f "x"
-		| INT32    -> assert false
-		| INT64    -> fprintf f "(Netnumber.int8_of_int64 x)"
-		| Unboxed  -> fprintf f "(Netnumber.int8_of_int x)"
-	    );
-	    fprintf f ";@ ";
-	    fprintf f "p := !p + 8;@ "
-	| T_uhyper r ->
-	    fprintf f "Netnumber.BE.write_uint8_unsafe s !p ";
-	    ( match r with
-		| Abstract -> fprintf f "x"
-		| INT32    -> assert false
-		| INT64    -> fprintf f "(Netnumber.logical_uint8_of_int64 x)"
-		| Unboxed  -> fprintf f "(Netnumber.uint8_of_int x)"
-	    );
-	    fprintf f ";@ ";
-	    fprintf f "p := !p + 8;@ "
-	| T_float ->
-	    fprintf f
-	      "Netnumber.BE.write_fp4 s !p (Netnumber.fp4_of_float x);@ ";
-	    fprintf f "p := !p + 4;@ "
-	| T_double ->
-	    fprintf f
-	      "Netnumber.BE.write_fp8 s !p (Netnumber.fp8_of_float x);@ ";
-	    fprintf f "p := !p + 8;@ "
-	| T_bool ->
-	    fprintf f "Netnumber.BE.write_int4_unsafe s !p ";
-	    fprintf f "(Netnumber.int4_of_int (if x then 1 else 0));@ ";
-	    fprintf f "p := !p + 4;@ "
-	| T_enum e  ->
-	    let e = strip_enum_list e in
-	    let cases =
-	      String.concat "; "
-		(List.map
-		   (fun (_,c) ->
-		      Int64.to_string (int64_of_const (constant !c)) ^ "l"
-		   )
-		   e
-		) in
-	    fprintf f
-	      "@[<hv 2>if not(List.mem (Netnumber.int32_of_int4 x) [ %s ]) \
+      | T_int _
+      | T_uint _
+      | T_hyper _
+      | T_uhyper _ ->
+	  fprintf f "Netnumber.BE.write_%s_unsafe s !p (%s x)"
+	    (netnumber_name_of_int t)
+	    (conversion_netnumber_of_custom_int t);
+	  fprintf f ";@ ";
+	  fprintf f "p := !p + %d;@ " (size_of_int t)
+      | T_float ->
+	  fprintf f
+	    "Netnumber.BE.write_fp4 s !p (Netnumber.fp4_of_float x);@ ";
+	  fprintf f "p := !p + 4;@ "
+      | T_double ->
+	  fprintf f
+	    "Netnumber.BE.write_fp8 s !p (Netnumber.fp8_of_float x);@ ";
+	  fprintf f "p := !p + 8;@ "
+      | T_bool ->
+	  fprintf f "Netnumber.BE.write_int4_unsafe s !p ";
+	  fprintf f "(Netnumber.int4_of_int (if x then 1 else 0));@ ";
+	  fprintf f "p := !p + 4;@ "
+      | T_enum e  ->
+	  let e = strip_enum_list e in
+	  let cases =
+	    String.concat "; "
+	      (List.map
+		 (fun (_,c) ->
+		    Int64.to_string (int64_of_const (constant !c)) ^ "l"
+		 )
+		 e
+	      ) in
+	  fprintf f
+	    "@[<hv 2>if not(List.mem (Netnumber.int32_of_int4 x) [ %s ]) \
                then@ " cases;
-	    fprintf f "raise(Xdr.Xdr_failure \"invalid enum\");@]@ ";
-	    fprintf f "Netnumber.BE.write_int4_unsafe s !p x;@ ";
-	    fprintf f "p := !p + 4;@ "
-	| T_struct tdl ->
-	    List.iter
-	      (fun d ->
+	  fprintf f "raise(Xdr.Xdr_failure \"invalid enum\");@]@ ";
+	  fprintf f "Netnumber.BE.write_int4_unsafe s !p x;@ ";
+	  fprintf f "p := !p + 4;@ "
+      | T_struct tdl ->
+	  List.iter
+	    (fun d ->
+	       if d.decl_type <> T_void then (
 		 fprintf f "@[<hov 2>( let x = x.%s in@ "
 		   d.decl_symbol.ocaml_name;
 		 output_writeexpr_for_type name d.decl_type;
 		 fprintf f "()@]@ );@ ";
-	      )
-	      tdl
-	| T_refer_to (_,refname) ->
-	    let ocaml_name =
-	      try Hashtbl.find typenames !refname
-	      with Not_found -> assert false in
-	    fprintf f "_write_%s x s p;@ " ocaml_name
-	| T_mstring(_,_)
-	| T_mstring_unlimited _
-	| T_array_fixed(_,_)
-	| T_array(_,_)
-	| T_array_unlimited _
-	| T_union _ ->
-	    failwith "output_sizefn_for_type"
+	       )
+	    )
+	    tdl
+      | T_refer_to (_,refname) ->
+	  let ocaml_name =
+	    try Hashtbl.find typenames !refname
+	    with Not_found -> assert false in
+	  fprintf f "_writeexpr_%s x s p;@ " ocaml_name
+      | T_array_fixed(_,t')
+      | T_array(_,t')
+      | T_array_unlimited t' ->
+	  (* The size constraints have already been checked by _size *)
+	  ( match t with
+	      | T_array(_,t')
+	      | T_array_unlimited t' ->
+		  fprintf f "Netnumber.BE.write_uint4_unsafe s !p@ ";
+		  fprintf f "  (Netnumber.uint4_of_int (Array.length x));@ ";
+		  fprintf f "p := !p + 4;@ "
+	      | _ -> ()
+	  );
+	  fprintf f "@[<hv 2>Array.iter@ ";
+	  fprintf f "@[<hv 2>(fun x ->@ ";
+	  output_writeexpr_for_type name t';
+	  fprintf f "()@]@ ";
+	  fprintf f ")@ x@];@ "
+      | T_union u ->
+	  let discr_type = get_type_of_decl u.discriminant in
+	  let have_mkdefault = 
+	    have_enum_default_with_arg u get_type_of_decl in
+	  output_match_union_by_cases
+	    f
+	    u
+	    "x"
+	    get_type_of_decl
+	    (fun k (sign,n) d have_x is_default ->  (* f_case *)
+	       ( match discr_type with
+		   | T_int _ | T_enum _ | T_bool ->
+		       fprintf f "Netnumber.BE.write_int4_unsafe s !p ";
+		       output_int4 f (sign,n);
+		       fprintf f ";@ ";
+		       fprintf f "p := !p + 4;@ ";
+		   | T_uint _ ->
+		       fprintf f "Netnumber.BE.write_uint4_unsafe s !p ";
+		       output_uint4 f (sign,n);
+		       fprintf f ";@ ";
+		       fprintf f "p := !p + 4;@ ";
+		   | _ ->
+		       assert false
+	       );
+	       if have_x then (
+		 if is_default then
+		   fprintf f "mkdefault x"
+		 else (
+		   output_writeexpr_for_type name d.decl_type;
+		   fprintf f "()"
+		 )
+	       ) else
+		 fprintf f "()"
+	    )
+	    (fun d have_x ->                        (* f_default *)
+	       fprintf f "let d = %s discriminant in@ "
+		 (conversion_netnumber_of_custom_int discr_type);
+	       fprintf f 
+		 "Netnumber.BE.write_%s_unsafe s !p d"
+		 (netnumber_name_of_int discr_type);
+	       fprintf f ";@ ";
+	       fprintf f "p := !p + 4;@ ";
+	       if have_x then (
+		 output_writeexpr_for_type name d.decl_type;
+		 fprintf f "()"
+	       )
+	    )
+	    (fun () ->                             (* f_let *)
+	       if have_mkdefault then (
+		 match u.default with
+		   | None -> assert false
+		   | Some d ->
+		       fprintf f "let mkdefault x =@;<1 2>";
+		       fprintf f "@[<hv>";
+		       output_writeexpr_for_type name d.decl_type;
+		       fprintf f "@]";
+		       fprintf f " in@ ";
+	       )
+	    );
+	  fprintf f ";@ "
+	    
+      | T_mstring(_,_)
+      | T_mstring_unlimited _ ->
+	  failwith "output_writefn_for_type"
+  in    
+  
+  let rec output_readfn_for_type (name:string) (tname:string) (t:xdr_type) =
+    (* Generates a function reading directly *)
+    fprintf f "@[<hv 2>";
+    begin_decl();
+    fprintf f "_readexpr_%s s p p_end =@ " name;
+    output_readexpr_for_type name t;
+    fprintf f "@]@\n";
+
+    fprintf f "@[<hv 2>";
+    begin_decl();
+    fprintf f "_read_%s s p p_end : exn =@ " name;
+    fprintf f "X_%s(_readexpr_%s s p p_end)" tname name;
+    fprintf f "@]@\n"
+
+  and output_readexpr_for_type name t =
+    match t with
+      | T_void ->
+	  fprintf f "()"
+      | T_opaque_fixed c ->
+	  let (_, n_uint4) = constant !c in
+	  let n =
+	    try Netnumber.int_of_uint4 n_uint4
+	    with _ -> assert false in (* already checked in Syntax *)
+	  fprintf f
+	    "Xdr.read_string_fixed %d s p p_end@ "
+	    n
+      | T_opaque n
+      | T_string n ->
+	  let n32 =
+	    Int64.to_int32 (int64_of_const (constant !n)) in
+	  fprintf f "Xdr.read_string (Netnumber.logical_uint4_of_int32 (%ldl)) \
+                     s p p_end@ " n32
+      | T_opaque_unlimited
+      | T_string_unlimited ->
+	  fprintf f "Xdr.read_string Netnumber.max_uint4 s p p_end@ ";
+      | T_option t' ->
+	  fprintf f "( @[<hv>";
+	  fprintf f "if !p > p_end-4 then raise Netnumber.Out_of_range;@ ";
+	  fprintf f "let d = Netnumber.BE.read_int4_unsafe s !p in@ ";
+	  fprintf f "p := !p + 4;@ ";
+	  fprintf f "match Netnumber.int_of_int4 d with@ ";
+	  fprintf f "| 0 -> None@ ";
+	  fprintf f "@[<hv 2>| 1 ->@ ";
+	  fprintf f "@[<hv 2>Some(@ ";
+	  output_readexpr_for_type name t';
+	  fprintf f ")@]@]@ ";
+	  fprintf f "| _ -> raise Xdr.Dest_failure";
+	  fprintf f "@]@ )";
+      | T_int _
+      | T_uint _
+      | T_hyper _
+      | T_uhyper _ ->
+	  let s = size_of_int t in
+	  fprintf f "( @[<hv>";
+	  fprintf f "if !p > p_end-%d then raise Netnumber.Out_of_range;@ " s;
+	  fprintf f "let x = Netnumber.BE.read_%s_unsafe s !p in@ "
+	    (netnumber_name_of_int t);
+	  fprintf f "p := !p + %d;@ " s;
+	  fprintf f "(%s x)" (conversion_custom_int_of_netnumber t);
+	  fprintf f "@]@ )"
+      | T_float ->
+	  fprintf f "( @[<hv>";
+	  fprintf f "if !p > p_end-4 then raise Netnumber.Out_of_range;@ ";
+	  fprintf f "let x = Netnumber.BE.read_fp4 s !p in@ ";
+	  fprintf f "p := !p + 4;@ ";
+	  fprintf f "Netnumber.float_of_fp4 x";
+	  fprintf f "@]@ )"
+      | T_double ->
+	  fprintf f "( @[<hv>";
+	  fprintf f "if !p > p_end-8 then raise Netnumber.Out_of_range;@ ";
+	  fprintf f "let x = Netnumber.BE.read_fp8 s !p in@ ";
+	  fprintf f "p := !p + 8;@ ";
+	  fprintf f "Netnumber.float_of_fp8 x";
+	  fprintf f "@]@ )"
+      | T_bool ->
+	  fprintf f "( @[<hv>";
+	  fprintf f "if !p > p_end-4 then raise Netnumber.Out_of_range;@ ";
+	  fprintf f "let x = Netnumber.BE.read_int4_unsafe s !p in@ ";
+	  fprintf f "p := !p + 4;@ ";
+	  fprintf f "(Netnumber.int_of_int4 x = 1)";
+	  fprintf f "@]@ )"
+      | T_enum e  ->
+	  let e = strip_enum_list e in
+	  let cases =
+	    String.concat "; "
+	      (List.map
+		 (fun (_,c) ->
+		    Int64.to_string (int64_of_const (constant !c)) ^ "l"
+		 )
+		 e
+	      ) in
+	  fprintf f "( @[<hv>";
+	  fprintf f "if !p > p_end-4 then raise Netnumber.Out_of_range;@ ";
+	  fprintf f "let x = Netnumber.BE.read_int4_unsafe s !p in@ ";
+	  fprintf f "p := !p + 4;@ ";
+	  fprintf f
+	    "@[<hv 2>if not(List.mem (Netnumber.int32_of_int4 x) [ %s ]) \
+             then@ " cases;
+	  fprintf f "raise(Xdr.Xdr_format \"invalid enum\");@]@ ";
+	  fprintf f "x";
+	  fprintf f "@]@ )"
+      | T_struct tdl ->
+	  fprintf f "( @[<hv>";
+	  let i = ref 0 in
+	  List.iter
+	    (fun d ->
+	       if d.decl_type <> T_void then (
+		 fprintf f "@[<hv 2>let x%d =@ " !i;
+		 output_readexpr_for_type name d.decl_type;
+		 fprintf f " in@]@ ";
+		 incr i;
+	       )
+	    )
+	    tdl;
+	  i := 0;
+	  fprintf f "{ @[<hv>";
+	  List.iter
+	    (fun d ->
+	       if d.decl_type <> T_void then (
+		 fprintf f "@ %s = x%d;" d.decl_symbol.ocaml_name !i;
+		 incr i;
+	       )
+	    )
+	    tdl;
+	  fprintf f "@]@ }";
+	  fprintf f "@]@ )"
+      | T_refer_to (_,refname) ->
+	  let ocaml_name =
+	    try Hashtbl.find typenames !refname
+	    with Not_found -> assert false in
+	  fprintf f "( _readexpr_%s s p p_end)" ocaml_name
+      | T_array_fixed(c,t') ->
+	  let nL = int64_of_const (constant !c) in
+	  let n = Int64.to_int nL in
+	  output_readexpr_for_array name (Some (`Fixed n)) t'
+      | T_array(c,t') ->
+	  let nL = int64_of_const (constant !c) in
+	  if nL >= Int64.of_int Sys.max_array_length then
+	    output_readexpr_for_array name None t'
+	  else
+	    let n = Int64.to_int nL in
+	    output_readexpr_for_array name (Some (`Limit n)) t'
+      | T_array_unlimited t' ->
+	  output_readexpr_for_array name None t'
+      | T_union u ->
+	  let discr_type = get_type_of_decl u.discriminant in
+	  let int_name =
+	    match discr_type with
+	      | T_int _ | T_enum _ | T_bool -> "int4"
+	      | T_uint _ -> "uint4"
+	      | _ -> assert false in
+	  fprintf f "( @[<hv>";
+	  fprintf f "if !p > p_end-4 then raise Netnumber.Out_of_range;@ ";
+	  fprintf f "let d0 = Netnumber.BE.read_%s_unsafe s !p in@ " int_name;
+	  fprintf f "p := !p + 4;@ ";
+	  let have_mkdefault =
+	    have_enum_default_with_arg u get_type_of_decl in
+	  output_match_union_by_number
+	    f
+	    u
+	    "d"
+	    false  (* by_k *)
+	    get_type_of_decl
+	    (fun k (sign,n) tag d d_is_default ->      (* f_case *)
+	       let have_x = get_type_of_decl d <> T_void in
+	       if have_x then (
+		 fprintf f "@[<hv 2>let x =@ ";
+		 if d_is_default && have_mkdefault then
+		   fprintf f "(mkdefault())"
+		 else
+		   output_readexpr_for_type name d.decl_type;
+		 fprintf f " in@]@ ";
+	       );
+	       fprintf f "`%s%s"
+		 tag (if have_x then " x" else "");
+	    )
+	    (fun d ->                                 (* f_default *)
+	       let int_conversion =
+		 conversion_custom_int_of_netnumber discr_type in
+	       let have_x = get_type_of_decl d <> T_void in
+	       if have_x then (
+		 fprintf f "@[<hv 2>let x =@ ";
+		 output_readexpr_for_type name d.decl_type;
+		 fprintf f " in@]@ ";
+	       );
+	       fprintf f "`default(@[<hv>%s d0" int_conversion;
+	       if have_x then
+		 fprintf f ",@ x";
+	       fprintf f "@])";
+	    )
+	    (fun () ->                                (* f_let *)
+	       fprintf f "let d = %s d0 in@ "
+		 (match discr_type with
+		    | T_int _  | T_enum _ | T_bool -> "Netnumber.int32_of_int4"
+		    | T_uint _ -> "Netnumber.logical_int32_of_uint4"
+		    | _ -> assert false
+		 );
+		 if have_mkdefault then (
+		   match u.default with
+		     | None -> assert false
+		     | Some d ->
+			 fprintf f "let mkdefault x =@;<1 2>";
+			 fprintf f "@[<hv>";
+			 output_readexpr_for_type name d.decl_type;
+			 fprintf f "@]";
+			 fprintf f " in@ ";
+		 )
+	    )
+	    (fun () ->    	                      (* f_coerce *)
+	       fprintf f "@ :> ";
+	       output_coerce_pattern f u get_type_of_decl
+	    );
+	  fprintf f "@]@ )"
+
+      | T_mstring(_,_)
+      | T_mstring_unlimited _ ->
+	  failwith "output_readexpr_for_type"
+
+  and output_readexpr_for_array name cond t_elem =
+    let ms = min_size t_elem in
+    fprintf f "( @[<hv>";
+    ( match cond with
+	| None
+	| Some (`Limit _) ->
+	    fprintf f "if !p > p_end-4 then raise Netnumber.Out_of_range;@ ";
+	    fprintf f "let ulen = Netnumber.BE.read_uint4_unsafe s !p in@ ";
+	    fprintf f "p := !p + 4;@ ";
+	    fprintf f "let len =@ ";
+	    fprintf f "  try Netnumber.int_of_uint4 ulen@ ";
+	    fprintf f "  with _ -> Xdr.raise_xdr_format_maximum_length() in@ ";
+	    ( match cond with
+		| Some (`Limit n) ->
+		    fprintf f "if len > %d then@ " n;
+		    fprintf f "  Xdr.raise_xdr_format_maximum_length();@ "
+		| _ -> ()
+	    )
+	| Some (`Fixed n) ->
+	    fprintf f "let len = %d in@ " n;
+    );
+    fprintf f "let m = (p_end - !p) / %d in@ " ms;
+    fprintf f "if len > m then@ ";
+    fprintf f "  Xdr.raise_xdr_format_too_short();@ ";
+    fprintf f "Array.init@ ";
+    fprintf f "  len@ ";
+    fprintf f "@[<hv 4>  (fun _ ->@ ";
+    output_readexpr_for_type name t_elem;
+    fprintf f ")@]@]@ )"
   in    
 
   let permit_direct t =
@@ -1828,6 +2550,8 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
     match t with
       | T_struct _ -> true
       | T_option _ -> true
+      | T_array _ | T_array_fixed _ | T_array_unlimited _ -> true
+      | T_union _ -> true
       | _ -> false in
 
   let output_ofconv_declaration n t tname direct =
@@ -1841,7 +2565,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
       tname;
     if !Options.enable_direct && direct && permit_direct t then (
       fprintf f
-	"@[<hv>Xdr.XV_direct(X_%s x, _size_%s x, _write_%s x)@]" tname n n
+	"@[<hv>Xdr.XV_direct(X_%s x, _sizeexpr_%s x)@]" tname n
     )
     else
       output_ofconv_for_type n "x" t;
@@ -1910,6 +2634,10 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
   fprintf mli "@[<v>";
   fprintf f "@[<v>";
 
+  fprintf f "let ( +! ) = Xdr.safe_add@\n";
+  fprintf f "let ( *! ) = Xdr.safe_mul@\n;;@\n";
+
+
   List.iter
     (function
 	 Typedef td ->
@@ -1929,6 +2657,10 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	       td.decl_symbol.ocaml_name
 	       td.decl_type;
 	     output_writefn_for_type
+	       td.decl_symbol.ocaml_name
+	       td.decl_symbol.ocaml_name
+	       td.decl_type;
+	     output_readfn_for_type
 	       td.decl_symbol.ocaml_name
 	       td.decl_symbol.ocaml_name
 	       td.decl_type;
@@ -2058,11 +2790,11 @@ let output_client (mli:formatter) (f:formatter) (dl:xdr_def list) auxname =
     ( match inst with
 	| `Client ->
 	    fprintf mli "type t = Rpc_client.t@ ";
-	    fprintf mli "val @[<hv 4>create_client :@ ?esys:Unixqueue.event_system ->@ ?program_number:Rtypes.uint4 -> @ ?version_number:Rtypes.uint4 -> @ Rpc_client.connector ->@ Rpc.protocol ->@ Rpc_client.t@]";
+	    fprintf mli "val @[<hv 4>create_client :@ ?esys:Unixqueue.event_system ->@ ?program_number:Netnumber.uint4 -> @ ?version_number:Netnumber.uint4 -> @ Rpc_client.connector ->@ Rpc.protocol ->@ Rpc_client.t@]";
 	    fprintf mli "@ ";
-	    fprintf mli "val @[<hv 4>create_portmapped_client :@ ?esys:Unixqueue.event_system ->@ ?program_number:Rtypes.uint4 -> @ ?version_number:Rtypes.uint4 -> @ string ->@ Rpc.protocol ->@ Rpc_client.t@]";
+	    fprintf mli "val @[<hv 4>create_portmapped_client :@ ?esys:Unixqueue.event_system ->@ ?program_number:Netnumber.uint4 -> @ ?version_number:Netnumber.uint4 -> @ string ->@ Rpc.protocol ->@ Rpc_client.t@]";
 	    fprintf mli "@ ";
-	    fprintf mli "val @[<hv 4>create_client2 :@ ?esys:Unixqueue.event_system ->@ ?program_number:Rtypes.uint4 -> @ ?version_number:Rtypes.uint4 -> @ Rpc_client.mode2 ->@ Rpc_client.t@]";
+	    fprintf mli "val @[<hv 4>create_client2 :@ ?esys:Unixqueue.event_system ->@ ?program_number:Netnumber.uint4 -> @ ?version_number:Netnumber.uint4 -> @ Rpc_client.mode2 ->@ Rpc_client.t@]";
 	    fprintf mli "@ ";
 	| `Make ->
 	    fprintf mli "type t = U'C.t@ ";
@@ -2221,7 +2953,7 @@ let output_server (style:style)
     fprintf mli "@[<v 2>module %s : sig" vers.version_symbol.ocaml_name;
     fprintf mli "@ ";
     fprintf mli "open %s@ " auxname;
-    fprintf mli "val @[<hv 4>create_server :@ ?limit:int ->@ ?program_number:Rtypes.uint4 ->@ ?version_number:Rtypes.uint4 ->@ ";
+    fprintf mli "val @[<hv 4>create_server :@ ?limit:int ->@ ?program_number:Netnumber.uint4 ->@ ?version_number:Netnumber.uint4 ->@ ";
     (* ML: *)
     fprintf f "@[<v>";
     fprintf f "@[<v 2>module %s = struct@ " vers.version_symbol.ocaml_name;
@@ -2277,7 +3009,7 @@ let output_server (style:style)
     fprintf f "@ @ ";
 
     (* MLI: *)
-    fprintf mli "val @[<hv 4>create_async_server :@ ?limit:int ->@ ?program_number:Rtypes.uint4 ->@ ?version_number:Rtypes.uint4 ->@ ";
+    fprintf mli "val @[<hv 4>create_async_server :@ ?limit:int ->@ ?program_number:Netnumber.uint4 ->@ ?version_number:Netnumber.uint4 ->@ ";
     (* ML: *)
     fprintf f "@[<hv 2>let create_async_server@ ";
     fprintf f "?(limit = 20)@ ";
@@ -2339,7 +3071,7 @@ let output_server (style:style)
     fprintf mli "@[<v 2>module %s : sig" vers.version_symbol.ocaml_name;
     fprintf mli "@ ";
     fprintf mli "open %s@ " auxname;
-    fprintf mli "val @[<hv 4>bind :@ ?program_number:Rtypes.uint4 ->@ ?version_number:Rtypes.uint4 ->@ ";
+    fprintf mli "val @[<hv 4>bind :@ ?program_number:Netnumber.uint4 ->@ ?version_number:Netnumber.uint4 ->@ ";
     (* ML: *)
     fprintf f "@[<v>";
     fprintf f "@[<v 2>module %s = struct@ " vers.version_symbol.ocaml_name;
@@ -2388,7 +3120,7 @@ let output_server (style:style)
     fprintf f "@ @ ";
 
     (* MLI: *)
-    fprintf mli "val @[<hv 4>bind_async :@ ?program_number:Rtypes.uint4 ->@ ?version_number:Rtypes.uint4 ->@ ";
+    fprintf mli "val @[<hv 4>bind_async :@ ?program_number:Netnumber.uint4 ->@ ?version_number:Netnumber.uint4 ->@ ";
     (* ML: *)
     fprintf f "@[<hv 2>let bind_async@ ";
     fprintf f "?program_number@ ";

@@ -9,5 +9,7 @@ let do_test title n f =
   flush stdout
 ;;
 
-do_test "test_001" 1000 Proto_testcase.test_001
+do_test "test_001" 10000 Proto_testcase.test_001
+;;
+do_test "test_002" 10000 Proto_testcase.test_002
 ;;

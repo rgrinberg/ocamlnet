@@ -161,6 +161,19 @@ val ge_uint8 : uint8 -> uint8 -> bool
   (** Other comparisons *)
 
 
+(** {2 Minimum/maximum values} *)
+
+val min_int4 : int4
+val min_uint4 : uint4
+val min_int8 : int8
+val min_uint8 : uint8
+
+val max_int4 : int4
+val max_uint4 : uint4
+val max_int8 : int8
+val max_uint8 : uint8
+
+
 module type ENCDEC = sig
   (** Encode/decode numbers as strings. These functions exist in two
       flavors:

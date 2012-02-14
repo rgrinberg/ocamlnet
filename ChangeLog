@@ -1,3 +1,9 @@
+2012-02-14  Gerd Stolpmann  <gerd@samsung>
+
+	* XDR/RPC: implemented direct mapping from byte representation
+	  to Ocaml value. Use new switch -direct with ocamlrpcgen to
+	  enable.
+
 2012-02-10  Gerd Stolpmann  <gerd@samsung>
 
 	* Xdr: additional check against invalid XDR messages.

@@ -57,10 +57,18 @@ let mark_decls_suited_for_direct_mapping dl =
 	      visit_decl td;
 	    td.decl_direct
 	  )
-      | T_array_fixed _
-      | T_array _
-      | T_array_unlimited _
-      | T_union _
+      | T_array_fixed(_,t1)
+      | T_array (_,t1)
+      | T_array_unlimited t1 ->
+	  visit_type t1
+      | T_union u ->
+	  List.for_all
+	    (fun (_,_,td) -> visit_type td.decl_type) 
+	    u.cases &&
+	  ( match u.default with
+	      | None -> true
+	      | Some d -> visit_type d.decl_type
+	  )
       | T_mstring _
       | T_mstring_unlimited _ ->
 	  false
