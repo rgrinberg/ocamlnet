@@ -1,6 +1,6 @@
 
 let do_test title n f =
-  Printf.printf "Test %s, count=%d: " title n;
+  Printf.printf "Test %s, count=%5d: " title n;
   flush stdout;
   let t1 = Unix.gettimeofday() in
   for k = 1 to n do f() done;
@@ -11,5 +11,7 @@ let do_test title n f =
 
 do_test "test_001" 10000 Proto_testcase.test_001
 ;;
-do_test "test_002" 10000 Proto_testcase.test_002
+do_test "test_002" 100 Proto_testcase.test_002
+;;
+do_test "test_010" 10000 Proto_testcase.test_010
 ;;

@@ -787,16 +787,19 @@ let rec calc_min_size t =
 	| Some d -> calc_min_size d
     );
     List.iter (fun t' -> calc_min_size t') u_snd;
+    let l =
+      (match default with
+	 | None -> []
+	 | Some d -> [d]
+      ) @ u_snd in
+    assert(l <> []);
     4 ++
       (List.fold_left
 	 (fun acc x ->
-	    max acc x.min_size
+	    min acc x.min_size
 	 )
-	 (match default with
-	    | None -> 0
-	    | Some d -> d.min_size
-	 )
-	 u_snd
+	 ((List.hd l).min_size)
+	 (List.tl l)
       )
   in
 

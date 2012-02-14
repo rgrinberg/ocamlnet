@@ -879,8 +879,7 @@ let calc_min_size dl =
 	| T_string_unlimited -> 4
 	| T_mstring _ -> 4
 	| T_mstring_unlimited _ -> 4
-	| T_option t' -> 
-	    4 ++ (calc t')
+	| T_option t' -> 4
 	| T_array_fixed (c,t') -> 
 	    let size = calc t' in
 	    if size = 0 then
@@ -905,17 +904,19 @@ let calc_min_size dl =
 	      0
 	      s
 	| T_union u ->
-	    let s1 =
-	      match u.default with
-		| None -> 0
-		| Some d -> calc d.decl_type in
+	    let l =
+	      ( match u.default with
+		  | None -> []
+		  | Some d -> [d]
+	      ) @ (List.map (fun (_,_,d) -> d) u.cases) in
+	    assert(l <> []);
 	    4 ++
 	      (List.fold_left
-		 (fun acc (_,_,d) ->
-		    max acc (calc d.decl_type)
+		 (fun acc d ->
+		    min acc (calc d.decl_type)
 		 )
-		 s1
-		 u.cases
+		 (calc (List.hd l).decl_type)
+		 (List.tl l)
 	      )
 	| T_refer_to (_,r) ->
 	    ( try

@@ -4,7 +4,7 @@ open Proto_aux;;
 let proc_do_something arg = arg ;;
   (* Test procedure: the identity function *)
 
-let some_value =
+let some_str_value =
   { i = Int32.of_int 0;
     s = "Hello world";
     ia = Array.map Int32.of_int 
@@ -34,17 +34,29 @@ let some_value =
     abc = Some(`a { a1 = "a1"; a2 = "a2" });
   }
 
-let xdrt = Xdr.validate_xdr_type xdrt_str;;
+
+let some_arr_value =
+  Array.init 1000 (fun k -> { some_str_value with i = Int32.of_int k })
+
+let t_str = Xdr.validate_xdr_type xdrt_str;;
+let t_arr = Xdr.validate_xdr_type xdrt_arr;;
 
 let test_001() =
-  let v = _of_str some_value in
-  let s = Xdr.pack_xdr_value_as_string v xdrt [] in
-  let v' = Xdr.unpack_xdr_value ~xv_version:`Ocamlrpcgen s xdrt [] in
-  let x = _to_str v in
+  let v = _of_str some_str_value in
+  let s = Xdr.pack_xdr_value_as_string v t_str [] in
+  let v' = Xdr.unpack_xdr_value ~xv_version:`Ocamlrpcgen s t_str [] in
+  let _x = _to_str v in
+  ()
+
+let test_002() =
+  let v = _of_arr some_arr_value in
+  let s = Xdr.pack_xdr_value_as_string v t_arr [] in
+  let v' = Xdr.unpack_xdr_value ~xv_version:`Ocamlrpcgen s t_arr [] in
+  let _x = _to_arr v in
   ()
 
 
-let test_002() =
+let test_010() =
   (* set up test environment: *)
 
   let bipipe1, bipipe2 = Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
@@ -56,7 +68,7 @@ let test_002() =
   let clnt_conn = Rpc_client.Descriptor bipipe2 in
   let clnt = Proto_clnt.P.V.create_client
 	       ~esys clnt_conn Rpc.Tcp in
-  let arg = some_value in
+  let arg = some_str_value in
 
   Proto_clnt.P.V.do_something'async
     clnt

@@ -16,5 +16,4 @@ include $(TOP_DIR)/Makefile.rules
 include $(TOP_DIR)/Makefile.xrules
 
 
-OCAMLRPCGEN = $(TOP_DIR)/src/rpc-generator/ocamlrpcgen -direct
-
+OCAMLRPCGEN = $(TOP_DIR)/src/rpc-generator/ocamlrpcgen  -direct

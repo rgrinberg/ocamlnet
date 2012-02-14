@@ -29,6 +29,10 @@ struct str {
     u_abc *abc;
 };
 
+
+typedef str arr<>;
+
+
 program P {
     version V {
 	str do_something(str) = 1;
