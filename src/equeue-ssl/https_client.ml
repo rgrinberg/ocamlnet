@@ -32,7 +32,13 @@ let https_transport_channel_type ctx : transport_channel_type =
 	      Hashtbl.replace ctx_of_fd fd mplex;
 	      eps_e (`Done (mplex :> Uq_engines.multiplex_controller)) esys
 	   )
-	    
+      (* NB. It is not possible to call here mplex#inactivate in case
+	 of an error because this would close fd and violate the interface.
+	 Instead, Uq_ssl has been changed so that the state after
+	 an erroneous ssl_connect_engine is cleaned up within this class.
+       *)
+
+
       method continue fd cb tmo tmo_x host port esys =
 	let mplex =
 	  Uq_ssl.create_ssl_multiplex_controller

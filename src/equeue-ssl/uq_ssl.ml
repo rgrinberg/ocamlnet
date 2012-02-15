@@ -175,6 +175,7 @@ object
     when_done:(exn option -> unit) -> unit -> unit
   method start_ssl_accepting :
     when_done:(exn option -> unit) -> unit -> unit
+  method inactivate_no_close : unit -> unit
 end
 
 
@@ -278,13 +279,23 @@ object(self)
 	   | Ssl.Connection_error ssl_err ->
 	       state <- `Unclean;
 	       connecting <- false;
-	       (false, false, fun () -> when_done (Some (Ssl_error ssl_err)))
+	       (false, false, 
+		fun () -> 
+		  self # inactivate_no_close();
+		  when_done (Some (Ssl_error ssl_err))
+	       )
 	   | err ->
 	       state <- `Unclean;
 	       connecting <- false;
-	       (false, false, fun () -> when_done (Some err))
+	       (false, false, 
+		fun () -> 
+		  self # inactivate_no_close();
+		  when_done (Some err)
+	       )
       )
-      (fun x -> when_done (Some x));
+      (fun x -> 
+	 self # inactivate_no_close();
+	 when_done (Some x));
     connecting <- true
 
 
@@ -320,13 +331,23 @@ object(self)
 	   | Ssl.Accept_error ssl_err ->
 	       state <- `Unclean;
 	       accepting <- false;
-	       (false, false, fun () -> when_done (Some (Ssl_error ssl_err)))
+	       (false, false, 
+		fun () -> 
+		  self # inactivate_no_close();
+		  when_done (Some (Ssl_error ssl_err))
+	       )
 	   | err ->
 	       state <- `Unclean;
 	       accepting <- false;
-	       (false, false, fun () -> when_done (Some err);)
+	       (false, false, 
+		fun () -> 
+		  self # inactivate_no_close();
+		  when_done (Some err)
+	       )
       )
-      (fun x -> when_done (Some x));
+      (fun x -> 
+	 self # inactivate_no_close();
+	 when_done (Some x));
     accepting <- true;
 
 
@@ -696,6 +717,14 @@ object(self)
       )
       ht
 
+  method private stop_all_timers() =
+    Hashtbl.iter
+      (fun tag (tmo_g, f_tmo) ->
+	 Unixqueue.clear esys tmo_g;
+      )
+      timers;
+    Hashtbl.clear timers;
+
   method private nonblock_operation cancel_flag tag f f_tmo =
     (* We use here min_float instead of 0.0 because the latter is handled
        in an optimized way in Unixqueue - and this gets here in the way.
@@ -887,15 +916,19 @@ object(self)
   method inactivate() =
     if alive then (
       alive <- false;
-      pending <- [];
-      disconnecting <- None;
-      have_handler <- false;
-      Unixqueue.clear esys group;
+      self # inactivate_no_close();
       if close_inactive_descr then (
 	preclose();
 	Unix.close fd
       )
     )
+
+  method inactivate_no_close() =
+    pending <- [];
+    disconnecting <- None;
+    have_handler <- false;
+    Unixqueue.clear esys group;
+    self # stop_all_timers();
 
   method event_system = esys
 
@@ -937,7 +970,7 @@ object(self)
   method abort() =
     match self#state with
       | `Working _ ->
-	  mplex # inactivate();
+	  mplex # inactivate_no_close();
 	  self # set_state `Aborted
       | _ ->
 	  ()
@@ -968,7 +1001,7 @@ object(self)
   method abort() =
     match self#state with
       | `Working _ ->
-	  mplex # inactivate();
+	  mplex # inactivate_no_close();
 	  self # set_state `Aborted
       | _ ->
 	  ()

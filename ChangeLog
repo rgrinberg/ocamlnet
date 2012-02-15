@@ -1,3 +1,10 @@
+2012-02-15  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Uq_ssl + Https_client: fixing problem when the client
+	  times out while still connecting. Before, the module closed the
+	  file descriptor too early. (Thanks to Henry Hughes for
+	  reporting.)
+
 2012-02-14  Gerd Stolpmann  <gerd@samsung>
 
 	* XDR/RPC: implemented direct mapping from byte representation

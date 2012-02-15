@@ -72,6 +72,13 @@ object
      * - It is not possible to shut down the SSL connection only for writing.
      * - 
      *)
+
+
+  method inactivate_no_close : unit -> unit
+    (** Inactivates the controller by deleting all event handlers. The
+	file descriptor, however, is not closed. Normal users should not
+	call this method.
+     *)
 end
 
 

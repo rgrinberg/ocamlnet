@@ -463,7 +463,7 @@ usage: ocamlrpcgen [-aux] [-clnt] [-srv] [-srv2]
   arrays of structs, and these structs have many elements, and there
   are not many strings (because there is no acceleration for strings).
   For example, a numerical RPC interface would definetely profit from
-  this alternate code generation scheme. Besides generating more code,
+  this alternate code generation scheme. Except generating more code,
   there is no downside of this scheme. (Available since Ocamlnet-3.5.)
 
 {1:mapping The language mapping underlying ocamlrpcgen}

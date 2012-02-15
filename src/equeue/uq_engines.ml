@@ -264,7 +264,8 @@ object(self)
 
   method event_system = eng#event_system
 
-  method abort = eng#abort
+  method abort() = 
+    eng#abort()
 end;;
 
 
@@ -395,11 +396,13 @@ object(self)
 
   method abort() =
     ( match !eng_a with
-	| Some e -> e # abort()
+	| Some e -> 
+	    e # abort()
 	| None -> ()
     );
     ( match !eng_b with
-	| Some e -> e # abort()
+	| Some e -> 
+	    e # abort()
 	| None -> ()
     )
 end;;
