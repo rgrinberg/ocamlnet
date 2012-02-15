@@ -321,13 +321,13 @@ CAMLprim value netsys_return_all_not_event_fd(value nev)
     if (ne->fd1 != -1) {
 	v2 = caml_alloc(2,0);
 	Store_field(v2, 0, Val_int(ne->fd1));
-	Store_field(v2, 0, v1);
+	Store_field(v2, 1, v1);
 	v1 = v2;
     };
     if (ne->fd2 != -1) {
 	v2 = caml_alloc(2,0);
 	Store_field(v2, 0, Val_int(ne->fd2));
-	Store_field(v2, 0, v1);
+	Store_field(v2, 1, v1);
 	v1 = v2;
     };
     CAMLreturn(v1);
