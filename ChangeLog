@@ -1,4 +1,8 @@
-2012-02-15  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+2012-02-15  Gerd Stolpmann  <gerd@samsung>
+
+	* Uq_mt: this new module coordinates access to shared
+	  engine-based resources from multiple threads (e.g.
+	  share an RPC client by several threads)
 
 	* Uq_ssl + Https_client: fixing problem when the client
 	  times out while still connecting. Before, the module closed the

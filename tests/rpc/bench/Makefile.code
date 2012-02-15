@@ -5,6 +5,7 @@ REQUIRES = rpc,rpc-auth-dh,rpc-auth-local,netmech-scram,unix,rpc-ssl
 
 OBJ = proto_aux.cmo proto_clnt.cmo proto_srv.cmo
 XOBJ = $(OBJ:.cmo=.cmx)
+OCAMLC_OPTIONS_FOR_protoclient.ml = -thread
 
 all: proto.cma protoserver protoclient
 
@@ -12,7 +13,8 @@ protoserver: protoserver.cmo
 	$(OCAMLC) -o protoserver -custom proto.cma protoserver.cmo -linkpkg
 
 protoclient: protoclient.cmo
-	$(OCAMLC) -o protoclient -custom proto.cma protoclient.cmo -linkpkg
+	$(OCAMLC) -o protoclient -custom proto.cma protoclient.cmo -linkpkg \
+	   -package threads -thread
 
 proto.cma: $(OBJ)
 	$(OCAMLC) -o proto.cma -a $(OBJ)

@@ -28,57 +28,7 @@ Generalize the following for engines:
    thread. The monitor is allowed to switch to a different thread
    when any of the functions [f] finishes. Switching can happen
    whenever the event system waits for new events.
-
-module Monitor = struct
-  let esys = ...
-  let is_running = ref false
-
-  let cond_queue = Queue.create()
-  let mutex = ...
-
-  let call f_rpc_async arg f_resp =
-    let call_cond = ...
-    let result = ref None in
-    once esys g 0.0
-      (fun () ->
-        Rpc_client.call f_rpc_async arg
-	  (fun r ->
-	    result := Some r;  (* mutex? *)
-	    once esys g 0.0 (fun () -> raise Esys_exit);
-	      (* Optimization: do this only if this thread runs esys *)
-            Condition.signal call_cond
-          )
-      );
-    let cond_registered = ref false
-    Mutex.lock mutex;
-    while result = None do
-      while result = None && !is_running do
-        if not !cond_registered then (
-          Queue.add call_cond cond_queue;
-          cond_registered := true
-        )
-        Condition.wait call_cond
-        if !cond_registered then (
-          <remove call_cond from cond_queue>;
-          cond_registered := false;
-        );
-      done;
-      if result = None then (
-        is_running := true;
-	Mutex.unlock;
-	( try
-	     Unixqueueu.run
-          with Esys_exit -> ()
-        );
-        Mutex.lock;
-	is_running := false;
-      )
-    done
-    if not !is_running && not(Queue.is_empty condf_queue) then
-      Condition.signal (Queue.hd cond_queue);
-    Mutex.unlock
-
-end
+DONE
 
 inet addr functions from Plasma_util
 

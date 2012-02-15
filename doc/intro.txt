@@ -202,6 +202,7 @@ by a number of other libraries of Ocamlnet to parallelize network code
    Uq_io
    Uq_lwt
    Uq_libevent
+   Uq_mt
 }
 
 

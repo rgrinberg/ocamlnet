@@ -133,6 +133,27 @@ let register_revert() =
        s = rhuge
     );
 
+  register_test_triple ~udp:false "huge_revert_mt"
+    (fun client ->
+       let mon = Uq_mt.create_monitor (Rpc_client.event_system client) in
+       let n = ref 0 in
+       let threads =
+	 List.map
+	   (fun k ->
+	      Thread.create
+		(fun () ->
+		   let s =
+		     Uq_mt.monitor_async mon
+		       (C.revert'async client)
+		       huge in
+		   if (s = rhuge) then incr n;  (* atomic! *)
+		)
+		()
+	   )
+	   [0; 1; 2; 3; 4; 5; 6; 7; 8; 9] in
+       List.iter Thread.join threads;
+       !n = 10
+    );
 
 ;;
 

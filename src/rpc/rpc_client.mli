@@ -44,6 +44,10 @@
  * - Authentication methods requiring RPC calls or other network services are
  *   performed in an synchronous way, too.
  * - Name service lookups are synchronous, too.
+ *
+ * [b Multi-threading:} Only a single thread may use an RPC client at a
+ * time. There is a way so that several threads can share the same client
+ * without giving up concurrency, see {!Uq_mt.rpc_client} for details.
  *)
 
 open Rpc
