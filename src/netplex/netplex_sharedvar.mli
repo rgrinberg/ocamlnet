@@ -35,6 +35,8 @@
 
     More documentation can also be found here:
     {!Netplex_advanced.sharedvars}
+
+    {b Thread safety:} Full. The functions can be called from any thread.
  *)
 
 open Netplex_types

@@ -28,6 +28,8 @@ open Netplex_types
     Technically, a mutex named [n] is implemented by a semaphore [n].
     If the mutex is locked, the semaphore has the value 0, and if it is
     unlocked, it has value 1.
+
+    {b Thread safety:} Full. The functions can be called from any thread.
  *)
 
 val plugin : plugin
@@ -36,7 +38,7 @@ val plugin : plugin
       [post_add_hook] of the processor.
    *)
 
-(** The folloing functions can {b only} be invoked in container
+(** The following functions can {b only} be invoked in container
     contexts. Outside of such a context the exception
     {!Netplex_cenv.Not_in_container_thread} is raised. 
  *)

@@ -7,6 +7,9 @@
   * i.e. from a process or thread that acts as container, otherwise
   * the exception [Not_in_container_thread] is raised. There are also some
   * functions that can be called from controller context for convenience.
+  *
+  * {b Thread safety:} Full. The functions in this module can be called from any
+  * thread.
  *)
 
 open Netplex_types
@@ -50,7 +53,8 @@ val create_timer : (timer -> bool) -> float -> timer
       Timers are also stopped on container shutdown.
 
       Timers are attached to the container event system, and run only
-      if this event system runs.
+      if this event system runs. Also note that [f] is always called from
+      the main thread of the container.
    *)
 
 val cancel_timer : timer -> unit

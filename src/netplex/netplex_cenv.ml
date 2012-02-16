@@ -17,6 +17,10 @@ let () =
 exception Not_in_container_thread
 
 let obj_of_thread = Hashtbl.create 10
+  (* We assume here that obj_of_thread is filled with all parallelizers
+     before Netplex starts the first thread. Hence, it is not protected
+     by mutexes
+   *)
 
 let register_par par =
   if not (Hashtbl.mem obj_of_thread par#ptype) then (

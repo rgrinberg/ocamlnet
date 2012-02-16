@@ -19,6 +19,8 @@ open Netplex_types
 
     This interface is designed so that a later re-implementation with
     POSIX semaphores is relatively straight-forward.
+
+    {b Thread safety:} Full. The functions can be called from any thread.
   *)
 
 val plugin : plugin

@@ -13,6 +13,7 @@
 - {!Netplex_intro.messaging}
 - {!Netplex_intro.logging}
 - {!Netplex_intro.debug}
+- {!Netplex_intro.mt}
 - {!Netplex_intro.rpc_netplex}
 
 Netplex is a generic (stream) server framework. This means, Netplex
@@ -819,6 +820,57 @@ There are various built-in debug logging streams:
 For these messages, the mechanism of {!Netlog.Debug} is used - which has
 the advantage that messages can also be generated when no Netplex logger
 is available.
+
+{2:mt Compatibility with multi-threading}
+
+As already noted above, it is possible to use Netplex with two
+concurrency models, namely multi-threading and multi-processing.
+In the first case, for every container a new thread is started, and
+in the second case, a new process.
+
+You should know that multi-threading in OCaml has some limitations. In
+particular, it is not possible to exploit more than one CPU core of
+the system (although the threads are real kernel threads). Because of
+this, multi-processing is also supported by Netplex. It does not have
+this deficiency, because every process executes an independent OCaml
+runtime.
+
+Nevertheless, it can be quite useful to just start helper threads, even
+if the main concurrency model is multi-processing. The question is how
+to do, and where the traps are.
+
+First, one warning ahead: Once you have started threads, it is no longer
+safe to spawn new processes. This is a general difficulty of the POSIX
+system API, and cannot be worked around in OCaml programs (to some extent
+it is possible in C). The immediate consequence is that you must not start
+threads in the controller process (assumed you have multi-processing). The
+controller process continuously forks new container processes, and having
+threads could be deadly for it. For the API exposed by Netplex this means
+that doing such is not supported at all - all controller-specific APIs
+assume that they are only called from the same thread.
+
+Ok, so you just don't this. However, is it allowed to have additional
+threads in containers? This is in deed not problematic. Just be sure that
+you start these threads after the container process has been created, e.g.
+from [post_start_hook]. In order to make life simpler, a number of APIs
+have now been made thread-safe (since Ocamlnet-3.5):
+
+- All methods of container objects: {!Netplex_types.container}
+- All functions in {!Netplex_cenv}
+- All synchronization helpers in {!Netplex_semaphore}, {!Netplex_mutex},
+  and {!Netplex_sharedvar}
+
+This means you can call these methods and functions without any
+additional synchronization effort.
+
+Note that all extra threads are implicitly killed when the
+container process finishes. If you don't like this and want to
+terminate them in a more controlled manner, you can do this from the
+[pre_finish_hook]. If your main concurrency model is multi-threading,
+though, no such killing will occur - your helper threads will simply
+continue running when the container is finished. (Unfortunately, this
+difference between the two models is unavoidable.)
+
 
 {1:rpc_netplex Netplex RPC systems}
 

@@ -39,14 +39,18 @@ class std_container ?esys
     match esys with
       | Some esys -> esys
       | None -> sockserv # processor # container_event_system() in
+  let sys_esys = Unixqueue.create_unix_event_system() in
+  let sys_mon = Uq_mt.create_monitor sys_esys in
+  let cont_thr_id = !Netsys_oothr.provider # self # id in
 object(self)
-  val sys_esys = Unixqueue.create_unix_event_system()
+  val sys_esys = sys_esys (* for subclasses *)
   val mutable rpc = None
   val mutable sys_rpc = None
   val mutable nr_conns = 0
   val mutable nr_conns_total = 0
   val mutable engines = []
   val mutable vars = Hashtbl.create 10 
+  val         vars_mutex = !Netsys_oothr.provider # create_mutex()
 
   method container_id = (self :> container_id)
 
@@ -434,11 +438,36 @@ object(self)
       | None -> failwith "#system: No RPC client available"
       | Some r -> r
 
+  method system_monitor = sys_mon
+
   method shutdown() =
     dlogr
       (fun () -> 
 	 sprintf
 	   "Container %d: shutdown" (Oo.id self));
+    (* This method can be called from a different thread. In this case,
+       we have to ensure that the shutdown code is run in the main thread
+       of the container, and then have to wait until the shutdown is
+       complete
+     *)
+    let mt_case =
+      (cont_thr_id <> !Netsys_oothr.provider # self # id) in
+    if mt_case then (
+      let mutex = !Netsys_oothr.provider # create_mutex() in
+      let cond = !Netsys_oothr.provider # create_condition() in
+      let g = Unixqueue.new_group esys in
+      Unixqueue.once esys g 0.0
+	(fun () ->
+	   self # shutdown_action();
+	   cond # signal()
+	);
+      cond # wait mutex
+    )
+    else
+      self # shutdown_action()
+    
+
+  method private shutdown_action() =
     ( try
 	Netplex_cenv.cancel_all_timers()
       with
@@ -455,7 +484,7 @@ object(self)
 	      r
 	      self # shutdown_extra;
 	    (* We ensure that shutdown_extra is called
-               when the client is already taken down
+	       when the client is already taken down
 	     *)
     )
 
@@ -478,8 +507,13 @@ object(self)
 		  | `Notice -> log_notice
 		  | `Info -> log_info
 		  | `Debug -> log_debug in
-	      Rpc_client.set_batch_call r;
-	      Netplex_ctrl_clnt.System.V1.log r (lev,subchannel,message);
+	      Uq_mt.monitor_async 
+		sys_mon
+		(fun arg emit ->
+		   Rpc_client.set_batch_call r;
+		   Netplex_ctrl_clnt.System.V1.log'async r arg emit
+		)
+		(lev,subchannel,message);
 	    with
 	      | error ->
 		  prerr_endline("Netplex Catastrophic Error: Unable to send log message - exception " ^ Netexn.to_string error);
@@ -493,7 +527,10 @@ object(self)
     match sys_rpc with
       | None -> failwith "#lookup: No RPC client available"
       | Some r ->
-	  Netplex_ctrl_clnt.System.V1.lookup r (service,protocol)
+	  Uq_mt.monitor_async 
+	    sys_mon
+	    (Netplex_ctrl_clnt.System.V1.lookup'async r)
+	    (service,protocol)
 
   method send_message pat msg_name msg_arguments =
     dlogr
@@ -507,13 +544,20 @@ object(self)
 	    { msg_name = msg_name;
 	      msg_arguments = msg_arguments
 	    } in
-	  Netplex_ctrl_clnt.System.V1.send_message r (pat, msg)
+	  Uq_mt.monitor_async
+	    sys_mon
+	    (Netplex_ctrl_clnt.System.V1.send_message'async r)
+	    (pat, msg)
 
   method var name =
-    Hashtbl.find vars name
+    Netsys_oothr.serialize
+      vars_mutex
+      (Hashtbl.find vars) name
 
   method set_var name value =
-    Hashtbl.replace vars name value
+    Netsys_oothr.serialize
+      vars_mutex
+      (Hashtbl.replace vars name) value
 
   method call_plugin p proc_name arg =
     dlogr
@@ -531,8 +575,9 @@ object(self)
 	      | Not_found -> failwith "call_plugin: procedure not found" in
 	  let arg_str = Xdr.pack_xdr_value_as_string arg arg_ty [] in
 	  let res_str =
-	    Netplex_ctrl_clnt.System.V1.call_plugin
-	      r
+	    Uq_mt.monitor_async
+	      sys_mon
+	      (Netplex_ctrl_clnt.System.V1.call_plugin'async r)
 	      ((Int64.of_int (Oo.id p)), proc_name, arg_str) in
 	  let res = Xdr.unpack_xdr_value ~fast:true res_str res_ty [] in
 	  res
@@ -657,7 +702,10 @@ object(self)
       | Some r ->
 	  let arg_str = Marshal.to_string arg_enc [] in
 	  let res_str =
-	    Netplex_ctrl_clnt.System.V1.activate_lever r (id, arg_str) in
+	    Uq_mt.monitor_async
+	      sys_mon
+	      (Netplex_ctrl_clnt.System.V1.activate_lever'async r)
+	      (id, arg_str) in
 	  let res = Marshal.from_string res_str 0 in
 	  res
 
@@ -778,8 +826,10 @@ object(self)
     match sys_rpc with
       | None -> failwith "#register_container_socket: No RPC client available"
       | Some r ->
-	  Netplex_ctrl_clnt.System.V1.register_container_socket
-	    r (sname, pname, path)
+	  Uq_mt.monitor_async
+	    sys_mon
+	    (Netplex_ctrl_clnt.System.V1.register_container_socket'async r)
+	    (sname, pname, path)
 
   method owned_container_sockets =
     List.map
@@ -791,8 +841,10 @@ object(self)
     match sys_rpc with
       | None -> failwith "#lookup_container_sockets: No RPC client available"
       | Some r ->
-	  Netplex_ctrl_clnt.System.V1.lookup_container_sockets
-	    r (service,protocol)
+	  Uq_mt.monitor_async
+	    sys_mon
+	    (Netplex_ctrl_clnt.System.V1.lookup_container_sockets'async r)
+	    (service,protocol)
 
 
   method startup_directory =

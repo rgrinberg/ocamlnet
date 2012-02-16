@@ -565,6 +565,9 @@ end
 
 (** Containers encapsulate the control flow of the service components.
     A container is run in a separate thread or process.
+
+    {b Thread safety:} All methods except [start] can be called from
+    any thread, and provide full thread safety.
  *)
 and container =
 object
@@ -605,7 +608,13 @@ object
     (** An RPC client that can be used to send messages to the controller.
       * Only available while [start] is running. It is bound to 
       * [System.V1].
+      *
+      * In multi-threaded programs access to [system] must be governed
+      * by [system_monitor]. See {!Uq_mt} for details what this means.
      *)
+
+  method system_monitor : Uq_mt.monitor
+    (** The thread monitor protecting the [system] RPC client *)
 
   method lookup : string -> string -> string option
     (** [lookup service_name protocol_name] tries to find a Unix domain

@@ -1,3 +1,7 @@
+2012-02-16  Gerd Stolpmann  <gerd@samsung>
+
+	* Netplex: making many container methods/functions thread-safe
+
 2012-02-15  Gerd Stolpmann  <gerd@samsung>
 
 	* Uq_mt: this new module coordinates access to shared
