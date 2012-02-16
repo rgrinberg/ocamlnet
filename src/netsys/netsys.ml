@@ -621,6 +621,54 @@ let inet_addr_of_protostring s =
 external _exit : int -> unit = "netsys__exit";;
 (* same external also in netsys_signal.ml *)
 
+let binop_inet_addr f (ip1 : Unix.inet_addr) (ip2 : Unix.inet_addr) =
+  let s1 = (Obj.magic ip1 : string) in
+  let s2 = (Obj.magic ip2 : string) in
+  let l = String.length s1 in
+  if l <> String.length s2 then
+    failwith "logand_inet_addr";
+  let s3 = String.create l in
+  for k = 0 to l-1 do
+    s3.[k] <- Char.chr(f (Char.code s1.[k]) (Char.code s2.[k]));
+  done;
+  (Obj.magic s3 : Unix.inet_addr)
+
+let logand_inet_addr =
+  binop_inet_addr ( land )
+
+let logor_inet_addr =
+  binop_inet_addr ( lor )
+
+let logxor_inet_addr =
+  binop_inet_addr ( lxor )
+
+let lognot_inet_addr ip =
+  binop_inet_addr
+    (fun p1 p2 -> lnot p1)
+    ip
+    ip
+
+let is_ipv4_inet_addr (ip : Unix.inet_addr) =
+  String.length (Obj.magic ip) = 4
+
+let is_ipv6_inet_addr (ip : Unix.inet_addr) =
+  String.length (Obj.magic ip) = 16
+
+let is_multicast_inet_addr ip =
+  if is_ipv4_inet_addr ip then
+    logand_inet_addr
+      ip
+      (Unix.inet_addr_of_string "240.0.0.0")
+    = (Unix.inet_addr_of_string "224.0.0.0")
+  else
+    if is_ipv6_inet_addr ip then
+      logand_inet_addr
+        ip
+        (Unix.inet_addr_of_string "ffff::0")
+      = (Unix.inet_addr_of_string "ff00::0")
+    else
+      false
+
 
 external mcast_set_loop : Unix.file_descr -> bool -> unit 
   = "netsys_mcast_set_loop"

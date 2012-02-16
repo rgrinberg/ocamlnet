@@ -383,6 +383,31 @@ external _exit : int -> unit = "netsys__exit"
    *)
 
 
+(** {1 IP addresses} *)
+
+val logand_inet_addr : Unix.inet_addr -> Unix.inet_addr -> Unix.inet_addr
+  (** Returns the bitwise AND of the two argument addresses *)
+
+val logor_inet_addr : Unix.inet_addr -> Unix.inet_addr -> Unix.inet_addr
+  (** Returns the bitwise OR of the two argument addresses *)
+
+val logxor_inet_addr : Unix.inet_addr -> Unix.inet_addr -> Unix.inet_addr
+  (** Returns the bitwise XOR of the two argument addresses *)
+
+val lognot_inet_addr : Unix.inet_addr -> Unix.inet_addr
+  (** Returns the bitwise NOT of the argument address *)
+
+val is_ipv4_inet_addr : Unix.inet_addr -> bool
+  (** Whether the address is an IPv4 address *)
+
+val is_ipv6_inet_addr : Unix.inet_addr -> bool
+  (** Whether the address is an IPv6 address *)
+
+val is_multicast_inet_addr : Unix.inet_addr -> bool
+  (** Whether the address is a multicast address (either IPv4 or IPv6) *)
+
+
+
 (** {1 Multicast Functions} *)
 
 val mcast_set_loop : Unix.file_descr -> bool -> unit

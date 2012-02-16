@@ -17,11 +17,11 @@ Generalize the following for engines:
 DONE
 
 Unixqueue: if the loop is left by exception, ensure that the pollset
-is disposed
+is disposed - DONE
 
 - add support options to docs
 
-inet addr functions from Plasma_util
+inet addr functions from Plasma_util - DONE
 
 netmcore pools: option to initialize the pool (avoid SIGBUS)
 
