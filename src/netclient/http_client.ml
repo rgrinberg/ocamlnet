@@ -466,6 +466,17 @@ object
   method auth_state : auth_session auth_state
   method set_auth_state : auth_session auth_state -> unit
 
+  method retry_anyway : bool
+  method set_retry_anyway : bool -> unit
+    (* This flag is set when we retry the request after an authentication
+       error. It overrides the reconnect mode - even if we do not want to
+       retry the request normally, we do it now exceptionally.
+       This is especially important for non-idempotent requests.
+
+       The flag remains active until we get to the point that we can
+       write the request line.
+     *)
+
   method set_effective_request_uri : string -> unit
 
   method prepare_transmission : unit -> unit
@@ -569,6 +580,7 @@ object(self)
   val mutable reconn_mode = Send_again_if_idem
   val mutable redir_mode = Redirect_if_idem
   val mutable proxy_enabled = true
+  val mutable retry_anyway = false
 
   val mutable private_api = None
 
@@ -664,6 +676,9 @@ object(self)
 	method auth_state = auth_state
 	method set_auth_state s = auth_state <- s
 
+	method retry_anyway = retry_anyway
+	method set_retry_anyway flag = retry_anyway <- flag;
+
 	method set_effective_request_uri s = eff_req_uri <- s
 
 	method parse_request_uri options =
@@ -746,7 +761,7 @@ object(self)
 	  continue <- false;
 	  continue_e <- None;
 	  continue_aborted <- false;
-	  continue_100 <- false
+	  continue_100 <- false;
 
 	method request_body_open_rd esys =
 	  match req_dev with
@@ -1019,7 +1034,8 @@ object(self)
 	 continue_e = None;
 	 resp_handle = None;
 	 req_handle = None;
-	 auth_state = `None
+	 auth_state = `None;
+	 retry_anyway = false
       >} in
     (same : #http_call :> http_call)
 
@@ -3777,7 +3793,12 @@ let fragile_pipeline
       if can_output then (
 	let trans = Q.peek write_queue in
 	assert(trans#state = Unprocessed);
-	
+
+	(* Clear this flag now because we are about to really send a new
+	   request
+	 *)
+	trans # message # private_api # set_retry_anyway false;
+
 	let close_flag =
 	  !options.inhibit_persistency in
 
@@ -4244,6 +4265,10 @@ let fragile_pipeline
 		       | Some sess ->
 			   (* Remember the new session: *)
 			   proxy_auth_state := `In_reply sess;
+			   (* Force that even a new connection will be
+			      established independently of reconnect_mode:
+			    *)
+			   msg # private_api # set_retry_anyway true;
 			   ignore (self # add true trans#message trans#f_done);
 			   eps_e (`Done()) esys
 		    )
@@ -4274,6 +4299,10 @@ let fragile_pipeline
 		| Some sess ->
 		    (* Remember the new session: *)
 		    msg # private_api # set_auth_state (`In_reply sess);
+		    (* Force that even a new connection will be
+		       established independently of reconnect_mode:
+		     *)
+		    msg # private_api # set_retry_anyway true;
 		    ignore (self # add true trans#message trans#f_done);
 		    eps_e (`Done()) esys
     	    )
@@ -4529,23 +4558,25 @@ let robust_pipeline
 	     not too_many_total_failures &&
 	       e <= !options.maximum_message_errors &&
 	       (m # private_api # error_exception <> Some Response_too_large) &&
-	       ( match m # get_reconnect_mode with
-		| Send_again -> true
-		| Request_fails -> false
-		| Send_again_if_idem -> m # is_idempotent
-		| Inquire f ->
-		    (* Ask the function 'f' whether to reconnect or not: *)
-		    ( try f m    (* returns true or false *)
-		      with
-			  (* The invocation of 'f' may raise an exception.
-			   * It is printed to stderr (there is no other
-			   * way to report it).
-			   *)
-			  x ->
-			    dlog ("Exception caught in Http_client: " 
-				  ^ (Netexn.to_string x));
-			    false
-		    )
+	       (m # private_api # retry_anyway ||
+		  ( match m # get_reconnect_mode with
+		      | Send_again -> true
+		      | Request_fails -> false
+		      | Send_again_if_idem -> m # is_idempotent
+		      | Inquire f ->
+			  (* Ask the function 'f' whether to reconnect or not: *)
+			  ( try f m    (* returns true or false *)
+			    with
+				(* The invocation of 'f' may raise an exception.
+				 * It is printed to stderr (there is no other
+				 * way to report it).
+				 *)
+				x ->
+				  dlog ("Exception caught in Http_client: " 
+					^ (Netexn.to_string x));
+				  false
+			  )
+		  )
 	       ) in
 	   if try_again then (
 	     (* Ok, this request is tried again. *)

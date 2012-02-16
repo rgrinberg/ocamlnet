@@ -146,6 +146,7 @@ Optimization:
   Solution: When the request is added by authentication the second
   check in robust_pipeline must be skipped. Add a flag to message class
   to remember the decision of the first check
+  - DONE
 
 - Bug Http_client:
   Digest auth where the server uses a domain string with several URLs!
