@@ -449,7 +449,7 @@ type xdr_value_version =
         [XV_union_over_enum_fast].
       - [`V3]: In Ocamlnet-3.0 the tag [XV_array_of_string_fast] was added.
       - [`V4]: In Ocamlnet-3.5 the tag [XV_direct] was added.
-      ⁻ [`Ocamlrpcgen]: This refers to the version that must be used if the
+      - [`Ocamlrpcgen]: This refers to the version that must be used if the
         returned [xdr_value] is processed by code generated with [ocamlrpcgen].
 
       The default is still [`V1], for ultimate backward compatibility.

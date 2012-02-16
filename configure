@@ -757,6 +757,7 @@ fi
 ######################################################################
 # Check Apache
 
+apache_major=0   # otherwise syntax error
 if [ $enable_apache -gt 0 ]; then
     printf "Apache mod connector... "
 
@@ -805,7 +806,6 @@ where PIC code differs from non-PIC\n    such as x86_64, hppa,..."
 	    libstr="camlstr"
 	fi
     else
-	apache_major=
 	enable_apache=0
 	echo "apxs or apache not found"
 	echo "    Maybe you need to use the -apache option?"
