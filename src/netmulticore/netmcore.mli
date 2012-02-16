@@ -42,6 +42,9 @@ type process_id =
     [ `Process of int ]
   (** This tagged integer identifies processes. This variant type will never
       be extended.
+
+      Note that the int argument is not the Unix PID, but just a self-generated
+      identifier that is unique for the lifetime of the program.
    *)
 
 
@@ -186,7 +189,9 @@ val start : ?inherit_resources:inherit_request ->
       the process when they are inherited to it. This is the case for
       [`Posix_shm_preallocated]. This can be set to [`All] to inherit
       all inheritable resources, or to [`Resources l] to only inherit
-      the resources of [l]. By default, no resources are inherited.
+      the resources of [l]. By default, all resources are inherited.
+      (This changed in Ocamlnet-3.5 - before, no resources were inherited,
+      which turned out to be quite dangerous as default.)
    *)
 
 val join : res_id -> process_id -> Netplex_encap.encap option
@@ -305,7 +310,7 @@ val startup : socket_directory:string ->
       contain helper files. The must be a separate [socket_directory]
       for each running Computeplex instance.
 
-      [pidfile]: If passed, the PID of the master process is written
+      [pidfile]: If passed, the Unix PID of the master process is written
       to this file.
    *)
 

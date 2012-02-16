@@ -30,12 +30,13 @@ netmcore pools: option to initialize the pool (avoid SIGBUS)
 - Fix Netmcore, when forking:
   do not unmap anymore if a mapping is not inherited (or make this
   configurable)
+  DONE (default is now to inherit all resources)
 
 - Fix Netmcore:
   get_resource should do all the process and resource table cleanup
   from post_start when it is called the first time in container
   context. This way the cleanup is also done when a process uses
-  the machinery that was not started via Netmcore.
+  the machinery that was not started via Netmcore. - DONE
 
 - Optimization Netmcore_heap.add_immutable:
   If a pointer into the target heap is found, the data pointed to is

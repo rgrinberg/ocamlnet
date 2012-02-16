@@ -94,7 +94,7 @@ object
 
   method join_res : res_id
     (* only meaningful for fork points *)
-  method post_start : process_id -> unit
+  method post_start : unit -> unit
     (* This is run at process start time to free unneeded resources *)
   method process_body : Netplex_types.encap -> Netplex_types.encap
     (* The argument of [def_process] *)
@@ -216,6 +216,9 @@ let next_resid = ref 0
 
 let self_pid = ref None
   (* the pid of this worker (if so) *)
+
+let is_worker = ref false
+  (* whether this is a worker *)
 
 let create_process_fwd = ref (fun _ _ _ _ _ -> assert false)
   (* defined below *)
@@ -348,8 +351,8 @@ let manage_resource res_repr post_start exec =
 	    Netlog.logf `Err
 	      "Unable to destroy resource: %s" (Netexn.to_string error)
 
-	method post_start pid =
-	  post_start pid
+	method post_start () =
+	  post_start ()
       end
     ) in
   Hashtbl.replace resource_table (`Resource res_id) res;
@@ -431,6 +434,32 @@ let maybe_install_levers ctrl =
   )
 
 
+let reinit_for_worker inherit_req =
+  (* Should be called just after the worker process is forked *)
+  is_worker := true;
+  Hashtbl.clear process_table;
+  (* Get rid of all resources - except inherited resources. *)
+  let kept_resources = ref [] in
+  Hashtbl.iter
+    (fun res_id res ->
+       if List.mem res#typ inheritable then (
+	 let do_it =
+	   match inherit_req with
+	     | `Resources l -> List.mem res_id l
+	     | `All -> true in
+	 if do_it then 
+	   kept_resources := (res_id,res) :: !kept_resources
+	 else
+	   res#post_start ()
+       )
+    )
+    resource_table;
+  Hashtbl.clear resource_table;
+  List.iter
+    (fun (res_id,res) -> Hashtbl.replace resource_table res_id res)
+    !kept_resources
+
+
 let create_process f arg (`Process pid) 
                    join_res_id inherit_req =
   (* Must be run in the master process: Starts a new
@@ -457,28 +486,9 @@ let create_process f arg (`Process pid)
 
 	method post_start_hook c =
 	  self_pid := Some pid;
+	  reinit_for_worker inherit_req;
 	  let lev = get_levers() in
-	  Hashtbl.clear process_table;
-	  (* Get rid of all resources - except inherited resources. *)
-	  let kept_resources = ref [] in
-	  Hashtbl.iter
-	    (fun res_id res ->
-	       if List.mem res#typ inheritable then (
-		 let do_it =
-		   match inherit_req with
-		     | `Resources l -> List.mem res_id l
-		     | `All -> true in
-		 if do_it then 
-		   kept_resources := (res_id,res) :: !kept_resources
-		 else
-		   res#post_start (`Process pid)
-	       )
-	    )
-	    resource_table;
-	  Hashtbl.clear resource_table;
-	  List.iter
-	    (fun (res_id,res) -> Hashtbl.replace resource_table res_id res)
-	    !kept_resources;
+
 	  (* Run the user-supplied function & catch exns *)
 	  dlogr (fun () -> sprintf "Start worker pid=%d" pid);
 	  ( try
@@ -670,6 +680,11 @@ let get_resource res_id =
       | Some(`Container cid) ->
 	  dlogr (fun () -> 
 		   sprintf "get_resource (invoke) %d" res_id_n);
+	  (* If this process has been started directly by Netplex and not
+	     via [start], it is not yet initialized as worker
+	   *)
+	  if not !is_worker then
+	    reinit_for_worker `All;
 	  let lev = get_levers() in
 	  ( match lev.get_resource (res_id,cid) with
 	      | None -> 
@@ -713,7 +728,7 @@ let get_resource res_id =
 
 (* API-only stuff *)
 
-let start ?(inherit_resources=`Resources []) fork_res_id arg =
+let start ?(inherit_resources=`All) fork_res_id arg =
   let r = get_resource fork_res_id in
   match r # repr with
     | `Fork_point f ->
@@ -783,7 +798,14 @@ let create_preallocated_shm ?(value_area=false) prefix size =
 let self_process_id() =
   match !self_pid with
     | None ->
-	failwith "Netmcore.self_process_id: not in worker context"
+       ( match self_exec() with
+	   | Some (`Container cid) ->
+	       failwith "Netmcore.self_process_id: This worker has not been \
+                         started via Netmcore.start, and does not have a \
+                         process ID"
+	   | _ ->
+	       failwith "Netmcore.self_process_id: not in worker context"
+       )
     | Some pid ->
 	`Process pid
 
