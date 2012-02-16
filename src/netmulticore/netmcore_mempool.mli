@@ -24,13 +24,25 @@
 
 exception Out_of_pool_memory
 
-val create_mempool : int -> Netmcore.res_id
+val create_mempool : ?alloc_really:bool -> int -> Netmcore.res_id
   (** Creates the memory pool as shared memory object of the passed size
       (rounded up to the next multiple of pages) and returns the resource ID.
 
       Note that the process calling this function cannot use the pool,
       but only worker processes that are forked later. It is possible
       to call [create_mempool] before running {!Netmcore.startup}.
+
+      Option [alloc_really]: On some operating systems (namely Linux)
+      shared memory is not fully included into the memory bookkeeping
+      as long as nothing is written into it (so-called
+      overcommitment). This means that the memory is not reserved, and
+      when something is written for the first time, it might happen
+      that the system cannot grant the request. The consequence is a
+      bus error. By setting [alloc_really] to true, all allocated
+      memory pages are immediately written to, and thus the problem is
+      avoided (or better, if memory is really tight, you get the bus
+      error now immediately, at least).
+
    *)
 
 val alloc_mem : Netmcore.res_id -> int -> Netsys_mem.memory

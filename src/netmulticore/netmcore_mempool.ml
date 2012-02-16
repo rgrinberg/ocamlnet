@@ -646,7 +646,7 @@ let debug_info res_id =
     )
     
 
-let create_mempool size =
+let create_mempool ?(alloc_really=false) size =
   (* round up to multiple of page_size: *)
   if size <= 0 then
     invalid_arg "Netmcore_mempool.create_mempool: bad size";
@@ -655,6 +655,13 @@ let create_mempool size =
     Netmcore.create_preallocated_shm ~value_area:true "/mempool" size in
   (* Map the first page only *)
   let fd = Netsys_posix.shm_open full_name [Netsys_posix.SHM_O_RDWR] 0 in
+  if alloc_really then (
+    for k = 0 to size/page_size-1 do
+      ignore(Unix.lseek fd (k*page_size) Unix.SEEK_SET);
+      ignore(Unix.write fd "\000" 0 1);
+    done;
+    ignore(Unix.lseek fd 0 Unix.SEEK_SET);
+  );
   let mem =
     try
       let mem = Netsys_mem.memory_map_file fd true page_size in

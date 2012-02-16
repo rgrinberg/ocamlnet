@@ -24,6 +24,8 @@ is disposed - DONE
 inet addr functions from Plasma_util - DONE
 
 netmcore pools: option to initialize the pool (avoid SIGBUS)
+- DONE
+
 
 - Fix Netmcore, when forking:
   do not unmap anymore if a mapping is not inherited (or make this
