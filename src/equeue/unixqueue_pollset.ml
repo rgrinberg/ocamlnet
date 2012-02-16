@@ -6,6 +6,8 @@
     - the group is cleared (and we are not waiting)
     - after every wait
    Note that we must not call [dispose] while [wait] is running!
+
+   Also, we call it when [run] is left by an exception.
  *)
 
 
@@ -1011,6 +1013,7 @@ object(self)
       done;
     with
       | error ->
+	  pset # dispose();
           raise error
 
   method is_running =

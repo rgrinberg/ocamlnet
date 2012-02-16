@@ -1,19 +1,5 @@
 Make Netplex containers thread-safe
-- Netplex_container:
-  - #update_detail ???
-  - #system: not thread-safe by design
-    add: #with_system, mutex
-  - #shutdown: route this via esys?
-  - log_subch: mutex
-  - lookup: mutex
-  - send_message: mutex
-  - var/set_var: mutex (for vars)
-  - call_plugin: mutex
-  - activate_lever: mutex
-  - owned_container_sockets, lookup_container_sockets: mutex
-
-- Netplex_cenv:
-
+- DONE
 
 Generalize the following for engines:
  - Uq_engines.Thread_monitor
@@ -29,6 +15,11 @@ Generalize the following for engines:
    when any of the functions [f] finishes. Switching can happen
    whenever the event system waits for new events.
 DONE
+
+Unixqueue: if the loop is left by exception, ensure that the pollset
+is disposed
+
+- add support options to docs
 
 inet addr functions from Plasma_util
 
@@ -105,7 +96,7 @@ Major future directions:
 - Performance
   * epoll - DONE
   * posix_spawn - DONE
-  * RPC marshalling
+  * RPC marshalling - DONE
   * Service monitors
 
 - Documentation
@@ -118,6 +109,7 @@ Major future directions:
   * smoothen Netplex APIs
   * more delegation classes
   * Nethttpd: include more real web server features
+  * Netcgi + Netplex: allow same config style as Nethttpd
   * ASN.1 string functions
 
 - More async
@@ -130,8 +122,6 @@ Major future directions:
 
 - Finish Neturl (~addr, ~socksymbol, url_addr, url_socksymbol) - DONE
 - Uq_resolver: support IP addresses enclosed in brackets - DONE
-
-- add support options to docs
 
 Optimization:
   - Uq_io.input_lines: reads as much lines as possible from in_buffer
@@ -181,7 +171,10 @@ Optimization:
   limits authentication to certain programs/versions/procedures
 - Rpc_server.name_auth_method (n:name) (m:auth_method)
   sets the name of the method
-- RPc_server: preflight mode for XDR
+
+- RPc_server: preflight mode for XDR - 
+  DONE (array length check)
+
 - Netplex:
   * Easier way to catch controller termination
     Netplex_cenv.on_system_shutdown
@@ -576,6 +569,7 @@ Performance improvements after Ocamlnet 3.0
 A list of possible improvements, once interfaces are stable again:
 
 - Provide epoll/kqueue-based event_system
+  * epoll - DONE
 
 - Implement Netplex_semaphore with POSIX semaphores for systems
   supporting them
@@ -606,11 +600,11 @@ A list of possible improvements, once interfaces are stable again:
   supporting that
 
 - Implement Netsys_posix.spawn with posix_spawn for systems 
-  supporting that
+  supporting that - DONE
 
-- Improve Rtypes performance
+- Improve Rtypes performance - DONE
 
-- RPC: generate direct mapping
+- RPC: generate direct mapping - DONE
 
 - RPC: server should support caching for configured procedures
   (Hmmm, unclear. Maybe we just want a server where one can intercept the
@@ -624,7 +618,7 @@ Implementation improvements after Ocamlnet 3.0
 
 - signalfd (Linux), as an efficient way of catching SIGCHLD
 - eventfd (Linux), as an efficient way of waking equeue up from
-  other threads
+  other threads - DONE
 
 - Update Equeue_intro:
    * Throw out the chapter about async channel
