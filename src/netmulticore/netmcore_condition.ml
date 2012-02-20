@@ -7,6 +7,19 @@
    http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.125.3384&rep=rep1&type=pdf
  *)
 
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Netmcore_condition" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netmcore_condition" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Netmcore_condition" Debug.enable
+
+open Printf
+open Uq_engines.Operators
+
 type condition =
     { dummy_cond : bool;
       mutable waiters : wait_entry;
@@ -22,7 +35,10 @@ and wait_entry =
       mutable sem : Netmcore_sem.semaphore;
       mutable next : wait_entry;      (* may be cond.null *)
       mutable set_next : wait_entry;  (* not meaningful if [empty] *)
+      mutable pipe : string option;
     }
+
+and wait_entry_e = wait_entry
 
 and wait_set = 
     { dummy_set : bool;
@@ -36,6 +52,7 @@ let empty_wait_entry() =
       sem = Netmcore_sem.dummy();
       next = we;
       set_next = we;
+      pipe = None
     } in
   we
 
@@ -124,8 +141,17 @@ let alloc_wait_entry mut wset =
        !we.set_next <- tail;
        !we.empty <- false;
        !we.sem <- Netmcore_sem.create mut 0;
+       !we.pipe <- None;
        !we
     )
+
+let alloc_wait_entry_e mut wset file =
+  let we = alloc_wait_entry mut wset in
+  with_alloc_lock wset
+    (fun () ->
+       we.pipe <- Netmcore_heap.add mut (Some file)
+    );
+  we
 
 
 let free_wait_entry mut wset we_to_free =
@@ -149,8 +175,15 @@ let free_wait_entry mut wset we_to_free =
 	       p.set_next <- !we.set_next
        );
        !we.set_next <- !we;
-       !we.next <- !we
+       !we.next <- !we;
+       match !we.pipe with
+	 | None -> ()
+	 | Some p ->
+	     ( try Unix.unlink p with _ -> () )
     )
+
+
+let free_wait_entry_e = free_wait_entry
 
 
 let wait we c m =
@@ -168,26 +201,146 @@ let wait we c m =
   Netmcore_mutex.lock m
 
 
+let pipe_name we =
+  match we.pipe with
+    | None -> assert false
+    | Some p -> String.copy p
+
+
+let wait_e_d name we c m esys cont =
+  dlog "Netmcore_condition.wait_e";
+  if c.dummy_cond then
+    failwith "Netmcore_condition.wait_e: dummy condition";
+  if we.empty then
+    failwith "Netmcore_condition.wait_e: this is the reserved guard wait_entry";
+  if we.next != we then
+    failwith "Netmcore_condition.wait_e: the wait entry is being used";
+  let p = pipe_name we in
+  let fd = Unix.openfile p [Unix.O_RDONLY; Unix.O_NONBLOCK] 0 in
+  let fd_open = ref true in
+  let close() = 
+    if !fd_open then Unix.close fd;
+    fd_open := false in
+  Netmcore_sem.wait c.lock Netsys_posix.SEM_WAIT_BLOCK;
+  let old_waiters = c.waiters in
+  c.waiters <- we;
+  we.next <- old_waiters;
+  Netmcore_sem.post c.lock;
+  let name = name ^ " (" ^ p ^ ")" in
+  dlogr
+    (fun() -> sprintf "Netmcore_condition.wait_e %s: unlocking mutex" name);
+  Netmcore_mutex.unlock m;
+  dlogr
+    (fun() -> 
+       sprintf "Netmcore_condition.wait_e %s: waiting for pipe signal" name);
+
+  let rec poll_and_read_e rep =
+    ( new Uq_engines.poll_engine [ Unixqueue.Wait_in fd, (-1.0) ] esys
+      >> (fun st ->
+            match st with
+              | `Done ev -> 
+                  `Done ()
+              | (`Error err) as st ->
+                  Netlog.logf `Err
+                    "Netmcore_condition.wait_e: exception from poll_engine: %s"
+                    (Netexn.to_string err);
+                  st
+              | `Aborted ->
+                  close(); `Aborted
+         )
+    )
+    ++ (fun () ->
+          dlogr
+            (fun () -> 
+               sprintf
+		 "Netmcore_condition.wait_e %s: poll wakeup rep=%B" name rep);
+          let s = String.make 1 ' ' in
+          let p = Netsys.blocking_gread `Read_write fd s 0 1 in
+          (* If p=0 this is a spurious wakeup. This can basically happen
+             when the previous poster still had the file open at the time
+             we opened it. When the poster closes the file, we will get
+             an EOF. It is meaningless, though, and can be ignored.
+             Just restart polling.
+           *)
+          if p=0 then
+            Uq_engines.delay_engine 0.01
+              (fun _ -> eps_e (`Done()) esys)
+              esys
+            ++ (fun () ->
+                  poll_and_read_e true
+               )
+          else (
+            (* The semaphore is always 1 here - because we already read the
+               byte, and thus the semaphore was already posted. Also, there
+               can only be one poster (the wait entry is removed from the
+               list by post)
+             *)
+            dlogr
+              (fun () -> 
+                 sprintf "Netmcore_condition.wait_e %s: reading done, sem=%d" name
+                   (Netmcore_sem.getvalue we.sem)
+              );
+            assert(Netmcore_sem.getvalue we.sem = 1);
+            Netmcore_sem.wait we.sem Netsys_posix.SEM_WAIT_BLOCK;
+            close();
+            dlogr
+              (fun () ->
+                 sprintf "Netmcore_condition.wait_e %s: locking mutex" name);
+            Netmcore_mutex.lock m;
+            cont()
+          )
+       ) in
+  poll_and_read_e false
+
+let wait_e ?(debug_name="") we c m esys cont = 
+  wait_e_d debug_name we c m esys cont
+
+
+let post c =
+  let we = c.waiters in
+  assert(not we.empty);
+  c.waiters <- we.next;
+  we.next <- we;
+  match we.pipe with
+    | None ->
+	Netmcore_sem.post we.sem
+    | Some p ->
+	dlogr (fun () -> sprintf "Netmcore_condition.post(%s)" p);
+	let fd = Unix.openfile p [Unix.O_WRONLY; Unix.O_NONBLOCK] 0 in
+	Netmcore_sem.post we.sem;
+	dlogr (fun () -> 
+		 sprintf "Netmcore_condition.post(%s): writing" p);
+	try
+	  let s = "X" in
+	  Netsys.really_gwrite `Read_write fd s 0 1;
+	  Unix.close fd
+	with error -> 
+	  Unix.close fd; raise error
+
+
 let signal c =
   if c.dummy_cond then
     failwith "Netmcore_condition.signal: dummy condition";
   Netmcore_sem.wait c.lock Netsys_posix.SEM_WAIT_BLOCK;
-  if c.waiters != c.null then (
-    let we = c.waiters in
-    c.waiters <- we.next;
-    we.next <- we;
-    Netmcore_sem.post we.sem
-  );
-  Netmcore_sem.post c.lock
+  try
+    if c.waiters != c.null then
+      post c;
+    Netmcore_sem.post c.lock
+  with
+    | error ->
+	Netmcore_sem.post c.lock;
+	raise error
 
 let broadcast c =
   if c.dummy_cond then
     failwith "Netmcore_condition.broadcast: dummy condition";
   Netmcore_sem.wait c.lock Netsys_posix.SEM_WAIT_BLOCK;
-  while c.waiters != c.null do
-    let we = c.waiters in
-    c.waiters <- we.next;
-    we.next <- we;
-    Netmcore_sem.post we.sem
-  done;
-  Netmcore_sem.post c.lock
+  try
+    while c.waiters != c.null do
+      post c;
+    done;
+    Netmcore_sem.post c.lock
+  with
+    | error ->
+	Netmcore_sem.post c.lock;
+	raise error

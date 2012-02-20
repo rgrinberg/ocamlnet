@@ -1,3 +1,23 @@
+add support options to docs
+ - List of possible features to implement
+
+Advanced:
+ - Special form of condition variables one can poll on
+   (See Plasma: pfs_condition) - DONE
+
+- Netshm: use blitting functions encoded in C (for int32 bigarrays)
+  Better: bigarray conversion to flat memory
+
+- Netchannels.lift_in: if buffered=false, automatically enable the
+  buffer the first time input_line is called
+- Performance: after lift_in, the input_line fn is slow
+
+- speed up accepts in Netplex
+
+- if time: more docs
+
+--
+
 Make Netplex containers thread-safe
 - DONE
 
@@ -18,8 +38,6 @@ DONE
 
 Unixqueue: if the loop is left by exception, ensure that the pollset
 is disposed - DONE
-
-- add support options to docs
 
 inet addr functions from Plasma_util - DONE
 
@@ -42,10 +60,6 @@ netmcore pools: option to initialize the pool (avoid SIGBUS)
   If a pointer into the target heap is found, the data pointed to is
   not copied. Benefit: Immutable data structures (Set, Map)
   USER: plasma, Nn_notify
-
-Advanced:
- - Special form of condition variables one can poll on
-   (See Plasma: pfs_condition)
 
 Netnumber plus add, sub
 
@@ -222,12 +236,6 @@ Optimization:
 - RPC: support relaying specially: if a server simply wants to forward
   an RPC call unchanged to a different port, there is no need to decode
   the message fully.
-
-- Netshm: use blitting functions encoded in C (for int32 bigarrays)
-- Netchannels.lift_in: if buffered=false, automatically enable the
-  buffer the first time input_line is called
-- Performance: after lift_in, the input_line fn is slow
-
 
 - WebDAV, Haddop_fs: use Netfs.empty_fs - DONE
 - Netfs.abort_write - DONE (cancel)
@@ -577,6 +585,8 @@ A list of possible improvements, once interfaces are stable again:
 
 - Implement Netplex_semaphore with POSIX semaphores for systems
   supporting them
+  --> Do this when we have pollable semaphores!
+
    * pollable semaphores: emulate with pipes
      post : lock
             n = getvalue

@@ -1,3 +1,8 @@
+2012-02-20  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Netmcore_condition: There is now a second kind of wait_entry
+	  allowing it to wait via file descriptor polling.
+
 2012-02-16  Gerd Stolpmann  <gerd@samsung>
 
 	* Http_client: fixing the case that a non-idempotent request
