@@ -126,51 +126,25 @@ let int32_array_manager =
 let string_manager =
   { to_int32_array =
       (fun s ->
-	 (* TODO: Do this in C *)
 	 let s_len = String.length s in
+	 if Int32.of_int s_len > Int32.max_int then 
+	   failwith "Netshm_data: string too long";
 	 let size = if s_len = 0 then 1 else (s_len - 1) / 4 + 2 in
 	 let v =
 	   Bigarray.Array1.create Bigarray.int32 Bigarray.c_layout size in
-	 (* TODO: Check string size *)
 	 v.{ 0 } <- Int32.of_int s_len;
-	 for k = 0 to size - 3 do
-	   let j = k lsl 2 in  (* k * 4 *)
-	   let c3 = Char.code s.[ j ] in
-	   let c2 = Char.code s.[ j+1 ] in
-	   let c1 = Char.code s.[ j+2 ] in
-	   let c0 = Char.code s.[ j+3 ] in
-	   let x =
-	     Int32.logor
-	       (Int32.logor
-		  (Int32.logor 
-		     (Int32.of_int c0)
-		     (Int32.shift_left (Int32.of_int c1) 8))
-		  (Int32.shift_left (Int32.of_int c2) 16))
-	       (Int32.shift_left (Int32.of_int c3) 24) in
-	   v.{ k+1 } <- x
-	 done;
-	 if size > 1 then (
-	   let j = (size-2) lsl 2 in  (* (size-1) * 4 *)
-	   let c3 = if j < s_len then Char.code s.[ j ] else 0 in
-	   let c2 = if j+1 < s_len then Char.code s.[ j+1 ] else 0 in
-	   let c1 = if j+2 < s_len then Char.code s.[ j+2 ] else 0 in
-	   let c0 = if j+3 < s_len then Char.code s.[ j+3 ] else 0 in
-	   let x =
-	     Int32.logor
-	       (Int32.logor
-		  (Int32.logor 
-		     (Int32.of_int c0)
-		     (Int32.shift_left (Int32.of_int c1) 8))
-		  (Int32.shift_left (Int32.of_int c2) 16))
-	       (Int32.shift_left (Int32.of_int c3) 24) in
-	   v.{ size-1 } <- x
-	 );
-	 v);
+
+	 let m =
+	   Netsys_mem.memory_of_bigarray_1 v in
+	 Netsys_mem.blit_string_to_memory s 0 m 4 s_len;
+	 v
+      );
 
     of_int32_array =
       (fun l ->
 	 if l = [] then
-	   raise(Netshm.Corrupt_file "Netshm_data.string_manager: Cannot decode");
+	   raise(Netshm.Corrupt_file
+		   "Netshm_data.string_manager: Cannot decode");
 	 let size = ref 0 in
 	 let v_last = ref None in
 	 List.iter
@@ -184,49 +158,49 @@ let string_manager =
 	       | None -> assert false
 	       | Some v ->
 		   if Bigarray.Array1.dim v = 0 then
-		     raise(Netshm.Corrupt_file "Netshm_data.string_manager: Cannot decode");
+		     raise(Netshm.Corrupt_file 
+			     "Netshm_data.string_manager: Cannot decode");
 		   Int32.to_int v.{ 0 }
 	   ) in
+	 let s_len_4 = s_len mod 4 in
 	 let size' = if s_len = 0 then 1 else (s_len - 1) / 4 + 2 in
 	 if !size <> size' then
-	   raise(Netshm.Corrupt_file "Netshm_data.string_manager: Cannot decode");
+	   raise(Netshm.Corrupt_file 
+		   "Netshm_data.string_manager: Cannot decode");
 	 let pos = ref !size in
 	 let s = String.create s_len in
+	 let s_pos = ref s_len in
 	 List.iter
 	   (fun v ->
 	      let l = Bigarray.Array1.dim v in
 	      let has_last_content_word = !pos = !size && s_len > 0 in
 	      pos := !pos - l;
 	      let has_length_word = !pos = 0 in
-	      let loop_e = if has_last_content_word then l-2 else l-1 in
-	      let loop_s = if has_length_word then 1 else 0 in
-      	      for k = loop_s to loop_e do
-		let j = (!pos + k - 1) lsl 2 in
-		let x = v.{ k } in
-		let c3 = Int32.to_int(Int32.shift_right_logical x 24) in
-		let c2 = Int32.to_int(Int32.logand (Int32.shift_right_logical x 16) 0xffl) in
-		let c1 = Int32.to_int(Int32.logand (Int32.shift_right_logical x 8) 0xffl) in
-		let c0 = Int32.to_int(Int32.logand x 0xffl) in
-		s.[ j ]   <- Char.chr c3;
-		s.[ j+1 ] <- Char.chr c2;
-		s.[ j+2 ] <- Char.chr c1;
-		s.[ j+3 ] <- Char.chr c0
-	      done;
 
-	      if has_last_content_word then (
-		let j = (!pos + l-1 - 1) lsl 2 in
-		let x = v.{ l-1 } in
-		let c3 = Int32.to_int(Int32.shift_right_logical x 24) in
-		let c2 = Int32.to_int(Int32.logand (Int32.shift_right_logical x 16) 0xffl) in
-		let c1 = Int32.to_int(Int32.logand (Int32.shift_right_logical x 8) 0xffl) in
-		let c0 = Int32.to_int(Int32.logand x 0xffl) in
-		if j   < s_len then s.[ j ]   <- Char.chr c3;
-		if j+1 < s_len then s.[ j+1 ] <- Char.chr c2;
-		if j+2 < s_len then s.[ j+2 ] <- Char.chr c1;
-		if j+3 < s_len then s.[ j+3 ] <- Char.chr c0
-	      )
+	      let m = Netsys_mem.memory_of_bigarray_1 v in
+	      let bsize =
+		4 * l -
+		  (if has_last_content_word && s_len_4 <> 0 then
+		     4 - s_len_4
+		   else
+		     0
+		  ) -
+		  (if has_length_word then
+		     4
+		   else
+		     0
+		  ) in
+	      s_pos := !s_pos - bsize;
+	      Netsys_mem.blit_memory_to_string
+		m
+		(if has_length_word then 4 else 0)
+		s
+		!s_pos
+		bsize;
 	   )
 	   l;
+	 assert (!pos = 0);
+	 assert (!s_pos = 0);
 	 s
       );
  

@@ -34,6 +34,14 @@ let blit_string_to_memory s soff mem memoff len =
 external memory_address : memory -> nativeint
   = "netsys_memory_address"
 
+external reshape : 'a -> memory = "netsys_reshape"
+  (* 'a = any bigarray *)
+
+let memory_of_bigarray b = reshape b
+let memory_of_bigarray_1 b = reshape b
+let memory_of_bigarray_2 b = reshape b
+let memory_of_bigarray_3 b = reshape b
+
 external getpagesize : unit -> int
   = "netsys_getpagesize"
 

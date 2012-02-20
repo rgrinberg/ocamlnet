@@ -1,10 +1,6 @@
 add support options to docs
  - List of possible features to implement
 
-Advanced:
- - Special form of condition variables one can poll on
-   (See Plasma: pfs_condition) - DONE
-
 - Netshm: use blitting functions encoded in C (for int32 bigarrays)
   Better: bigarray conversion to flat memory
 
@@ -17,6 +13,10 @@ Advanced:
 - if time: more docs
 
 --
+
+Advanced:
+ - Special form of condition variables one can poll on
+   (See Plasma: pfs_condition) - DONE
 
 Make Netplex containers thread-safe
 - DONE

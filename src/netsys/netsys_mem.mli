@@ -43,6 +43,17 @@ external blit_string_to_memory_unsafe :
 val memory_address : memory -> nativeint
   (** Returns the start address of the buffer *)
 
+val memory_of_bigarray : ('a, 'b, 'c) Bigarray.Genarray.t -> memory
+val memory_of_bigarray_1 : ('a, 'b, 'c) Bigarray.Array1.t -> memory
+val memory_of_bigarray_2 : ('a, 'b, 'c) Bigarray.Array2.t -> memory
+val memory_of_bigarray_3 : ('a, 'b, 'c) Bigarray.Array3.t -> memory
+  (** These functions return an arbitrary bigarray as [memory].
+
+      Due to a bug in the OCaml runtime, this is for now limited to
+      arrays of up to 2G size (in bytes). (The bug exists at least
+      up to OCaml-3.12.1.)
+   *)
+
 (** {2 Allocation and memory-mapping} *)
 
 val getpagesize : unit -> int

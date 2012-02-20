@@ -265,6 +265,46 @@ CAMLprim value netsys_memory_unmap_file(value memv)
     return Val_unit;
 }
 
+
+extern value caml_ba_reshape(value bv, value dimv);
+
+CAMLprim value netsys_reshape(value bv)
+{
+    struct caml_bigarray *b;
+    struct caml_bigarray *mem;
+    uintnat size;
+    int i,k;
+    CAMLparam1(bv);
+    CAMLlocal2(memv,dimv);
+
+    b = Bigarray_val(bv);
+
+    /* We dont't have access to caml_ba_update_proxy. The workaround is
+       to call caml_ba_reshape, and to fix the returned bigarray descriptor
+       afterward.
+    */
+    dimv = alloc(b->num_dims,0);
+    for (k=0; k < b->num_dims; k++) {
+	Store_field(dimv, k, Val_long(b->dim[k]));
+    };
+    
+    memv = caml_ba_reshape(bv, dimv);
+    mem = Bigarray_val(memv);
+
+    /* Compute the size of the data area: */
+    size = caml_ba_element_size[b->flags & CAML_BA_KIND_MASK];
+    for (i = 0; i < b->num_dims; i++)
+	size *= b->dim[i];
+
+    mem->num_dims = 1;
+    mem->flags = (mem->flags & ~CAML_BA_KIND_MASK) | CAML_BA_UINT8;
+    mem->flags = (mem->flags & ~CAML_BA_LAYOUT_MASK) | CAML_BA_C_LAYOUT;
+    mem->dim[0] = size;
+
+    CAMLreturn(memv);
+}
+
+
 /**********************************************************************/
 /* Obj helpers                                                        */
 /**********************************************************************/

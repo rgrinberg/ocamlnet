@@ -1,5 +1,9 @@
 2012-02-20  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
+	* Netshm_data.string_manager: speeding up (using memory_of_bigarray)
+
+	* Netsys_mem.memory_of_bigarray: added
+
 	* Netmcore_condition: There is now a second kind of wait_entry
 	  allowing it to wait via file descriptor polling.
 
