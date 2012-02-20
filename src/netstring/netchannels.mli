@@ -612,6 +612,7 @@ val lift_in :
       ?eol:string list ->
       ?buffered:bool ->
       ?buffer_size:int ->
+      ?pass_through:int ->
       [ `Rec of rec_in_channel | `Raw of raw_in_channel ] ->
       in_obj_channel
   (** Turns a [rec_in_channel] or [raw_in_channel], depending on the passed
@@ -632,11 +633,15 @@ val lift_in :
    *   [buffer_size].
    * @param buffered Whether a buffer is added, by default {b true}
    * @param buffer_size The size of the buffer, if any, by default 4096
+   * @param pass_through If the read request has at least this size,
+   *   and the buffer is currently empty, the buffer will be bypassed.
+   *   Defaults to [max_int], i.e. it is off.
    *)
 
 val lift_out :
       ?buffered:bool ->
       ?buffer_size:int ->
+      ?pass_through:int ->
       [ `Rec of rec_out_channel | `Raw of raw_out_channel ] ->
       out_obj_channel
   (** Turns a [rec_out_channel] or [raw_out_channel], depending on the passed
@@ -650,6 +655,9 @@ val lift_out :
    *
    * @param buffered Whether a buffer is added, by default {b true}
    * @param buffer_size The size of the buffer, if any, by default 4096
+   * @param pass_through If the write request has at least this size,
+   *   and the buffer is currently empty, the buffer will be bypassed.
+   *   Defaults to [max_int], i.e. it is off.
    *)
 
 (** This class implements the methods from [compl_in_channel] by calling
@@ -751,6 +759,7 @@ end
 class buffered_raw_in_channel : 
         ?eol:string list ->
         ?buffer_size:int ->     (* default: 4096 *)
+        ?pass_through:int ->
 	raw_in_channel ->
 	  enhanced_raw_in_channel
   (** This class adds a buffer to the underlying [raw_in_channel].
@@ -766,15 +775,22 @@ class buffered_raw_in_channel :
    *   The delimiter strings must neither be empty, nor longer than
    *   [buffer_size].
    * @param buffer_size The size of the buffer, by default 4096.
+   * @param pass_through If the read request has at least this size,
+   *   and the buffer is currently empty, the buffer will be bypassed.
+   *   Defaults to [max_int], i.e. it is off.
    *)
 
 class buffered_raw_out_channel : 
         ?buffer_size:int ->     (* default: 4096 *)
+        ?pass_through:int ->
 	raw_out_channel ->
 	  raw_out_channel
   (** This class adds a buffer to the underlying [raw_out_channel]. 
    *
    * @param buffer_size The size of the buffer, by default 4096.
+   * @param pass_through If the write request has at least this size,
+   *   and the buffer is currently empty, the buffer will be bypassed.
+   *   Defaults to [max_int], i.e. it is off.
    *)
 
 

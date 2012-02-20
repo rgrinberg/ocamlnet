@@ -607,9 +607,12 @@ type eol_status =
   | EOL_found of int * int     (* Position, length *)
 
 
+exception Pass_through
+
 class buffered_raw_in_channel
       ?(eol = [ "\n" ])
       ?(buffer_size = 4096)
+      ?(pass_through = max_int)
       (ch : raw_in_channel) : enhanced_raw_in_channel =
 object (self)
   val out = ch
@@ -628,16 +631,23 @@ object (self)
 
   method input s pos len =
     if closed then raise Closed_channel;
-    if len > 0 then (
-      if bufpos = buflen then (
-	self # refill();
-      );
-      let n = min len (buflen - bufpos) in
-      String.blit buf bufpos s pos n;
-      bufpos <- bufpos + n;
-      n
-    )
-    else 0
+    try
+      if len > 0 then (
+	if bufpos = buflen then (
+	  if len >= pass_through then
+	    raise Pass_through
+	  else
+	    self # refill();
+	);
+	let n = min len (buflen - bufpos) in
+	String.blit buf bufpos s pos n;
+	bufpos <- bufpos + n;
+	n
+      )
+      else 0
+    with Pass_through ->
+      ch # input s pos len
+
 
   method private refill() =
     let d = bufpos in
@@ -811,9 +821,9 @@ end
 ;;
 
 
-class lift_raw_in_channel_buf ?eol ?buffer_size r =
+class lift_raw_in_channel_buf ?eol ?buffer_size ?pass_through r =
 object(self)
-  inherit buffered_raw_in_channel ?eol ?buffer_size r
+  inherit buffered_raw_in_channel ?eol ?buffer_size ?pass_through r
   inherit augment_raw_in_channel
 
   method input_line () =
@@ -823,19 +833,22 @@ end;;
 
 type lift_in_arg = [ `Rec of rec_in_channel | `Raw of raw_in_channel ]
 
-let lift_in ?(eol = ["\n"]) ?(buffered=true) ?buffer_size (x : lift_in_arg) =
+let lift_in ?(eol = ["\n"]) ?(buffered=true) ?buffer_size ?pass_through
+            (x : lift_in_arg) =
   match x with
       `Rec r when not buffered ->
 	if eol <> ["\n"] then invalid_arg "Netchannels.lift_in";
 	new lift_rec_in_channel r
     | `Rec r when buffered ->
 	let r' = new lift_rec_in_channel r in
-	new lift_raw_in_channel_buf ~eol ?buffer_size (r' :> raw_in_channel)
+	new lift_raw_in_channel_buf
+	  ~eol ?buffer_size ?pass_through 
+	  (r' :> raw_in_channel)
     | `Raw r when not buffered ->
 	if eol <> ["\n"] then invalid_arg "Netchannels.lift_in";
 	new lift_raw_in_channel r
     | `Raw r when buffered ->
-	new lift_raw_in_channel_buf ~eol ?buffer_size r
+	new lift_raw_in_channel_buf ~eol ?buffer_size ?pass_through r
 ;;
 
 
@@ -1254,6 +1267,7 @@ end;;
 
 class buffered_raw_out_channel 
       ?(buffer_size = 4096)
+      ?(pass_through = max_int)
       (ch : raw_out_channel) : raw_out_channel =
 object (self)
   val out = ch
@@ -1264,12 +1278,15 @@ object (self)
 
   method output s pos len =
     if closed then raise Closed_channel;
-    let n = min len (bufsize - bufpos) in
-    String.blit s pos buf bufpos n;
-    bufpos <- bufpos + n;
-    if bufpos = bufsize then
-      self # flush();
-    n
+    if bufpos=0 && len >= pass_through then
+      ch # output s pos len
+    else
+      let n = min len (bufsize - bufpos) in
+      String.blit s pos buf bufpos n;
+      bufpos <- bufpos + n;
+      if bufpos = bufsize then
+	self # flush();
+      n
 
   method flush() =
     let k = ref 0 in
@@ -1303,18 +1320,20 @@ end
 
 type lift_out_arg = [ `Rec of rec_out_channel | `Raw of raw_out_channel ]
 
-let lift_out ?(buffered=true) ?buffer_size (x : lift_out_arg) =
+let lift_out ?(buffered=true) ?buffer_size ?pass_through (x : lift_out_arg) =
   match x with
       `Rec r when not buffered ->
 	new lift_rec_out_channel r
     | `Rec r when buffered ->
 	let r' = new lift_rec_out_channel r in
-	let r'' = new buffered_raw_out_channel ?buffer_size (r' :> raw_out_channel) in
+	let r'' = 
+	  new buffered_raw_out_channel
+	    ?buffer_size ?pass_through (r' :> raw_out_channel) in
 	new lift_raw_out_channel r''
     | `Raw r when not buffered ->
 	new lift_raw_out_channel r
     | `Raw r when buffered ->
-	let r' = new buffered_raw_out_channel ?buffer_size r in
+	let r' = new buffered_raw_out_channel ?buffer_size ?pass_through r in
 	new lift_raw_out_channel r'
 ;;
 

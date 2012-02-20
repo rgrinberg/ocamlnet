@@ -10,7 +10,7 @@
 2012-02-16  Gerd Stolpmann  <gerd@samsung>
 
 	* Http_client: fixing the case that a non-idempotent request
-	  needs authentication, and should always be tried again even
+	  needs authentication, but should always be tried again even
 	  if reconnect_mode does not allow to create a new connection.
 
 	* Netplex: making many container methods/functions thread-safe

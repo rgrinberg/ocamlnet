@@ -1,22 +1,27 @@
 add support options to docs
  - List of possible features to implement
 
-- Netshm: use blitting functions encoded in C (for int32 bigarrays)
-  Better: bigarray conversion to flat memory
-
-- Netchannels.lift_in: if buffered=false, automatically enable the
-  buffer the first time input_line is called
-- Performance: after lift_in, the input_line fn is slow
-
 - speed up accepts in Netplex
 
 - if time: more docs
 
 --
 
+- Netchannels.lift_in: if buffered=false, automatically enable the
+  buffer the first time input_line is called
+  WONT
+
+- Performance: after lift_in, the input_line fn is slow
+  DONE: Not exactly sure what this is. Added a new option ~pass_through
+  which makes it easier to use a buffer on demand only
+
 Advanced:
  - Special form of condition variables one can poll on
    (See Plasma: pfs_condition) - DONE
+
+- Netshm: use blitting functions encoded in C (for int32 bigarrays)
+  Better: bigarray conversion to flat memory
+  DONE
 
 Make Netplex containers thread-safe
 - DONE
