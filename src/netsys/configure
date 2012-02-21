@@ -73,7 +73,7 @@ compile () {
 	echo '$' "./$1" >> configtests/"$1.err"
 	    # NB. We need sh here to prevent that messages like
 	    # "Segmentation fault" appear on the terminal.
-	if ( cd configtests;  exec >> "$1.err" 2>&1; sh -c './"$1"' ) 
+	if ( cd configtests;  exec >> "$1.err" 2>&1; sh -c "./$1" ) 
 	then
 	    echo "program executes successfully" >> configtests/"$1.err"
 	    netsys_link_options="$netsys_link_options$new_link_opts"
