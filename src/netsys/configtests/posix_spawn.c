@@ -9,6 +9,8 @@
 
 /* reminder: we return the exit code, and 0 means success */
 
+extern char **environ;
+
 value check(value dummy) {
     pid_t pid;
     int code;
