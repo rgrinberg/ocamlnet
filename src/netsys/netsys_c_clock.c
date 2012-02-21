@@ -1,7 +1,7 @@
 /* $Id$ */
 
 #ifdef __sun__
-#define _STDC_C99
+#define __C99FEATURES__
 #endif
 
 #include "netsys_c.h"
