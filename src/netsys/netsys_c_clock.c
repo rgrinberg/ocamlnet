@@ -318,11 +318,11 @@ CAMLprim value netsys_timer_create(value clock, value texp) {
 }
 
 
-static void extract_timer(value v, timer_t *out) {
 #if defined(HAVE_CLOCK) && defined(HAVE_POSIX_TIMER)
+static void extract_timer(value v, timer_t *out) {
     memcpy((char *) out, String_val(v), sizeof(timer_t));
-#endif
 }
+#endif
 
 
 CAMLprim value netsys_timer_settime(value timer, value abstime, 
