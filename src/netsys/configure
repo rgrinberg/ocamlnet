@@ -71,7 +71,7 @@ compile () {
     if [ $compiles -gt 0 ]; then
 	echo "ocamlc: compiles OK" >> configtests/"$1.err"
 	echo '$' "./$1" >> configtests/"$1.err"
-	if ( cd configtests;  exec >> "$1.err" 2>&1; ./"$1" ) 
+	if ( cd configtests;  exec >> "$1.err" 2>&1; sh -c './"$1"' ) 
 	then
 	    echo "program executes successfully" >> configtests/"$1.err"
 	    netsys_link_options="$netsys_link_options$new_link_opts"
