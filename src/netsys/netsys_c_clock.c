@@ -205,11 +205,13 @@ CAMLprim value netsys_have_posix_timer(value dummy) {
 }
 
 
+#if defined(HAVE_CLOCK) && defined(HAVE_POSIX_TIMER)
 static void forward_to_event(union sigval sv) {
     struct not_event *ne;
     ne = (struct not_event *) sv.sival_ptr;
     netsys_not_event_signal(ne);
 }
+#endif
 
 /* We assume the following representation for posix_timer:
 
