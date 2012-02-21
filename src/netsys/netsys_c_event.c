@@ -216,7 +216,7 @@ CAMLprim value netsys_create_not_event(value allow_user_add)
 #endif
     return r;
 #else
-    invalid_arg("Netsys_posix.create_event not available");
+    invalid_argument("Netsys_posix.create_event not available");
 #endif
 }
 
@@ -270,7 +270,7 @@ CAMLprim value netsys_set_nonblock_not_event(value nev)
 
     return Val_unit;
 #else
-    invalid_arg("Netsys_posix.set_nonblock_event not available");
+    invalid_argument("Netsys_posix.set_nonblock_event not available");
 #endif
 }
 
@@ -289,7 +289,7 @@ CAMLprim value netsys_get_not_event_fd(value nev)
     if (code == -1) uerror("fcntl", Nothing);
     return Val_int(fd);
 #else
-    invalid_arg("Netsys_posix.get_event_fd not available");
+    invalid_argument("Netsys_posix.get_event_fd not available");
 #endif
 }
 
@@ -306,7 +306,7 @@ int netsys_return_not_event_fd(value nev)
     fd = ne->fd1;
     return fd;
 #else
-    invalid_arg("Netsys_posix.get_event_fd not available");
+    invalid_argument("Netsys_posix.get_event_fd not available");
 #endif
 }
 
@@ -354,7 +354,7 @@ CAMLprim value netsys_set_not_event(value nev)
     caml_leave_blocking_section();
     CAMLreturn(Val_unit);
 #else
-    invalid_arg("Netsys_posix.set_event not available");
+    invalid_argument("Netsys_posix.set_event not available");
 #endif
 }
 
@@ -382,7 +382,7 @@ CAMLprim value netsys_wait_not_event(value nev)
     if (code == -1) unix_error(e, "poll", Nothing);
     CAMLreturn(Val_unit);
 #else
-    invalid_arg("Netsys_posix.wait_event not available");
+    invalid_argument("Netsys_posix.wait_event not available");
 #endif
 }
 
@@ -432,6 +432,6 @@ CAMLprim value netsys_consume_not_event(value nev)
 
     CAMLreturn(Val_unit);
 #else
-    invalid_arg("Netsys_posix.wait_event not available");
+    invalid_argument("Netsys_posix.wait_event not available");
 #endif
 }

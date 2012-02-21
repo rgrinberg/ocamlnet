@@ -65,6 +65,7 @@ set_defaults
 
 version="3.5"
 exec_suffix=""
+path_sep=":"
 
 #######################################################################
 # Option parsing
@@ -325,6 +326,7 @@ case "$u" in
         MINGW*)
 		echo "MinGW"
 		exec_suffix=".exe"
+		path_sep=";"
 		mingw_lib=`get_path gcc`
 		mingw_lib=`dirname "$mingw_lib"`/../lib
 		OCAMLOPTFLAGS="-ccopt -L\"${mingw_lib}\""
@@ -873,6 +875,7 @@ FULL_PKGLIST = $full_pkglist
 
 # Whether the OS needs an .exe suffix for executables:
 EXEC_SUFFIX = $exec_suffix
+PATH_SEP = $path_sep
 
 # Required packages (findlib):
 REQUIRES += $requires
