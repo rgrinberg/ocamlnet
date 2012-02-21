@@ -103,14 +103,16 @@ void netsys_not_event_signal(struct not_event *ne)
 	*/
 
 #ifdef HAVE_POSIX_SIGNALS
-	sigset_t set, oldset;
+	{
+	    sigset_t set, oldset;
 
-	sigfillset(&set);
+	    sigfillset(&set);
 #ifdef HAVE_PTHREAD
-	pthread_sigmask(SIG_BLOCK, &set, &oldset);
+	    pthread_sigmask(SIG_BLOCK, &set, &oldset);
 #else
-	sigprocmask(SIG_BLOCK, &set, &oldset);
+	    sigprocmask(SIG_BLOCK, &set, &oldset);
 #endif /* HAVE_PTHREAD */
+	};
 #endif /* HAVE_POSIX_SIGNALS */
 
 #ifdef HAVE_PTHREAD
