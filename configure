@@ -321,8 +321,16 @@ printf "%s" "Checking operating system... "
 u=`uname`
 case "$u" in
 	CYGWIN*)
-		echo "Cygwin"
-		exec_suffix=".exe" ;;
+		printf "Cygwin, and target is: "
+		exec_suffix=".exe"
+		case `ocamlc -config | grep os_type` in
+		    *Win32*)
+			echo "Win32"
+			path_sep=";" ;;
+		    *)
+			echo "Cygwin" ;;
+		esac
+		;;
         MINGW*)
 		echo "MinGW"
 		exec_suffix=".exe"
