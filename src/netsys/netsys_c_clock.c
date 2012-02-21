@@ -1,6 +1,7 @@
 /* $Id$ */
 
 #ifdef __sun__
+/* Solaris needs this for getting "isfinite" */
 #define __C99FEATURES__
 #endif
 
