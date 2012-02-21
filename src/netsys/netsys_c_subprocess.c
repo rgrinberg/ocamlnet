@@ -379,6 +379,7 @@ CAMLprim value netsys_watch_subprocess(value pid_v, value pgid_v,
     */
     sigchld_lock(1, 1);
 
+#ifdef HAVE_PTHREAD
     if (!sigchld_init) {
 	/* Delayed initialization of the helper thread, and the descriptors
            communicating with it. This cannot not be done at install time
@@ -395,6 +396,7 @@ CAMLprim value netsys_watch_subprocess(value pid_v, value pgid_v,
 		       Nothing);
 	}
     }
+#endif
 
     /* Search for a free atom: */
     atom=NULL;
