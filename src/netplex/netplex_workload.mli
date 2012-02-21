@@ -9,12 +9,20 @@
 
 open Netplex_types
 
-val create_constant_workload_manager : ?restart:bool -> int -> workload_manager
+val create_constant_workload_manager : 
+      ?restart:bool -> ?greedy_accepts:bool -> ?max_jobs_per_thread:int ->
+      int -> workload_manager
   (** A constant number of threads is created (the int argument). 
     *
     * [restart]: If threads
     * crash, new threads are created until the specified number is again
     * reached. This is on by default.
+    *
+    * [greedy_accepts]: whether greedy accepts are allowed (default: false)
+    *
+    * [max_jobs_per_thread]: if passed, limits the number of jobs (connections)
+    * that can be simultaneously processed by a thread/process. By default
+    * there is no limit.
    *)
 
 val constant_workload_manager_factory : workload_manager_factory
@@ -23,6 +31,8 @@ val constant_workload_manager_factory : workload_manager_factory
     * {[ workload_manager {
     *      type = "constant";
     *      threads = <n>;
+    *      max_jobs_per_thread = <n>;
+    *      greedy_accepts = <bool>;
     *    }
     * ]}
    *)
@@ -58,6 +68,9 @@ object
   method max_threads : int
     (** The manager does not start more threads than this number *)
 
+  method greedy_accepts : bool
+    (** Whether greedy accepts are permitted *)
+
 end
 
 
@@ -73,6 +86,7 @@ val dynamic_workload_manager_factory : workload_manager_factory
     *      min_free_jobs_capacity = <n>;
     *      max_free_jobs_capacity = <n>;
     *      max_threads = <n>;
+    *      greedy_accepts = <bool>;
     *    }
     * ]}
    *)

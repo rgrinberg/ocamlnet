@@ -13,7 +13,9 @@ let dlogr = Netlog.Debug.mk_dlogr "Netplex_workload" Debug.enable
 let () =
   Netlog.Debug.register_module "Netplex_workload" Debug.enable
 
-class constant_workload_manager ?(restart=true) num_threads : workload_manager =
+class constant_workload_manager ?(restart=true) ?(greedy_accepts=false)
+                                ?(max_jobs_per_thread = max_int)
+                                num_threads : workload_manager =
 object(self)
   val mutable allow_adjust = true
 
@@ -49,7 +51,11 @@ object(self)
 
   method capacity cid s =
     match s with
-      | `Accepting(n,_) -> `Normal_quality (max_int - n)
+      | `Accepting(n,_) -> 
+	  if n >= max_jobs_per_thread then
+	    `Unavailable
+	  else
+	    `Normal_quality (max_jobs_per_thread - n, greedy_accepts)
       | `Busy -> `Unavailable
       | `Starting _ -> `Unavailable
       | `Shutting_down -> `Unavailable
@@ -66,7 +72,8 @@ object
   method name = "constant"
   method create_workload_manager ctrl_cfg cf addr =
     cf # restrict_subsections addr [];
-    cf # restrict_parameters addr [ "type"; "jobs"; "threads" ];
+    cf # restrict_parameters addr
+      [ "type"; "jobs"; "threads"; "max_jobs_per_thread"; "greedy_accepts" ];
     let n =
       try
 	cf # int_param
@@ -83,7 +90,17 @@ object
 	    ) in
     if n < 1 then
       failwith ("Parameter " ^ cf#print addr ^ ".threads must be > 0");
-    create_constant_workload_manager n
+    let greedy_accepts =
+      try cf # bool_param (cf#resolve_parameter addr "greedy_accepts")
+      with Not_found -> false in
+    let max_jobs_per_thread =
+      try
+	Some(cf # int_param
+	       (cf # resolve_parameter addr "max_jobs_per_thread"))
+      with
+	| Not_found ->
+	    None in
+    create_constant_workload_manager ~greedy_accepts ?max_jobs_per_thread n
 end
 
 
@@ -96,6 +113,7 @@ object
   method max_free_job_capacity : int
   method inactivity_timeout : int
   method max_threads : int
+  method greedy_accepts : bool
 end
 
 
@@ -458,6 +476,7 @@ object(self)
 
 
   method capacity cid s =
+    let g = config#greedy_accepts in
     if ContMap.mem cid inactivated_conts then 
       `Unavailable  (* because we want to shut cid down *)
     else
@@ -465,9 +484,9 @@ object(self)
 	| `Accepting(n,_) ->
 	    if n < config # max_jobs_per_thread then
 	      if n < config # recommended_jobs_per_thread then
-		`Normal_quality (config # recommended_jobs_per_thread - n)
+		`Normal_quality (config # recommended_jobs_per_thread - n, g)
 	      else
-		`Low_quality (config # max_jobs_per_thread - n)
+		`Low_quality (config # max_jobs_per_thread - n, g)
 	    else
 	      `Unavailable
 
@@ -493,7 +512,7 @@ object
 				    "min_free_jobs_capacity";
 				    "max_free_jobs_capacity";
 				    "inactivity_timeout";
-				    "max_threads"
+				    "max_threads"; "greedy_accepts";
 				  ];
     let max_jobs_per_thread =
       try
@@ -537,6 +556,9 @@ object
       with
 	| Not_found ->
 	    15 in
+    let greedy_accepts =
+      try cf # bool_param (cf#resolve_parameter addr "greedy_accepts")
+      with Not_found -> false in
 
     if max_jobs_per_thread < 1 then
       failwith ("Parameter " ^ cf#print addr ^ ".max_jobs_per_thread must be > 0");
@@ -561,6 +583,7 @@ object
 	  method max_free_job_capacity = max_free_job_capacity
 	  method inactivity_timeout = inactivity_timeout
 	  method max_threads = max_threads
+	  method greedy_accepts = greedy_accepts
 	end
       ) in
 

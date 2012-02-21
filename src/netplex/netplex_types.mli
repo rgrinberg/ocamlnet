@@ -100,17 +100,19 @@ type container_state =
    *)
 
 type capacity =
-    [ `Normal_quality of int
-    | `Low_quality of int
+    [ `Normal_quality of int * bool
+    | `Low_quality of int * bool
     | `Unavailable
     ]
   (** How many connections a container can accept in addition to the
     * existing connections:
-    * - [`Normal_quality n]: It can accept n connections with normal
+    * - [`Normal_quality(n,greedy)]: It can accept n connections with normal
     *   service quality, [n > 0]
-    * - [`Low_quality n]: It can accept n connections with low
+    * - [`Low_quality(n,greedy)]: It can accept n connections with low
     *   service quality (e.g. because it is already quite loaded), [n > 0]
     * - [`Unavailable]: No capacity free
+    *
+    * The [greedy] flag sets whether greedy accepts are allowed.
    *)
 
 type extended_address =

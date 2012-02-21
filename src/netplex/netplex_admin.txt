@@ -503,6 +503,16 @@ netplex {
 Note that the parameter [threads] is also interpreted in
 multi-processing mode (as number of processes).
 
+Since Ocamlnet-3.5, there are two optional settings:
+
+- [max_jobs_per_thread]: This number can be set to the maximum number of
+  connections a thread or process can be assigned simultaneously. By default
+  there is no limit.
+- [greedy_accepts]: This is a boolean (values [true] or [false]). If
+  this mode is turned on, processes accept new connections more aggressively.
+  This may improve the performance for very high connect rates (e.g.
+  for more than 1000 new connections per second). The downside is that
+  the load is assigned to processes in a less balanced way.
 
 {3:dynworkload The dynamic workload manager}
 
@@ -560,6 +570,16 @@ until the maximum is reached. A common configuration is to set
 only up to one job, and only if the maximum number of containers are
 running, additional jobs can be assigned.
 
+There are also a few rarely used options for the dynamic workload
+manager:
+
+- [greedy_accepts]: This is a boolean (values [true] or [false]). If
+  this mode is turned on, processes accept new connections more aggressively.
+  This may improve the performance for very high connect rates (e.g.
+  for more than 1000 new connections per second). The downside is that
+  the load is assigned to processes in a less balanced way. Note that
+  this mode only works for asynchronously implemented processors.
+  (Since Ocamlnet-3.5.)
 
 
 {1:admin The [netplex-admin] command}

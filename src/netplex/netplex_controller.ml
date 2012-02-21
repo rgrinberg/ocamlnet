@@ -58,6 +58,8 @@ type ext_cont_state =
       mutable shutting_down : bool;         (* real shutdown *)
       mutable t_accept : float;
       mutable cs_paths : string list;   (* container sockets *)
+      mutable greediness_max : int;
+                 (* how many connections to accept in one go, at max *)
     }
 
 
@@ -79,17 +81,17 @@ let cap_gt cap1 cap2 =
   (* cap1 has more capacity than cap2 *)
   match cap1 with
     | `Unavailable -> false
-    | `Low_quality n1 ->
+    | `Low_quality (n1,_) ->
 	( match cap2 with
 	    | `Unavailable -> true
-	    | `Low_quality n2 -> n1 > n2
+	    | `Low_quality (n2,_) -> n1 > n2
 	    | _ -> false
 	)
-    | `Normal_quality n1 ->
+    | `Normal_quality (n1,_) ->
 	( match cap2 with
 	    | `Unavailable -> true
 	    | `Low_quality _ -> true
-	    | `Normal_quality n2 -> n1 > n2
+	    | `Normal_quality (n2,_) -> n1 > n2
 	)
 ;;
 
@@ -459,7 +461,8 @@ object(self)
 	  shutting_down_system = `None;
 	  shutting_down = false;
 	  t_accept = 0.0;
-	  cs_paths = []
+	  cs_paths = [];
+	  greediness_max = 1;
 	} in
       clist <- c :: clist;
       (* Now that the server descriptors are handed off to the rpc servers
@@ -681,6 +684,13 @@ object(self)
 		 let cap = 
 		   wrkmng # capacity 
 		     (c.container :> container_id) c.cont_state in
+		 let greediness_max =
+		   match cap with
+		     | `Normal_quality(n,g)
+		     | `Low_quality(n,g) -> 
+			 min 10 (if g then n else min n 1)
+		     | _ -> 0 in
+		 c.greediness_max <- greediness_max;
 		 if cap <> `Unavailable then (
 		   match !best with
 		     | None, _ -> 
@@ -716,9 +726,13 @@ object(self)
 		dlogr
 		  (fun () ->
 		     sprintf 
-		       "Service %s: Selecting container %d in %s (bad=%b)"
+		       "Service %s: Selecting container %d in %s (bad=%b, \
+                        grdymax=%d)"
 		       name (Oo.id c.container)
-		       c.par_thread#info_string bad_best_cap);
+		       c.par_thread#info_string 
+		       bad_best_cap
+		       c.greediness_max
+		  );
 		action <- `Selected c;
 		self # check_for_poll_reply c
 	      )
@@ -831,7 +845,14 @@ object(self)
 	  else 
 	    ( match action with
 		| `Selected c' when c' == c ->
-		    reply `event_accept;
+		    let n_accept =
+		      match c.cont_state with
+			| `Accepting(n_running,_) ->
+			    min 
+			      (10 + n_running) 
+			      (max c.greediness_max 1)
+			| _ -> 1  (* strange *) in
+		    reply (`event_accept n_accept);
 		    c.poll_call <- None;
 		    action <- `Notified c;
 		    self # adjust();

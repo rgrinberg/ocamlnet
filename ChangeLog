@@ -1,4 +1,15 @@
+2012-02-21  Gerd Stolpmann  <gerd@samsung>
+
+	* Netplex: new option "greedy_accpepts" for improving the speed
+	  of Netplex systems accepting new connections at a very high
+	  rate (> 1000/s).
+
+	* Netplex: the constant workload manager gets the option
+	  max_jobs_per_thread.
+
 2012-02-20  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Netchannels: new option ~pass_through for buffered netchannels
 
 	* Netshm_data.string_manager: speeding up (using memory_of_bigarray)
 

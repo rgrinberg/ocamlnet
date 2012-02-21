@@ -63,7 +63,7 @@ set_defaults () {
 ocamlc=`get_path ocamlc`
 set_defaults
 
-version="3.4.1"
+version="3.5"
 exec_suffix=""
 
 #######################################################################

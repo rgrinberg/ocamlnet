@@ -39,8 +39,10 @@ union event switch(event_type discr) {
  case EVENT_NONE:
      void;
  case EVENT_ACCEPT:
-     void;
-     /* Sets that these sockets try to accept new connections. */
+     int number;
+     /* The number of connections to accepts in one go (greediness).
+	number >= 1
+     */
  case EVENT_NOACCEPT:
      void;
  case EVENT_RECEIVED_MESSAGE:
