@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <spawn.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #include "caml/mlvalues.h"
 #include "caml/alloc.h"
