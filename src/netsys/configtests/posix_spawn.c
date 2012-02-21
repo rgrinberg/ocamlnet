@@ -20,7 +20,7 @@ value check(value dummy) {
 
     argv[0] = "true";
     argv[1] = NULL;
-    code = posix_spawn(&pid, "true", NULL, NULL, argv, environ);
+    code = posix_spawnp(&pid, "true", NULL, NULL, argv, environ);
     if (code != 0) return Val_int(1);
 
     code = waitpid(pid, NULL, 0);
