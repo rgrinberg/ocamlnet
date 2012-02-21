@@ -1,5 +1,9 @@
 /* $Id$ */
 
+#ifdef __sun__
+#define _STDC_C99
+#endif
+
 #include "netsys_c.h"
 #include "netsys_c_event.h"
 #include <math.h>
