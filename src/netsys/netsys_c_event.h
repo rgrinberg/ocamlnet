@@ -15,12 +15,14 @@ enum not_event_type {
 
 struct not_event {
     enum not_event_type    type;
+#ifdef HAVE_POSIX_SIGNALS
     volatile sig_atomic_t  state;    /* 0=off, 1=on, only for NE_PIPE */
     int                    fd1;
     int                    fd2;      /* only for NE_PIPE */
     int                    allow_user_add;
 #ifdef HAVE_PTHREAD
     pthread_mutex_t        mutex;
+#endif
 #endif
 };
 
