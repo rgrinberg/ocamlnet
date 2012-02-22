@@ -6,6 +6,8 @@
     helpers for running Lwt code on top of Ocamlnet event queues.
 
     This is for Lwt-2.3 or better.
+
+    See also the comments in {!Equeue_howto.lwt}.
  *)
 
 (** Adapter for turning an Ocamlnet [event_system] into an Lwt [Lwt_engine.t].

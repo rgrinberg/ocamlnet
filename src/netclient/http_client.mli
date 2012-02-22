@@ -1214,10 +1214,10 @@ class pipeline :
 	 * indicated.
 	 *)
 
-    method add_e : http_call -> unit Uq_engines.engine
-      (** The same as engine: The call is added to the pipeline, and
+    method add_e : http_call -> http_call Uq_engines.engine
+      (** The same as engine: The call [c] is added to the pipeline, and
 	  when it is processed, the returned engine transitions to the
-	  state [`Done()].
+	  state [`Done c].
        *)
 
     method proxy_type : string -> proxy_type option

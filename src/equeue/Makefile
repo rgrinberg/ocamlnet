@@ -11,7 +11,7 @@ DOBJECTS = equeue.mli unixqueue.mli unixqueue_pollset.mli \
 	   uq_resolver.mli \
            uq_engines.mli uq_socks5.mli uq_io.mli uq_lwt.mli \
 	   uq_libevent.mli uq_mt.mli \
-           equeue_intro.txt
+           equeue_intro.txt equeue_howto.txt
 
 INCLUDES += $(INC_NETSYS)
 INCLUDES += $(INC_NETSTRING)

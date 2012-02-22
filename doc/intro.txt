@@ -121,6 +121,7 @@ Related external articles:
 - {!module:Netsendmail_tut}: The [Netsendmail] tutorial
 - {!module:Netulex_tut}: The [Netulex] tutorial
 - {!module:Neturl_tut}: The [Neturl] tutorial
+- {!module:Equeue_howto}: The Equeue, Unixqueue, and Engines HOWTO
 - {!module:Equeue_intro}: Introduction to programming with [equeue]
 - {!module:Netplex_intro}: Introduction to [Netplex]
 - {!module:Netplex_advanced}: Advanced features of [Netplex]

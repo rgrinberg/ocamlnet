@@ -104,7 +104,7 @@ f src/netsys/config_posix.h
 f src/netsys/config_win32.h
 d src/netsys/configtests
 p src/netsys/configtests/.*\.c
-f src/netsys/configtests/main.ml
+p src/netsys/configtests/.*\.ml
 p src/netsys/.*\.ml
 p src/netsys/.*\.mli
 p src/netsys/.*\.c

@@ -1,3 +1,9 @@
+2012-02-22  Gerd Stolpmann  <gerd@samsung>
+
+	* Release Ocamlnet-3.5
+
+	* Documentation: new Equeue_howto introduction into Equeue/engines
+
 2012-02-21  Gerd Stolpmann  <gerd@samsung>
 
 	* Netplex: new option "greedy_accpepts" for improving the speed
