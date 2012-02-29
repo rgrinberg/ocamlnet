@@ -1,3 +1,13 @@
+2012-02-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Release Ocamlnet-3.5.1
+	
+	* Fixing various build problems:
+	  - FreeBSD-9: clock_getcpuclockid problem
+	  - FreeBSD-9: PATH_MAX problem
+	  - Mac OS: disbling posix_spawn (cannot debug this right now)
+	  - Linux: adding -lpthread to ocamlopt link flags
+
 2012-02-22  Gerd Stolpmann  <gerd@samsung>
 
 	* Release Ocamlnet-3.5
