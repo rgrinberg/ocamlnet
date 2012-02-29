@@ -25,13 +25,26 @@ ulimit -c 0          # no coredumps
 
 ######################################################################
 
+# Programs linked with ocamlc have more libraries linked in by default.
+# Because of this, we use ocamlopt if available.
+
 call_ocamlc () {
-    if [ -z "$opts" ]; then
-	echo '$' "$@"
-	ocamlc "$@"
+    if ocamlopt; then
+	if [ -z "$opts" ]; then
+	    echo '$' ocamlopt "$@"
+	    ocamlopt "$@"
+	else
+	    echo '$' ocamlopt "$@" -cclib "$opts"
+	    ocamlopt "$@" -cclib "$opts"
+	fi
     else
-	echo '$' "$@" -cclib "$opts"
-	ocamlc "$@" -cclib "$opts"
+	if [ -z "$opts" ]; then
+	    echo '$' ocamlc -custom "$@"
+	    ocamlc -custom "$@"
+	else
+	    echo '$' ocamlc -custom "$@" -cclib "$opts"
+	    ocamlc -custom "$@" -cclib "$opts"
+	fi
     fi
 }
 
@@ -40,7 +53,7 @@ compile () {
     # arg 1: name of test. There must be a test program configtests/<name>.c
     # var "cclib": optional params for -cclib. It is first tried to link
     #    with only $netsys_link_options, and if this does not work, $cclib
-    #    is added
+    #    is prepended
 
     compiles=0
     new_link_opts=""
@@ -50,20 +63,20 @@ compile () {
     fi
 
     rm -f configtests/"$1.err"
-    if ( cd configtests; call_ocamlc -o "$1" -custom "$1.c" main.ml ) \
+    if ( cd configtests; call_ocamlc -o "$1" "$1.c" main.ml ) \
 	>> configtests/"$1.err" 2>&1
     then
 	compiles=1
     else
 	if [ -n "$cclib" ]; then
 	    if [ -n "$netsys_link_options" -o -n "$cclib" ]; then
-		opts="$netsys_link_options $cclib"
+		opts="$cclib $netsys_link_options"
 	    fi
-	    if ( cd configtests; call_ocamlc -o "$1" -custom "$1.c" main.ml ) \
+	    if ( cd configtests; call_ocamlc -o "$1" "$1.c" main.ml ) \
 		>> configtests/"$1.err" 2>&1
 	    then
 		compiles=1
-		new_link_opts=" $cclib"
+		new_link_opts="$cclib"
 	    fi
 	fi
     fi
@@ -76,7 +89,9 @@ compile () {
 	if ( cd configtests;  exec >> "$1.err" 2>&1; sh -c "./$1" ) 
 	then
 	    echo "program executes successfully" >> configtests/"$1.err"
-	    netsys_link_options="$netsys_link_options$new_link_opts"
+	    if [ -n "$new_link_opts" ]; then
+		netsys_link_options="$new_link_opts $netsys_link_options"
+	    fi
 	    return 0
 	fi
     fi
@@ -118,6 +133,22 @@ fi
 
 ######################################################################
 
+printf "Checking for POSIX pthread... "
+
+# Following test is stolen from Ocaml's configure script:
+posix_pthr_link_options=""
+case `uname -s` in
+    SunOS)         posix_pthr_link_options="-lpthread -lposix4" ;;
+    FreeBSD)       posix_pthr_link_options="-pthread" ;;
+    OpenBSD)       posix_pthr_link_options="-pthread" ;;
+    *)             posix_pthr_link_options="-lpthread" ;;
+esac
+
+cclib="$posix_pthr_link_options"
+compile_emit posix_pthread HAVE_PTHREAD
+
+######################################################################
+
 printf "Checking whether Ocaml has fancy page tables... "
 
 cclib=""
@@ -141,8 +172,16 @@ compile_emit posix_sem HAVE_POSIX_SEM
 
 printf "Checking for POSIX spawn... "
 
-cclib=""
-compile_emit posix_spawn HAVE_POSIX_SPAWN
+case `uname -s` in
+    Darwin)
+	echo "skipped (disabled on Mac)"
+	echo "#undef HAVE_POSIX_SPAWN" >>config.h
+	;;
+    *)
+	cclib=""
+	compile_emit posix_spawn HAVE_POSIX_SPAWN
+	;;
+esac
 
 ######################################################################
 
@@ -164,22 +203,6 @@ printf "Checking for POSIX memalign... "
 
 cclib=""
 compile_emit posix_memalign HAVE_POSIX_MEMALIGN
-
-######################################################################
-
-printf "Checking for POSIX pthread... "
-
-# Following test is stolen from Ocaml's configure script:
-posix_pthr_link_options=""
-case `uname -s` in
-    SunOS)         posix_pthr_link_options="-lpthread -lposix4" ;;
-    FreeBSD)       posix_pthr_link_options="-pthread" ;;
-    OpenBSD)       posix_pthr_link_options="-pthread" ;;
-    *)             posix_pthr_link_options="-lpthread" ;;
-esac
-
-cclib="$posix_pthr_link_options"
-compile_emit posix_pthread HAVE_PTHREAD
 
 ######################################################################
 
@@ -248,7 +271,7 @@ compile_emit clock_gettime HAVE_CLOCK
 
 printf "Checking for POSIX timers..."
 
-cclib=""
+cclib="-lrt"
 compile_emit timer_create HAVE_POSIX_TIMER
 
 ######################################################################

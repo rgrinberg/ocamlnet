@@ -174,7 +174,7 @@ CAMLprim value netsys_clock_getres(value clock)
 
 
 CAMLprim value netsys_clock_getcpuclockid(value pid) {
-#if defined(HAVE_CLOCK) && defined(_POSIX_CPUTIME)
+#if defined(HAVE_CLOCK) && defined(_POSIX_CPUTIME) && _POSIX_CPUTIME > 0
     CAMLparam1(pid);
     CAMLlocal1(v);
     clockid_t c;
@@ -191,7 +191,7 @@ CAMLprim value netsys_clock_getcpuclockid(value pid) {
 
     CAMLreturn(v);
 #else
-    invalid_argument("Netsys_posix.clock_getres not available");
+    invalid_argument("Netsys_posix.clock_getcpuclockid not available");
 #endif
 }
 

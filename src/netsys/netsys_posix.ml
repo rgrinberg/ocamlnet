@@ -1216,7 +1216,10 @@ let shm_create prefix size =
       let fd =
 	shm_open
 	  name [SHM_O_RDWR; SHM_O_CREAT; SHM_O_EXCL ] 0o600 in
-      Unix.fchmod fd 0o600;
+      ( try Unix.fchmod fd 0o600
+	with Unix.Unix_error(Unix.EINVAL,_,_) -> ()
+	  (* OSX seems to throw EINVAL here *)
+      );
       Unix.ftruncate fd size;
       (fd, name)
     with

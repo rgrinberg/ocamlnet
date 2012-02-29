@@ -32,9 +32,9 @@ Major future directions:
 
 - Documentation
   * Intro for netcgi
-  * Better equeue docs  
+  * Better equeue docs - DONE
   * Better RPC docs (enterprise topics)
-  * Lwt
+  * Lwt - DONE
 
 - Usability
   * smoothen Netplex APIs
@@ -52,8 +52,6 @@ Major future directions:
 add support options to docs
  - List of possible features to implement
 
-- if time: more docs
-
 - Optimization Netmcore_heap.add_immutable:
   If a pointer into the target heap is found, the data pointed to is
   not copied. Benefit: Immutable data structures (Set, Map)
@@ -65,6 +63,14 @@ Netplex_controller: better data structure for connection list
 
 Since Vista there is WSAPoll. Support it?
 
+Http_client:
+ - Option to limit the total number of concurrent connections
+ - Report to the user:
+    * whether more requests would be acceptable in general
+      pipeline # can_open_more_connections
+    * whether a certain request would be ok:
+      pipeline # queue_length_for : http_call -> int
+      returns the number of calls in this queue
 
 docs: Depict mem architecture of netmcore (multiple heaps, pool)
 

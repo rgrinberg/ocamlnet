@@ -253,8 +253,10 @@ let unlink_shm =
 let chmod_shm_fd fd is_open perm =
   if not !is_open then
     failwith "Netshm.chmod_shm: descriptor is not open";
-  Unix.fchmod fd perm
-
+  ( try Unix.fchmod fd perm
+    with Unix.Unix_error(Unix.EINVAL,_,_) -> ()
+      (* OSX seems to throw EINVAL here *)
+  )
 
 let chmod_shm =
   function
