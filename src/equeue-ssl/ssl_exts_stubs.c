@@ -11,12 +11,14 @@
 #include <openssl/pem.h>
 #include <openssl/err.h>
 #include <openssl/bio.h>
+#include <openssl/x509.h>
 #include <unistd.h>
 
 #define SSL_val(v) (*((SSL**)Data_custom_val(v)))
+#define Cert_val(v) (*((X509**)Data_custom_val(v)))
 
 
-CAMLprim value ocaml_ssl_single_shutdown(value socket)
+CAMLprim value equeue_ssl_single_shutdown(value socket)
 {
   CAMLparam1(socket);
   int ret;
@@ -34,7 +36,7 @@ CAMLprim value ocaml_ssl_single_shutdown(value socket)
 }
 
 
-CAMLprim value ocaml_ssl_get_shutdown(value socket)
+CAMLprim value equeue_ssl_get_shutdown(value socket)
 {
   CAMLparam1(socket);
   CAMLlocal3(rcvd,sent,ret);
@@ -54,7 +56,7 @@ CAMLprim value ocaml_ssl_get_shutdown(value socket)
 }
 
 
-CAMLprim value ocaml_ssl_get_rbio_eof(value socket) 
+CAMLprim value equeue_ssl_get_rbio_eof(value socket) 
 {
     CAMLparam1(socket);
     CAMLlocal1(ret);
@@ -74,7 +76,7 @@ CAMLprim value ocaml_ssl_get_rbio_eof(value socket)
 }
 
 
-CAMLprim value ocaml_ssl_get_mode(value socket)
+CAMLprim value equeue_ssl_get_mode(value socket)
 {
     CAMLparam1(socket);
     CAMLlocal1(ret);
@@ -90,7 +92,7 @@ CAMLprim value ocaml_ssl_get_mode(value socket)
     CAMLreturn(ret);
 }
 
-CAMLprim value ocaml_ssl_set_mode(value socket, value mode)
+CAMLprim value equeue_ssl_set_mode(value socket, value mode)
 {
     CAMLparam2(socket,mode);
     long m;
@@ -105,5 +107,31 @@ CAMLprim value ocaml_ssl_set_mode(value socket, value mode)
     CAMLreturn(Val_unit);
 }
 
+
+CAMLprim value equeue_ssl_cert_fingerprint(value certv)
+{
+    CAMLparam1(certv);
+    CAMLlocal1(sv);
+    X509 *cert = Cert_val(certv);
+    char *s;
+    char *u;
+    int k;
+
+    X509_cmp(cert,cert);  /* Ensure that sha1_hash is set */
+    s = stat_alloc(SHA_DIGEST_LENGTH * 3);
+    u = s;
+    for (k=0; k<SHA_DIGEST_LENGTH; k++) {
+	sprintf(u, "%02X", (int) cert->sha1_hash[k]);
+	u += 2;
+	if (k+1 < SHA_DIGEST_LENGTH) {
+	    *u = ':';
+	    u++;
+	}
+	*u = 0;
+    };
+    sv = caml_copy_string(s);
+    stat_free(s);
+    CAMLreturn(sv);
+}
 
 

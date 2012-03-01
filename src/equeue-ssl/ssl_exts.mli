@@ -43,4 +43,6 @@ val get_mode : Ssl.socket -> ssl_mode
 val set_mode : Ssl.socket -> ssl_mode -> unit
   (** Sets additional mode bits. It is not possible to clear bits. *)
 
+val certificate_fingerprint : Ssl.certificate -> string
+  (** Returns the fingerprint in the cert in ':'-separated hex notation *)
 

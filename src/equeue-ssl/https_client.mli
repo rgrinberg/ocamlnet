@@ -16,8 +16,16 @@ object
 end
 (** Same as {!Http_client.transport_channel_type} *)	  
 
-val https_transport_channel_type : Ssl.context -> transport_channel_type
-  (** Configures a TLS tunnel for this context *)
+val https_transport_channel_type : 
+      ?verify:(Ssl.context -> Ssl.socket -> Unix.file_descr -> unit) ->
+      Ssl.context -> transport_channel_type
+  (** Configures a TLS tunnel for this context.
+
+      The [verify] callback is invoked right after connecting to the
+      remote socket and finishing the SSL handshake. The user can do here
+      additional checks whether the peer is acceptable. If not acceptable,
+      raise an exception.
+   *)
 
 (** {2 How to configure a pipeline for TLS}
 

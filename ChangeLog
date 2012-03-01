@@ -1,3 +1,11 @@
+2012-03-01  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Ssl_exts: adding function for returning the fingerprint of
+	  a certificate
+
+	* Https_client: new verify callback for additional certificate
+	  checks
+
 2012-02-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Release Ocamlnet-3.5.1

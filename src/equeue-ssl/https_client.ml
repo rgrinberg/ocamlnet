@@ -15,7 +15,8 @@ object
 end
 
 
-let https_transport_channel_type ctx : transport_channel_type =
+let https_transport_channel_type ?(verify = fun _ _ _ -> ())
+                                 ctx : transport_channel_type =
   let ctx_of_fd = Hashtbl.create 12 in
   let preclose fd () =
     Hashtbl.remove ctx_of_fd fd in
@@ -29,6 +30,7 @@ let https_transport_channel_type ctx : transport_channel_type =
 	    fd ctx esys in
 	Uq_ssl.ssl_connect_engine mplex
 	++ (fun () ->
+	      verify ctx mplex#ssl_socket fd;
 	      Hashtbl.replace ctx_of_fd fd mplex;
 	      eps_e (`Done (mplex :> Uq_engines.multiplex_controller)) esys
 	   )
