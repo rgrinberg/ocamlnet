@@ -174,7 +174,6 @@ printf "Checking for POSIX spawn... "
 
 cclib=""
 compile_emit posix_spawn HAVE_POSIX_SPAWN
-;;
 
 ######################################################################
 
