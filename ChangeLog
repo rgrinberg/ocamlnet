@@ -1,3 +1,9 @@
+2012-03-15  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* Allowing posix_spawn again for MacOS. It turns out the
+	  number of file actions is limited. If we are above the
+	  limit, posix_spawn is not used.
+
 2012-03-01  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Ssl_exts: adding function for returning the fingerprint of

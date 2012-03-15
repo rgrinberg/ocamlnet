@@ -49,6 +49,12 @@ Major future directions:
 
 ----------------------------------------------------------------------
 
+Shell.command:
+ - inherit_descriptors:bool
+   If true, no additional attempt is made to close descriptors, and only the
+   descriptors with close-on-exec flag are closed.
+ - Impl: Do not pass Fda_close_except to spawn
+
 add support options to docs
  - List of possible features to implement
 
