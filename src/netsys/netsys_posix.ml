@@ -1256,8 +1256,14 @@ type sem_wait_behavior =
 let dummy_mem =
   Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
 
-external have_posix_semaphores : unit -> bool 
-  = "netsys_have_sem"
+external have_anon_posix_semaphores : unit -> bool 
+  = "netsys_have_sem_anon"
+
+external have_named_posix_semaphores : unit -> bool 
+  = "netsys_have_sem_named"
+
+let have_posix_semaphores() =
+  have_anon_posix_semaphores() && have_named_posix_semaphores()
 
 external netsys_sem_size : unit -> int
   = "netsys_sem_size"

@@ -1044,8 +1044,15 @@ val shm_create : string -> int -> Unix.file_descr * string
 
 (** {1 POSIX semaphores} *)
 
+val have_named_posix_semaphores : unit -> bool
+  (** Returns [true] if named POSIX semaphores are supported on this system *)
+
+val have_anon_posix_semaphores : unit -> bool
+  (** Returns [true] if anonymous POSIX semaphores are supported on this 
+      system *)
+
 val have_posix_semaphores : unit -> bool
-  (** Returns [true] if POSIX semaphores are supported on this system *)
+  (** Returns [true] if both kinds of semaphores are supported on this system *)
 
 (** {b Constants.} *)
 

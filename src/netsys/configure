@@ -2,7 +2,8 @@
 
 netsys_link_options=""
 have_posix_shm=0
-have_posix_sem=0
+have_posix_sem_anon=0
+have_posix_sem_named=0
 have_posix_fadvise=0
 have_posix_fallocate=0
 have_posix_memalign=0
@@ -163,10 +164,15 @@ compile_emit posix_shm HAVE_POSIX_SHM
 
 ######################################################################
 
-printf "Checking for POSIX semaphores... "
+printf "Checking for POSIX semaphores (anonymous)... "
 
 cclib="-lrt"
-compile_emit posix_sem HAVE_POSIX_SEM
+compile_emit posix_sem_anon HAVE_POSIX_SEM_ANON
+
+printf "Checking for POSIX semaphores (named)... "
+
+cclib="-lrt"
+compile_emit posix_sem_named HAVE_POSIX_SEM_NAMED
 
 ######################################################################
 

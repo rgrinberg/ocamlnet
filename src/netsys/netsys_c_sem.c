@@ -3,7 +3,7 @@
 
 #include "netsys_c.h"
 
-#ifdef HAVE_POSIX_SEM
+#if defined(HAVE_POSIX_SEM_ANON) || defined(HAVE_POSIX_SEM_NAMED)
 #include <limits.h>
 #include <semaphore.h>
 #endif
@@ -12,7 +12,7 @@
 /* Semaphores                                                         */
 /**********************************************************************/
 
-#ifdef HAVE_POSIX_SEM
+#if defined(HAVE_POSIX_SEM_ANON) || defined(HAVE_POSIX_SEM_NAMED)
 struct sem_block {
     sem_t *sem_ptr;
     int    sem_close_flag;
@@ -24,8 +24,10 @@ struct sem_block {
 static void free_sem_block(value v) {
     struct sem_block *sb;
     sb = Sem_block_val(v);
+#ifdef HAVE_POSIX_SEM_NAMED
     if (sb->sem_close_flag && sb->sem_ptr != NULL)
 	sem_close(sb->sem_ptr);
+#endif
     sb->sem_ptr = NULL;
 }
 
@@ -54,9 +56,18 @@ static int sem_open_flag_table[] = {
 };
 #endif
 
-CAMLprim value netsys_have_sem(value dummy) 
+CAMLprim value netsys_have_sem_anon(value dummy) 
 {
-#ifdef HAVE_POSIX_SEM
+#ifdef HAVE_POSIX_SEM_ANON
+    return Val_bool(1);
+#else
+    return Val_bool(0);
+#endif
+}
+
+CAMLprim value netsys_have_sem_named(value dummy) 
+{
+#ifdef HAVE_POSIX_SEM_NAMED
     return Val_bool(1);
 #else
     return Val_bool(0);
@@ -65,7 +76,7 @@ CAMLprim value netsys_have_sem(value dummy)
 
 CAMLprim value netsys_sem_size(value dummy) 
 {
-#ifdef HAVE_POSIX_SEM
+#if defined(HAVE_POSIX_SEM_ANON) || defined(HAVE_POSIX_SEM_NAMED)
     return Val_long(sizeof(sem_t));
 #else
     return Val_long(1);
@@ -74,7 +85,7 @@ CAMLprim value netsys_sem_size(value dummy)
 
 CAMLprim value netsys_sem_value_max(value dummy) 
 {
-#ifdef HAVE_POSIX_SEM
+#if defined(HAVE_POSIX_SEM_ANON) || defined(HAVE_POSIX_SEM_NAMED)
     unsigned int m;
 
 #ifdef SEM_VALUE_MAX
@@ -102,7 +113,7 @@ CAMLprim value netsys_sem_open(value namev,
 			       value modev,
 			       value initv) 
 {
-#ifdef HAVE_POSIX_SEM
+#ifdef HAVE_POSIX_SEM_NAMED
     sem_t *s;
     value r;
     unsigned int init;
@@ -124,7 +135,7 @@ CAMLprim value netsys_sem_open(value namev,
 
 CAMLprim value netsys_sem_close(value srv)
 {
-#ifdef HAVE_POSIX_SEM
+#ifdef HAVE_POSIX_SEM_NAMED
     struct sem_block *sb;
     int code;
 
@@ -142,7 +153,7 @@ CAMLprim value netsys_sem_close(value srv)
 
 CAMLprim value netsys_sem_unlink(value namev) 
 {
-#ifdef HAVE_POSIX_SEM
+#ifdef HAVE_POSIX_SEM_NAMED
     int code;
     code = sem_unlink(String_val(namev));
     if (code == -1) uerror("sem_unlink", Nothing);
@@ -157,7 +168,7 @@ CAMLprim value netsys_sem_init(value memv,
 			       value psharedv,
 			       value initv)
 {
-#ifdef HAVE_POSIX_SEM
+#ifdef HAVE_POSIX_SEM_ANON
     sem_t *s;
     int code;
     unsigned int init;
@@ -177,7 +188,7 @@ CAMLprim value netsys_sem_init(value memv,
 CAMLprim value netsys_as_sem(value memv,
 			     value posv) 
 {
-#ifdef HAVE_POSIX_SEM
+#if defined(HAVE_POSIX_SEM_ANON)
     sem_t *s;
     value r;
 
@@ -192,7 +203,7 @@ CAMLprim value netsys_as_sem(value memv,
 
 CAMLprim value netsys_sem_destroy(value srv)
 {
-#ifdef HAVE_POSIX_SEM
+#ifdef HAVE_POSIX_SEM_ANON
     struct sem_block *sb;
     int code;
 
@@ -211,7 +222,7 @@ CAMLprim value netsys_sem_destroy(value srv)
 
 CAMLprim value netsys_sem_getvalue(value srv)
 {
-#ifdef HAVE_POSIX_SEM
+#if defined(HAVE_POSIX_SEM_ANON) || defined(HAVE_POSIX_SEM_NAMED)
     struct sem_block *sb;
     int code;
     int sval;
@@ -233,7 +244,7 @@ CAMLprim value netsys_sem_getvalue(value srv)
 
 CAMLprim value netsys_sem_post(value srv)
 {
-#ifdef HAVE_POSIX_SEM
+#if defined(HAVE_POSIX_SEM_ANON) || defined(HAVE_POSIX_SEM_NAMED)
     struct sem_block *sb;
     int code;
 
@@ -251,7 +262,7 @@ CAMLprim value netsys_sem_post(value srv)
 
 CAMLprim value netsys_sem_wait(value srv, value bv)
 {
-#ifdef HAVE_POSIX_SEM
+#if defined(HAVE_POSIX_SEM_ANON) || defined(HAVE_POSIX_SEM_NAMED)
     struct sem_block *sb;
     sem_t *s;
     int code;
