@@ -686,10 +686,6 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 	switch(Tag_val(v_fd_actions_hd)) {
 	case 1: /* Fda_close_ignore */
 	    /* We translate this into a dup2 + close */
-	    /* For MacOS this is the same as Fda_close, so try to save
-	       entries in fd_actions.
-	    */
-#ifndef __APPLE__
 	    fd1 = Int_val(Field(v_fd_actions_hd, 0));
 	    if (fd1 != fd_known) {
 		code = posix_spawn_file_actions_adddup2(&fd_actions, fd_known, fd1);
@@ -705,7 +701,6 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 		n_fd_actions++;
 	    };
 	    break;
-#endif
 	case 0: /* Fda_close */
 	    fd1 = Int_val(Field(v_fd_actions_hd, 0));
 	    if (fd1 != fd_known) {
@@ -722,13 +717,6 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 	    for (k=0; k<nofile; k++) {
 		if (k>=j || !Bool_val(Field(v_fd_actions_0,k))) {
 		    if (k != fd_known) {
-#ifdef __APPLE__
-			code = posix_spawn_file_actions_addclose(&fd_actions,k);
-			if (code != 0)
-			    MAIN_ERROR(code, 
-				       "netsys_posix_spawn/psfa_addclose [4]");
-			n_fd_actions++;
-#else
 			code = posix_spawn_file_actions_adddup2
 			    (&fd_actions, fd_known, k);
 			if (code != 0)
@@ -743,7 +731,6 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 				(code, 
 				 "netsys_posix_spawn/psfa_addclose [3]");
 			n_fd_actions++;
-#endif
 		    }
 		}
 	    }
