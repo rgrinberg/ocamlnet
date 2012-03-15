@@ -511,6 +511,7 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
     value return_value;
     int code;
     short flags;
+    int   use_fork_exec;
 
     pid_t pid;
     char **sub_argv;
@@ -519,6 +520,7 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
     int cleanup_sub_env;;
 
     posix_spawn_file_actions_t fd_actions;
+    int n_fd_actions;
     posix_spawnattr_t attr;
     int cleanup_fd_actions;
     int cleanup_attr;
@@ -553,6 +555,7 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
     uerror_function = "<uninit>";
     flags = 0;
     fd_known = 0;
+    use_fork_exec = 0;
 
     nofile = sysconf(_SC_OPEN_MAX);
 
@@ -583,6 +586,7 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 
     /* Init fd_actions */
     code = posix_spawn_file_actions_init(&fd_actions);
+    n_fd_actions = 0;
     if (code != 0) 
 	MAIN_ERROR(code, "netsys_posix_spawn/posix_spawn_file_actions_init");
     cleanup_fd_actions = 1;
@@ -680,17 +684,12 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 	v_fd_actions_hd = Field(v_fd_actions_l, 0);
 	v_fd_actions_l  = Field(v_fd_actions_l, 1);
 	switch(Tag_val(v_fd_actions_hd)) {
-	case 0: /* Fda_close */
-	    fd1 = Int_val(Field(v_fd_actions_hd, 0));
-	    if (fd1 != fd_known) {
-		code = posix_spawn_file_actions_addclose(&fd_actions, fd1);
-		if (code != 0)
-		    MAIN_ERROR(code, 
-			       "netsys_posix_spawn/psfa_addclose [1]");
-	    };
-	    break;
 	case 1: /* Fda_close_ignore */
 	    /* We translate this into a dup2 + close */
+	    /* For MacOS this is the same as Fda_close, so try to save
+	       entries in fd_actions.
+	    */
+#ifndef __APPLE__
 	    fd1 = Int_val(Field(v_fd_actions_hd, 0));
 	    if (fd1 != fd_known) {
 		code = posix_spawn_file_actions_adddup2(&fd_actions, fd_known, fd1);
@@ -698,10 +697,23 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 		    MAIN_ERROR(code, 
 			       "netsys_posix_spawn/psfa_adddup2 [1]");
 		
+		n_fd_actions++;
 		code = posix_spawn_file_actions_addclose(&fd_actions, fd1);
 		if (code != 0)
 		    MAIN_ERROR(code, 
 			       "netsys_posix_spawn/psfa_addclose [2]");
+		n_fd_actions++;
+	    };
+	    break;
+#endif
+	case 0: /* Fda_close */
+	    fd1 = Int_val(Field(v_fd_actions_hd, 0));
+	    if (fd1 != fd_known) {
+		code = posix_spawn_file_actions_addclose(&fd_actions, fd1);
+		if (code != 0)
+		    MAIN_ERROR(code, 
+			       "netsys_posix_spawn/psfa_addclose [1]");
+		n_fd_actions++;
 	    };
 	    break;
 	case 2:  /* Fda_close_except */
@@ -710,18 +722,28 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 	    for (k=0; k<nofile; k++) {
 		if (k>=j || !Bool_val(Field(v_fd_actions_0,k))) {
 		    if (k != fd_known) {
+#ifdef __APPLE__
+			code = posix_spawn_file_actions_addclose(&fd_actions,k);
+			if (code != 0)
+			    MAIN_ERROR(code, 
+				       "netsys_posix_spawn/psfa_addclose [4]");
+			n_fd_actions++;
+#else
 			code = posix_spawn_file_actions_adddup2
 			    (&fd_actions, fd_known, k);
 			if (code != 0)
 			    MAIN_ERROR
 				(code, 
 				 "netsys_posix_spawn/psfa_actions_adddup2 [2]");
+			n_fd_actions++;
 			code = posix_spawn_file_actions_addclose
 			    (&fd_actions, k);
 			if (code != 0)
 			    MAIN_ERROR
 				(code, 
 				 "netsys_posix_spawn/psfa_addclose [3]");
+			n_fd_actions++;
+#endif
 		    }
 		}
 	    }
@@ -735,12 +757,24 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
 	    code = posix_spawn_file_actions_adddup2(&fd_actions, fd1, fd2);
 	    if (code != 0)
 		MAIN_ERROR(code, "netsys_posix_spawn/psfa_actions_adddup2 [3]");
+	    n_fd_actions++;
 	    break;
 	default:
 	    MAIN_ERROR(EINVAL, "netsys_posix_spawn/assert_fd");
 	};
     };
 
+#ifdef __APPLE__
+    /* MacOS limits the number of file actions arbitrarily to the max number
+       of open files. We catch this here, and cause a failure "USE_FORK_EXEC",
+       so the alternate fork/exec-based spawn will be used instead.
+    */
+    if (n_fd_actions > nofile) {
+	use_fork_exec = 1;
+	goto main_exec;
+    };
+#endif
+    
 
     code = posix_spawn(&pid,
 		       String_val(v_cmd),
@@ -781,6 +815,9 @@ main_exit:
 
     if (uerror_errno != 0)
 	unix_error(uerror_errno, uerror_function, Nothing);
+
+    if (use_fork_exec != 0)
+	failwith("USE_FORK_EXEC");
 
     return return_value;
 

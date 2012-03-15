@@ -835,23 +835,27 @@ let spawn ?(chdir = Wd_keep) ?(pg = Pg_keep) ?(fd_actions = [])
 	   (fun sa -> match sa with Sig_ignore _ -> true | _ -> false) 
 	   sig_actions) in
   
-  if use_posix_spawn then
+  try
+    if not use_posix_spawn then
+      failwith "USE_FORK_EXEC";
+
     netsys_posix_spawn pg fd_actions sig_actions env cmd args
-  else (
-    (* Fixup: if pg = Pg_new_fg_group, we remove any Sig_default for
-       SIGTTOU from sig_actions. Because of special handling, the effect
-       of Sig_default is enforced by the implementation, but this must be
-       done at [execve] time.
-     *)
-    let sig_actions =
-      if pg = Pg_new_fg_group then
-	List.filter 
-	  (fun spec -> spec <> Sig_default Sys.sigttou)
-	  sig_actions
-      else
-	sig_actions in
-    netsys_spawn chdir pg fd_actions sig_actions env cmd args
-  )
+      (* may also fail with "USE_FORK_EXEC" in some cases *)
+  with
+    | Failure "USE_FORK_EXEC" ->
+	(* Fixup: if pg = Pg_new_fg_group, we remove any Sig_default for
+	   SIGTTOU from sig_actions. Because of special handling, the effect
+	   of Sig_default is enforced by the implementation, but this must be
+	   done at [execve] time.
+	 *)
+	let sig_actions =
+	  if pg = Pg_new_fg_group then
+	    List.filter 
+	      (fun spec -> spec <> Sig_default Sys.sigttou)
+	      sig_actions
+	  else
+	    sig_actions in
+	netsys_spawn chdir pg fd_actions sig_actions env cmd args
 
 type watched_subprocess = 
     { atom_idx : int;

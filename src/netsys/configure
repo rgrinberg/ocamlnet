@@ -172,16 +172,9 @@ compile_emit posix_sem HAVE_POSIX_SEM
 
 printf "Checking for POSIX spawn... "
 
-case `uname -s` in
-    Darwin)
-	echo "skipped (disabled on Mac)"
-	echo "#undef HAVE_POSIX_SPAWN" >>config.h
-	;;
-    *)
-	cclib=""
-	compile_emit posix_spawn HAVE_POSIX_SPAWN
-	;;
-esac
+cclib=""
+compile_emit posix_spawn HAVE_POSIX_SPAWN
+;;
 
 ######################################################################
 
