@@ -13,8 +13,8 @@ value check(value dummy) {
     sem_t s;
     int code;
 
-    code = sem_init(&s, 0, 0);
     sem_unlink("/foo_khfkshdfhf");
+    if (errno == ENOSYS) code = 1; else code = 0;
 
     return Val_int(code);
 }
