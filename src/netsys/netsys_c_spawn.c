@@ -771,7 +771,7 @@ CAMLprim value netsys_posix_spawn_nat(value v_pg,
     */
     if (n_fd_actions > nofile) {
 	use_fork_exec = 1;
-	goto main_exec;
+	goto main_exit;
     };
 #endif
     
