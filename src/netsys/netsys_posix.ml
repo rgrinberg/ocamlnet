@@ -1243,7 +1243,7 @@ type 'sem_kind semaphore =
        *)
 
 type named_semaphore = [ `Named ] semaphore
-type anon_sempahore = [ `Anonymous ] semaphore
+type anon_semaphore = [ `Anonymous ] semaphore
 
 type sem_open_flag =
   | SEM_O_CREAT

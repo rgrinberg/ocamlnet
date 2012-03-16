@@ -1069,7 +1069,7 @@ type sem_kind = [ `Named | `Anonymous ]
 type 'sem_kind semaphore
 
 type named_semaphore = [ `Named ] semaphore
-type anon_sempahore = [ `Anonymous ] semaphore
+type anon_semaphore = [ `Anonymous ] semaphore
 
 type sem_open_flag =
   | SEM_O_CREAT
@@ -1114,7 +1114,7 @@ val sem_create : string -> int -> named_semaphore * string
 (** {b Anonymous semaphores.} *)
 
 val sem_init : Netsys_types.memory -> int -> bool -> int -> 
-                 anon_sempahore
+                 anon_semaphore
   (** [sem_init mem pos pshared init_value]: Initializes the memory
       at position [pos] to [pos + sem_size() - 1] as anonymous semaphore.
       If [pshared] the semaphore is shared between processes. 
@@ -1122,10 +1122,10 @@ val sem_init : Netsys_types.memory -> int -> bool -> int ->
       [sem_value_max].
    *)
 
-val sem_destroy : anon_sempahore -> unit
+val sem_destroy : anon_semaphore -> unit
   (** Destroys the anonymous semaphore *)
 
-val as_sem : Netsys_types.memory -> int -> anon_sempahore
+val as_sem : Netsys_types.memory -> int -> anon_semaphore
   (** [as_sem mem pos]: Interprets the memory at position [pos]
       to [pos + sem_size() - 1] as anonymous semaphore.
       The memory region must already have been initialized.
@@ -1139,6 +1139,8 @@ val sem_getvalue : 'kind semaphore -> int
 
       The returned value is non-negative - if the underlying POSIX
       function reports a negative value zero is returned instead.
+
+      Unavailable on MacOS.
    *)
 
 val sem_post : 'kind semaphore -> unit
