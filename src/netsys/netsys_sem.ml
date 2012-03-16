@@ -20,9 +20,9 @@ module Emu = struct
 
   type container =
       { prefix : string;
-	used : (int64,Bigarray.int64_elt,Bigarray.c_layout) Bigarray.Array1.t;
+	used : (char,Bigarray.int8_unsigned_elt,Bigarray.c_layout) Bigarray.Array1.t;
 	active : (int, anon_semaphore) Hashtbl.t;
-	mutex : Netsys_oothr.mutex;
+	mutex : Netsys_posix.named_semaphore;
       }
 
   let have_anon_semaphores() =
@@ -41,24 +41,34 @@ module Emu = struct
 	if st.Unix.st_size = 0 then
 	  Unix.ftruncate fd (8 * n);
 	let used = 
-	  Bigarray.Array1.map_file fd Bigarray.int64 Bigarray.c_layout true n in
+	  Netsys_mem.memory_map_file fd true n in
 	Unix.close fd;
 	{ prefix = prefix;
 	  used = used;
 	  active = Hashtbl.create 47;
-	  mutex = !Netsys_oothr.provider # create_mutex()
+	  mutex = (Netsys_posix.sem_open
+		     (prefix ^ "_contsem")
+		     [ Netsys_posix.SEM_O_CREAT ]
+		     0o600
+		     1)
 	}
       with error ->
 	Unix.close fd;
 	raise error
     )
 
+  let lock cont =
+    Netsys_posix.sem_wait cont.mutex Netsys_posix.SEM_WAIT_BLOCK
+
+  let unlock cont =
+    Netsys_posix.sem_post cont.mutex
+
   let sem_name cont k =
     cont.prefix ^ "_sem" ^ string_of_int k
 
   let lookup cont k =
     (* Look the existing semaphore #k up. ENOENT if not found *)
-    cont.mutex # lock();
+    lock cont;
     try
       try Hashtbl.find cont.active k
       with Not_found ->
@@ -73,34 +83,34 @@ module Emu = struct
 	    num = k
 	  } in
 	Hashtbl.add cont.active k usem;
-	cont.mutex # unlock();
+	unlock cont;
 	usem
     with error ->
-      cont.mutex # unlock();
+      unlock cont;
       raise error
 
 
   let find_unused cont =
     (* Find a free k, and mark it as used *)
-    cont.mutex # lock();
+    lock cont;
     let k = ref 0 in
-    while !k < n && cont.used.{ !k } = 1L do
+    while !k < n && cont.used.{ !k } = '\001' do
       incr k
     done;
     if !k < n then (
-      cont.used.{ !k } <- 1L;
-      cont.mutex # unlock();
+      cont.used.{ !k } <- '\001';
+      unlock cont;
       !k
     )
     else (
-      cont.mutex # unlock();
+      unlock cont;
       raise(Unix.Unix_error(Unix.ENOMEM,
 			    "Netsys_shm.find_unused (too many semaphores)",
 			    ""))
     )
 
   let mark_unused cont k =
-    cont.used.{ k } <- 0L
+    cont.used.{ k } <- '\000'
 
 
   let as_sem cont mem pos =
@@ -120,9 +130,9 @@ module Emu = struct
       { sem = sem;
 	num = k
       } in
-    cont.mutex # lock();
+    lock cont;
     Hashtbl.add cont.active k usem;
-    cont.mutex # unlock();
+    unlock cont;
     mem.{ pos } <- Char.chr (k land 0xff);
     mem.{ pos+1 } <- Char.chr (k lsr 8);
     usem
@@ -140,16 +150,20 @@ module Emu = struct
     sem_idestroy cont usem.num
 
   let drop cont =
-    cont.mutex # lock();
+    lock cont;
     for k = 0 to n-1 do
-      if cont.used.{k} = 1L then
+      if cont.used.{k} = '\001' then
 	sem_idestroy cont k
     done;
     ( try
 	Netsys_posix.shm_unlink (cont.prefix ^ "_sems")
       with _ -> ()
     );
-    cont.mutex # unlock()
+    ( try
+	Netsys_posix.sem_unlink (cont.prefix ^ "_contsem")
+      with _ -> ()
+    );
+    unlock cont
 
   let sem_getvalue usem =
     Netsys_posix.sem_getvalue usem.sem

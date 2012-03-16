@@ -173,6 +173,7 @@ CAMLprim value netsys_map_file(value fdv,
     int fd, shared;
     off_t pos, savepos, eofpos, basize0;
           /* Att: pos might be 64 bit even on 32 bit systems! */
+    struct stat st;
     void *addr, *eff_addr;
     intnat size;
     uintnat basize;
@@ -180,6 +181,9 @@ CAMLprim value netsys_map_file(value fdv,
     char c;
     uintnat pagesize, delta;
 
+    /* Avoid here seeking at all costs. On some systems, shared memory
+       descriptors do neither allow seek, nor read/write.
+    */
     fd = Int_val(fdv);
     pos0 = Int64_val(posv);
     if (((int64) ((off_t) pos0)) != pos0)
@@ -192,10 +196,8 @@ CAMLprim value netsys_map_file(value fdv,
 
     pagesize = sysconf(_SC_PAGESIZE);
 
-    savepos = lseek(fd, 0, SEEK_CUR);
-    if (savepos == -1) uerror("lseek", Nothing);
-    eofpos = lseek(fd, 0, SEEK_END);
-    if (eofpos == -1) uerror("lseek", Nothing);
+    if (fstat(fd, &st) == -1) uerror("fstat", Nothing);
+    eofpos = st.st_size;
     
     if (size == -1) {
 	if (eofpos < pos) 
@@ -209,15 +211,11 @@ CAMLprim value netsys_map_file(value fdv,
 	if (size < 0)
 	    invalid_argument("netsys_map_file");
 	if (eofpos - pos < size) {
-	    if (lseek(fd, pos + size - 1, SEEK_SET) == -1)
-		uerror("lseek", Nothing);
-	    c = 0;
-	    if (write(fd, &c, 1) != 1) uerror("write", Nothing);
+	    if (ftruncate(fd, pos + size) == -1)
+		uerror("ftruncate", Nothing);
 	}
 	basize = size;
     }
-    lseek(fd, savepos, SEEK_SET);
-
     delta = (uintnat) (pos % pagesize);
     eff_addr = mmap(addr, basize + delta, PROT_READ | PROT_WRITE,
 		    shared, fd, pos - delta);
