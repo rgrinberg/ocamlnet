@@ -9,8 +9,10 @@ let create_camlbox prefix n size =
     Netsys_posix.shm_create ("/" ^ prefix) 0 in
   let fd_open = ref true in
   try
+    assert(name.[0] = '/');
+    let name1 = String.sub name 1 (String.length name-1) in
     let box =
-      format_camlbox name fd n size in
+      format_camlbox name1 fd n size in
     Unix.close fd;
     fd_open := false;
     let res = manage_shm name in

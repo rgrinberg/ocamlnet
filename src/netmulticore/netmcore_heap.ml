@@ -374,7 +374,7 @@ let do_gc heap =
   let res = Netmcore.get_resource heap.heap_pool in
   let (start_addr, end_addr) =
     match res#repr with
-      | `Posix_shm_preallocated(_,mem) -> 
+      | `Posix_shm_preallocated_sc(_,mem,_) -> 
 	  let mem_size = Bigarray.Array1.dim mem in
           let sa = Netsys_mem.memory_address mem in
 	  let ea = Nativeint.add sa (Nativeint.of_int mem_size) in
