@@ -1224,7 +1224,8 @@ let shm_create prefix size =
 	with Unix.Unix_error(Unix.EINVAL,_,_) -> ()
 	  (* OSX seems to throw EINVAL here *)
       );
-      Unix.ftruncate fd size;
+      if size > 0 then
+        Unix.ftruncate fd size;
       (fd, name)
     with
       | Unix.Unix_error(Unix.EEXIST,_,_) ->
