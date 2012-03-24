@@ -13,6 +13,22 @@ Netmcore_heap:
 Netmcore_sem:
  - use Netsys_sem
 
+Linux:
+  ./nqueens -mp2 runs out of pool mem. why?
+
+check other examples
+
+document:
+ - Netsys_sem
+ - Platform: mention Netsys_sem
+ - Kernel_objects: explain persistency
+
+
+Also test under other OS
+ - FreeBSD
+ - Solaris
+
+
 OCAMLNET
 
 ----------------------------------------------------------------------
