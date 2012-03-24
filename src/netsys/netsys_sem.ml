@@ -8,10 +8,21 @@ type sem_wait_behavior = Netsys_posix.sem_wait_behavior =
   | SEM_WAIT_BLOCK
   | SEM_WAIT_NONBLOCK
 
+type prefix = string
+
 
 module Emu = struct
   let n = 16384
-    (* We support at most this number of semaphores per container *)
+    (* We support at most this number of semaphores per container.
+       This number can be increased to at most 65535 without changing
+       the code.
+     *)
+
+  (* Note that there is a basic problem with [mutex]: If the process dies
+     while the mutex is in locked state, no other process will ever
+     again get the lock. TODO: We could protect against this by recording
+     the PID of the lock holder.
+   *)
 
   type anon_semaphore =
       { sem : Netsys_posix.named_semaphore;
@@ -27,6 +38,8 @@ module Emu = struct
 
   let have_anon_semaphores() =
     Netsys_posix.have_named_posix_semaphores()
+
+  let prefix cont = cont.prefix
 
   let container prefix =
     let fd = 
@@ -66,11 +79,31 @@ module Emu = struct
   let sem_name cont k =
     cont.prefix ^ "_sem" ^ string_of_int k
 
+  let unlink prefix =
+    (* A radical way to get rid of all persistent objects, without acquiring
+       mutex
+     *)
+    let attempt f arg =
+      try f arg
+      with _ -> () in
+    attempt Netsys_posix.shm_unlink (prefix ^ "_sems");
+    attempt Netsys_posix.sem_unlink (prefix ^ "_contsem");
+    for k = 0 to n-1 do
+      attempt Netsys_posix.sem_unlink (prefix ^ "_sem" ^ string_of_int k)
+    done
+
+  let create_container prefix =
+    unlink prefix;
+    container prefix
+
   let lookup cont k =
     (* Look the existing semaphore #k up. ENOENT if not found *)
     lock cont;
     try
-      try Hashtbl.find cont.active k
+      try 
+        let usem = Hashtbl.find cont.active k in
+        unlock cont;
+        usem
       with Not_found ->
 	let sem =
 	  Netsys_posix.sem_open
@@ -131,13 +164,14 @@ module Emu = struct
 	num = k
       } in
     lock cont;
-    Hashtbl.add cont.active k usem;
+    Hashtbl.replace cont.active k usem;
     unlock cont;
     mem.{ pos } <- Char.chr (k land 0xff);
     mem.{ pos+1 } <- Char.chr (k lsr 8);
     usem
 
   let sem_idestroy cont k =
+    Hashtbl.remove cont.active k;
     ( try
 	Netsys_posix.sem_unlink
 	  (sem_name cont k)
@@ -147,9 +181,11 @@ module Emu = struct
 
   let sem_destroy cont usem =
     Netsys_posix.sem_close usem.sem;
-    sem_idestroy cont usem.num
+    lock cont;
+    sem_idestroy cont usem.num;
+    unlock cont
 
-  let drop cont =
+  let drop_container cont =
     lock cont;
     for k = 0 to n-1 do
       if cont.used.{k} = '\001' then
@@ -178,7 +214,7 @@ end
 
 
 module Native = struct
-  type container = unit
+  type container = string (* the prefix *)
 
   type anon_semaphore =
       Netsys_posix.anon_semaphore
@@ -186,17 +222,23 @@ module Native = struct
   let have_anon_semaphores() =
     Netsys_posix.have_anon_posix_semaphores()
 
-  let container _ = ()
+  let container p = p
 
-  let drop () = ()
+  let create_container p = p
 
-  let sem_init() = 
+  let drop_container _ = ()
+
+  let unlink _ = ()
+
+  let prefix p = p
+
+  let sem_init _ = 
     Netsys_posix.sem_init
 
-  let sem_destroy() =
+  let sem_destroy _ =
     Netsys_posix.sem_destroy
 
-  let as_sem() =
+  let as_sem _ =
     Netsys_posix.as_sem
 
   let sem_getvalue =
@@ -227,30 +269,45 @@ let force_emu = ref false
 let force_emulation() =
   force_emu := true
 
+let emu() =
+  !force_emu || 
+    (Netsys_posix.have_named_posix_semaphores() && 
+       not (Netsys_posix.have_anon_posix_semaphores()))
+
 let have_anon_semaphores() =
-  if !force_emu || 
-     (Netsys_posix.have_named_posix_semaphores() && 
-	not (Netsys_posix.have_anon_posix_semaphores()))
-  then
+  if emu() then
     Emu.have_anon_semaphores()
   else
     Native.have_anon_semaphores()
 
 
-let container prefix =
-  if !force_emu || 
-     (Netsys_posix.have_named_posix_semaphores() && 
-	not (Netsys_posix.have_anon_posix_semaphores()))
-  then
+let container prefix : container =
+  if emu() then
     `E(Emu.container prefix)
   else
     `N(Native.container prefix)
 
+let create_container prefix =
+  if emu() then
+    `E(Emu.create_container prefix)
+  else
+    `N(Native.create_container prefix)
+
+let unlink prefix =
+  if emu() then
+    Emu.unlink prefix
+  else
+    Native.unlink prefix
+
+let prefix =
+  function
+    | `E c -> Emu.prefix c
+    | `N c -> Native.prefix c
 
 let drop cont =
   match cont with
-    | `E c -> Emu.drop c
-    | `N c -> Native.drop c
+    | `E c -> Emu.drop_container c
+    | `N c -> Native.drop_container c
 
 let sem_init cont mem pos pshared init_value =
   match cont with

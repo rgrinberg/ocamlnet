@@ -99,6 +99,11 @@ val create_camlbox : camlbox_address -> int -> int -> 'a camlbox
         let box = (create_camlbox addr n size : t camlbox)
       ]}
       as this ensures type safety for all following operations.
+
+      {b Note that camlboxes have kernel persistence! They are not
+      automatically deleted when the process finishes. Call [unlink_camlbox]
+      to delete camlboxes.}
+
    *)
 
 val unlink_camlbox : camlbox_address -> unit
@@ -108,10 +113,19 @@ val unlink_camlbox : camlbox_address -> unit
       are done with it.
    *)
 
-val format_camlbox : Unix.file_descr -> int -> int -> 'a camlbox
-  (** [format_camlbox fd n size]: The file [fd] is mapped into memory,
+val format_camlbox : 
+      camlbox_address -> Unix.file_descr -> int -> int -> 'a camlbox
+  (** [format_camlbox addr fd n size]: The file [fd] is mapped into memory,
       and formatted as camlbox.
+
+      In Ocamlnet-3.6, the function got the extra [camlbox_address] argument.
    *)
+
+val camlbox_addr : 'a camlbox -> camlbox_address
+  (** returns the address *)
+
+val camlbox_saddr : 'a camlbox_sender -> camlbox_address
+  (** returns the address *)
 
 val camlbox_fd : camlbox_address -> Unix.file_descr
   (** Opens a new file descriptor to this address *)
@@ -206,8 +220,12 @@ val camlbox_sender : camlbox_address -> 'a camlbox_sender
       as this ensures type safety for all following operations.
  *)
 
-val camlbox_sender_of_fd : Unix.file_descr -> 'a camlbox_sender
-  (** Gets a sender for a file descriptor from [camlbox_fd]. *)
+val camlbox_sender_of_fd : 
+      camlbox_address -> Unix.file_descr -> 'a camlbox_sender
+  (** Gets a sender for a file descriptor from [camlbox_fd].
+
+      Ocamlnet-3.6: new arg [camlbox_address]
+   *)
 
 val camlbox_send : ?prefer:int -> ?slot:int ref -> 
                    'a camlbox_sender -> 'a -> unit
@@ -282,3 +300,7 @@ val camlbox_wake : 'a camlbox_sender -> unit
    can run in a different thread.
   
 *)
+
+module Debug : sig
+  val enable : bool ref
+end

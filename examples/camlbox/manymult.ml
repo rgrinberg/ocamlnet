@@ -41,6 +41,11 @@ type worker_arg =
     | `Terminate
     ]
 
+type worker_ret =
+   [ `Ready of int   (* worker_id *)
+   | `Response of response
+   ]
+
 let msg_size =
   1024 * 1024  (* 1M fixed size *)
 
@@ -89,8 +94,10 @@ let multiply wid req =
     result = r
   }
 
-let worker wid wbox mfd =
-  let ms = Netcamlbox.camlbox_sender_of_fd mfd in
+let worker wid wbox mname mfd =
+  let ms = Netcamlbox.camlbox_sender_of_fd mname mfd in
+  Netcamlbox.unlink_camlbox (Netcamlbox.camlbox_addr wbox);
+  Netcamlbox.camlbox_send ms (`Ready wid);
   let cont = ref true in
   while !cont do
     let new_list =
@@ -103,7 +110,7 @@ let worker wid wbox mfd =
 	   | `Multiply req ->
 	       let (resp : response) = multiply wid req in
 	       Netcamlbox.camlbox_delete wbox k;
-	       Netcamlbox.camlbox_send ms resp
+	       Netcamlbox.camlbox_send ms (`Response resp)
 	   | `Terminate ->
 	       cont := false
       )
@@ -118,7 +125,6 @@ let prepare n_workers =
   let mname = "camlbox_" ^ string_of_int(Unix.getpid()) in
   let mbox = Netcamlbox.create_camlbox mname (2*n_workers) msg_size in
   let mfd = Netcamlbox.camlbox_fd mname in
-  Netcamlbox.unlink_camlbox mname;
   
   (* Create worker boxes: *)
   let wboxes =
@@ -127,7 +133,6 @@ let prepare n_workers =
 	 let wname = mname ^ "_" ^ string_of_int k in
 	 let wbox = Netcamlbox.create_camlbox wname wslots msg_size in
 	 let ws = Netcamlbox.camlbox_sender wname in
-	 Netcamlbox.unlink_camlbox wname;
 	 (wbox, ws, ref 2)
       ) in
 
@@ -137,13 +142,31 @@ let prepare n_workers =
     (fun wid (wbox, _, _) ->
        match Unix.fork() with
 	 | 0 ->
-	     worker wid wbox mfd
+	     worker wid wbox mname mfd
 	 | pid ->
 	     pids := pid :: !pids
     )
     wboxes;
 
   (mbox, wboxes, !pids)
+
+
+let wait_until_ready n_workers mbox =
+  let missing = ref n_workers in
+  while !missing > 0 do
+    let idx_list = Netcamlbox.camlbox_wait mbox in
+    List.iter
+      (fun idx ->
+         let (msg : worker_ret) = Netcamlbox.camlbox_get mbox idx in
+         ( match msg with
+             | `Ready _ -> decr missing
+             | _ -> assert false
+         );
+         Netcamlbox.camlbox_delete mbox idx
+      )
+      idx_list
+  done
+
 
 let master tasks n_workers (mbox, wboxes, pids) =
   (* Loop *)
@@ -180,19 +203,16 @@ let master tasks n_workers (mbox, wboxes, pids) =
       let idx_list = Netcamlbox.camlbox_wait mbox in
       List.iter
 	(fun idx ->
-	   let (msg : response) = Netcamlbox.camlbox_get mbox idx in
-	   (* We have to copy msg before we can delete it *)
-	   let msg' =
-	     { resp_id = msg.resp_id;
-	       worker_id = msg.worker_id;
-	       result = Array.map (fun c -> Array.copy c) msg.result
-	     } in
+	   let (msg : worker_ret) = Netcamlbox.camlbox_get_copy mbox idx in
 	   Netcamlbox.camlbox_delete mbox idx;
-	   tasks.( msg'.resp_id ).response_opt <- Some msg';
-	   let (_, _, wfree) = wboxes.( msg'.worker_id ) in
-	   incr wfree;
-	   incr free_slots;
-	   decr unresponded;
+           match msg with
+             | `Response resp ->
+   	          tasks.( resp.resp_id ).response_opt <- Some resp;
+	          let (_, _, wfree) = wboxes.( resp.worker_id ) in
+	          incr wfree;
+	          incr free_slots;
+	          decr unresponded;
+             | _ -> assert false
 	)
 	idx_list
     )
@@ -232,6 +252,9 @@ let main() =
   let tasks = create_tasks n size in
   printf "Performing tasks...\n%!";
   let t0 = Unix.gettimeofday() in
+  let (mbox,_,_) = boxtuple in
+  wait_until_ready n_workers mbox;
+  Netcamlbox.unlink_camlbox (Netcamlbox.camlbox_addr mbox);
   master tasks n_workers boxtuple;
   let t1 = Unix.gettimeofday() in
   printf "t = %f\n%!" (t1-.t0)

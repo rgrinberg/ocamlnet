@@ -1,3 +1,18 @@
+Netcamlbox: avoid using sem_getvalue - DONE
+
+Netmcore_mempool: 
+ - use Netsys_sem
+ - add unlink_pool function
+ - add pool_sem_cont function
+
+Netmcore_heap:
+ - store cont in "heap" record
+ - use Netsys_sem
+ - add heap_sem_cont function
+
+Netmcore_sem:
+ - use Netsys_sem
+
 OCAMLNET
 
 ----------------------------------------------------------------------

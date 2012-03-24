@@ -20,7 +20,8 @@ type process_id =
     [ `Process of int ]
 
 type compute_resource_type =
-    [ `File | `Posix_shm | `Posix_shm_preallocated 
+    [ `File | `Posix_shm | `Posix_shm_sc | `Posix_shm_preallocated 
+    | `Posix_shm_preallocated_sc
     | `Posix_sem | `Fork_point | `Join_point
     ]
 
@@ -32,7 +33,10 @@ type inherit_request =
 type compute_resource_repr =
     [ `File of string
     | `Posix_shm of string
+    | `Posix_shm_sc of string * Netsys_sem.prefix
     | `Posix_shm_preallocated of string * Netsys_mem.memory
+    | `Posix_shm_preallocated_sc of string * Netsys_mem.memory * 
+                                       Netsys_sem.container
     | `Posix_sem of string
     | `Fork_point of (inherit_request * Netplex_encap.encap -> process_id)
     | `Join_point of (process_id -> Netplex_encap.encap option)
@@ -41,7 +45,9 @@ type compute_resource_repr =
 type trans_resource_repr =
     [ `File of string
     | `Posix_shm of string
+    | `Posix_shm_sc of string * Netsys_sem.prefix
     | `Posix_shm_preallocated
+    | `Posix_shm_preallocated_sc
     | `Posix_sem of string
     | `Fork_point
     | `Join_point
@@ -50,6 +56,7 @@ type trans_resource_repr =
 type manage_resource_repr =
     [ `File of string
     | `Posix_shm of string
+    | `Posix_shm_sc of string * Netsys_sem.prefix
     | `Posix_sem of string
     ]
 
@@ -95,7 +102,9 @@ object
   method join_res : res_id
     (* only meaningful for fork points *)
   method post_start : unit -> unit
-    (* This is run at process start time to free unneeded resources *)
+    (* This is run at process start time to free unneeded resources
+       (resources not inherited to the worker)
+     *)
   method process_body : Netplex_types.encap -> Netplex_types.encap
     (* The argument of [def_process] *)
 
@@ -152,8 +161,9 @@ module Manage_resource_lever =
 module Create_prealloc_shm_lever =
   Netplex_cenv.Make_lever
     (struct
-       type s = string * int * bool * int (* Oo.id of the container *)
-       type r = res_id * string
+       type s = string * int * bool * int (* Oo.id of the container *) * 
+                  string option
+       type r = res_id * string * string option
      end
     )
 
@@ -181,7 +191,7 @@ type levers =
       deliver : process_id * Netplex_encap.encap option -> unit;
       get_result : res_id * process_id -> Netplex_encap.encap option option option;
       manage_resource : manage_resource_repr * int -> res_id;
-      create_prealloc_shm : string * int * bool * int -> (res_id * string);
+      create_prealloc_shm : string * int * bool * int * string option -> (res_id * string * string option);
       get_resource : res_id * int -> trans_resource_repr option;
       release : res_id * int -> unit;
     }
@@ -223,14 +233,16 @@ let is_worker = ref false
 let create_process_fwd = ref (fun _ _ _ _ _ -> assert false)
   (* defined below *)
 
-let inheritable = [ `Posix_shm_preallocated ]
+let inheritable = [ `Posix_shm_preallocated; `Posix_shm_preallocated_sc ]
 
 
 let type_of_repr =
   function
     | `File _ -> `File
     | `Posix_shm _ -> `Posix_shm
+    | `Posix_shm_sc _ -> `Posix_shm_sc
     | `Posix_shm_preallocated _ -> `Posix_shm_preallocated
+    | `Posix_shm_preallocated_sc _ -> `Posix_shm_preallocated_sc
     | `Posix_sem _ -> `Posix_sem
     | `Fork_point _ -> `Fork_point
     | `Join_point _ -> `Join_point
@@ -343,9 +355,15 @@ let manage_resource res_repr post_start exec =
 		  Unix.unlink name
 	      | `Posix_shm name ->
 		  Netsys_posix.shm_unlink name
+	      | `Posix_shm_sc(name,p) ->
+                  Netsys_sem.unlink p;
+		  Netsys_posix.shm_unlink name
 	      | `Posix_sem name ->
 		  Netsys_posix.sem_unlink name
 	      | `Posix_shm_preallocated(name,_) ->
+		  Netsys_posix.shm_unlink name
+	      | `Posix_shm_preallocated_sc(name,_,c) ->
+                  Netsys_sem.unlink (Netsys_sem.prefix c);
 		  Netsys_posix.shm_unlink name
 	  with error ->
 	    Netlog.logf `Err
@@ -364,7 +382,7 @@ let master_manage_resource ctrl (res_repr, cid) =
   manage_resource res_repr (fun _ -> ()) (`Container cid)
 
 
-let create_prealloc_shm prefix size value_area exec =
+let create_prealloc_shm prefix size value_area exec sem_prefix_opt =
   let (fd, name) =
     Netsys_posix.shm_create prefix size in
   let mem =
@@ -373,15 +391,29 @@ let create_prealloc_shm prefix size value_area exec =
   if value_area then
     Netsys_mem.value_area mem;
   dlogr (fun () -> sprintf "create_prealloc_shm %s" name);
+  let sc_opt =
+    match sem_prefix_opt with
+      | None -> None
+      | Some p -> Some(Netsys_sem.create_container p) in
   let post_start _ =
     Netsys_mem.memory_unmap_file mem in
+  let res =
+    match sc_opt with
+      | None -> `Posix_shm_preallocated(name, mem)
+      | Some c -> `Posix_shm_preallocated_sc(name, mem, c ) in
   let res_id =
-    manage_resource (`Posix_shm_preallocated(name, mem)) post_start exec in
-  (res_id, name)
+    manage_resource res post_start exec in
+  (res_id, name, sc_opt)
 
 
-let master_create_prealloc_shm ctrl (prefix,size,value_area,cid) =
-  create_prealloc_shm prefix size value_area (`Container cid)
+let master_create_prealloc_shm ctrl 
+                               (prefix,size,value_area,cid,sem_prefix_opt) =
+  let (res_id, name, sc_opt) =
+    create_prealloc_shm prefix size value_area (`Container cid) sem_prefix_opt
+  in
+  (res_id, name, 
+   match sc_opt with None -> None | Some c -> Some(Netsys_sem.prefix c)
+  )
 
 
 let master_get_resource ctrl (res_id, cid) =
@@ -391,10 +423,12 @@ let master_get_resource ctrl (res_id, cid) =
     let res = Hashtbl.find resource_table res_id in
     res # used_in (`Container cid);
     match res#repr with
-      | (`File _|`Posix_shm _|`Posix_sem _) as r ->
+      | (`File _|`Posix_shm _|`Posix_shm_sc _|`Posix_sem _) as r ->
 	  Some (r :> trans_resource_repr)
       | `Posix_shm_preallocated _ ->
 	  Some `Posix_shm_preallocated
+      | `Posix_shm_preallocated_sc _ ->
+	  Some `Posix_shm_preallocated_sc
       | `Fork_point _ ->
 	  Some `Fork_point
       | `Join_point _ ->
@@ -692,6 +726,9 @@ let get_resource res_id =
 	      | Some `Posix_shm_preallocated ->
 		  failwith "Netmcore.get_resource: The `Posix_shm_preallocated \
                             resource exists but is not shared with this worker"
+	      | Some `Posix_shm_preallocated_sc ->
+		  failwith "Netmcore.get_resource: The `Posix_shm_preallocated_sc \
+                            resource exists but is not shared with this worker"
 	      | Some `Fork_point ->
 		  ( object
 		      method id = res_id
@@ -763,6 +800,9 @@ let manage_file name =
 let manage_shm name =
   manage (`Posix_shm name)
 
+let manage_shm_sc name c =
+  manage (`Posix_shm_sc(name, Netsys_sem.prefix c))
+
 let manage_sem name =
   manage (`Posix_sem name)
 
@@ -775,9 +815,19 @@ let get_file res_id =
 let get_shm res_id =
   match (get_resource res_id)#repr with
     | `Posix_shm name -> name
+    | `Posix_shm_sc(name,_) -> name
     | `Posix_shm_preallocated(name,_) -> name
+    | `Posix_shm_preallocated_sc(name,_,_) -> name
     | _ ->
 	failwith "Netmcore.get_shm: the resource is not a shm object"
+
+let get_sem_container res_id =
+  match (get_resource res_id)#repr with
+    | `Posix_shm_sc(_,p) -> Netsys_sem.container p
+    | `Posix_shm_preallocated_sc(_,_,c) -> c
+    | _ ->
+	failwith "Netmcore.get_shm: the resource is not an object with \
+                  semaphore container"
 
 let get_sem res_id =
   match (get_resource res_id)#repr with
@@ -789,11 +839,46 @@ let create_preallocated_shm ?(value_area=false) prefix size =
   match self_exec() with
     | Some (`Container cid) ->
 	let lev = get_levers() in
-	lev.create_prealloc_shm (prefix,size,value_area,cid)
+	let (res_id,name,_) = 
+          lev.create_prealloc_shm (prefix,size,value_area,cid,None) in
+        (res_id,name)
     | Some exec ->
-	create_prealloc_shm prefix size value_area exec
+	let (res_id,name,_) =
+          create_prealloc_shm prefix size value_area exec None in
+        (res_id,name)
     | None ->
-	create_prealloc_shm prefix size value_area `Controller
+	let (res_id,name,_) =
+	  create_prealloc_shm prefix size value_area `Controller None in
+        (res_id,name)
+
+    
+let create_preallocated_shm_sc ?(value_area=false) prefix size =
+  match self_exec() with
+    | Some (`Container cid) ->
+	let lev = get_levers() in
+	let (res_id,name,p_opt) = 
+          lev.create_prealloc_shm (prefix,size,value_area,cid, Some prefix) in
+        ( match p_opt with
+            | None -> assert false
+            | Some p ->
+                let c = Netsys_sem.container p in
+                (res_id,name,c)
+        )
+    | Some exec ->
+	let (res_id,name,sc_opt) =
+          create_prealloc_shm prefix size value_area exec (Some prefix) in
+        ( match sc_opt with
+            | None -> assert false
+            | Some c -> (res_id,name,c)
+        )
+    | None ->
+	let (res_id,name,sc_opt) =
+	  create_prealloc_shm prefix size value_area `Controller (Some prefix)in
+        ( match sc_opt with
+            | None -> assert false
+            | Some c -> (res_id,name,c)
+        )
+
     
 let self_process_id() =
   match !self_pid with

@@ -449,7 +449,7 @@ let delayed_init_pool mem =
     } in
   (* Now move everything to mem: *)
   let p0 = String.length magic in
-  let p = ref (p0 + 8 + Netsys_posix.sem_size) in
+  let p = ref (p0 + 8 + Netsys_sem.sem_size) in
   let (voffs, n) = Netsys_mem.init_value mem !p hdr_orig [] in
   dlog "delayed_init_pool: init_value done";
   let hoffs_s =
@@ -480,15 +480,15 @@ let delayed_init_pool mem =
   hdr
 
 
-let with_pool mem f =
+let with_pool mem c f =
   dlog "with_pool";
   let p0 = String.length magic in
   let u = String.create p0 in
   Netsys_mem.blit_memory_to_string mem 0 u 0 p0;
   if u <> magic then
     failwith "Netmcore_mempool: Uninitialized pool";
-  let sem = Netsys_posix.as_sem mem (p0+8) in
-  Netsys_posix.sem_wait sem Netsys_posix.SEM_WAIT_BLOCK;
+  let sem = Netsys_sem.as_sem c mem (p0+8) in
+  Netsys_sem.sem_wait sem Netsys_posix.SEM_WAIT_BLOCK;
   dlog "with_pool: got lock";
   (* CHECK: signals *)
   try
@@ -503,38 +503,46 @@ let with_pool mem f =
     let hdr = (Netsys_mem.as_value mem hoffs : header) in
     let r = f hdr in
     dlog "with_pool: unlock";
-    Netsys_posix.sem_post sem;
+    Netsys_sem.sem_post sem;
     r
   with
     | error ->
 	dlog "with_pool: unlock";
-	Netsys_posix.sem_post sem;
+	Netsys_sem.sem_post sem;
 	raise error
     
 
-let init_pool mem =
+let init_pool mem c =
   let p0 = String.length magic in
   Netsys_mem.blit_string_to_memory magic 0 mem 0 p0;
   let hoffs_s = Netnumber.HO.int8_as_string (Netnumber.int8_of_int 0) in
   Netsys_mem.blit_string_to_memory hoffs_s 0 mem p0 8;
-  ignore(Netsys_posix.sem_init mem (p0+8) true 1)
+  ignore(Netsys_sem.sem_init c mem (p0+8) true 1)
 
 
-let get_mem res_id =
-  dlog "get_mem";
+let get_mem_c res_id =
+  dlog "get_mem_c";
   let res = Netmcore.get_resource res_id in
   match res#repr with
-    | `Posix_shm_preallocated(_,mem) -> 
-	dlog "get_mem successful";
-	mem
+    | `Posix_shm_preallocated_sc(_,mem,c) -> 
+	dlog "get_mem_c successful";
+	(mem,c)
     | _ -> failwith "Netmcore_mempool: this resource is not a pool"
   
 
 let shm_name res_id =
   let res = Netmcore.get_resource res_id in
   match res#repr with
-    | `Posix_shm_preallocated(name,_) -> 
+    | `Posix_shm_preallocated_sc(name,_,_) -> 
 	name
+    | _ -> failwith "Netmcore_mempool: this resource is not a pool"
+
+
+let sem_container res_id =
+  let res = Netmcore.get_resource res_id in
+  match res#repr with
+    | `Posix_shm_preallocated_sc(_,_,c) -> 
+	c
     | _ -> failwith "Netmcore_mempool: this resource is not a pool"
 
 
@@ -543,8 +551,8 @@ let alloc_mem res_id bsize =
   if bsize <= 0 then
     invalid_arg "Netmcore_mempool.alloc_mem: bad size";
   let bsize = ((bsize - 1) / page_size + 1) * page_size in
-  let mem = get_mem res_id in
-  with_pool mem 
+  let mem,c = get_mem_c res_id in
+  with_pool mem c
     (fun hdr -> 
        let r =
 	 really_alloc_mem mem hdr bsize in
@@ -566,13 +574,13 @@ let alloc_mem res_id bsize =
 
 
 let free_mem res_id m =
-  let mem = get_mem res_id in
+  let mem,c = get_mem_c res_id in
   let offs =
     Nativeint.to_int
       (Nativeint.sub
 	 (Netsys_mem.memory_address m)
 	 (Netsys_mem.memory_address mem)) in
-  with_pool mem
+  with_pool mem c
     (fun hdr -> 
        let r = really_free_mem mem hdr offs in
        dlogr_alloc
@@ -592,13 +600,13 @@ let free_mem res_id m =
 
 
 let size_mem_at_addr res_id addr =
-  let mem = get_mem res_id in
+  let mem,c = get_mem_c res_id in
   let offs =
     Nativeint.to_int
       (Nativeint.sub
 	 addr
 	 (Netsys_mem.memory_address mem)) in
- with_pool mem
+ with_pool mem c
    (fun hdr -> really_size_mem mem hdr offs)
 
 let size_mem res_id m =
@@ -606,16 +614,16 @@ let size_mem res_id m =
 
 
 let stats res_id =
-  let mem = get_mem res_id in
-  with_pool mem
+  let mem,c = get_mem_c res_id in
+  with_pool mem c
     (fun hdr ->
        (hdr.pool_size, hdr.pool_free, hdr.pool_free_contiguous)
     )
 
 
 let debug_info res_id =
-  let mem = get_mem res_id in
-  with_pool mem
+  let mem,c = get_mem_c res_id in
+  with_pool mem c
     (fun hdr ->
        let free_list_string k =
 	 let b = Buffer.create 100 in
@@ -651,8 +659,8 @@ let create_mempool ?(alloc_really=false) size =
   if size <= 0 then
     invalid_arg "Netmcore_mempool.create_mempool: bad size";
   let size = ((size - 1) / page_size + 1) * page_size in
-  let res_id, full_name = 
-    Netmcore.create_preallocated_shm ~value_area:true "/mempool" size in
+  let res_id, full_name, sc = 
+    Netmcore.create_preallocated_shm_sc ~value_area:true "/mempool" size in
   (* Map the first page only *)
   let fd = Netsys_posix.shm_open full_name [Netsys_posix.SHM_O_RDWR] 0 in
   if alloc_really then (
@@ -669,7 +677,7 @@ let create_mempool ?(alloc_really=false) size =
       mem
     with
       | error -> Unix.close fd; raise error in
-  init_pool mem;
+  init_pool mem sc;
   dlogr_alloc
     (fun () ->
        sprintf "mempool (id=%d) space=%d created"
@@ -677,3 +685,12 @@ let create_mempool ?(alloc_really=false) size =
 	 size
     );
   res_id
+
+
+let unlink_mempool res_id =
+  let res = Netmcore.get_resource res_id in
+  match res#repr with
+    | `Posix_shm_preallocated_sc(name,mem,c) -> 
+        Netsys_sem.unlink (Netsys_sem.prefix c);
+        Netsys_posix.shm_unlink name;
+    | _ -> failwith "Netmcore_mempool: this resource is not a pool"

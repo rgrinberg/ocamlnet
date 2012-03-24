@@ -49,7 +49,8 @@ type process_id =
 
 
 type compute_resource_type =
-    [ `File | `Posix_shm | `Posix_shm_preallocated 
+    [ `File | `Posix_shm | `Posix_shm_sc | `Posix_shm_preallocated 
+    | `Posix_shm_preallocated_sc
     | `Posix_sem | `Fork_point | `Join_point
     ]
 
@@ -61,7 +62,10 @@ type inherit_request =
 type compute_resource_repr =
     [ `File of string
     | `Posix_shm of string
+    | `Posix_shm_sc of string * Netsys_sem.prefix
     | `Posix_shm_preallocated of string * Netsys_mem.memory
+    | `Posix_shm_preallocated_sc of string * Netsys_mem.memory * 
+                                       Netsys_sem.container
     | `Posix_sem of string
     | `Fork_point of (inherit_request * Netplex_encap.encap -> process_id)
     | `Join_point of (process_id -> Netplex_encap.encap option)
@@ -69,10 +73,14 @@ type compute_resource_repr =
   (** Centrally managed resources include:
       - [`File name]: Files [name] (absolute name)
       - [`Posix_shm name]: Shared memory objects with [name]
+      - [`Posix_shm_sc(name,p)]: Shared memory objects with [name], and
+        attached container for semaphores with prefix [p]
       - [`Posix_shm_preallocated(name,m)]: Shared memory objects already
         allocated by the master process. These objects are passed over
         to the worker processes by inheritance, and are always mapped at
         the same address. [m] is the bigarray mapping the object.
+      - [`Posix_shm_preallocated_sc(name,m.p)]: Same, plus attached
+        container for semaphores with prefix [p]
       - [`Posix_sem name]: Semaphores with [name]
       - [`Fork_point(inh,f)]: Fork points where [let pid=f arg] fork a new process
         with argument [arg]. [pid] is the process identifier. The list [inh]
@@ -231,10 +239,17 @@ val get_file : res_id -> string
 val manage_shm : string -> compute_resource
   (** hands over a named shm object to the manager *)
 
+val manage_shm_sc : string -> Netsys_sem.container -> compute_resource
+  (** hands over a named shm object plus semaphore container to the manager *)
+
 val get_shm : res_id -> string
   (** Gets the shm object with this ID (or raises [No_resource]). As
       for [get_resource] the shm object is marked as being used by the process.
    *)
+
+val get_sem_container : res_id -> Netsys_sem.container
+  (** Get the semaphore container *)
+
 
 (** Shared memory objects can be created with {!Netsys_posix.shm_create},
     and opened with {!Netsys_posix.shm_open}. 
@@ -261,6 +276,13 @@ val create_preallocated_shm :
       Option [value_area]: if set, the new memory is marked as value
       area, so the ocaml runtime allows value comparisons in this
       memory area.
+   *)
+
+val create_preallocated_shm_sc : 
+     ?value_area:bool -> string -> int -> 
+         (res_id * string * Netsys_sem.container)
+  (** Same as [create_preallocated_shm] with the extension that 
+      a semaphore container is also allocated and returned
    *)
 
 val manage_sem : string -> compute_resource

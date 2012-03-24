@@ -815,17 +815,18 @@ let add_init_array mut n f =
 
 let with_lock heap f =
   dlog "with_lock waiting";
-  let sem = Netsys_posix.as_sem heap.heap_sem 0 in
-  Netsys_posix.sem_wait sem Netsys_posix.SEM_WAIT_BLOCK;
+  let c = Netmcore_mempool.sem_container heap.heap_pool in
+  let sem = Netsys_sem.as_sem c heap.heap_sem 0 in
+  Netsys_sem.sem_wait sem Netsys_posix.SEM_WAIT_BLOCK;
   dlog "with_lock cont";
   try
     let r = f() in
-    Netsys_posix.sem_post sem;
+    Netsys_sem.sem_post sem;
     dlog "with_lock returning";
     r
   with
     | error ->
-	Netsys_posix.sem_post sem;
+	Netsys_sem.sem_post sem;
 	dlog "with_lock exception";
 	raise error
 
@@ -972,6 +973,7 @@ let minimum_size x =
 
 
 let destroy heap =
+  let c = Netmcore_mempool.sem_container heap.heap_pool in
   let ext = ref (Some heap.heap_ext) in
   let first = ref true in
   while !ext <> None do
@@ -989,16 +991,32 @@ let destroy heap =
 	  first := false
       | None -> assert false
   done;
+  let sem = Netsys_sem.as_sem c heap.heap_sem 0 in
+  Netsys_sem.sem_destroy c sem;
   let heap_mem =
     Netsys_mem.grab heap.heap_ext.ext_addr heap.heap_ext.ext_size in
   Netmcore_mempool.free_mem heap.heap_pool heap_mem
 
 
-let create_sem_mem() =
+let pool heap =
+  heap.heap_pool
+
+let mut_pool mut =
+  pool (mut.heap)
+
+let sem_container heap =
+  Netmcore_mempool.sem_container heap.heap_pool
+
+let mut_sem_container mut =
+  sem_container (mut.heap)
+
+
+let create_sem_mem pool_id =
   let m =
     Bigarray.Array1.create
-      Bigarray.char Bigarray.c_layout Netsys_posix.sem_size in
-  ignore(Netsys_posix.sem_init m 0 true 1);
+      Bigarray.char Bigarray.c_layout Netsys_sem.sem_size in
+  let c = Netmcore_mempool.sem_container pool_id in
+  ignore(Netsys_sem.sem_init c m 0 true 1);
   m
 
 let create_heap pool size rootval_orig =
@@ -1015,7 +1033,7 @@ let create_heap pool size rootval_orig =
 	ext_end = Bigarray.Array1.dim heap_mem
       } in
     let heap_orig =
-      { heap_sem = create_sem_mem();
+      { heap_sem = create_sem_mem pool;
 	heap_pool = pool;
 	heap_value = Obj.obj null_obj;
 	heap_ext = heap_ext_orig;

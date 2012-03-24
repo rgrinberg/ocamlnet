@@ -43,6 +43,9 @@ val create_mempool : ?alloc_really:bool -> int -> Netmcore.res_id
       avoided (or better, if memory is really tight, you get the bus
       error now immediately, at least).
 
+      {b Note that memory pools have kernel persistence! They are not
+      automatically deleted when the process finishes. Call [unlink_mempool]
+      to delete memory pools.}
    *)
 
 val alloc_mem : Netmcore.res_id -> int -> Netsys_mem.memory
@@ -89,6 +92,12 @@ val debug_info : Netmcore.res_id -> string
 
 val shm_name : Netmcore.res_id -> string
   (** Returns the name of the shared memory object *)
+
+val sem_container : Netmcore.res_id -> Netsys_sem.container
+  (** Returns the semaphore container *)
+
+val unlink_mempool : Netmcore.res_id -> unit
+  (** Deletes the persistent objects of this pool *)
 
 module Debug : sig
   val enable : bool ref

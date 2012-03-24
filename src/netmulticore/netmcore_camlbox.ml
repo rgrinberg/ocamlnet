@@ -10,7 +10,7 @@ let create_camlbox prefix n size =
   let fd_open = ref true in
   try
     let box =
-      format_camlbox fd n size in
+      format_camlbox name fd n size in
     Unix.close fd;
     fd_open := false;
     let res = manage_shm name in

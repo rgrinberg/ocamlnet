@@ -10,7 +10,8 @@
 
 val have_anon_semaphores : unit -> bool
   (** Returns [true] if anonymous semaphores are supported on this 
-      system *)
+      system, either natively or emulated via named semaphores.
+   *)
 
 (** {b Constants.} *)
 
@@ -25,6 +26,9 @@ val sem_size : int
 type container
   (** The container of the semaphore is the shared memory object *)
 
+type prefix = string
+  (** A name starting with a slash. Must not contain further slashes *)
+
 type anon_semaphore
 
 type sem_open_flag = Netsys_posix.sem_open_flag =
@@ -33,18 +37,46 @@ type sem_open_flag = Netsys_posix.sem_open_flag =
 
 (** {b Container functions.} *)
 
-val container : string -> container
+val container : prefix -> container
   (** [container prefix]: The prefix shall identify the container uniquely.
       Once can e.g. use the path of the shared memory object. The prefix
       is used to construct names for persistent objects.
+
+      {b Note that containers have kernel persistence! They are not
+      automatically deleted when the process finishes. Call [drop]
+      to delete containers, or [create_container] to force their
+      creation as fresh objects.}
+
+      If the container does not exist yet, it is created. Otherwise the
+      container is just opened.
    *)
 
+val create_container : prefix -> container
+  (** [create_container prefix]: Like [container], but the container is
+      always created. A previous instance is first deleted.
+   *)
+
+val prefix : container -> prefix
+  (** Return the prefix *)
+
 val drop : container -> unit
-  (** Drop the semaphores in this container.
+  (** Drop the semaphores in this container, and delete the container.
 
       This function is a no-op if the OS supports anonymous semaphores
       directly (because in this case the deletion of the container will
       automatically destroy the semaphores).
+   *)
+
+(** Note that there is a general problem when a container is deleted
+    or dropped by a process while it is still being used by another one.
+    This will generally not generate errors, but can cause a lot of
+    confusion, because the processes will partly access the same
+    semaphores, and partly different semaphores.
+ *)
+
+val unlink : prefix -> unit
+  (** Unlinks the identified container if it exists, and unlinks all
+      possible named semaphores.
    *)
 
 (** {b Semaphore functions.} *)
@@ -55,7 +87,7 @@ val sem_init : container -> Netsys_types.memory -> int -> bool -> int ->
       at position [pos] to [pos + sem_size() - 1] as anonymous semaphore.
       If [pshared] the semaphore is shared between processes. 
       [init_value] is the initial non-negative value (max is 
-      [sem_value_max].
+      [sem_value_max]).
    *)
 
 val sem_destroy : container -> anon_semaphore -> unit

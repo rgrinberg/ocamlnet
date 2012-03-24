@@ -172,6 +172,18 @@ val destroy : 'a heap -> unit
 val gc : 'a heap -> unit
   (** Lock the heap and do a GC pass *)
 
+val pool : 'a heap -> Netmcore.res_id
+  (** Return the pool ID *)
+
+val mut_pool : mutator -> Netmcore.res_id
+  (** Return the pool ID *)
+
+val sem_container : 'a heap -> Netsys_sem.container
+  (** Return the semaphore container *)
+
+val mut_sem_container : mutator -> Netsys_sem.container
+  (** Return the semaphore container *)
+
 val debug_info : 'a heap -> string
   (** Returns a multi-line debug string *)
 
