@@ -300,14 +300,18 @@ let add_to sb n f =
 
     let k1 = end_buf_pos / b.bsize in
     let k2 = (new_end_buf_pos - 1) / b.bsize in
+    assert(k1 >= 0);
     assert(k2 < Array.length b.blocks);
     for k = k1 to k2 do
+      debug := 130;
       let p_start =
 	if k=k1 then end_buf_pos mod b.bsize else 0 in
       let p_end =
 	if k=k2 then(new_end_buf_pos - 1) mod b.bsize else b.bsize-1 in
       let p_num = p_end-p_start+1 in
-      f b.blocks.(k) p_start p_num
+      let block = b.blocks.(k) in
+      debug := 131;
+      f block p_start p_num
     done;
     debug := 14;
 
