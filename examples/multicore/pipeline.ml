@@ -262,7 +262,7 @@ let control_fork, control_join =
   Netmcore_process.def_process control
 
 
-let () =
+let start() =
   (* Netmcore_mempool.Debug.enable_alloc := true; *)
   Netmcore.startup
     ~socket_directory:"run_pipeline"
@@ -270,3 +270,22 @@ let () =
 		      Netmcore_process.start 
 			~inherit_resources:`All control_fork ())
     ()
+
+let () =
+  Arg.parse
+    [
+      "-debug", Arg.String (fun s -> Netlog.Debug.enable_module s),
+      "<module>  Enable debug messages for <module>";
+
+      "-debug-all", Arg.Unit (fun () -> Netlog.Debug.enable_all()),
+      "  Enable all debug messages";
+
+      "-debug-list", Arg.Unit (fun () -> 
+                                 List.iter print_endline (Netlog.Debug.names());
+                                 exit 0),
+      "  Show possible modules for -debug, then exit"
+    ]
+    (fun arg -> raise(Arg.Bad("Unexpected arg: " ^ arg)))
+    "usage: pipeline [options]";
+
+  start()
