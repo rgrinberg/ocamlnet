@@ -210,6 +210,7 @@ let add_to sb n f =
 	 let buf_pos = b.start_index -- b.null_index in
 	 let end_buf_pos = buf_pos + b.length in
 	 let n_blocks = Array.length b.blocks in
+         assert(n_blocks > 0);
 	 let max_buf_pos = (n_blocks * b.bsize) - 1 in
 	 let need_resize = end_buf_pos - 1 > max_buf_pos - n in
 
@@ -233,6 +234,8 @@ let add_to sb n f =
 	   
 	   let n_keep = n_blocks - n_drop in
 
+           assert(n_blocks_3 > 0);
+           assert(n_blocks_3 >= n_blocks_1);
 	   let blocks = add_uniform_array mut n_blocks_3 "" in
 	   Array.blit b.blocks n_drop blocks 0 n_keep;
 	   pin mut blocks;
@@ -253,6 +256,7 @@ let add_to sb n f =
 	   (* Maybe we have to allocate strings *)
 	   let n_blocks_1 =
 	     (new_end_buf_pos-1) / b.bsize + 1 in
+           assert(n_blocks >= n_blocks_1);
 
 	   let orig =
 	     if b.blocks.(0) <> "" then b.blocks.(0) else
@@ -282,6 +286,7 @@ let add_to sb n f =
 
     let k1 = end_buf_pos / b.bsize in
     let k2 = (new_end_buf_pos - 1) / b.bsize in
+    assert(k2 < Array.length b.blocks);
     for k = k1 to k2 do
       let p_start =
 	if k=k1 then end_buf_pos mod b.bsize else 0 in
