@@ -79,8 +79,10 @@ let check b pos n =
   let end_index = b.start_index ++ b.length in
   if b.start_index <= end_index then (
     if pos < b.start_index || pos > end_index - n then (
+(*
       eprintf "Bad index pos=%d n=%d start_index=%d end_index=%d length=%d\n%!"
         pos n b.start_index end_index b.length;
+ *)
       invalid_arg "Netmcore_buffer: bad index[1]"
     )
   )
@@ -89,8 +91,10 @@ let check b pos n =
     if (pos > end_index && pos < b.start_index) ||
        (epos > end_index && epos < b.start_index) 
     then (
+(*
       eprintf "Bad index pos=%d epos=%d n=%d start_index=%d end_index=%d length=%d\n%!"
         pos epos n b.start_index end_index b.length;
+ *)
       invalid_arg "Netmcore_buffer: bad index[2]"
     )
 

@@ -8,6 +8,8 @@
    the header of the buffer.
  *)
 
+(* Expected checksum for the default params: 482082307 *)
+
 open Printf
 
 type header =
@@ -53,7 +55,6 @@ let producer (bd:buffer_descr) =
   (* We send (almost) endlessly the string 0123456789... *)
   let loc = ref 0 in
   try
-
     let b = Netmcore_buffer.buffer_of_descr pool bd in
     let p_len = max_buffer - (max_buffer mod 10) + 10 in
     let p = String.make p_len ' ' in
@@ -130,102 +131,92 @@ let one_meg = float (1024 * 1024)
 
 let consumer (bd:buffer_descr) =
   (* We compute a checksum, just to do something with the data *)
-(*
-  try
- *)
-    let b = Netmcore_buffer.buffer_of_descr pool bd in
-    let cksum = ref 0 in
-    let t0 = Unix.gettimeofday() in
-    let t1 = ref t0 in
-    let n1 = ref 0.0 in
-    
-    let h = Netmcore_buffer.header b in
-    let w = 
-      Netmcore_heap.modify
-        (Netmcore_buffer.heap b)
-        (fun mut ->
-	   Netmcore_condition.alloc_wait_entry mut h.wait_set
-        ) in
-
-    let continue = ref true in
-    let i = ref 0 in
-    
-    while !continue do
-      let l = (
-        let l_ref = ref 0 in
-        Netmcore_mutex.lock h.lock;
-        while h.length = 0 do
-	  Netmcore_condition.wait w h.have_data h.lock
-        done;
-        l_ref := h.length;
-        continue := not h.eof;
-        Netmcore_mutex.unlock h.lock;
-        !l_ref
+  let b = Netmcore_buffer.buffer_of_descr pool bd in
+  let cksum = ref 0 in
+  let t0 = Unix.gettimeofday() in
+  let t1 = ref t0 in
+  let n1 = ref 0.0 in
+  
+  let h = Netmcore_buffer.header b in
+  let w = 
+    Netmcore_heap.modify
+      (Netmcore_buffer.heap b)
+      (fun mut ->
+	 Netmcore_condition.alloc_wait_entry mut h.wait_set
       ) in
-      
-      (* We implement here two variants:
-         (1) Copy data immediately, signal, then evaluate data
-             (good if evaluation is expensive)
-         (2) Evaluate data on the original string, then signal
-             (good if evaluation is cheap)
-       *)
-      let process s pos len =
-        for k = 0 to len-1 do
-	  let c = Char.code (String.unsafe_get s (pos+k)) in
-	  cksum := (!cksum lsl 3) + c
-        done;
-        i := !i + len;
-        if !i < 0 then i := !i + max_int + 1;
-        n1 := !n1 +. float len in
-      
-      let postprocess () =
-        let t = Unix.gettimeofday() in
-        if t -. !t1 >= 1.0 then (
-	  printf "received %.0f bytes, %.1f M/s\n%!"
-	    !n1 ((!n1 /. (t -. !t1)) /. one_meg);
-	  n1 := 0.0;
-	  t1 := t;
-        ) in
-      
-      let signal len =
-        Netmcore_mutex.lock h.lock;
-        h.length <- h.length - len;
-        Netmcore_mutex.unlock h.lock;
-        Netmcore_condition.signal h.have_space in
-      
-      match variant with
-        | `Copy ->
-	    let s = Netmcore_buffer.sub b !i l in
-	    Netmcore_buffer.delete_hd b l;
-	    signal l;
-	    process s 0 l;
-	    postprocess()
-        | `Nocopy ->
-	    let r = ref 0 in
-	    while !r < l do
-	      Netmcore_buffer.access b !i
-	        (fun s pos len ->
-		   let len' = min len (l - !r) in
-		   process s pos len';
-		   r := !r + len';
-	        )
-	    done;
-	    Netmcore_buffer.delete_hd b l;
-	    signal l;
-	    postprocess()
-    done;
+  
+  let continue = ref true in
+  let i = ref 0 in
+  
+  while !continue do
+    let l = (
+      let l_ref = ref 0 in
+      Netmcore_mutex.lock h.lock;
+      while h.length = 0 do
+	Netmcore_condition.wait w h.have_data h.lock
+      done;
+      l_ref := h.length;
+      continue := not h.eof;
+      Netmcore_mutex.unlock h.lock;
+      !l_ref
+    ) in
     
-    let t = Unix.gettimeofday() in
-    printf "Total: received %d bytes, %.1f M/s\n%!"
-      !i ((float !i /. (t -. t0)) /. one_meg);
-    printf "Checksum: %d\n%!" (!cksum land 0x3fff_ffff)
-(*
-  with
-    | error ->
-        let bt = Printexc.get_backtrace() in
-        failwith ("Exception: " ^ Netexn.to_string error ^ ", backtrace: " ^ 
-                    bt)
- *)
+    (* We implement here two variants:
+       (1) Copy data immediately, signal, then evaluate data
+           (good if evaluation is expensive)
+       (2) Evaluate data on the original string, then signal
+           (good if evaluation is cheap)
+     *)
+    let process s pos len =
+      for k = 0 to len-1 do
+	let c = Char.code (String.unsafe_get s (pos+k)) in
+	cksum := (!cksum lsl 3) + c
+      done;
+      i := !i + len;
+      if !i < 0 then i := !i + max_int + 1;
+      n1 := !n1 +. float len in
+    
+    let postprocess () =
+      let t = Unix.gettimeofday() in
+      if t -. !t1 >= 1.0 then (
+	printf "received %.0f bytes, %.1f M/s\n%!"
+	  !n1 ((!n1 /. (t -. !t1)) /. one_meg);
+	n1 := 0.0;
+	t1 := t;
+      ) in
+    
+    let signal len =
+      Netmcore_mutex.lock h.lock;
+      h.length <- h.length - len;
+      Netmcore_mutex.unlock h.lock;
+      Netmcore_condition.signal h.have_space in
+    
+    match variant with
+      | `Copy ->
+	  let s = Netmcore_buffer.sub b !i l in
+	  Netmcore_buffer.delete_hd b l;
+	  signal l;
+	  process s 0 l;
+	  postprocess()
+      | `Nocopy ->
+	  let r = ref 0 in
+	  while !r < l do
+	    Netmcore_buffer.access b !i
+	      (fun s pos len ->
+		 let len' = min len (l - !r) in
+		 process s pos len';
+		 r := !r + len';
+	      )
+	  done;
+	  Netmcore_buffer.delete_hd b l;
+	  signal l;
+	  postprocess()
+  done;
+  
+  let t = Unix.gettimeofday() in
+  printf "Total: received %.0f bytes, %.1f M/s\n%!"
+    !n1 ((!n1 /. (t -. t0)) /. one_meg);
+  printf "Checksum: %d\n%!" (!cksum land 0x3fff_ffff)
 
 let consumer_fork, consumer_join =
   Netmcore_process.def_process consumer
@@ -237,66 +228,57 @@ let control() =
      dummy values (h_orig is in normal memory), and after the header
      has been copied to shm, we do the real initialization.
    *)
-(*  try
- *)
-    let h_orig =
-      { length = 0;
-        eof = false;
-        lock = Netmcore_mutex.dummy();
-        have_space = Netmcore_condition.dummy_condition();
-        have_data = Netmcore_condition.dummy_condition();
-        wait_set = Netmcore_condition.dummy_wait_set()
-      } in
-    let b = Netmcore_buffer.create pool buf_increment h_orig in
-    Netmcore_heap.modify
-      (Netmcore_buffer.heap b)
-      (fun mut ->
-         (* N.B. h is a copy of h_orig residing in shm *)
-         let h = Netmcore_buffer.header b in
-         h.lock <- Netmcore_mutex.create mut `Normal;
-         h.have_space <- Netmcore_condition.create_condition mut;
-         h.have_data <- Netmcore_condition.create_condition mut;
-         h.wait_set <- Netmcore_condition.create_wait_set mut;
-      );
-    
-    (* Now start the workers for producing and consuming data *)
-    let producer_pid =
-      Netmcore_process.start
-        ~inherit_resources:`All
-        producer_fork (Netmcore_buffer.descr_of_buffer b) in
-    let consumer_pid =
-      Netmcore_process.start
-        ~inherit_resources:`All
-        consumer_fork (Netmcore_buffer.descr_of_buffer b) in
-    
-    (* Now wait until these processes are done *)
-    ( match Netmcore_process.join producer_join producer_pid with
-        | None ->
-	    failwith "Error in the producer"
-        | Some _ ->
-	    ()
+  let h_orig =
+    { length = 0;
+      eof = false;
+      lock = Netmcore_mutex.dummy();
+      have_space = Netmcore_condition.dummy_condition();
+      have_data = Netmcore_condition.dummy_condition();
+      wait_set = Netmcore_condition.dummy_wait_set()
+    } in
+  let b = Netmcore_buffer.create pool buf_increment h_orig in
+  Netmcore_heap.modify
+    (Netmcore_buffer.heap b)
+    (fun mut ->
+       (* N.B. h is a copy of h_orig residing in shm *)
+       let h = Netmcore_buffer.header b in
+       h.lock <- Netmcore_mutex.create mut `Normal;
+       h.have_space <- Netmcore_condition.create_condition mut;
+       h.have_data <- Netmcore_condition.create_condition mut;
+       h.wait_set <- Netmcore_condition.create_wait_set mut;
     );
-    ( match Netmcore_process.join consumer_join consumer_pid with
-        | None ->
-	    failwith "Error in the consumer"
-        | Some _ ->
-	    ()
-    );
-    
-    (* Cleanup: *)
-    let h = Netmcore_buffer.header b in
-    Netmcore_mutex.destroy h.lock;
-    Netmcore_condition.destroy_condition h.have_space;
-    Netmcore_condition.destroy_condition h.have_data;
-    Netmcore_condition.destroy_wait_set h.wait_set;
-    Netmcore_buffer.destroy b
-(*      
-  with
-    | error ->
-        let bt = Printexc.get_backtrace() in
-        failwith ("Exception: " ^ Netexn.to_string error ^ ", backtrace: " ^ 
-                    bt)
- *)
+  
+  (* Now start the workers for producing and consuming data *)
+  let producer_pid =
+    Netmcore_process.start
+      ~inherit_resources:`All
+      producer_fork (Netmcore_buffer.descr_of_buffer b) in
+  let consumer_pid =
+    Netmcore_process.start
+      ~inherit_resources:`All
+      consumer_fork (Netmcore_buffer.descr_of_buffer b) in
+  
+  (* Now wait until these processes are done *)
+  ( match Netmcore_process.join producer_join producer_pid with
+      | None ->
+	  failwith "Error in the producer"
+      | Some _ ->
+	  ()
+  );
+  ( match Netmcore_process.join consumer_join consumer_pid with
+      | None ->
+	  failwith "Error in the consumer"
+      | Some _ ->
+	  ()
+  );
+  
+  (* Cleanup: *)
+  let h = Netmcore_buffer.header b in
+  Netmcore_mutex.destroy h.lock;
+  Netmcore_condition.destroy_condition h.have_space;
+  Netmcore_condition.destroy_condition h.have_data;
+  Netmcore_condition.destroy_wait_set h.wait_set;
+  Netmcore_buffer.destroy b
 
 let control_fork, control_join =
   Netmcore_process.def_process control
