@@ -51,9 +51,9 @@ let pool = Netmcore_mempool.create_mempool pool_size
 
 let producer (bd:buffer_descr) =
   (* We send (almost) endlessly the string 0123456789... *)
-(*
+  let loc = ref 0 in
   try
- *)
+
     let b = Netmcore_buffer.buffer_of_descr pool bd in
     let p_len = max_buffer - (max_buffer mod 10) + 10 in
     let p = String.make p_len ' ' in
@@ -74,14 +74,17 @@ let producer (bd:buffer_descr) =
     let q = ref 0 in
     
     while !n < send_size do
+      loc := 1;
       let l = (
         let l_ref = ref 0 in
         Netmcore_mutex.lock h.lock;
+        loc := 2;
         while h.length >= max_buffer do
-	  Netmcore_condition.wait w h.have_space h.lock
+	  Netmcore_condition.wait w h.have_space h.lock; loc := 3
         done;
         l_ref := h.length;
         Netmcore_mutex.unlock h.lock;
+        loc := 4;
         !l_ref
       ) in
       
@@ -93,26 +96,31 @@ let producer (bd:buffer_descr) =
       (* printf "after %d bytes, sending %d bytes\n%!" !n to_send0; *)
       while !to_send > 0 do
         let m = min !to_send (p_len - !q) in
+        loc := 5;
         Netmcore_buffer.add_sub_string b p !q m;
+        loc := 6;
         to_send := !to_send - m;
         q := (!q + m) mod 10;
         n := Int64.add !n (Int64.of_int m);
       done;
       
+      loc := 7;
       Netmcore_mutex.lock h.lock;
       h.length <- h.length + to_send0;
       h.eof <- !n = send_size;
+      loc := 8;
       Netmcore_mutex.unlock h.lock;
       
-      Netmcore_condition.signal h.have_data
+      loc := 9;
+
+      Netmcore_condition.signal h.have_data;
+      loc := 10;
     done
-(*
   with
     | error ->
         let bt = Printexc.get_backtrace() in
         failwith ("Exception: " ^ Netexn.to_string error ^ ", backtrace: " ^ 
-                    bt)
- *)
+                    bt ^ " loc=" ^ string_of_int !loc)
 
 let producer_fork, producer_join =
   Netmcore_process.def_process producer
