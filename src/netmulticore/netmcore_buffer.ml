@@ -305,6 +305,9 @@ let add_to sb n f =
     Netmcore_mutex.unlock (root sb).add_lock;
   with
     | error ->
+        let bt = Printexc.get_backtrace() in
+        Netlog.logf `Crit "Netmcore_buffer.add_to: %s, backtrace: %s"
+          (Netexn.to_string error) bt;
 	Netmcore_mutex.unlock (root sb).add_lock;
 	raise error
 
