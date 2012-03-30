@@ -200,6 +200,7 @@ let delete_hd sb n =
 
 let add_to sb n f =
   Netmcore_mutex.lock (root sb).add_lock;
+  let debug = ref 0 in
   try
     (* First check everything, and if necessary, resize [blocks]: *)
     let length = ref 0 in
@@ -219,6 +220,7 @@ let add_to sb n f =
 	   failwith "Netmcore_buffer: too large";
 
 	 if need_resize then (
+           debug := 1;
 	   let n_drop = buf_pos / b.bsize in
 	   (* Can drop this number of buffers at the beginning *)
 	   
@@ -236,24 +238,31 @@ let add_to sb n f =
 
            assert(n_blocks_3 > 0);
            assert(n_blocks_3 >= n_blocks_1);
+           debug := 2;
 	   let blocks = add_uniform_array mut n_blocks_3 "" in
+           debug := 3;
 	   Array.blit b.blocks n_drop blocks 0 n_keep;
+           debug := 4;
 	   pin mut blocks;
+           debug := 5;
 
 	   let orig =
 	     if b.blocks.(0) <> "" then b.blocks.(0) else
 	       String.create b.bsize in
+           debug := 6;
 
 	   for k = 0 to n_blocks_1 - 1 do
 	     if String.length blocks.(k) = 0 then
 	       blocks.(k) <- add mut orig
 	   done;
+           debug := 7;
 
 	   b.blocks <- blocks;
 	   b.null_index <- b.null_index ++ n_drop * b.bsize;
 	 )
 	 else (
 	   (* Maybe we have to allocate strings *)
+           debug := 8;
 	   let n_blocks_1 =
 	     (new_end_buf_pos-1) / b.bsize + 1 in
            assert(n_blocks >= n_blocks_1);
@@ -262,10 +271,12 @@ let add_to sb n f =
 	     if b.blocks.(0) <> "" then b.blocks.(0) else
 	       String.create b.bsize in
 
+           debug := 9;
 	   for k = 0 to n_blocks_1 - 1 do
 	     if String.length b.blocks.(k) = 0 then
 	       b.blocks.(k) <- add mut orig
-	   done
+	   done;
+           debug := 10;
 	 );
 
 	 (* Once we leave [modify] it is possible that [delete_hd]
@@ -274,12 +285,15 @@ let add_to sb n f =
 	 length := b.length;
 	 start_index := b.start_index;
       );
+    debug := 12;
 
     (* Now copy the data. This does not change anything in the variables,
        and hence we can do it without heap lock. (We still keep the add_lock
        preventing concurrent adds, though.)
      *)
+
     let b = root sb in
+    debug := 13;
     let buf_pos = !start_index - b.null_index in
     let end_buf_pos = buf_pos + !length in
     let new_end_buf_pos = end_buf_pos + n in
@@ -295,6 +309,7 @@ let add_to sb n f =
       let p_num = p_end-p_start+1 in
       f b.blocks.(k) p_start p_num
     done;
+    debug := 14;
 
     (* Make the data visible *)
     modify sb
@@ -302,12 +317,14 @@ let add_to sb n f =
 	 (* In general, b.length <> !length is now possible *)
 	 b.length <- b.length + n
       );
+    debug := 15;
     Netmcore_mutex.unlock (root sb).add_lock;
   with
     | error ->
         let bt = Printexc.get_backtrace() in
-        Netlog.logf `Crit "Netmcore_buffer.add_to: %s, backtrace: %s"
-          (Netexn.to_string error) bt;
+        Netlog.logf `Crit
+          "Netmcore_buffer.add_to: %s, debug code: %d backtrace: %s"
+          (Netexn.to_string error) !debug bt;
 	Netmcore_mutex.unlock (root sb).add_lock;
 	raise error
 
