@@ -51,7 +51,9 @@ let pool = Netmcore_mempool.create_mempool pool_size
 
 let producer (bd:buffer_descr) =
   (* We send (almost) endlessly the string 0123456789... *)
+(*
   try
+ *)
     let b = Netmcore_buffer.buffer_of_descr pool bd in
     let p_len = max_buffer - (max_buffer mod 10) + 10 in
     let p = String.make p_len ' ' in
@@ -104,12 +106,13 @@ let producer (bd:buffer_descr) =
       
       Netmcore_condition.signal h.have_data
     done
+(*
   with
     | error ->
         let bt = Printexc.get_backtrace() in
         failwith ("Exception: " ^ Netexn.to_string error ^ ", backtrace: " ^ 
                     bt)
-
+ *)
 
 let producer_fork, producer_join =
   Netmcore_process.def_process producer
@@ -119,7 +122,9 @@ let one_meg = float (1024 * 1024)
 
 let consumer (bd:buffer_descr) =
   (* We compute a checksum, just to do something with the data *)
+(*
   try
+ *)
     let b = Netmcore_buffer.buffer_of_descr pool bd in
     let cksum = ref 0 in
     let t0 = Unix.gettimeofday() in
@@ -205,12 +210,13 @@ let consumer (bd:buffer_descr) =
     printf "Total: received %d bytes, %.1f M/s\n%!"
       !i ((float !i /. (t -. t0)) /. one_meg);
     printf "Checksum: %d\n%!" (!cksum land 0x3fff_ffff)
+(*
   with
     | error ->
         let bt = Printexc.get_backtrace() in
         failwith ("Exception: " ^ Netexn.to_string error ^ ", backtrace: " ^ 
                     bt)
-
+ *)
 
 let consumer_fork, consumer_join =
   Netmcore_process.def_process consumer
@@ -222,7 +228,8 @@ let control() =
      dummy values (h_orig is in normal memory), and after the header
      has been copied to shm, we do the real initialization.
    *)
-  try
+(*  try
+ *)
     let h_orig =
       { length = 0;
         eof = false;
@@ -274,12 +281,13 @@ let control() =
     Netmcore_condition.destroy_condition h.have_data;
     Netmcore_condition.destroy_wait_set h.wait_set;
     Netmcore_buffer.destroy b
-      
+(*      
   with
     | error ->
         let bt = Printexc.get_backtrace() in
         failwith ("Exception: " ^ Netexn.to_string error ^ ", backtrace: " ^ 
                     bt)
+ *)
 
 let control_fork, control_join =
   Netmcore_process.def_process control
