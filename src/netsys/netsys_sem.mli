@@ -125,6 +125,10 @@ val sem_wait : anon_semaphore -> sem_wait_behavior -> unit
       [sem_wait] may be interrupted by signals.
    *)
 
+module Debug : sig
+  val enable : bool ref
+end
+
 (**/**)
 
 val force_emulation : unit -> unit

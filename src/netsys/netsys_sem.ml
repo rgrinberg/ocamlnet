@@ -1,5 +1,18 @@
 (* $Id$ *)
 
+module Debug = struct
+  let enable = ref false
+end
+
+let dlog = Netlog.Debug.mk_dlog "Netsys_sem" Debug.enable
+let dlogr = Netlog.Debug.mk_dlogr "Netsys_sem" Debug.enable
+
+let () =
+  Netlog.Debug.register_module "Netsys_sem" Debug.enable
+
+open Printf
+
+
 type sem_open_flag = Netsys_posix.sem_open_flag =
   | SEM_O_CREAT
   | SEM_O_EXCL
@@ -56,14 +69,19 @@ module Emu = struct
 	let used = 
 	  Netsys_mem.memory_map_file fd true n in
 	Unix.close fd;
+        let mutex =
+          Netsys_posix.sem_open
+	    (prefix ^ "_contsem")
+	    [ Netsys_posix.SEM_O_CREAT ]
+	    0o600
+	    1 in
+        dlogr (fun () ->
+                 sprintf "Opened container prefix=%s" prefix
+              );
 	{ prefix = prefix;
 	  used = used;
 	  active = Hashtbl.create 47;
-	  mutex = (Netsys_posix.sem_open
-		     (prefix ^ "_contsem")
-		     [ Netsys_posix.SEM_O_CREAT ]
-		     0o600
-		     1)
+	  mutex = mutex
 	}
       with error ->
 	Unix.close fd;
@@ -71,9 +89,12 @@ module Emu = struct
     )
 
   let lock cont =
-    Netsys_posix.sem_wait cont.mutex Netsys_posix.SEM_WAIT_BLOCK
+    dlogr (fun () -> sprintf "lock waiting prefix=%s" cont.prefix);
+    Netsys_posix.sem_wait cont.mutex Netsys_posix.SEM_WAIT_BLOCK;
+    dlogr (fun () -> sprintf "lock acquired prefix=%s" cont.prefix)
 
   let unlock cont =
+    dlogr (fun () -> sprintf "unlock prefix=%s" cont.prefix);
     Netsys_posix.sem_post cont.mutex
 
   let sem_name cont k =
@@ -83,6 +104,7 @@ module Emu = struct
     (* A radical way to get rid of all persistent objects, without acquiring
        mutex
      *)
+    dlogr (fun () -> sprintf "unlink prefix=%s" prefix);
     let attempt f arg =
       try f arg
       with _ -> () in
@@ -102,6 +124,8 @@ module Emu = struct
     try
       try 
         let usem = Hashtbl.find cont.active k in
+        dlogr (fun () -> 
+                 sprintf "lookup prefix=%s k=%d active" cont.prefix k);
         unlock cont;
         usem
       with Not_found ->
@@ -115,10 +139,15 @@ module Emu = struct
 	  { sem = sem;
 	    num = k
 	  } in
+        dlogr (fun () -> 
+                 sprintf "lookup prefix=%s k=%d opened" cont.prefix k);
 	Hashtbl.add cont.active k usem;
 	unlock cont;
 	usem
     with error ->
+      dlogr (fun () -> 
+               sprintf "lookup prefix=%s k=%d error=%s"
+                 cont.prefix k (Netexn.to_string error));
       unlock cont;
       raise error
 
@@ -132,6 +161,8 @@ module Emu = struct
     done;
     if !k < n then (
       cont.used.{ !k } <- '\001';
+      dlogr (fun () -> 
+               sprintf "find_unused prefix=%s k=%d" cont.prefix !k);
       unlock cont;
       !k
     )
@@ -149,6 +180,8 @@ module Emu = struct
   let as_sem cont mem pos =
     let k =
       Char.code mem.{ pos } + 256 * Char.code mem.{ pos+1 } in
+    dlogr (fun () -> 
+             sprintf "as_sen prefix=%s k=%d" cont.prefix k);
     lookup cont k
 
   let sem_init cont mem pos pshared init_value =
@@ -168,6 +201,8 @@ module Emu = struct
     unlock cont;
     mem.{ pos } <- Char.chr (k land 0xff);
     mem.{ pos+1 } <- Char.chr (k lsr 8);
+    dlogr (fun () -> 
+             sprintf "sem_init prefix=%s k=%d" cont.prefix k);
     usem
 
   let sem_idestroy cont k =
@@ -180,12 +215,16 @@ module Emu = struct
     mark_unused cont k
 
   let sem_destroy cont usem =
+    dlogr (fun () -> 
+             sprintf "sem_destroy prefix=%s k=%d" cont.prefix usem.num);
     Netsys_posix.sem_close usem.sem;
     lock cont;
     sem_idestroy cont usem.num;
     unlock cont
 
   let drop_container cont =
+    dlogr (fun () -> 
+             sprintf "drop_container start prefix=%s" cont.prefix);
     lock cont;
     for k = 0 to n-1 do
       if cont.used.{k} = '\001' then
@@ -199,16 +238,24 @@ module Emu = struct
 	Netsys_posix.sem_unlink (cont.prefix ^ "_contsem")
       with _ -> ()
     );
+    dlogr (fun () -> 
+             sprintf "drop_container finish prefix=%s" cont.prefix);
     unlock cont
 
   let sem_getvalue usem =
     Netsys_posix.sem_getvalue usem.sem
 
   let sem_post usem =
+    dlogr (fun () -> 
+             sprintf "sem_post k=%d" usem.num);
     Netsys_posix.sem_post usem.sem
 
   let sem_wait usem wb =
-    Netsys_posix.sem_wait usem.sem wb
+    dlogr (fun () -> 
+             sprintf "sem_wait waiting k=%d" usem.num);
+    Netsys_posix.sem_wait usem.sem wb;
+    dlogr (fun () -> 
+             sprintf "sem_wait acquired k=%d" usem.num)
 
 end
 
