@@ -201,7 +201,7 @@ let delete_hd sb n =
     (fun () ->
        let b = root sb in
        check b b.start_index n;
-       b.start_index <- b.start_index + n;
+       b.start_index <- b.start_index ++ n;
        b.length <- b.length - n;
     )
     (fun () -> ())
