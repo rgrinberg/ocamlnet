@@ -23,6 +23,10 @@ type buffer = header Netmcore_buffer.buffer
 
 type buffer_descr = header Netmcore_buffer.buffer_descr
 
+module I64 = struct
+  let ( * ) = Int64.mul
+end
+
 let pool_size = 1024 * 1024                   (* 1 M *)
   (* Size of the shm block *)
 
@@ -32,7 +36,7 @@ let max_buffer = 65536                        (* 64 K *)
 let buf_increment = 16384
   (* Pipe buffer space is allocated in units of this *)
 
-let send_size = 16 * 1024 * 1024 * 1024       (* 16 G *)
+let send_size = I64.(16L * 1024L * 1024L * 1024L)       (* 16 G *)
   (* This much data is sent over the pipe in total *)
 
 let variant = `Nocopy
@@ -63,7 +67,7 @@ let producer (bd:buffer_descr) =
 	 Netmcore_condition.alloc_wait_entry mut h.wait_set
       ) in
 
-  let n = ref 0 in
+  let n = ref 0L in
   let q = ref 0 in
 
   while !n < send_size do
@@ -80,7 +84,8 @@ let producer (bd:buffer_descr) =
 
     let space = max_buffer - l in
 
-    let to_send0 = min (send_size - !n) space in
+    let to_send0 = 
+      Int64.to_int(min (Int64.sub send_size !n) (Int64.of_int space)) in
     let to_send = ref to_send0 in
 (* printf "after %d bytes, sending %d bytes\n%!" !n to_send0; *)
     while !to_send > 0 do
@@ -88,7 +93,7 @@ let producer (bd:buffer_descr) =
       Netmcore_buffer.add_sub_string b p !q m;
       to_send := !to_send - m;
       q := (!q + m) mod 10;
-      n := !n + m;
+      n := Int64.add !n (Int64.of_int m);
     done;
 
     Netmcore_mutex.lock h.lock;
@@ -112,7 +117,7 @@ let consumer (bd:buffer_descr) =
   let cksum = ref 0 in
   let t0 = Unix.gettimeofday() in
   let t1 = ref t0 in
-  let n1 = ref 0 in
+  let n1 = ref 0.0 in
 
   let h = Netmcore_buffer.header b in
   let w = 
@@ -150,14 +155,14 @@ let consumer (bd:buffer_descr) =
 	cksum := (!cksum lsl 3) + c
       done;
       i := !i + len;
-      n1 := !n1 + len in
+      n1 := !n1 +. float len in
 
     let postprocess () =
       let t = Unix.gettimeofday() in
       if t -. !t1 >= 1.0 then (
-	printf "received %d bytes, %.1f M/s\n%!"
-	  !n1 ((float !n1 /. (t -. !t1)) /. one_meg);
-	n1 := 0;
+	printf "received %.0f bytes, %.1f M/s\n%!"
+	  !n1 ((!n1 /. (t -. !t1)) /. one_meg);
+	n1 := 0.0;
 	t1 := t;
       ) in
 
