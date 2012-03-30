@@ -1,6 +1,7 @@
 (* $Id$ *)
 
 open Netmcore_heap
+open Printf
 
 type 'h t =
     { bsize : int;
@@ -77,16 +78,21 @@ let ( -- ) a b =
 let check b pos n =
   let end_index = b.start_index ++ b.length in
   if b.start_index <= end_index then (
-    if pos < b.start_index || pos > end_index - n then
-      invalid_arg "Netmcore_buffer: bad index"
+    if pos < b.start_index || pos > end_index - n then (
+      eprintf "Bad index pos=%d n=%d start_index=%d end_index=%d length=%d\n%!"
+        pos n b.start_index end_index b.length;
+      invalid_arg "Netmcore_buffer: bad index[1]"
+    )
   )
   else
     let epos = pos ++ n in
     if (pos > end_index && pos < b.start_index) ||
        (epos > end_index && epos < b.start_index) 
-    then
-      invalid_arg "Netmcore_buffer: bad index"
-
+    then (
+      eprintf "Bad index pos=%d epos=%d n=%d start_index=%d end_index=%d length=%d\n%!"
+        pos epos n b.start_index end_index b.length;
+      invalid_arg "Netmcore_buffer: bad index[2]"
+    )
 
 let blit_to sb sb_pos_opt get_n f =
   let bsize = (root sb).bsize in
