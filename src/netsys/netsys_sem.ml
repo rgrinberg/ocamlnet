@@ -181,7 +181,7 @@ module Emu = struct
     let k =
       Char.code mem.{ pos } + 256 * Char.code mem.{ pos+1 } in
     dlogr (fun () -> 
-             sprintf "as_sen prefix=%s k=%d" cont.prefix k);
+             sprintf "as_sem prefix=%s k=%d" cont.prefix k);
     lookup cont k
 
   let sem_init cont mem pos pshared init_value =

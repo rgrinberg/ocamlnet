@@ -162,7 +162,7 @@ module Create_prealloc_shm_lever =
   Netplex_cenv.Make_lever
     (struct
        type s = string * int * bool * int (* Oo.id of the container *) * 
-                  string option
+                  bool
        type r = res_id * string * string option
      end
     )
@@ -191,7 +191,7 @@ type levers =
       deliver : process_id * Netplex_encap.encap option -> unit;
       get_result : res_id * process_id -> Netplex_encap.encap option option option;
       manage_resource : manage_resource_repr * int -> res_id;
-      create_prealloc_shm : string * int * bool * int * string option -> (res_id * string * string option);
+      create_prealloc_shm : string * int * bool * int * bool -> (res_id * string * string option);
       get_resource : res_id * int -> trans_resource_repr option;
       release : res_id * int -> unit;
     }
@@ -382,7 +382,7 @@ let master_manage_resource ctrl (res_repr, cid) =
   manage_resource res_repr (fun _ -> ()) (`Container cid)
 
 
-let create_prealloc_shm prefix size value_area exec sem_prefix_opt =
+let create_prealloc_shm prefix size value_area exec sem_flag =
   let (fd, name) =
     Netsys_posix.shm_create prefix size in
   let mem =
@@ -392,9 +392,10 @@ let create_prealloc_shm prefix size value_area exec sem_prefix_opt =
     Netsys_mem.value_area mem;
   dlogr (fun () -> sprintf "create_prealloc_shm %s" name);
   let sc_opt =
-    match sem_prefix_opt with
-      | None -> None
-      | Some p -> Some(Netsys_sem.create_container p) in
+    if sem_flag then
+      Some(Netsys_sem.create_container name)
+    else
+      None in
   let post_start _ =
     Netsys_mem.memory_unmap_file mem in
   let res =
@@ -407,9 +408,9 @@ let create_prealloc_shm prefix size value_area exec sem_prefix_opt =
 
 
 let master_create_prealloc_shm ctrl 
-                               (prefix,size,value_area,cid,sem_prefix_opt) =
+                               (prefix,size,value_area,cid,sem_flag) =
   let (res_id, name, sc_opt) =
-    create_prealloc_shm prefix size value_area (`Container cid) sem_prefix_opt
+    create_prealloc_shm prefix size value_area (`Container cid) sem_flag
   in
   (res_id, name, 
    match sc_opt with None -> None | Some c -> Some(Netsys_sem.prefix c)
@@ -840,15 +841,15 @@ let create_preallocated_shm ?(value_area=false) prefix size =
     | Some (`Container cid) ->
 	let lev = get_levers() in
 	let (res_id,name,_) = 
-          lev.create_prealloc_shm (prefix,size,value_area,cid,None) in
+          lev.create_prealloc_shm (prefix,size,value_area,cid,false) in
         (res_id,name)
     | Some exec ->
 	let (res_id,name,_) =
-          create_prealloc_shm prefix size value_area exec None in
+          create_prealloc_shm prefix size value_area exec false in
         (res_id,name)
     | None ->
 	let (res_id,name,_) =
-	  create_prealloc_shm prefix size value_area `Controller None in
+	  create_prealloc_shm prefix size value_area `Controller false in
         (res_id,name)
 
     
@@ -857,7 +858,7 @@ let create_preallocated_shm_sc ?(value_area=false) prefix size =
     | Some (`Container cid) ->
 	let lev = get_levers() in
 	let (res_id,name,p_opt) = 
-          lev.create_prealloc_shm (prefix,size,value_area,cid, Some prefix) in
+          lev.create_prealloc_shm (prefix,size,value_area,cid, true) in
         ( match p_opt with
             | None -> assert false
             | Some p ->
@@ -866,14 +867,14 @@ let create_preallocated_shm_sc ?(value_area=false) prefix size =
         )
     | Some exec ->
 	let (res_id,name,sc_opt) =
-          create_prealloc_shm prefix size value_area exec (Some prefix) in
+          create_prealloc_shm prefix size value_area exec true in
         ( match sc_opt with
             | None -> assert false
             | Some c -> (res_id,name,c)
         )
     | None ->
 	let (res_id,name,sc_opt) =
-	  create_prealloc_shm prefix size value_area `Controller (Some prefix)in
+	  create_prealloc_shm prefix size value_area `Controller true in
         ( match sc_opt with
             | None -> assert false
             | Some c -> (res_id,name,c)
