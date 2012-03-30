@@ -175,6 +175,7 @@ let consumer (bd:buffer_descr) =
 	  cksum := (!cksum lsl 3) + c
         done;
         i := !i + len;
+        if !i < 0 then i := !i + max_int + 1;
         n1 := !n1 +. float len in
       
       let postprocess () =

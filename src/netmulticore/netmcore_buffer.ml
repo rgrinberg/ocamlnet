@@ -189,6 +189,8 @@ let access sb sb_pos f =
     )
 
 let delete_hd sb n =
+  if n < 0 then
+    invalid_arg "Netmcore_buffer: bad length";
   with_value sb
     (fun () ->
        let b = root sb in
@@ -209,7 +211,9 @@ let add_to sb n f =
       (fun mut ->
 	 let b = root sb in
 	 let buf_pos = b.start_index -- b.null_index in
+         assert(buf_pos >= 0);
 	 let end_buf_pos = buf_pos + b.length in
+         assert(end_buf_pos >= buf_pos);
 	 let n_blocks = Array.length b.blocks in
          assert(n_blocks > 0);
 	 let max_buf_pos = (n_blocks * b.bsize) - 1 in
@@ -230,7 +234,9 @@ let add_to sb n f =
 	     max n_blocks n_blocks_1 in  (* never shrink *)
 	   let n_blocks_3 =
 	     if n_blocks_2 > n_blocks then
-	       max (2*n_blocks) n_blocks_2  (* at least double *)
+               let max_blocks = max_int / b.bsize in
+	       max (min (2*n_blocks) max_blocks) n_blocks_2
+                 (* double if possible *)
 	     else
 	       n_blocks_2 in
 	   
@@ -294,7 +300,7 @@ let add_to sb n f =
 
     let b = root sb in
     debug := 13;
-    let buf_pos = !start_index - b.null_index in
+    let buf_pos = !start_index -- b.null_index in
     let end_buf_pos = buf_pos + !length in
     let new_end_buf_pos = end_buf_pos + n in
 
