@@ -25,7 +25,7 @@ netplex {
 
 {2:controller Configuration: The [controller] section}
 
-This section configures the controller component. The task of the
+gThis section configures the controller component. The task of the
 controller is to start the containers for the workload, and logging.
 
 {[
@@ -599,6 +599,7 @@ Usage: netplex-admin [ options ] [ admin_cmd arg ... ]
   -restart-all   Restart all services
   -shutdown   Shutdown the whole Netplex
   -reopen-logfiles   Reopen logfiles (if possible)
+  -unlink   Unlink persistent kernel objects
   -receiver <pat>  Restrict receivers of admin messages to services matching <pat>
 ]}
 
@@ -634,6 +635,8 @@ Finally, the master process is also stopped.
 The command [-reopen-logfiles] is meaningful for all file-based
 logging definitions. The current set of files is closed, and reopened
 again. This is useful as post-action after log file rotation (see below).
+
+[-unlink]: see below.
 
 [netplex-admin] can also be used to send so-called admin messages to
 the containers. These messages have a name and optionally arguments:
@@ -688,3 +691,41 @@ This stanza is an example how to configure the rotation in a
         endscript
 }
 ]}
+
+
+{1:unlink Deleting persistent kernel objects}
+
+For some functionality, Netplex programs allocate persistent kernel
+objects:
+
+ - POSIX shared memory
+ - POSIX named semaphores
+ - Temporary regular files
+
+These objects are effectively only used temporarily, but the available
+system interfaces only allow it to allocate them in a kernel-persisting
+manner. This means that the objects are not automatically released if
+the program ends, like most other system resources, but that they remain
+in memory after termination. If they were just left there behind, they
+would consume memory forever.
+
+Of course, most Netplex programs are carefully written, and delete these
+objects if the program ends in a regular way. However, after a crash
+the programs normally don't have a chance to delete the objects. In order
+to allow administrative removal, many Netplex programs write the names
+of these objects into a special file [netplex.pmanage] residing in the
+socket directory. The [netplex-admin] command has a special mode in
+order to perform the deletion:
+
+{[
+netplex-admin -sockdir /path/to/sockdir -unlink
+]}
+
+Some operating systems have actually means for adminstering the
+kind of objects managed this way, but some have not. For example,
+Linux reflects the objects as normal files in the [/dev/shm]
+directory. As a counter example, there is no administration possibility
+in OS X.
+
+(For programmers: The Netplex interface to access [netplex.pmanage]
+is {!Netplex_cenv.pmanage}.)

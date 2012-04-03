@@ -12,7 +12,7 @@ OBJECTS  = netsys_conf.cmo netsys_types.cmo \
 	   netsys_pollset.cmo netsys_pollset_posix.cmo \
 	   netsys_pollset_win32.cmo netsys_pollset_generic.cmo \
 	   netsys_mem.cmo netsys_xdr.cmo netsys_tmp.cmo \
-	   netsys_sem.cmo
+	   netsys_sem.cmo netsys_pmanage.cmo
 COBJECTS = netsys_c.o netsys_c_poll.o netsys_c_fadvise.o \
 	   netsys_c_fallocate.o netsys_c_ioprio.o netsys_c_locale.o \
            netsys_c_multicast.o netsys_c_sem.o netsys_c_shm.o \
@@ -26,7 +26,7 @@ DOBJECTS = netsys.mli netsys_posix.mli netsys_pollset.mli netlog.mli \
            netsys_signal.mli netsys_oothr.mli netsys_xdr.mli \
 	   netsys_rng.mli \
 	   netsys_types.mli netsys_mem.mli netsys_tmp.mli \
-	   netsys_sem.mli
+	   netsys_sem.mli netsys_pmanage.mli
 LINK_OPTIONS = $(NETSYS_LINK_OPTIONS)
 
 ALL_EXTRA = netsys_oothr.cma

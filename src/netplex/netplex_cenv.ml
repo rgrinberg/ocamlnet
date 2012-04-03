@@ -390,6 +390,19 @@ let lookup_container_sockets sname pname =
   let cont = self_cont() in
   cont # lookup_container_sockets sname pname
 
+let pmanage() =
+  let obj,_ = 
+    try self_obj_par() 
+    with Not_found -> raise Not_in_container_thread in
+  let sockdir =
+    match obj with
+      | `Container cont -> 
+          cont # socket_service # socket_service_config # controller_config 
+            # socket_directory
+    | `Controller ctrl -> 
+        ctrl # controller_config # socket_directory in
+  Netsys_pmanage.pmanage (Filename.concat sockdir "netplex.pmanage")
+
 let run_in_esys esys f =
   let mutex = !Netsys_oothr.provider # create_mutex() in
   let cond = !Netsys_oothr.provider # create_condition() in

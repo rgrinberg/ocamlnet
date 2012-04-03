@@ -129,6 +129,16 @@ temporary file has). The master process also keeps records which
 worker needs which resource. If a resource is not needed anymore by
 any worker, it is automatically deleted.
 
+Since Ocamlnet-3.6, the deletion procedure has been substantially
+improved. Now, a list of the alive resources is not only kept in
+memory, but also written to a file "netplex.pmanage". This allows it
+to delete the resources after the program has crashed or terminated
+somehow abnormally. This is automatically done when the program is
+restarted, or by the user running the [netplex-admin] utility with
+option [-unlink]. The background for this is that the mentioned
+resources have kernel persistency, and continue to exist when the
+program is finished.
+
 {3 Memory pools}
 
 For setting up shared heaps as explained below, we especially need
@@ -1272,13 +1282,18 @@ normally, and this deletion is not performed. The question is how to
 get administratively rid of the blocks.
 
 The nice aspect of the POSIX API is that shared memory looks very much
-like files, and in deed, in all implementations I've seen the blocks
+like files, and in deed, in many implementations I've seen the blocks
 appear somewhere in the file system. Typical locations for these files
 are [/dev/shm] and [/tmp]. The files have names like
 [mempool_f7e8bdaa], or generally [<prefix>_<8hexdigits>]. The prefix
 depends on the data structure the block is used for, and the hex
 digits make the name unique. By deleting these files, the blocks
 are removed.
+
+Since Ocamlnet-3.6, one can also delete shared memory administratively
+with the [netplex-admin] utility. See {!Netplex_admin.unlink} for
+details. This method works for all OS. Also, an unlink of old memory
+is automatically done when the program is restarted.
 
 Another issue is that OS typically define an upper limit for the
 amount of shared memory. This is e.g. 50% of the system RAM for

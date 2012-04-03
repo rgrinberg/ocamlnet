@@ -230,6 +230,10 @@ let self_pid = ref None
 let is_worker = ref false
   (* whether this is a worker *)
 
+let enable_pmanage = ref true
+
+let pmanager = ref (Some (Netsys_pmanage.fake_pmanage()))
+
 let create_process_fwd = ref (fun _ _ _ _ _ -> assert false)
   (* defined below *)
 
@@ -339,6 +343,52 @@ let master_get_result ctrl (join_point, `Process pid) =
     | Not_found -> None
 
 
+let get_pm() =
+  match !pmanager with
+    | None ->
+        Netplex_cenv.pmanage()
+    | Some pm ->
+        pm
+
+
+let pm_register res_repr =
+  let pm = get_pm() in
+  match res_repr with
+    | `File name ->
+        pm # register_file name
+    | `Posix_shm name ->
+        pm # register_posix_shm name
+    | `Posix_shm_sc(name,p) ->
+        pm # register_posix_shm name;
+        pm # register_sem_cont p
+    | `Posix_sem name ->
+        pm # register_posix_sem name
+    | `Posix_shm_preallocated(name,_) ->
+        pm # register_posix_shm name
+    | `Posix_shm_preallocated_sc(name,_,c) ->
+        pm # register_posix_shm name;
+        pm # register_sem_cont (Netsys_sem.prefix c)
+
+
+let pm_unregister res_repr =
+  let pm = get_pm() in
+  match res_repr with
+    | `File name ->
+        pm # unregister_file name
+    | `Posix_shm name ->
+        pm # unregister_posix_shm name
+    | `Posix_shm_sc(name,p) ->
+        pm # unregister_posix_shm name;
+        pm # unregister_sem_cont p
+    | `Posix_sem name ->
+        pm # unregister_posix_sem name
+    | `Posix_shm_preallocated(name,_) ->
+        pm # unregister_posix_shm name
+    | `Posix_shm_preallocated_sc(name,_,c) ->
+        pm # unregister_posix_shm name;
+        pm # unregister_sem_cont (Netsys_sem.prefix c)
+
+
 let manage_resource res_repr post_start exec =
   let res_id = !next_resid in
   incr next_resid;
@@ -349,25 +399,27 @@ let manage_resource res_repr post_start exec =
 	inherit master_resource_skel 
                   (`Resource res_id) typ (res_repr :> compute_resource_repr)
 	method destroy() =
-	  try
-	    match res_repr with
-	      | `File name ->
-		  Unix.unlink name
-	      | `Posix_shm name ->
-		  Netsys_posix.shm_unlink name
-	      | `Posix_shm_sc(name,p) ->
-                  Netsys_sem.unlink p;
-		  Netsys_posix.shm_unlink name
-	      | `Posix_sem name ->
-		  Netsys_posix.sem_unlink name
-	      | `Posix_shm_preallocated(name,_) ->
-		  Netsys_posix.shm_unlink name
-	      | `Posix_shm_preallocated_sc(name,_,c) ->
-                  Netsys_sem.unlink (Netsys_sem.prefix c);
-		  Netsys_posix.shm_unlink name
-	  with error ->
-	    Netlog.logf `Err
-	      "Unable to destroy resource: %s" (Netexn.to_string error)
+	  ( try
+	      match res_repr with
+	        | `File name ->
+		    Unix.unlink name
+	        | `Posix_shm name ->
+		    Netsys_posix.shm_unlink name
+	        | `Posix_shm_sc(name,p) ->
+                    Netsys_sem.unlink p;
+		    Netsys_posix.shm_unlink name
+	        | `Posix_sem name ->
+		    Netsys_posix.sem_unlink name
+	        | `Posix_shm_preallocated(name,_) ->
+		    Netsys_posix.shm_unlink name
+	        | `Posix_shm_preallocated_sc(name,_,c) ->
+                    Netsys_sem.unlink (Netsys_sem.prefix c);
+		    Netsys_posix.shm_unlink name
+	    with error ->
+	      Netlog.logf `Err
+	        "Unable to destroy resource: %s" (Netexn.to_string error)
+          );
+          if !enable_pmanage then pm_unregister res_repr;
 
 	method post_start () =
 	  post_start ()
@@ -375,6 +427,7 @@ let manage_resource res_repr post_start exec =
     ) in
   Hashtbl.replace resource_table (`Resource res_id) res;
   res # used_in exec;
+  if !enable_pmanage then pm_register res_repr;
   (`Resource res_id)
 
 
@@ -901,15 +954,23 @@ let add_plugins ctrl =
 
 
 let destroy_resources () =
+  let old = !enable_pmanage in
+  enable_pmanage := false;
   Hashtbl.iter
     (fun res_id res ->
        res # destroy()
     )
-    resource_table
+    resource_table;
+  enable_pmanage := old;
+  if old then (
+    match !pmanager with
+      | None -> ()
+      | Some pm -> pm # unlink()
+  )
 
 
 let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ()) 
-            ~first_process
+            ?(disable_pmanage=false) ?(no_unlink=false) ~first_process
             () =
   let config_tree =
     `Section("netplex",
@@ -933,8 +994,18 @@ let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ())
     ~late_initializer:(fun cf ctrl ->
 			 add_plugins ctrl;
 			 init_ctrl ctrl;
+                         enable_pmanage := not disable_pmanage;
+                         ( match !pmanager with
+                             | None -> ()
+                             | Some pm ->
+                                 let real_pm = Netplex_cenv.pmanage() in
+                                 if not no_unlink then
+                                   real_pm#unlink();
+                                 real_pm # register (pm # registered);
+                                 pmanager := Some real_pm
+                         );
 			 let pid = first_process() in
-			 initial_process := Some pid
+			 initial_process := Some pid;
 		      )
     ( Netplex_mp.mp ~keep_fd_open:true ~terminate_tmo:(-1) () )
     Netplex_log.logger_factories

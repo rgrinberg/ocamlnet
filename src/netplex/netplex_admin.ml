@@ -45,6 +45,10 @@ let main() =
       Arg.Unit (fun () -> cmds := `Reopen_logfiles :: !cmds),
       "  Reopen logfiles (if possible)";
 
+      "-unlink",
+      Arg.Unit (fun () -> cmds := `Unlink :: !cmds),
+      "  Unlink persistent kernel objects that are only temporarily used";
+
       "-receiver",
       Arg.String (fun pat -> admin_target := pat),
       "<pat>  Restrict receivers of admin messages to services matching <pat>";
@@ -59,11 +63,19 @@ let main() =
   let conn =
     Netplex_sockserv.any_file_client_connector socket in
 
-  let client =
-    Netplex_ctrl_clnt.Admin.V2.create_client 
-      conn
-      Rpc.Tcp in
-
+  let client = ref None in
+  let get_client() =
+    match !client with
+      | None ->
+          let c =
+            Netplex_ctrl_clnt.Admin.V2.create_client 
+              conn
+              Rpc.Tcp in
+          client := Some c;
+          c
+      | Some c ->
+          c in
+          
   let exit_code = ref 0 in
 
   let check_exn f =
@@ -120,7 +132,7 @@ let main() =
   in
 
   let list with_containers () =
-    let l = Netplex_ctrl_clnt.Admin.V2.list client () in
+    let l = Netplex_ctrl_clnt.Admin.V2.list (get_client()) () in
     Array.iter
       (fun s ->
 	 srv_line s;
@@ -171,34 +183,43 @@ let main() =
        | `Enable pat ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V2.enable client pat in
+		let code = 
+                  Netplex_ctrl_clnt.Admin.V2.enable (get_client()) pat in
 		check_code code)
        | `Disable pat ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V2.disable client pat in
+		let code = 
+                  Netplex_ctrl_clnt.Admin.V2.disable (get_client()) pat in
 		check_code code)
        | `Restart pat ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V2.restart client pat in
+		let code = 
+                  Netplex_ctrl_clnt.Admin.V2.restart (get_client()) pat in
 		check_code code)
        | `Restart_all ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V2.restart_all client () in
+		let code = 
+                  Netplex_ctrl_clnt.Admin.V2.restart_all (get_client()) () in
 		check_code code)
        | `Shutdown ->
 	   check_exn
 	     (fun () ->
-		let code = Netplex_ctrl_clnt.Admin.V2.system_shutdown client () in
+		let code = 
+                  Netplex_ctrl_clnt.Admin.V2.system_shutdown (get_client()) () in
 		check_code code)
        | `Reopen_logfiles ->
 	   check_exn
 	     (fun () ->
 		let code =
-		  Netplex_ctrl_clnt.Admin.V2.reopen_logfiles client () in
+		  Netplex_ctrl_clnt.Admin.V2.reopen_logfiles (get_client()) () in
 		check_code code)
+       | `Unlink ->
+           let path = Filename.concat !sockdir "netplex.pmanage" in
+           let pm = Netsys_pmanage.pmanage path in
+           pm # unlink()
     )
     (List.rev !cmds);
 
@@ -212,11 +233,14 @@ let main() =
 	  check_exn
 	    (fun () ->
 	       Netplex_ctrl_clnt.Admin.V2.send_admin_message 
-		 client
+		 (get_client())
 		 (!admin_target, msg))
   );
 
-  Rpc_client.shut_down client;
+  ( match !client with
+      | None -> ()
+      | Some c -> Rpc_client.shut_down c
+  );
   
   exit !exit_code
 ;;

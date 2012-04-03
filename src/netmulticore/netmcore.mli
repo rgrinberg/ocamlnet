@@ -27,6 +27,28 @@
     no such problem in the worker processes. In this library,
     however, nothing is done to ease the multi-threaded life, so you
     should carefully check the compatibility first.
+
+    {!Netmcore} controls the lifetime of certain system resources in
+    addition to worker processes:
+    - Temporary files
+    - Shared memory objects
+    - Named semaphores
+
+    These objects have kernel persistence, and continue to exist when
+    the program ends. Because of this, there are two mechanisms to
+    control the lifetime, and to delete these objects finally: First,
+    if all using processes terminate normally, an object is deleted.
+    Second, in order to also catch abnormal terminations, these objects
+    are also managed by storing their names into an external file
+    "netplex.pmanage" (in the socket directory). When the program is
+    started the next time with the same socket directory, the objects
+    from the previous run are automatically deleted. The second mechanism
+    can be disabled by setting the
+    - [disable_pmanage] parameter for the {!Netmcore.startup} call, or by
+      setting the
+    - [unlink] parameter in the same call. This second option only disables
+      the deletion, but the management file is updated.
+
  *)
 
 
@@ -71,7 +93,7 @@ type compute_resource_repr =
     | `Join_point of (process_id -> Netplex_encap.encap option)
     ]
   (** Centrally managed resources include:
-      - [`File name]: Files [name] (absolute name)
+      - [`File name]: (Temporary) file [name] (absolute name)
       - [`Posix_shm name]: Shared memory objects with [name]
       - [`Posix_shm_sc(name,p)]: Shared memory objects with [name], and
         attached container for semaphores with prefix [p]
@@ -89,6 +111,10 @@ type compute_resource_repr =
         the process [pid] terminates. If [res] is non-[None] it is the
         result value. If it is [None], no result was passed back
         (including all pathological cases like crashes)
+
+      Except fork and join points, these resources are also added to
+      the pmanage object of Netplex (see {!Netplex_cenv.pmanage} and
+      {!Netsys_pmanage}).
    *)
 
 exception No_resource of res_id
@@ -315,6 +341,8 @@ val add_plugins : Netplex_types.controller -> unit
 val startup : socket_directory:string ->
               ?pidfile:string ->
               ?init_ctrl:(Netplex_types.controller -> unit) ->
+              ?disable_pmanage:bool ->
+              ?no_unlink:bool ->
               first_process:(unit -> process_id) ->
               unit ->
                 unit
@@ -334,6 +362,13 @@ val startup : socket_directory:string ->
 
       [pidfile]: If passed, the Unix PID of the master process is written
       to this file.
+
+      [disable_pmanage]: Disable that persistent kernel objects are
+      managed via the "netplex.pmanage" file in the socket directory.
+
+      [no_unlink]: Disable that old persistent kernel objects are deleted at
+      startup. This may be useful when [startup] is called a second time
+      from the same program.
    *)
 
 val destroy_resources : unit -> unit

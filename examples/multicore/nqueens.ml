@@ -780,7 +780,7 @@ module Message_passing_2 = struct
 
   let run n =
     let t0 = Unix.gettimeofday() in
-    let pool = Netmcore_mempool.create_mempool 65536 in
+    let pool = Netmcore_mempool.create_mempool (80 * 1024) in
     Netmcore.startup
       ~socket_directory:"run_nqueens"
       ~first_process:(fun () ->

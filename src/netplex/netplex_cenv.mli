@@ -327,6 +327,18 @@ module Make_lever(T:FUN_TYPE) : LEVER with type s=T.s and type r=T.r
    *)
 
 
+(** {2 Persistent kernel objects} *)
+
+val pmanage : unit -> Netsys_pmanage.pmanage
+  (** Access the manager for persistent kernel objects with limited
+      lifetime. Among these objects there are shared memory objects,
+      and named semaphores. These objects can usually be deleted when
+      the program finishes (or crashes), but this is not done automatically
+      because of kernel persistency.
+
+      See {!Netplex_admin.unlink} for more information.
+   *)
+
 (** {1 Debugging} *)
 
 module Debug : sig
