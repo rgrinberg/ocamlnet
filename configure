@@ -323,10 +323,10 @@ case "$u" in
 	CYGWIN*)
 		printf "Cygwin, and target is: "
 		exec_suffix=".exe"
+		path_sep=";"   # this is only for OCAMLPATH, ";" is correct for Cygwin
 		case `ocamlc -config | grep os_type` in
 		    *Win32*)
-			echo "Win32"
-			path_sep=";" ;;
+			echo "Win32" ;;
 		    *)
 			echo "Cygwin" ;;
 		esac
