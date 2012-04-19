@@ -2,20 +2,20 @@ Netplex socket dir: default should be /tmp/.netplex-<uid>
 
 Netcamlbox: avoid using sem_getvalue - DONE
 
-Netmcore_mempool: 
+Netmcore_mempool:  - DONE
  - use Netsys_sem
  - add unlink_pool function
  - add pool_sem_cont function
 
-Netmcore_heap:
+Netmcore_heap: - DONE
  - store cont in "heap" record
  - use Netsys_sem
  - add heap_sem_cont function
 
-Netmcore_sem:
+Netmcore_sem: - DONE
  - use Netsys_sem
 
-Linux:
+Linux: - UNDERSTOOD
   ./nqueens -mp2 runs out of pool mem. why?
 
 check other examples
