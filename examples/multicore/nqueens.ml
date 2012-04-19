@@ -818,6 +818,9 @@ let () =
 
       "-n", Arg.Set_int n,
       "<n>  Set problem size";
+
+      "-debug-sem-emu", Arg.Unit Netsys_sem.force_emulation,
+      "   Emulate anon semaphores via named semaphores"
     ]
     (fun s -> raise(Arg.Bad("Unexpected arg: " ^ s)))
     "usage: nqueens [-n <number>] (-seq | -sht)";
