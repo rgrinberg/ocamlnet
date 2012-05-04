@@ -13,8 +13,9 @@
    but lacking eventfd.
 */
 
-#if defined(HAVE_EPOLL) && defined(EVENTFD)
+#if defined(HAVE_EPOLL) && defined(HAVE_EVENTFD)
 #define HAVE_POLL_AGGREG
+#define USABLE_EPOLL
 #include <sys/eventfd.h>
 #include <sys/epoll.h>
 #define EPOLL_NUM 128
@@ -178,7 +179,7 @@ CAMLprim value netsys_have_event_aggregation (value dummy) {
 struct poll_aggreg {
     int fd;
     int need_cancel;
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
     int cancel_fd;
 #endif
 };
@@ -221,7 +222,7 @@ CAMLprim value netsys_create_event_aggreg(value cancelv)
     int code;
     int e;
 
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
     fd = epoll_create(128);
     if (fd == -1) uerror("epoll_create", Nothing);
     code = fcntl(fd, F_SETFL, FD_CLOEXEC);
@@ -303,7 +304,7 @@ CAMLprim value netsys_event_aggreg_fd(value pav)
 }
 
 
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
 static int translate_to_epoll_events(int i) {
     int o;
     o = 0;
@@ -315,7 +316,7 @@ static int translate_to_epoll_events(int i) {
 #endif
 
 
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
 static int translate_to_poll_events(int i) {
     int o;
     o = 0;
@@ -334,7 +335,7 @@ CAMLprim value netsys_add_event_source(value pav, value pushv)
     int code;
     int fd;
     value v;
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
     struct epoll_event ee;
 #endif
 
@@ -342,7 +343,7 @@ CAMLprim value netsys_add_event_source(value pav, value pushv)
     v = Field(pushv, 1);
     fd = Int_val(Field(v, 0));
 
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
     ee.events = 
 	translate_to_epoll_events(Int_val(Field(pushv, 2))) | EPOLLONESHOT;
     ee.data.u64 = Long_val(Field(pushv, 0)) << 1;
@@ -363,14 +364,14 @@ CAMLprim value netsys_del_event_source(value pav, value idv, value tagv)
     struct poll_aggreg *pa;
     int code;
     int fd;
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
     struct epoll_event ee;
 #endif
 
     pa = *(Poll_aggreg_val(pav));
     fd = Int_val(Field(tagv, 0));  /* EV_FD */
 
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
     code = epoll_ctl(pa->fd, EPOLL_CTL_DEL, fd, &ee);
     if (code == -1) uerror("epoll_ctl (DEL)", Nothing);
 #endif
@@ -409,7 +410,7 @@ CAMLprim value netsys_push_event_sources(value pav, value pushlistv)
     int fd;
     value v_pushlist_l;
     value v_pushlist_hd;
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
     struct epoll_event ee;
 #endif
 
@@ -419,7 +420,7 @@ CAMLprim value netsys_push_event_sources(value pav, value pushlistv)
 	v_pushlist_hd = Field(v_pushlist_l, 0);
 	v_pushlist_l  = Field(v_pushlist_l, 1);
 	fd = Int_val(Field(Field(v_pushlist_hd, 1), 0));
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
 	ee.events = 
 	    translate_to_epoll_events(Int_val(Field(v_pushlist_hd, 2))) | 
 	    EPOLLONESHOT;
@@ -443,7 +444,7 @@ CAMLprim value netsys_poll_event_sources(value pav, value tmov)
     int tmo;
     int k;
     int e;
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
     struct epoll_event ee[EPOLL_NUM];
 #endif
     CAMLparam2(pav, tmov);
@@ -452,7 +453,7 @@ CAMLprim value netsys_poll_event_sources(value pav, value tmov)
     tmo = Int_val(tmov);
     pa = *(Poll_aggreg_val(pav));
 
-#ifdef HAVE_EPOLL
+#ifdef USABLE_EPOLL
     caml_enter_blocking_section();
     code = epoll_wait(pa->fd, ee, EPOLL_NUM, tmo);
     e = errno;

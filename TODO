@@ -1,3 +1,5 @@
+If closefrom is available use this for spawn
+
 Netplex socket dir: default should be /tmp/.netplex-<uid>
 
 Netcamlbox: avoid using sem_getvalue - DONE
