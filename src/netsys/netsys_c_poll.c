@@ -7,7 +7,13 @@
 #include <sys/poll.h>
 #endif
 
-#ifdef HAVE_EPOLL
+
+/* We only accept epoll() if we also have the eventfd() syscall. The latter
+   was introduced later into Linux, so there are older systems with epoll
+   but lacking eventfd.
+*/
+
+#if defined(HAVE_EPOLL) && defined(EVENTFD)
 #define HAVE_POLL_AGGREG
 #include <sys/eventfd.h>
 #include <sys/epoll.h>
