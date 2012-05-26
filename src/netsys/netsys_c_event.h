@@ -6,6 +6,9 @@
 #ifdef NETSYS_INTERNAL
 
 #include "netsys_c.h"
+#ifdef HAVE_PTHREAD
+#include <pthread.h>
+#endif
 
 enum not_event_type {
     NE_PIPE = 0,

@@ -1,3 +1,7 @@
+2012-05-26 Gerd Stolpmann <gerd@gerd-stolpmann.de>
+
+	* Fixes for OpenBSD (by Christopher Zimmermann)
+
 2012-03-15  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Allowing posix_spawn again for MacOS. It turns out the
