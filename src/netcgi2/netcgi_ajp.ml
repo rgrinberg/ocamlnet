@@ -776,10 +776,13 @@ let run
     ?(output_type=(`Direct "": Netcgi.output_type))
     ?(arg_store=(fun _ _ _ -> `Automatic))
     ?(exn_handler=(fun _ f -> f()))
+    ?sockaddr
     ?(port=8009)
     f =
   (* Socket to listen to *)
-  let sockaddr = Unix.ADDR_INET(Unix.inet_addr_any, port) in
+  let sockaddr = match sockaddr with
+    | None -> Unix.ADDR_INET(Unix.inet_addr_loopback, port)
+    | Some sockaddr -> sockaddr in
   let sock =
     Unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
   Unix.setsockopt sock Unix.SO_REUSEADDR true;
@@ -787,7 +790,7 @@ let run
   Unix.listen sock 5;
   Netlog.Debug.track_fd
     ~owner:"Netcgi_ajp"
-    ~descr:("master port " ^ string_of_int port)
+    ~descr:("master " ^ Netsys.string_of_sockaddr sockaddr)
     sock;
   while true do
     let (fd, server) = Unix.accept sock in

@@ -31,18 +31,24 @@ val run :
   ?output_type:output_type ->
   ?arg_store:arg_store ->
   ?exn_handler:exn_handler ->
-  port:int ->
+  ?sockaddr:Unix.sockaddr ->
+  ?port:int ->
   (cgi -> unit) -> unit
   (** [run f] executes [f cgi] for each SCGI request.
 
       @param config Default: {!Netcgi.default_config}
       @param allow Tells whether a connection from the socket is allowed.
-      Default: allow from all.
+        Default: allow from all.
       @param output_type Default: [`Direct ""]
       @param arg_store Default: [`Automatic] for all arguments.
       @param sockaddr The socket used by the web server to send the requests.
       @param exn_handler See {!Netcgi.exn_handler}.  Default: delegate
-      all exceptions to the default handler.  *)
+        all exceptions to the default handler.  
+      @param sockaddr The sockaddr for listening. Overrides [port]
+      @param port The port for listening. Needs to be specified if no
+        [sockaddr] is passed.
+
+*)
 
 val handle_request :
   config -> output_type -> arg_store -> exn_handler ->

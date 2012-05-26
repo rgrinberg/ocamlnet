@@ -790,13 +790,18 @@ let run ?(config=Netcgi.default_config)
     ?(arg_store=(fun _ _ _ -> `Automatic))
     ?(exn_handler=(fun _ f -> f()))
     ?sockaddr
+    ?port
     f =
   (* FIXME: Under M$win, the web server communicates with a FCGI script
      that it launches by means of a named pipe [fd] (contrarily to the
      spec).  The requests are all sent through that pipe.  Thus there is
      a single connection. *)
 
-  let sock = match sockaddr with
+  let sockaddr1 =
+    match port with
+      | None -> None
+      | Some p -> Some(Unix.ADDR_INET(Unix.inet_addr_loopback,p)) in
+  let sock = match sockaddr1 with
     | None ->
 	(* FastCGI launched by the web server *)
 	fcgi_listensock

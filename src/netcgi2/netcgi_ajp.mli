@@ -72,6 +72,7 @@ val run :
   ?output_type:output_type ->
   ?arg_store:arg_store ->
   ?exn_handler:exn_handler ->
+  ?sockaddr:Unix.sockaddr ->
   ?port:int ->
   (cgi -> unit) -> unit
   (** [run f] executes [f cgi] for each AJP request.
@@ -83,6 +84,7 @@ val run :
       @param arg_store Default: [`Automatic] for all arguments.
       @param port The port used by the web server to send the requests
                   (Default: 8009).
+      @param sockaddr The sockaddress (overrides [port])
       @param exn_handler See {!Netcgi.exn_handler}.  Default: delegate
       all exceptions to the default handler.  *)
 

@@ -217,17 +217,28 @@ let run
     ?(output_type=(`Direct "":Netcgi.output_type))
     ?(arg_store=(fun _ _ _ -> `Automatic))
     ?(exn_handler=(fun _ f -> f()))
-    ~port (* no default in the spec *)
+    ?sockaddr
+    ?port (* no default in the spec *)
     f =
   (* Socket to listen to *)
-  let sockaddr = Unix.ADDR_INET(Unix.inet_addr_any, port) in
+  let sockaddr = 
+    match sockaddr with
+      | None -> (
+          match port with
+              (* Either port or sockaddr need to be specified *)
+            | None -> 
+                invalid_arg "Netcgi_scgi.run: neither sockaddr not port passed"
+            | Some port -> 
+                Unix.ADDR_INET(Unix.inet_addr_loopback, port)
+        )
+      | Some sockaddr -> sockaddr in
   let sock =
     Unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
   Unix.setsockopt sock Unix.SO_REUSEADDR true;
   Unix.bind sock sockaddr;
   Unix.listen sock 5;
   Netlog.Debug.track_fd
-    ~owner:"Netcgi_fcgi"
+    ~owner:"Netcgi_scgi"
     ~descr:("master " ^ Netsys.string_of_sockaddr sockaddr)
     sock;
   while true do

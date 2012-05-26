@@ -74,6 +74,7 @@ val run :
   ?arg_store:arg_store ->
   ?exn_handler:exn_handler ->
   ?sockaddr:Unix.sockaddr ->
+  ?port:int ->
   (cgi -> unit) -> unit
   (** [run f] register the function [f] as a main function of the
       script.  Each call to the script will execute [f cgi].  The code
@@ -99,6 +100,8 @@ val run :
       on a different machine), set [sockaddr] to the address the web
       server needs to connect to to talk to the script (this address
       must also be specified in the wen server config file).
+
+      @param port alternative way to specify [sockaddr] for localhost
 
       Your application should be ready handle SIGUSR1, used to
       resquest a "graceful" process shutdown, and SIGTERM to request a
