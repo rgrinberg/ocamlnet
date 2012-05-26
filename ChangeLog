@@ -2,6 +2,10 @@
 
 	* Fixes for OpenBSD (by Christopher Zimmermann)
 
+	* Netcgi connectors (SCGI, AJP, FCGI): unifying the ~sockaddr
+          and ~port arguments. ~port now also assumes a loopback binding.
+          (Suggested by Christopher Zimmermann).
+
 2012-03-15  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Allowing posix_spawn again for MacOS. It turns out the
