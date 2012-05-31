@@ -115,6 +115,20 @@ compile_emit () {
 
 ######################################################################
 
+printf "Checking for win32... "
+system=`ocamlc -config | grep system | sed -e 's/system: //'`
+case "$system" in
+    mingw|msvc)
+	  echo "yes"
+	  win32=1
+          netsys_link_options="$netsys_link_options -lws2_32" ;;
+	*)
+	  echo "no"  ;;
+esac
+
+
+######################################################################
+
 rm -f configtests/printexc_register_printer.err
 printf "Checking whether Ocaml has Printexc.register_printer... "
 if ( cd configtests; ocamlc -c printexc_register_printer.ml ) \
@@ -164,15 +178,23 @@ compile_emit posix_shm HAVE_POSIX_SHM
 
 ######################################################################
 
-printf "Checking for POSIX semaphores (anonymous)... "
+if [ $win32 -gt 0 ]; then
+    # For some strange reason the test does not work on win32. So
+    # force to skip this.
+    echo "#undef HAVE_POSIX_SEM_ANON" >> config.h
+    echo "#undef HAVE_POSIX_SEM_NAMED" >> config.h
+else
 
-cclib="-lrt"
-compile_emit posix_sem_anon HAVE_POSIX_SEM_ANON
+    printf "Checking for POSIX semaphores (anonymous)... "
 
-printf "Checking for POSIX semaphores (named)... "
-
-cclib="-lrt"
-compile_emit posix_sem_named HAVE_POSIX_SEM_NAMED
+    cclib="-lrt"
+    compile_emit posix_sem_anon HAVE_POSIX_SEM_ANON
+    
+    printf "Checking for POSIX semaphores (named)... "
+    
+    cclib="-lrt"
+    compile_emit posix_sem_named HAVE_POSIX_SEM_NAMED
+fi
 
 ######################################################################
 
@@ -311,20 +333,6 @@ else
     echo "not found"
     def_have_gprof="#undef HAVE_GPROF"
 fi
-
-######################################################################
-
-printf "Checking for win32... "
-system=`ocamlc -config | grep system | sed -e 's/system: //'`
-case "$system" in
-    mingw|msvc)
-	  echo "yes"
-	  win32=1
-          netsys_link_options="$netsys_link_options -lws2_32" ;;
-	*)
-	  echo "no"  ;;
-esac
-
 
 ######################################################################
 #

@@ -1,3 +1,8 @@
+2012-05-31  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
+
+	* src/netsys/configure: disabling POSIX semaphore check
+	  for win32
+
 2012-05-26 Gerd Stolpmann <gerd@gerd-stolpmann.de>
 
 	* Fixes for OpenBSD (by Christopher Zimmermann)
