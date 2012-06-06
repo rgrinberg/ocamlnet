@@ -32,5 +32,5 @@ archive(native,netstring_static) +=
 archive(native,gprof,netstring_static) += 
     "netmappings_iso.p.cmx netmappings_other.p.cmx netmappings_jp.p.cmx"
 
-archive(byte) +=
+archive(byte,-nonetaccel) +=
     "netaccel.cma netaccel_link.cmo"
