@@ -1,3 +1,10 @@
+ocaml-4.00: 
+ - see patches. 
+ - netsys_posix.ml: open_flags is ocaml-specific. Do this check outside
+   the code
+ - netstring_top.ml: needs -I +compiler-libs
+
+
 If closefrom is available use this for spawn
 
 Netplex socket dir: default should be /tmp/.netplex-<uid>
