@@ -455,10 +455,10 @@ module Header : sig
       * acceptable, "" will be returned.
       * The supported media types should be sorted such that the best type
       * is mentioned first.
-      *
-      * Known bug: The rule that media ranges are sorted by degree of
-      * "specificness" is not implemented, e.g. that "text/html" is
-      * preferred over other "text/*" when both have the same "q" value.
+      * Of several media types with equal quality the one mentioned first in the
+      * list of supported types is chosen. In case several types in the Accept:
+      * header match the same type in the list of supported types, the most
+      * specific type is chosen.
       *)
 
   val set_accept : #http_header -> (string *
