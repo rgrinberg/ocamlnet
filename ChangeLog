@@ -3,6 +3,11 @@
 	* Nethttp.Header.best_media_type: improved
 	  (patch by Christopher Zimmemann)
 
+2012-06-22 Gerd Stolpmann
+
+        * Netsys_mem.alloc_memory_pages: one can now mark the memory
+          pages as executable
+
 2012-05-31  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* src/netsys/configure: disabling POSIX semaphore check

@@ -68,7 +68,7 @@ val getpagesize : unit -> int
 val pagesize : int
   (** The best guess at the page size *)
 
-val alloc_memory_pages : ?addr:nativeint -> int -> memory
+val alloc_memory_pages : ?addr:nativeint -> ?exec:bool -> int -> memory
   (** Allocates memory in units of pages. The memory buffer will start
       on a page boundary.
 
@@ -79,6 +79,8 @@ val alloc_memory_pages : ?addr:nativeint -> int -> memory
       be a multiple of the page size). There is, however, no guarantee
       that this wish can be fulfilled. In any way, one should check with
       [memory_address] what the start address really is.
+
+      If [exec], the memory region is marked as executable.
 
       This function is only available if the system has [sysconf], [mmap],
       and allows to allocate anonymous memory with [mmap] (outside POSIX

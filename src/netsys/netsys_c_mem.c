@@ -80,13 +80,14 @@ CAMLprim value netsys_grab(value addrv, value lenv)
 }
 
 
-CAMLprim value netsys_alloc_memory_pages(value addrv, value pv)
+CAMLprim value netsys_alloc_memory_pages(value addrv, value pv, value execv)
 {
 #if defined(HAVE_MMAP) && defined(HAVE_SYSCONF) && defined(MAP_ANON)
     void *start;
     size_t length;
     long pgsize;
     void *data;
+    int flags;
     value r;
 
     start = (void *) Nativeint_val(addrv);
@@ -95,8 +96,10 @@ CAMLprim value netsys_alloc_memory_pages(value addrv, value pv)
     length = Int_val(pv);
     pgsize = sysconf(_SC_PAGESIZE);
     length = ((length - 1) / pgsize + 1) * pgsize;  /* fixup */
+    flags = PROT_READ|PROT_WRITE;
+    if (Bool_val(execv)) flags |= PROT_EXEC;
 
-    data = mmap(start, length, PROT_READ|PROT_WRITE, 
+    data = mmap(start, length, flags, 
 		MAP_PRIVATE | MAP_ANON, (-1), 0);
     if (data == (void *) -1) uerror("mmap", Nothing);
 

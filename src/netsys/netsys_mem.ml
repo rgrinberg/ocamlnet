@@ -49,11 +49,11 @@ let pagesize =
   try getpagesize()
   with Invalid_argument _ -> 4096
 
-external netsys_alloc_memory_pages : nativeint -> int -> memory
+external netsys_alloc_memory_pages : nativeint -> int -> bool -> memory
   = "netsys_alloc_memory_pages"
 
-let alloc_memory_pages ?(addr=0n) len =
-  netsys_alloc_memory_pages addr len
+let alloc_memory_pages ?(addr=0n) ?(exec=false) len =
+  netsys_alloc_memory_pages addr len exec
 
 external alloc_aligned_memory : int -> int -> memory
   = "netsys_alloc_aligned_memory"
