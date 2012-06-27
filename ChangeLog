@@ -1,3 +1,8 @@
+2012-06-27 Gerd Stolpmann <gerd@gerd-stolpmann.de>
+
+	* Nethttp.Header.best_media_type: improved
+	  (patch by Christopher Zimmemann)
+
 2012-05-31  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* src/netsys/configure: disabling POSIX semaphore check
