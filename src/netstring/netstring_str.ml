@@ -50,135 +50,35 @@ let quote_set s =
  *)
 (**********************************************************************)
 (* Parsing types *)
-type setatom =
-  | Schar of char | Srange of (char * char)
-  and set =
-  setatom list
-
-type re_term =
-  | Texact of string
-  | (* literal characters (except NUL) *)
-  Tnullchar
-  | (* NUL characer *)
-  Tany
-  | (* . but no newline *)
-  Tnull
-  | (* emptiness *)
-  Tconcat of re_term list
-  | Tstar of re_term
-  | (* x* *)
-  Tplus of re_term
-  | (* x+ *)
-  Toption of re_term
-  | (* x? *)
-  Tset of set
-  | (* [...] *)
-  Tnegset of set
-  | (* [^...] *)
-  Tbegline
-  | (* ^ *)
-  Tendline
-  | (* $ *)
-  Talt of re_term list
-  | (* x\|y *)
-  Tgroup of (int * re_term)
-  | (* \(...\) *)
-  Trefer of int
-  | (* \i *)
-  Tinterval of (re_term * int * int)
-  | (* x{n,m}. m=-1 means infinite *)
-  Twordchar
-  | (* \w *)
-  Tnowordchar
-  | (* \W *)
-  Twordbeg
-  | (* \< *)
-  Twordend
-  | (* \> *)
-  Twordbound
-  | (* \b *)
-  Tnowordbound
-  | (* \B *)
-  Tbegbuf
-  | (* \` *)
-  Tendbuf
-
+(* literal characters (except NUL) *)
+(* NUL characer *)
+(* . but no newline *)
+(* emptiness *)
+(* x* *)
+(* x+ *)
+(* x? *)
+(* [...] *)
+(* [^...] *)
+(* ^ *)
+(* $ *)
+(* x\|y *)
+(* \(...\) *)
+(* \i *)
+(* x{n,m}. m=-1 means infinite *)
+(* \w *)
+(* \W *)
+(* \< *)
+(* \> *)
+(* \b *)
+(* \B *)
+(* \` *)
 (* \' *)
 (**********************************************************************)
 (* Final types *)
-type regexp = Pcre.regexp
-
-type split_result = Str.split_result = | Text of string | Delim of string
-
-type result = Netstring_pcre.result
-
 (**********************************************************************)
 (* Parse Str-style regexps, and convert to Pcre-style regexps *)
-let scan_str_regexp re_string =
-  let l = String.length re_string in
-  let k = ref (-1) in
-  let c = ref ' ' in
-  let esc = ref false in
-  let group = ref 1 in
-  let n_open_groups = ref 0 in
-  let closed_groups = Array.create 10 false in
-  let next () =
-    (incr k;
-     if !k < l
-     then
-       (let c1 = re_string.[!k]
-        in
-          if c1 = '\\'
-          then
-            if !k < l
-            then (incr k; c := re_string.[!k]; esc := true)
-            else failwith "regexp: bad backslash"
-          else (esc := false; c := c1))
-     else ()) in
-  let next_noesc () =
-    (incr k; if !k < l then (c := re_string.[!k]; esc := false) else ()) in
-  let rec scan_alternative () =
-    let t1 = scan_concatenation ()
-    in
-      if !k < l
-      then
-        if !esc & (!c = '|')
-        then
-          (next ();
-           (match scan_alternative () with
-            | Talt alist -> Talt (t1 :: alist)
-            | t -> Talt [ t1; t ]))
-        else t1
-      else t1
-  and scan_concatenation () =
-    let t1 = scan_repetition ()
-    in
-      if t1 = Tnull
-      then t1
-      else
-        (let t2 = scan_concatenation ()
-         in
-           match t2 with
-           | Tnull -> t1
-           | Texact s2 ->
-               (match t1 with
-                | Texact s1 -> Texact (s1 ^ s2)
-                | _ -> Tconcat [ t1; t2 ])
-           | Tconcat clist -> Tconcat (t1 :: clist)
-           | _ -> Tconcat [ t1; t2 ])
-  and scan_repetition () =
-    let t1 = ref (scan_literal_or_group ()) in
-    let continue = ref true
-    in
-      (while !continue do
-         if (!k < l) & (not !esc)
-         then
-           (match !c with
-            | '*' -> (next (); t1 := Tstar !t1)
-            | '+' -> (next (); t1 := Tplus !t1)
-            | '?' -> (next (); t1 := Toption !t1)
-            | (* {...} is not implemented in Str *)
-                (*
+(* {...} is not implemented in Str *)
+(*
       	| '{' -> next_noesc();
 	         let n1 = ref None in
 	         let n2 = ref None in
@@ -234,270 +134,205 @@ let scan_str_regexp re_string =
                    )
 		 end
  *)
-                _ -> continue := false)
-         else continue := false done;
-       !t1)
-  and scan_literal_or_group () =
-    if !k >= l
-    then Tnull
-    else
-      if !esc
-      then
-        (match !c with
-         | '(' ->
-             (next ();
-              let n = !group
-              in
-                (incr group;
-                 incr n_open_groups;
-                 let t = scan_alternative ()
-                 in
-                   (decr n_open_groups;
-                    if (!k < l) & (!esc & (!c = ')'))
-                    then (next (); closed_groups.(n) <- true; Tgroup (n, t))
-                    else failwith "regexp: closing paranthesis \\) not found")))
-         | '1' .. '9' ->
-             let n = (Char.code !c) - (Char.code '0')
-             in
-               if closed_groups.(n)
-               then (next (); Trefer n)
-               else failwith "regexp: bad reference to group"
-         | (*
+(*
       |	'w' -> next(); Twordchar
       |	'W' -> next(); Tnowordchar
  *)
-             'b' -> (next (); Twordbound)
-         | (*
+(*
       |	'B' -> next(); Tnowordbound
       |	'<' -> next(); Twordbeg
       |	'>' -> next(); Twordend
       |	'`' -> next(); Tbegbuf
       |	'\'' -> next(); Tendbuf
  *)
-             '\\' -> (next (); Texact (String.make 1 '\\'))
-         | '|' -> Tnull
-         | ')' ->
-             if !n_open_groups > 0
-             then Tnull
-             else failwith "regexp: unmatched closing parenthesis"
-         | ch -> (next (); Texact (String.make 1 ch)))
-      else
-        (match !c with
-         | '*' -> Tnull
-         | '+' -> Tnull
-         | '?' -> Tnull
-         | '{' -> Tnull
-         | '^' -> (next (); Tbegline)
-         | '$' -> (next (); Tendline)
-         | '.' -> (next (); Tany)
-         | '\000' -> (next (); Tnullchar)
-         | '[' ->
-             (next_noesc ();
-              if !k < l
-              then
-                (let negated = ref false in
-                 let set = ref [] in
-                 let add_char c = set := (Schar c) :: !set in
-                 let add_range c1 c2 = set := (Srange (c1, c2)) :: !set
-                 in
-                   (if !c = '^' then (next_noesc (); negated := true) else ();
-                    let continue = ref true in
-                    let first = ref true
-                    in
-                      (* the character after [ or [^ ? *)
-                      (* TODO: check for predefined sets *)
-                      (* range *)
-                      (while !continue & (!k < l) do
-                         (match () with
-                          | () when
-                              (!c = '[') &
-                                (((!k + 1) < l) & (re_string.[!k + 1] = ':'))
-                              ->
-                              failwith
-                                "regexp: Character classes such as [[:digit:]] not implemented"
-                          | () when (!c = ']') & (not !first) ->
-                              (next (); continue := false)
-                          | () when
-                              ((!k + 2) < l) &
-                                ((re_string.[!k + 1] = '-') &
-                                   (re_string.[!k + 2] <> ']'))
-                              ->
-                              (add_range !c re_string.[!k + 2];
-                               next_noesc ();
-                               next_noesc ();
-                               next_noesc ();
-                               first := false)
-                          | () ->
-                              (add_char !c; next_noesc (); first := false))
-                         done;
-                       if !continue
-                       then failwith "regexp: closing bracket ] not found"
-                       else ();
-                       if !negated then Tnegset !set else Tset !set)))
-              else failwith "regexp: closing bracket ] not found")
-         | ch -> (next (); Texact (String.make 1 ch)))
-  in
-    try (next (); scan_alternative ())
-    with | Failure msg -> failwith (msg ^ (" - regexp: " ^ re_string))
-  
-let pcre_safe_quote c = (* for print_set *)
-  match c with
-  | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> String.make 1 c
-  | '\000' -> "\\000"
-  | _ -> "\\" ^ (String.make 1 c)
-  
-let rec print_pcre_regexp ret =
-  match ret with
-  | Texact s -> Pcre.quote s
-  | Tnullchar -> (* Pcre.quote "\000" returns nonsense *) "[\\000]"
-  | Tany -> "."
-  | Tnull -> "(?:)"
-  | Tconcat l -> String.concat "" (List.map print_pcre_regexp l)
-  | Tstar ret' -> (print_pcre_subregexp ret') ^ "*"
-  | Tplus ret' -> (print_pcre_subregexp ret') ^ "+"
-  | Toption ret' -> (print_pcre_subregexp ret') ^ "?"
-  | Tset s -> "[" ^ ((print_set s) ^ "]")
-  | Tnegset s -> "[^" ^ ((print_set s) ^ "]")
-  | Talt l -> String.concat "|" (List.map print_pcre_subregexp l)
-  | Tgroup (_, ret') -> "(" ^ ((print_pcre_regexp ret') ^ ")")
-  | Trefer n -> (* Put parentheses around \n to disambiguate from \nn *)
-      "(?:\\" ^ ((string_of_int n) ^ ")")
-  | Tinterval (ret', m, n) ->
-      (print_pcre_subregexp ret') ^
-        ("{" ^
-           ((string_of_int m) ^
-              ("," ^ ((if n >= 0 then string_of_int n else "") ^ "}"))))
-  | Tbegline -> "^"
-  | Tendline -> "(?:$)"
-  | Twordchar -> "\\w"
-  | Tnowordchar -> "\\W"
-  | Twordbeg -> "\\b(?=\\w)"
-  | Twordend -> "(?<=\\w)\\b"
-  | Twordbound -> "\\b"
-  | Tnowordbound -> "\\B"
-  | Tbegbuf -> "\\A"
-  | Tendbuf -> "\\z"
-and print_pcre_subregexp ret =
-  (* Print ret, but put parentheses around ret *)
-  match ret with
-  | Tset _ | Tnegset _ | Tgroup (_, _) ->
-      (* No additional parentheses needed *) print_pcre_regexp ret
-  | _ ->
-      (* Print (?:ret). This is the "neutral" form of grouping that only
+(* the character after [ or [^ ? *)
+(* TODO: check for predefined sets *)
+(* range *)
+(* for print_set *)
+(* Pcre.quote "\000" returns nonsense *)
+(* Put parentheses around \n to disambiguate from \nn *)
+(* Print ret, but put parentheses around ret *)
+(* No additional parentheses needed *)
+(* Print (?:ret). This is the "neutral" form of grouping that only
 	 * changes precedence
 	 *)
-      "(?:" ^ ((print_pcre_regexp ret) ^ ")")
-and print_set s =
-  String.concat ""
-    (List.map
-       (function
-        | Schar c -> pcre_safe_quote c
-        | Srange (c1, c2) ->
-            (pcre_safe_quote c1) ^ ("-" ^ (pcre_safe_quote c2)))
-       s)
-  
 (**********************************************************************)
 (* Emulation *)
-let regexp s =
-  let ret = scan_str_regexp s in
-  let s' = print_pcre_regexp ret
-  in
-    (if !Debug.enable
-     then dlogr (fun () -> sprintf "regexp: orig: %s - translated: %s" s s')
-     else ();
-     Pcre.regexp ~flags: [ `MULTILINE ] s')
-  
-let regexp_case_fold s =
-  let ret = scan_str_regexp s in
-  let s' = print_pcre_regexp ret
-  in
-    (if !Debug.enable
-     then
-       dlogr
-         (fun () ->
-            sprintf "regexp_case_fold: orig: %s - translated: %s" s s')
-     else ();
-     Pcre.regexp ~flags: [ `MULTILINE; `CASELESS ] s')
-  
-let pcre_quote s =
-  (* Note that Pcre.quote is incorrect for NUL chars, which simply remain
+(* Note that Pcre.quote is incorrect for NUL chars, which simply remain
      in place, although they need to be encoded
    *)
-  let s1 = Pcre.quote s in
-  let s' = Pcre.qreplace ~pat: "\\000" ~templ: "\\000" s1
-  in
-    (if !Debug.enable
-     then dlogr (fun () -> sprintf "quote: orig: %s - quoted: %s" s s')
-     else ();
-     s')
-  
-let unsafe_str_re = Pcre.regexp "[\\]\\[+*?.\\\\^$]"
-  
-let quote s = (* This returns, of course, a Str-syntax regexp! *)
-  Pcre.replace ~rex: unsafe_str_re ~templ: "\\$&" s
-  
-let regexp_string s = Pcre.regexp ~flags: [ `MULTILINE ] (pcre_quote s)
-  
-let regexp_string_case_fold s =
-  Pcre.regexp ~flags: [ `MULTILINE; `CASELESS ] (pcre_quote s)
-  
-let string_match = Netstring_pcre.string_match
-  
+(* This returns, of course, a Str-syntax regexp! *)
 (* let string_partial_match = Netstring_pcre.string_partial_match ;; *)
 (* N/A *)
-let search_forward = Netstring_pcre.search_forward
-  
-let search_backward = Netstring_pcre.search_backward
-  
-let matched_string = Netstring_pcre.matched_string
-  
-let match_beginning = Netstring_pcre.match_beginning
-  
-let match_end = Netstring_pcre.match_end
-  
-let matched_group = Netstring_pcre.matched_group
-  
-let group_beginning = Netstring_pcre.group_beginning
-  
-let group_end = Netstring_pcre.group_end
-  
-let global_replace pat templ s = Netstring_pcre.global_replace pat templ s
-  
-let replace_first pat templ s = Netstring_pcre.replace_first pat templ s
-  
-let global_substitute = Netstring_pcre.global_substitute
-  
-let substitute_first = Netstring_pcre.substitute_first
-  
 (* replace_matched: n/a *)
-let split = Netstring_pcre.split
+(* Alternate implementation without Pcre: Just use Str directly *)
+let mutex = !Netsys_oothr.provider#create_mutex ()
   
-let bounded_split = Netstring_pcre.bounded_split
+let protect f arg = Netsys_oothr.serialize mutex f arg
   
-let split_delim = Netstring_pcre.split_delim
+type regexp = Str.regexp
+
+type split_result = Str.split_result = | Text of string | Delim of string
+
+type result =
+  { pos : int; match_beg : int; match_end : int; group_beg : int array;
+    group_end : int array
+  }
+
+let regexp =
+  protect
+    (fun s ->
+       let re = Str.regexp s
+       in
+         (if !Debug.enable
+          then dlogr (fun () -> sprintf "regexp: %s" s)
+          else ();
+          re))
   
-let bounded_split_delim = Netstring_pcre.bounded_split_delim
+let regexp_case_fold =
+  protect
+    (fun s ->
+       let re = Str.regexp_case_fold s
+       in
+         (if !Debug.enable
+          then dlogr (fun () -> sprintf "regexp_case_fold: %s" s)
+          else ();
+          re))
   
-let tr_split_result r =
-  List.map
-    (function
-     | Pcre.Text t -> Text t
-     | Pcre.Delim d -> Delim d
-     | _ -> assert false)
-    (List.filter
-       (function | Pcre.Group (_, _) | Pcre.NoGroup -> false | _ -> true) r)
+let quote =
+  protect
+    (fun s ->
+       let s' = Str.quote s
+       in
+         (if !Debug.enable
+          then dlogr (fun () -> sprintf "quote: orig: %s - quoted: %s" s s')
+          else ();
+          s'))
   
-let full_split sep s = tr_split_result (Netstring_pcre.full_split sep s)
+let regexp_string = protect Str.regexp_string
   
-let bounded_full_split sep s max =
-  tr_split_result (Netstring_pcre.bounded_full_split sep s max)
+let regexp_string_case_fold = protect Str.regexp_string_case_fold
   
-let string_before = Netstring_pcre.string_before
+let n_groups = 9
   
-let string_after = Netstring_pcre.string_after
+let return_result pos =
+  let r =
+    {
+      pos = pos;
+      match_beg = (try Str.match_beginning () with | Not_found -> (-1));
+      match_end = (try Str.match_end () with | Not_found -> (-1));
+      group_beg = Array.create n_groups (-1);
+      group_end = Array.create n_groups (-1);
+    }
+  in
+    (for g = 0 to n_groups - 1 do
+       r.group_beg.(g) <-
+         (try Str.group_beginning (g + 1)
+          with | Not_found | Invalid_argument _ -> (-1));
+       r.group_end.(g) <-
+         (try Str.group_end (g + 1)
+          with | Not_found | Invalid_argument _ -> (-1))
+     done;
+     r)
   
-let first_chars = Netstring_pcre.first_chars
+let string_match pat s =
+  protect
+    (fun pos ->
+       if Str.string_match pat s pos then Some (return_result pos) else None)
   
-let last_chars = Netstring_pcre.last_chars
+let search_forward pat s =
+  protect
+    (fun pos ->
+       let i = Str.search_forward pat s pos in (i, (return_result pos)))
+  
+let search_backward pat s =
+  protect
+    (fun pos ->
+       let i = Str.search_backward pat s pos in (i, (return_result pos)))
+  
+let matched_string result s =
+  (if (result.match_beg < 0) or (result.match_end < 0)
+   then raise Not_found
+   else ();
+   String.sub s result.match_beg (result.match_end - result.match_beg))
+  
+let match_beginning result =
+  (if result.match_beg < 0 then raise Not_found else (); result.match_beg)
+  
+let match_end result =
+  (if result.match_end < 0 then raise Not_found else (); result.match_end)
+  
+let matched_group result n s =
+  (if (n < 0) || (n >= (Array.length result.group_beg))
+   then raise Not_found
+   else ();
+   if n = 0
+   then matched_string result s
+   else
+     (let gbeg = result.group_beg.(n - 1) in
+      let gend = result.group_end.(n - 1)
+      in
+        (if (gbeg < 0) or (gend < 0) then raise Not_found else ();
+         String.sub s gbeg (gend - gbeg))))
+  
+let group_beginning result n =
+  (if (n < 0) || (n >= (Array.length result.group_beg))
+   then raise Not_found
+   else ();
+   if n = 0
+   then match_beginning result
+   else
+     (let gbeg = result.group_beg.(n - 1)
+      in if gbeg < 0 then raise Not_found else gbeg))
+  
+let group_end result n =
+  (if (n < 0) || (n >= (Array.length result.group_end))
+   then raise Not_found
+   else ();
+   if n = 0
+   then match_end result
+   else
+     (let gend = result.group_end.(n - 1)
+      in if gend < 0 then raise Not_found else gend))
+  
+let global_replace pat templ =
+  protect (fun s -> Str.global_replace pat templ s)
+  
+let replace_first pat templ =
+  protect (fun s -> Str.replace_first pat templ s)
+  
+let global_substitute pat subst =
+  protect
+    (fun s ->
+       let xsubst s = let r = return_result 0 in subst r s
+       in Str.global_substitute pat xsubst s)
+  
+let substitute_first pat subst =
+  protect
+    (fun s ->
+       let xsubst s = let r = return_result 0 in subst r s
+       in Str.substitute_first pat xsubst s)
+  
+let split sep = protect (fun s -> Str.split sep s)
+  
+let bounded_split sep s = protect (fun max -> Str.bounded_split sep s max)
+  
+let split_delim sep = protect (fun s -> Str.split_delim sep s)
+  
+let bounded_split_delim sep s =
+  protect (fun max -> Str.bounded_split_delim sep s max)
+  
+let full_split sep = protect (fun s -> Str.full_split sep s)
+  
+let bounded_full_split sep s =
+  protect (fun max -> Str.bounded_full_split sep s max)
+  
+let string_before = Str.string_before
+  
+let string_after = Str.string_after
+  
+let first_chars = Str.first_chars
+  
+let last_chars = Str.last_chars
   
 

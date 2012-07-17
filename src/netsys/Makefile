@@ -47,6 +47,12 @@ OCAMLOPT_OPTIONS_FOR_netsys_oothr_mt.ml = $(THREAD)
 OCAMLOPT_OPTIONS_FOR_netsys_oothr_mt_init.ml = $(THREAD)
 OCAMLC_OPTIONS_FOR_netsys_c_xdr.c = -ccopt -O
 
+OCAMLC_OPTIONS_FOR_netsys_posix.ml = \
+  -package "camlp4.macro" -syntax camlp4o -ppopt "$(DEF_O_SHARE_DELETE)"
+OCAMLOPT_OPTIONS_FOR_netsys_posix.ml = $(OCAMLC_OPTIONS_FOR_netsys_posix.ml)
+
+OCAMLDEP_OPTIONS = -package "camlp4.macro" -syntax camlp4o
+
 INSTALL_EXTRA += netsys_c_event.h
 
 include $(TOP_DIR)/Makefile.rules

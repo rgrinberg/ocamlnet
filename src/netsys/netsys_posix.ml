@@ -702,9 +702,15 @@ let run_post_fork_handlers() =
 type at_flag = AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_REMOVEDIR
 
 (* The stubs assume these type definitions: *)
+IFDEF HAVE_O_SHARE_DELETE THEN
+type open_flag1 = Unix.open_flag =
+    O_RDONLY | O_WRONLY | O_RDWR | O_NONBLOCK | O_APPEND | O_CREAT | O_TRUNC
+  | O_EXCL | O_NOCTTY | O_DSYNC | O_SYNC | O_RSYNC | O_SHARE_DELETE
+ELSE
 type open_flag1 = Unix.open_flag =
     O_RDONLY | O_WRONLY | O_RDWR | O_NONBLOCK | O_APPEND | O_CREAT | O_TRUNC
   | O_EXCL | O_NOCTTY | O_DSYNC | O_SYNC | O_RSYNC
+ENDIF
 
 type access_permission1 = Unix.access_permission =
     R_OK | W_OK | X_OK | F_OK

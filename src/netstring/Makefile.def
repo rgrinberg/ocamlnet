@@ -160,6 +160,7 @@ netnumber.cmx: netnumber.cmi
 
 OCAMLOPT_OPTIONS_FOR_netnumber.ml = -inline 10
 OCAMLOPT_OPTIONS_FOR_xdr.ml = -inline 5
+OCAMLC_OPTIONS_FOR_netstring_top.ml = -I +compiler-libs
 
 # regexps:
 
