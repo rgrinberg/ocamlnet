@@ -75,10 +75,6 @@ f src/netstring/netnumber.mlp
 x src/netstring/netnumber.ml
 f src/netstring/netstring_str.mlp
 x src/netstring/netstring_str.ml
-f src/netstring/netstring_pcre.mlp
-x src/netstring/netstring_pcre.ml
-f src/netstring/netstring_pcre.mlip
-x src/netstring/netstring_pcre.mli
 x src/netstring/netglob_lex.ml
 f src/netstring/netglob_lex.mll
 # The pattern:
@@ -94,6 +90,13 @@ f src/netstring/tools/Makefile
 d src/netstring/tools/unimap_to_ocaml
 f src/netstring/tools/unimap_to_ocaml/Makefile
 f src/netstring/tools/unimap_to_ocaml/unimap_to_ocaml.ml
+
+d src/netstring-pcre
+f src/netstring-pcre/Makefile
+f src/netstring-pcre/Makefile.pre
+f src/netstring-pcre/META.in
+f src/netstring-pcre/netstring_pcre.mlip
+f src/netstring-pcre/netstring_pcre.mlp
 
 d src/netsys
 f src/netsys/Makefile

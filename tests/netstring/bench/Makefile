@@ -13,7 +13,6 @@ test:
 	./test_recode
 
 test_recode: test_recode.ml
-	OCAMLPATH=../.. \
 	ocamlfind ocamlc -o test_recode -package netstring,threads -linkpkg \
 		-thread test_recode.ml
 
