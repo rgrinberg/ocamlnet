@@ -88,7 +88,7 @@ let main() =
   let want_aux = ref false in
   let want_clnt = ref false in
   let want_srv = ref None in
-  let cpp = ref (Some "cpp") in
+  let cpp = ref (Some Config.cpp) in
   let cpp_options = ref [] in
   Arg.parse
       [ "-aux",    (Arg.Set want_aux),  " Create file_aux.ml";

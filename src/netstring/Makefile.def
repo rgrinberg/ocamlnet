@@ -1,4 +1,4 @@
-OBJECTS  = netconst.cmo netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
+OBJECTS  = netconst.cmo netstring_str.cmo netbuffer.cmo \
 	   netaux.cmo netchannels.cmo netdate.cmo netsockaddr.cmo \
 	   netdb.cmo netmappings.cmo netconversion.cmo netulex.cmo \
            netencoding.cmo netstream.cmo \
@@ -12,8 +12,9 @@ OBJECTS  = netconst.cmo netstring_pcre.cmo netstring_str.cmo netbuffer.cmo \
 
 PKGNAME  = netstring
 
-REQUIRES = $(REGEXP_PROVIDER) bigarray
+REQUIRES = $(REGEXP_PROVIDER_MAKE) bigarray
 INCLUDES += $(INC_NETSYS)
+INCLUDES += -I ../netstring-pcre
 
 ISO_MAPPINGS   = mappings/iso*.unimap
 JP_MAPPINGS    = mappings/jis*.*map
@@ -46,7 +47,7 @@ INSTALL_EXTRA = $(INSTALL_EXTRA_CMO:=.cmo) \
 DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netmime.mli netsendmail.mli neturl.mli netaddress.mli netbuffer.mli \
 	netdate.mli netencoding.mli netulex.mli netaccel.mli \
-	netaccel_link.mli nethtml.mli netstring_str.mli netstring_pcre.mli \
+	netaccel_link.mli nethtml.mli netstring_str.mli \
 	netmappings.mli netaux.mli nethttp.mli netpagebuffer.mli \
 	netfs.mli netglob.mli netauth.mli netsockaddr.mli \
         netnumber.mli rtypes.mli xdr_mstring.mli xdr.mli \
@@ -164,36 +165,23 @@ OCAMLC_OPTIONS_FOR_netstring_top.ml = -I +compiler-libs
 
 # regexps:
 
-netstring_pcre.mli: netstring_pcre.mlip
-	$(CAMLP4)  pa_o.cmo pa_op.cmo pr_o.cmo \
-	    -parser Camlp4MacroParser $(REGEXP_DEFS) \
-	    -intf netstring_pcre.mlip > netstring_pcre.mli || \
-	      rm -f netstring_pcre.mli
-
-netstring_pcre.ml: netstring_pcre.mlp
-	$(CAMLP4)  pa_o.cmo pa_op.cmo pr_o.cmo \
-	    -parser Camlp4MacroParser $(REGEXP_DEFS) \
-	    -impl netstring_pcre.mlp > netstring_pcre.ml || \
-	      rm -f netstring_pcre.ml
-
 netstring_str.ml: netstring_str.mlp
 	$(CAMLP4)  pa_o.cmo pa_op.cmo pr_o.cmo \
 	    -parser Camlp4MacroParser $(REGEXP_DEFS) \
 	    -impl netstring_str.mlp > netstring_str.ml || \
 	      rm -f netstring_str.ml
 
-netstring_pcre.cmo: netstring_pcre.cmi
-netstring_pcre.cmx: netstring_pcre.cmi
+#netstring_pcre.cmo: netstring_pcre.cmi
+#netstring_pcre.cmx: netstring_pcre.cmi
 
-netstring_str.cmo: netstring_str.cmi netstring_pcre.cmi
-netstring_str.cmx: netstring_str.cmi netstring_pcre.cmi
+netstring_str.cmo: netstring_str.cmi
+netstring_str.cmx: netstring_str.cmi
 
 
 include $(TOP_DIR)/Makefile.rules
 
 CLEAN_LIST += tools_done netdb_done netdb.ml netdate.ml $(PMAP:.pmap=.ml)
-CLEAN_LIST += netconst.ml netnumber.ml netstring_pcre.mli
-CLEAN_LIST += netstring_pcre.ml netstring_str.ml
+CLEAN_LIST += netconst.ml netnumber.ml netstring_str.ml
 
 clean::
 	test ! -d mappings || rm -f $(PMAP)

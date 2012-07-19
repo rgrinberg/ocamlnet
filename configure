@@ -48,7 +48,7 @@ set_defaults () {
     enable_zip=0
     enable_crypto=0
     enable_apache=0
-    enable_pcre=1
+    enable_pcre=0
     with_nethttpd=0
     with_rpc_auth_dh=0
     bindir=`dirname "$ocamlc"`
@@ -58,12 +58,14 @@ set_defaults () {
     disable_core=0
     apxs=""
     apache=""
+    cpp=cpp
+    cpp_set=0
 }
 
 ocamlc=`get_path ocamlc`
 set_defaults
 
-version="3.5.1"
+version="3.6"
 exec_suffix=""
 path_sep=":"
 
@@ -77,7 +79,7 @@ ehelp_ssl="Enable/disable parts that depend on SSL"
 ehelp_zip="Enable/disable parts that depend on camlzip"
 ehelp_crypto="Enable/disable parts that depend on cryptokit"
 ehelp_apache="Enable/disable Apache mod connector (EXPERIMENTAL)"
-ehelp_pcre="Enable/disable the build against pcre-ocaml (recommended)"
+ehelp_pcre="Enable/disable the build against pcre-ocaml"
 whelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
 whelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
 
@@ -152,6 +154,7 @@ print_options () {
 	if [ -n "$apache" ]; then
 	    echo "    -apache $apache"
 	fi
+        echo "    -cpp $cpp"
 }
 
 
@@ -201,6 +204,9 @@ _EOF_
 
 -prefer-netcgi2
         This option is ignored for compatibility with older versions
+
+-cpp <path>
+        Use this C preprocessor program for ocamlrpcgen
 
 Defaults are:
 
@@ -303,6 +309,12 @@ while [ "$#" -gt 0 ]; do
 	        -prefer-netcgi2)
 		        # ignore!
 			shift ;;
+                -cpp)
+                        cpp="$2"
+                        cpp_set=1
+                        shift
+                        shift
+                        ;;
 		-version)
 			echo "$version"
 			exit 0
@@ -326,6 +338,9 @@ case "$u" in
 		path_sep=";"   # this is only for OCAMLPATH, ";" is correct for Cygwin
 		case `ocamlc -config | grep os_type` in
 		    *Win32*)
+                        if [ $cpp_set = 0 ]; then
+                            cpp=`realpath /bin/cpp | cygpath -m -f -`
+                        fi
 			echo "Win32" ;;
 		    *)
 			echo "Cygwin" ;;
@@ -482,7 +497,8 @@ if [ $enable_pcre -gt 0 ]; then
 	echo "found"
 	regexp_defs="-D HAVE_PCRE"
 	have_pcre=1
-	regexp_provider="pcre"
+	regexp_provider="netstring-pcre"  # which again depends on pcre
+        regexp_provider_make="pcre"       # also solved via -I to netstring-pcre
     else
 	echo "not found"
 	echo "Sorry, installation is not possible without PCRE."
@@ -492,9 +508,11 @@ if [ $enable_pcre -gt 0 ]; then
 	exit 1
     fi
 else
-    regexp_defs=""
+    # ENABLE_STR_EXTERNALS works for all recent OCaml versions
+    regexp_defs="-D ENABLE_STR_EXTERNALS"
     have_pcre=0
     regexp_provider="str"
+    regexp_provider_make="str"
 fi
 
 ######################################################################
@@ -825,6 +843,11 @@ where PIC code differs from non-PIC\n    such as x86_64, hppa,..."
 fi
 
 ######################################################################
+# cpp
+
+echo "Preprocessor for ocamlrpcgen: $cpp"
+
+######################################################################
 # Summary
 
 echo
@@ -834,7 +857,7 @@ echo
 
 pkglist="netsys netshm netstring equeue shell netgssapi rpc-generator rpc rpc-auth-local pop smtp netclient netcgi2 netplex netcgi2-plex netcamlbox netmulticore"
 
-full_pkglist="$pkglist rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi2 netzip netcgi2-apache netmech-scram"
+full_pkglist="$pkglist netstring-pcre rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi2 netzip netcgi2-apache netmech-scram"
 
 if [ $disable_core -gt 0 ]; then
     # Omit the core packages:
@@ -850,6 +873,10 @@ for opt in rpc_xti $woptions equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_s
 		pkglist="$pkglist $uopt"
 	fi
 done
+
+if [ $enable_pcre -gt 0 ]; then
+    pkglist="netstring-pcre $pkglist"
+fi
 
 if [ $enable_apache -gt 0 ]; then
     pkglist="$pkglist netcgi2-apache"
@@ -920,6 +947,7 @@ HAVE_GPROF = $have_gprof
 REGEXP_DEFS = $regexp_defs
 HAVE_PCRE = $have_pcre
 REGEXP_PROVIDER = $regexp_provider
+REGEXP_PROVIDER_MAKE = $regexp_provider_make
 
 # Compiler switch to enable multi-threading:
 THREAD = $mt_switch
@@ -946,6 +974,10 @@ APACHE_CC = $apache_cc
 APACHE_CFLAGS = $apache_cflags
 APACHE_OCAMLLIBDIR = $apache_ocamllibdir
 APXS = $apxs
+
+# ocamlrpcgen
+OCAMLRPCGEN_CPP = $cpp
+
 _EOF_
 
 ######################################################################

@@ -353,7 +353,7 @@ cat <<_EOF_ >tmp/t.ml
 let x = Unix.O_SHARE_DELETE;;
 _EOF_
 
-def_o_share_delete=""
+def_o_share_delete="-D NO_O_SHARE_DELETE"
 if ocaml unix.cma tmp/t.ml >/dev/null 2>/dev/null; then
     echo "yes"
     def_o_share_delete="-D HAVE_O_SHARE_DELETE"

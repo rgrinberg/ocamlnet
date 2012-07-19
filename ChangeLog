@@ -1,3 +1,23 @@
+2012-07-20  Gerd Stolpmann  <gerd@samsung>
+
+	* Release Ocamlnet-3.6
+
+	* Netsys_sem: a new abstraction for emulating anonymous
+	  semaphores on systems that only provide named semaphores,
+	  like OS X. All users of semaphores inside Ocamlnet now
+	  base on Netsys_sem.
+
+2012-07-19  Gerd Stolpmann  <gerd@samsung>
+
+	* reimplementing Netstring_str for the case the Str engine
+	  is used. It is now thread-safe without having to use
+	  mutexes.
+
+	* The default is now -disable-pcre
+
+	* The module Netstring_pcre has been moved to a library of its
+	  own, namely netstring-pcre. It is only installed if -enable-pcre
+
 2012-06-27 Gerd Stolpmann <gerd@gerd-stolpmann.de>
 
 	* Nethttp.Header.best_media_type: improved
@@ -38,7 +58,7 @@
 2012-02-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Release Ocamlnet-3.5.1
-	
+
 	* Fixing various build problems:
 	  - FreeBSD-9: clock_getcpuclockid problem
 	  - FreeBSD-9: PATH_MAX problem

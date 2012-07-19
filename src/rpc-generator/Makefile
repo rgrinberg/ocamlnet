@@ -2,7 +2,7 @@ TOP_DIR=../..
 
 PKGNAME  = rpc-generator
 ARCHIVE  = rpc_generator
-OBJECTS  = syntax.cmo options.cmo parser.cmo lexer.cmo rename.cmo \
+OBJECTS  = config.cmo syntax.cmo options.cmo parser.cmo lexer.cmo rename.cmo \
            generate.cmo direct.cmo
 DOBJECTS = 
 
@@ -19,7 +19,8 @@ include $(TOP_DIR)/Makefile.rules
 ocamlrpcgen$(EXEC_SUFFIX): $(ARCHIVE).cma main.cmo
 	rm -f ocamlrpcgen ocamlrpcgen$(EXEC_SUFFIX)
 	OCAMLPATH="..$(PATH_SEP)$$OCAMLPATH" \
-	$(OCAMLC) -custom -o ocamlrpcgen -package unix,netstring \
+	$(OCAMLC) -custom -o ocamlrpcgen \
+		-package unix,netstring,$(REGEXP_PROVIDER) \
 		$(ARCHIVE).cma main.cmo -linkpkg
 
 rpcgen-packlist:

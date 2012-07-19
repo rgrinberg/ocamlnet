@@ -10,6 +10,8 @@ INSTALL_EXTRA = netsys_oothr.cmo \
                 netsys_gprof_init.p.cmx netsys_gprof_init.p.o \
                 netsys_c_gprof.o
 
+OCAMLDEP_OPTIONS = -package "camlp4.macro" -syntax camlp4o
+
 include $(TOP_DIR)/Makefile.rules
 
 distclean::

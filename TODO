@@ -1,8 +1,11 @@
 ocaml-4.00: 
  - see patches. 
  - netsys_posix.ml: open_flags is ocaml-specific. Do this check outside
-   the code
- - netstring_top.ml: needs -I +compiler-libs
+   the code - DONE
+ - netstring_top.ml: needs -I +compiler-libs - DONE
+
+CHECK:
+ - ocamlopt with -g?
 
 
 If closefrom is available use this for spawn

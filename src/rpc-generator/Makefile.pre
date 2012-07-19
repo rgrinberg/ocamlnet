@@ -1,8 +1,9 @@
+# -*- makefile-mode -*-
 TOP_DIR=../..
 
 PRE = 1
 PKGNAME = rpc-generator
-GENERATE = parser.ml META
+GENERATE = parser.ml META configure
 PACKLIST = rpcgen-packlist
 INSTALL_EXTRA = rpcgen-packlist
 INSTOTHER = install-rpcgen
@@ -11,10 +12,15 @@ OCAMLDEP_OPTIONS = -syntax camlp4o -package camlp4.macro
 
 include $(TOP_DIR)/Makefile.rules
 
-CLEAN_LIST += ocamlrpcgen$(EXEC_SUFFIX) parser.mli
+CLEAN_LIST += ocamlrpcgen$(EXEC_SUFFIX) parser.mli config.ml
 
 .PHONY: install-rpcgen
 install-rpcgen:
 	mkdir -p "$(DESTDIR)$(BINDIR)"
 	cp ocamlrpcgen$(EXEC_SUFFIX) "$(DESTDIR)$(BINDIR)"
 	@echo "Installed ocamlrpcgen$(EXEC_SUFFIX) into $(DESTDIR)$(BINDIR)"
+
+.PHONY: configure
+configure:
+	echo "let cpp = \"$(OCAMLRPCGEN_CPP)\";;" > config.ml
+
