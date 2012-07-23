@@ -322,8 +322,8 @@ class output_deflate ?level ch =
 let () =
   Netcompression.register
     ~iana_name:"gzip"
-    ~decoder:(new inflating_pipe)
-    ~encoder:(new deflating_pipe)
+    ~decoder:(fun () -> new inflating_pipe())
+    ~encoder:(fun () -> new deflating_pipe())
     ()
 
 
