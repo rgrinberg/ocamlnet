@@ -721,14 +721,21 @@ fi
 with_netzip=0
 
 if [ $enable_zip -gt 0 ]; then
-    printf "%s" "Checking for camlzip... "
-    if ocamlfind query camlzip >/dev/null 2>/dev/null; then
+    printf "%s" "Checking for zip/camlzip... "
+    if ocamlfind query zip >/dev/null 2>/dev/null; then
         echo "found"
-	with_netzip=1
+        with_netzip=1
+        zip_provider=zip
     else
-        echo "not found"
-	echo "Required library camlzip not found!"
-	exit 1
+        if ocamlfind query camlzip >/dev/null 2>/dev/null; then
+            echo "found"
+	    with_netzip=1
+	    zip_provider=camlzip
+        else
+            echo "not found"
+	    echo "Required library camlzip not found!"
+	    exit 1
+        fi
     fi
 fi
 
@@ -914,6 +921,9 @@ PATH_SEP = $path_sep
 
 # Required packages (findlib):
 REQUIRES += $requires
+
+# zip:
+ZIP_PROVIDER = $zip_provider
 
 # Additional options only for ocamlc:
 OCAMLC_OPTIONS =

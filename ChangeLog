@@ -1,3 +1,8 @@
+2012-08-27 Gerd Stolpmann <gerd@gerd-stolpmann.de>
+
+	* netzip: it is now autodetected whether the camlzip library
+	  is available under the findlib name "zip" or "camlzip"
+
 2012-07-20  Gerd Stolpmann  <gerd@samsung>
 
 	* Release Ocamlnet-3.6

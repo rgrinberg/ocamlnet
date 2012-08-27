@@ -8,6 +8,6 @@ INCLUDES = $(INC_NETSTRING)
 
 include $(TOP_DIR)/Makefile.rules
 
-REQUIRES += camlzip
+REQUIRES += $(ZIP_PROVIDER)
 
 include depend
