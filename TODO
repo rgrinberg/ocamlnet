@@ -4,9 +4,10 @@ ocaml-4.00:
    the code - DONE
  - netstring_top.ml: needs -I +compiler-libs - DONE
 
+Http_fs: also make the HTTP code available (like last_response_header)
+
 CHECK:
  - ocamlopt with -g?
-
 
 If closefrom is available use this for spawn
 
