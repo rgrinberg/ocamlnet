@@ -1,3 +1,6 @@
+2012-09-30 Gerd Stolpmann <gerd@gerd-stolpmann.de>
+	* Better endianness check as suggested by Matías Giovannini
+
 2012-08-27 Gerd Stolpmann <gerd@gerd-stolpmann.de>
 
 	* netzip: it is now autodetected whether the camlzip library
