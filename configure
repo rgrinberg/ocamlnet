@@ -445,14 +445,12 @@ echo "$word_size bit"
 
 printf "%s" "Checking endianess... "
 cat <<_EOF_ >tmp/tend.c
+/* new check from Matías Giovannini */
 #include "caml/mlvalues.h"
 value check(value d) {
-  union {
-    int i;
-    char s[4];
-  } u;
-  u.i = 0x0001010101;
-  return (u.s[0] == 0 ? Val_true : Val_false);
+  int i = 1;
+  char *s = (char*) &i;
+  return (s[0] == 0 ? Val_true : Val_false);
 }
 _EOF_
 
