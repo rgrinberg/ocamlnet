@@ -323,7 +323,7 @@ let () =
   Netcompression.register
     ~iana_name:"gzip"
     ~decoder:(fun () -> new inflating_pipe())
-    ~encoder:(fun () -> new deflating_pipe())
+    ~encoder:(fun () -> new deflating_pipe ?level:None ())
     ()
 
 

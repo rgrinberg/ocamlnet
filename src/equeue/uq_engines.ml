@@ -2568,6 +2568,8 @@ object(self)
 			    match fd_style with
 			      | `Recv_send _ ->
 				  Netsys_mem.mem_send fd m pos len []
+			      | `Recv_send_implied ->
+				  Netsys_mem.mem_send fd m pos len []
 			      | `Read_write ->
 				  Netsys_mem.mem_write fd m pos len
 			      | _ ->
@@ -3128,21 +3130,29 @@ let getsockspec stype s =
 ;;
 
 
+(*
 let getpeerspec stype s =
+  (* Warning: this function may fail if the socket is connected and the
+     peer does not have an address (e.g. older OSX)
+   *)
   match Netsys.getpeername s with
       Unix.ADDR_UNIX path ->
 	`Sock_unix(stype, path)
     | Unix.ADDR_INET(addr, port) ->
 	`Sock_inet(stype, addr, port)
 ;;
+ *)
 
 
 let getinetpeerspec stype s =
-  match Netsys.getpeername s with
-      Unix.ADDR_UNIX path ->
-	None
-    | Unix.ADDR_INET(addr, port) ->
-	Some(`Sock_inet(stype, addr, port))
+  try
+    match Netsys.getpeername s with
+        Unix.ADDR_UNIX path ->
+	  None
+      | Unix.ADDR_INET(addr, port) ->
+	  Some(`Sock_inet(stype, addr, port))
+  with
+    | _ -> None
 ;;
 
 
