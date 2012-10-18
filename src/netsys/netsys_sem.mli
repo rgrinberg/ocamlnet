@@ -6,6 +6,11 @@
     sempahores on MacOS X (which only has named semaphores). On
     other OS, it is just a wrapper for the functions in
     {!Netsys_posix}.
+
+    Note that on OS X named semaphores have a max name length of
+    31 characters (including the / at the beginning), and that
+    [Netsys_sem] uses 9 characters for its own purposes, leaving
+    22 characters for the prefix. (On other OS this is less restricted.)
  *)
 
 val have_anon_semaphores : unit -> bool
