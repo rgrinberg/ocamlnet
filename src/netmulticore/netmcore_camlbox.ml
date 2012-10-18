@@ -19,8 +19,16 @@ let create_camlbox prefix n size =
     (box, res#id)
   with
     | error ->
-	if !fd_open then Unix.close fd;
+	if !fd_open then ( 
+          (* Apparently, "Unix.close fd" is rejected on OS X when the shm
+             has not been ftruncated. So just try that.
+          *)
+          (try Unix.ftruncate fd 0 with _ -> ());
+	  Unix.close fd;
+	);
 	raise error
+
+
 
 
 let lookup_camlbox_address res_id =

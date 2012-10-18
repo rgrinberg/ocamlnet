@@ -182,6 +182,7 @@ module Emu = struct
 	  Netsys_posix.SHM_O_CREAT
 	]
 	0o600 in
+    let fd_open = ref true in
     ( try
 	let st = Unix.fstat fd in
 	if st.Unix.st_size = 0 then
@@ -189,6 +190,7 @@ module Emu = struct
 	let used = 
 	  Netsys_mem.memory_map_file fd true n in
 	Unix.close fd;
+        fd_open := false;
         let mutex =
           Netsys_posix.sem_open
 	    (prefix ^ "_contsem")
@@ -207,7 +209,8 @@ module Emu = struct
           id = Oo.id (object end);
 	}
       with error ->
-	Unix.close fd;
+        if !fd_open then 
+	  Unix.close fd;
 	raise error
     )
 
