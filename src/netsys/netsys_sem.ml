@@ -700,5 +700,9 @@ let sem_value_max =
   Netsys_posix.sem_value_max
 
 let sem_size =
-  max 4 Netsys_posix.sem_size
+  (* should be a multiple of the word size, so we round it up to the
+     next multiple of 8
+   *)
+  let s = max 4 Netsys_posix.sem_size in
+  (((s-1) / 8)+1) * 8
 

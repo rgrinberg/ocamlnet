@@ -12,6 +12,8 @@
 #endif
 #endif
 
+#undef DEBUG
+
 /**********************************************************************/
 /* Bigarray helpers                                                   */
 /**********************************************************************/
@@ -705,6 +707,14 @@ int netsys_init_value_1(struct htab *t,
     void *nativeint_target_ops;
     void *bigarray_target_ops;
 
+#ifdef DEBUG
+    fprintf(stderr,
+            "dest=%lx dest_end=%lx orig=%lx target=%lx en_b=%d en_c=%d en_a=%d sim=%d color=%d\n",
+            (intnat) dest, (intnat) dest_end, Long_val(orig), (intnat) target_addr,
+            enable_bigarrays, enable_customs, enable_atoms, simulation,
+            color);
+#endif
+
     copy = 0;
 
     dest_cur = dest;
@@ -712,11 +722,21 @@ int netsys_init_value_1(struct htab *t,
 
     if (dest_cur >= dest_end && !simulation) return (-4);   /* out of space */
 
-    if (!Is_block(orig)) return (-2);
+    if (!Is_block(orig)) {
+#ifdef DEBUG
+        fprintf(stderr, "DEBUG: Unboxed value\n");
+#endif
+        return (-2);
+    };
 
     orig_addr = (void *) orig;
     code = netsys_queue_add(q, orig_addr);
-    if (code != 0) return code;
+    if (code != 0) {
+#ifdef DEBUG
+        fprintf(stderr, "DEBUG: From netsys_queue_add: %d\n", code);
+#endif
+        return code;
+    }
 
     /* initialize *_target_ops */
     bigarray_target_ops = NULL;
@@ -747,12 +767,22 @@ int netsys_init_value_1(struct htab *t,
 
     code = netsys_queue_take(q, &work_addr);
     while (code != (-3)) {
-	if (code != 0) return code;
+	if (code != 0) {
+#ifdef DEBUG
+            fprintf(stderr, "DEBUG: From netsys_queue_take: %d\n", code);
+#endif
+            return code;
+        }
 
 	/* fprintf(stderr, "work_addr=%lx\n", (unsigned long) work_addr); */
 
 	code = netsys_htab_lookup(t, work_addr, &copy_addr);
-	if (code != 0) return code;
+	if (code != 0) {
+#ifdef DEBUG
+            fprintf(stderr, "DEBUG: From netsys_htab_lookup: %d\n", code);
+#endif
+            return code;
+        };
 
 	if (copy_addr == NULL) {
 	    /* The address is unknown, so copy the value */
@@ -770,12 +800,20 @@ int netsys_init_value_1(struct htab *t,
 		case Closure_tag:
 		case Lazy_tag:
 		case Forward_tag:
+#ifdef DEBUG                    
+                    fprintf(stderr, "DEBUG: Unsupported tag\n");
+#endif
 		    return (-2);   /* unsupported */
 		}
 
 		work_words = Wosize_hp(work_header);
 		if (work_words == 0) {
-		    if (!enable_atoms) return (-2);
+		    if (!enable_atoms) {
+#ifdef DEBUG
+                        fprintf(stderr, "DEBUG: Unsupported atom\n");
+#endif
+                        return (-2);
+                    }
 		    if (enable_atoms == 1) goto next;
 		};
 		
@@ -798,7 +836,12 @@ int netsys_init_value_1(struct htab *t,
 		/* Add the association (work_addr -> copy_addr) to t: */
 
 		code = netsys_htab_add(t, work_addr, copy_addr);
-		if (code < 0) return code;
+		if (code < 0) {
+#ifdef DEBUG
+                    fprintf(stderr, "DEBUG: From netsys_htab_add: %d\n", code);
+#endif
+                    return code;
+                }
 
 		/* Add the sub values of work_addr to q: */
 
@@ -806,7 +849,12 @@ int netsys_init_value_1(struct htab *t,
 		    value field = Field(work, i);
 		    if (Is_block (field)) {
 			code = netsys_queue_add(q, (void *) field);
-			if (code != 0) return code;
+			if (code != 0) {
+#ifdef DEBUG
+                            fprintf(stderr, "DEBUG: From netsys_queue_add: %d\n", code);
+#endif
+                            return code;
+                        }
 		    }
 		}
 	    }
@@ -819,6 +867,9 @@ int netsys_init_value_1(struct htab *t,
 		/* Check for bigarrays and other custom blocks */
 		switch (work_tag) {
 		case Abstract_tag:
+#ifdef DEBUG
+                    fprintf(stderr, "DEBUG: Unsupported abstract tag\n");
+#endif
 		    return(-2);
 		case String_tag:
 		    do_copy = 1; break;
@@ -836,7 +887,12 @@ int netsys_init_value_1(struct htab *t,
 			if (id[0] == '_') {
 			    switch (id[1]) {
 			    case 'b':
-				if (!enable_bigarrays) return (-2);
+				if (!enable_bigarrays) {
+#ifdef DEBUG
+                                    fprintf(stderr, "DEBUG: Unsupported bigarray\n");
+#endif
+                                    return (-2);
+                                };
 				if (strcmp(id, "_bigarray") == 0) {
 				    caml_id = 'b';
 				    break;
@@ -844,17 +900,29 @@ int netsys_init_value_1(struct htab *t,
 			    case 'i': /* int32 */
 			    case 'j': /* int64 */
 			    case 'n': /* nativeint */
-				if (!enable_customs) return (-2);
+				if (!enable_customs) {
+#ifdef DEBUG
+                                    fprintf(stderr, "DEBUG: Unsupported custom value\n");
+#endif
+                                    return (-2);
+                                };
 				if (id[2] == 0) {
 				    caml_id = id[1];
 				    break;
 				}
 			    default:
+#ifdef DEBUG
+                                fprintf(stderr, "DEBUG: Unknown custom _value\n");
+#endif
 				return (-2);
 			    }
 			}
-			else
+			else {
+#ifdef DEBUG
+                            fprintf(stderr, "DEBUG: Unknown custom value\n");
+#endif
 			    return (-2);
+                        }
 		    }
 		}; /* switch */
 
@@ -892,7 +960,12 @@ int netsys_init_value_1(struct htab *t,
 		    }
 		    
 		    code = netsys_htab_add(t, work_addr, copy_addr);
-		    if (code < 0) return code;
+		    if (code < 0) {
+#ifdef DEBUG
+                        fprintf(stderr, "DEBUG: From netsys_htab_add: %d\n", code);
+#endif
+                        return code;
+                    }
 		}
 
 		if (do_bigarray) {
@@ -979,14 +1052,19 @@ int netsys_init_value_1(struct htab *t,
     next:
 	code = netsys_queue_take(q, &work_addr);
     } /* while */
-    
+#ifdef DEBUG
+    fprintf(stderr, "End pass 1\n");    
+#endif
+
     /* Second pass. The copied blocks still have fields pointing to the
        original blocks. We fix that now by iterating once over the copied
        memory block.
     */
 
     if (!simulation) {
-	/* fprintf(stderr, "second pass\n"); */
+#ifdef DEBUG
+        fprintf(stderr, "second pass\n");
+#endif
 	dest_ptr = dest;
 	while (dest_ptr < dest_cur) {
 	    copy_header1 = *((header_t *) dest_ptr);
@@ -1001,7 +1079,12 @@ int netsys_init_value_1(struct htab *t,
 			/* It is a pointer. Try to fix it up. */
 			code = netsys_htab_lookup(t, (void *) field,
 						  &fixup_addr);
-			if (code != 0) return code;
+			if (code != 0) { 
+#ifdef DEBUG
+                            fprintf(stderr, "DEBUG: From netsys_htab_lookup (pass2): %d\n", code);
+#endif
+                            return code;
+                        }
 
 			if (fixup_addr != NULL)
 			    Field(copy,i) = 
@@ -1108,15 +1191,33 @@ value netsys_init_value(value memv,
     char *mem_end;
     intnat off;
     struct named_custom_ops *ops, *old_ops, *next_ops;
-    
+
+#ifdef DEBUG
+    fprintf(stderr,"Start netsys_init_value\n");    
+#endif
     code = prep_stat_tab();
-    if (code != 0) goto exit;
+    if (code != 0) {
+#ifdef DEBUG
+        fprintf(stderr, "DEBUG Bad prep_stat_tab\n");
+#endif
+        goto exit;
+    }
 
     code = prep_stat_queue();
-    if (code != 0) goto exit;
+    if (code != 0) {
+#ifdef DEBUG
+        fprintf(stderr, "DEBUG Bad prep_stat_queue\n");
+#endif
+        goto exit;
+    }
 
     off = Long_val(offv);
-    if (off % sizeof(void *) != 0) { code=(-2); goto exit; }
+    if (off % sizeof(void *) != 0) { 
+#ifdef DEBUG
+        fprintf(stderr, "DEBUG Bad alignment\n");
+#endif
+        code=(-2); goto exit; 
+    }
 
     cflags = caml_convert_flag_list(flags, init_value_flags);
     targetaddr = (void *) (Nativeint_val(targetaddrv) + off);
@@ -1149,6 +1250,9 @@ value netsys_init_value(value memv,
 			       cflags & 8,
 			       targetaddr, ops, 0,
 			       &start_offset, &bytelen);
+#ifdef DEBUG
+    fprintf(stderr, "Done netsys_init_value code=%d\n", code);
+#endif
     if (code != 0) goto exit;
 
     unprep_stat_tab();
@@ -1175,6 +1279,9 @@ value netsys_init_value(value memv,
     case (-1):
 	unix_error(errno, "netsys_init_value", Nothing);
     case (-2):
+#ifdef DEBUG
+        fprintf(stderr, "Lib err\n");
+#endif
 	failwith("Netsys_mem.init_value: Library error");
     case (-4):
 	caml_raise_constant(*caml_named_value("Netsys_mem.Out_of_space"));
