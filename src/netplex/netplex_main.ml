@@ -112,9 +112,12 @@ let daemon f =
 		Netsys_posix.run_post_fork_handlers();
                 f ~init_done:(fun () -> Unix.close fd_wr)
             | _ ->
+                Unix.close fd_rd;
+                Unix.close fd_wr;
                 Netsys._exit 0
         )
-    | _ ->
+    | middle_pid ->
+        ignore(Unix.waitpid [] middle_pid);
 	Unix.close fd_wr;
 	ignore(Netsys.wait_until_readable `Read_write fd_rd (-1.0));
 	Unix.close fd_rd
