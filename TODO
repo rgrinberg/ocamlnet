@@ -1,3 +1,5 @@
+container hooks: option to emit a stacktrace
+
 ocaml-4.00: 
  - see patches. 
  - netsys_posix.ml: open_flags is ocaml-specific. Do this check outside

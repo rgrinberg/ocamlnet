@@ -274,13 +274,20 @@ let wait_e_d name we c m esys cont =
                byte, and thus the semaphore was already posted. Also, there
                can only be one poster (the wait entry is removed from the
                list by post)
+
+	       NB: No getvalue on OSX, so make this error-tolerant.
              *)
             dlogr
               (fun () -> 
-                 sprintf "Netmcore_condition.wait_e %s: reading done, sem=%d" name
-                   (Netmcore_sem.getvalue we.sem)
+                 sprintf "Netmcore_condition.wait_e %s: reading done, sem=%s" name
+                   (try
+		      string_of_int(Netmcore_sem.getvalue we.sem)
+		    with Unix.Unix_error(Unix.ENOSYS,_,_) -> "n/a"
+		   )
               );
-            assert(Netmcore_sem.getvalue we.sem = 1);
+            assert(try Netmcore_sem.getvalue we.sem = 1
+		   with Unix.Unix_error(Unix.ENOSYS,_,_) -> true
+                  );
             Netmcore_sem.wait we.sem Netsys_posix.SEM_WAIT_BLOCK;
             close();
             dlogr
