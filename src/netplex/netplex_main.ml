@@ -96,12 +96,13 @@ let daemon f =
    *)
   if is_win32 then
     failwith "Startup as daemon is unsupported on Win32 - use -fg switch";
-  let fd_rd, fd_wr = Unix.pipe() in
+  let oldmask = Unix.sigprocmask Unix.SIG_BLOCK [Sys.sigusr1; Sys.sigchld] in
+  let pid = Unix.getpid() in
   match Unix.fork() with
     | 0 ->
         ( match Unix.fork() with
             | 0 ->
-		Unix.close fd_rd;
+                ignore(Unix.sigprocmask Unix.SIG_SETMASK oldmask);
                 let _ = Unix.setsid() in (* Start new session/get rid of tty *)
                 (* Assign stdin/stdout to /dev/null *)
                 Unix.close Unix.stdin;
@@ -110,17 +111,17 @@ let daemon f =
                 ignore(Unix.openfile "/dev/null" [ Unix.O_WRONLY ] 0);
                 (* Keep stderr open: error messages should appear *)
 		Netsys_posix.run_post_fork_handlers();
-                f ~init_done:(fun () -> Unix.close fd_wr)
+                f ~init_done:(fun () -> Unix.kill pid Sys.sigusr1)
             | _ ->
-                Unix.close fd_rd;
-                Unix.close fd_wr;
                 Netsys._exit 0
         )
     | middle_pid ->
-        ignore(Unix.waitpid [] middle_pid);
-	Unix.close fd_wr;
-	ignore(Netsys.wait_until_readable `Read_write fd_rd (-1.0));
-	Unix.close fd_rd
+        (* Wait for zombie: *)
+        ignore(Netsys.restart (Unix.waitpid []) middle_pid);
+        (* Wait for SIGUSR1, but ignore SIGCHLD *)
+        Sys.set_signal Sys.sigusr1 (Sys.Signal_handle (fun _ -> ()));
+        Unix.sigsuspend [ Sys.sigchld ];
+        ignore(Unix.sigprocmask Unix.SIG_SETMASK oldmask);
 ;;
 
 
