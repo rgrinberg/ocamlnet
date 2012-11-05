@@ -630,7 +630,7 @@ let copy ?(replace=false) ?(streaming=false)
     else
       raise(Unix.Unix_error(Unix.ENOSYS,"",""))
   with
-    | Unix.Unix_error(Unix.ENOSYS,_,_) ->
+    | Unix.Unix_error(Unix.ENOSYS,_,_) | Unix.Unix_error(Unix.EXDEV,_,_) ->
 	copy_prim ~streaming orig_fs orig_name dest_fs dest_name
 
 type file_kind = [ `Regular | `Directory | `Symlink | `Other | `None ]
