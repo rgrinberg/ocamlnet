@@ -1,5 +1,19 @@
+2012-11-07  Gerd Stolpmann  <gerd@samsung>
+
+	* Release OCamlnet-3.6.1
+
+	* Fix Netfs.copy: When the copy method throws EXDEV, it is
+	  fallen back to a streaming-type copy
+
+	* Several fixes for OS X
+
+	* Daemonizer: now using a signal for waiting until the children
+	  are up and running
+
+	* Fixes for OCaml-4.00
+
 2012-09-30 Gerd Stolpmann <gerd@gerd-stolpmann.de>
-	* Better endianness check as suggested by Matías Giovannini
+	* Better endianness check as suggested by Matias Giovannini
 
 	* Fixing handling of `Recv_send_implied sockets in
 	  socket_multiplex_controller
