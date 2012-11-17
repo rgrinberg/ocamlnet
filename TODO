@@ -1,3 +1,9 @@
+Netdate:
+ - summer time is not represented. Of course this is only possible for
+   localzone, because it depends on the locale
+ - add field dls to t whether daylight savings are in effect
+ - get_local_winter_timezone??
+
 container hooks: option to emit a stacktrace
 
 ocaml-4.00: 
