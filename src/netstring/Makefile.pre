@@ -2,6 +2,6 @@ TOP_DIR=../..
 
 PRE = 1
 GENERATE = netdate.ml netdb.ml netconst.ml netglob_lex.ml nethttp.ml \
-           netnumber.ml netdb-packlist META
+           netnumber.ml netunichar.ml netdb-packlist META
 
 include Makefile.def

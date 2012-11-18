@@ -41,6 +41,7 @@ d tools
 f tools/collect_files
 f tools/mkstublib
 f tools/stubcc
+p tools/.*\.ml
 
 d src/netstring
 f src/netstring/META.in
@@ -77,6 +78,7 @@ f src/netstring/netstring_str.mlp
 x src/netstring/netstring_str.ml
 x src/netstring/netglob_lex.ml
 f src/netstring/netglob_lex.mll
+x src/netstring/netunichar.ml
 # The pattern:
 p src/netstring/.*\.ml
 p src/netstring/.*\.mli

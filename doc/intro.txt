@@ -147,6 +147,7 @@ for other libraries.
 
 {!modules: 
    Netconversion
+   Netunichar
    Netchannels
    Netstream
    Mimestring

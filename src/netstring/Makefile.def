@@ -1,7 +1,7 @@
-OBJECTS  = netconst.cmo netstring_str.cmo netbuffer.cmo \
-	   netaux.cmo netchannels.cmo netdate.cmo netsockaddr.cmo \
+OBJECTS  = netconst.cmo netstring_str.cmo netbuffer.cmo netunichar.cmo \
+	   netaux.cmo netchannels.cmo netsockaddr.cmo \
 	   netdb.cmo netmappings.cmo netconversion.cmo netulex.cmo \
-           netencoding.cmo netstream.cmo \
+           netencoding.cmo netstream.cmo netdate.cmo \
 	   mimestring.cmo \
            nethtml_scanner.cmo nethtml.cmo \
 	   neturl.cmo \
@@ -51,7 +51,7 @@ DOBJECTS = netconversion.mli netchannels.mli netstream.mli mimestring.mli \
 	netmappings.mli netaux.mli nethttp.mli netpagebuffer.mli \
 	netfs.mli netglob.mli netauth.mli netsockaddr.mli \
         netnumber.mli rtypes.mli xdr_mstring.mli xdr.mli \
-	netcompression.mli \
+	netcompression.mli netunichar.mli \
 	netchannels_tut.txt netmime_tut.txt netsendmail_tut.txt \
 	netulex_tut.txt neturl_tut.txt
 
@@ -177,6 +177,12 @@ netstring_str.ml: netstring_str.mlp
 netstring_str.cmo: netstring_str.cmi
 netstring_str.cmx: netstring_str.cmi
 
+unicode_charinfo.txt:
+	ocaml ../../tools/unicode_extract.ml > unicode_charinfo.txt
+
+netunichar.ml: unicode_charinfo.txt
+	ocaml ../../tools/unicode_charinfo.ml unicode_charinfo.txt \
+		> netunichar.ml
 
 include $(TOP_DIR)/Makefile.rules
 

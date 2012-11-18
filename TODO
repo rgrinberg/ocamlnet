@@ -1,3 +1,11 @@
+Netlocale:
+ - nl_langinfo: use nl_langinfo_l if present
+ - collect here some locale functions:
+   - compare (strcoll)
+   - sortkey (strxfrm)
+   - format_monetary (strfmon)
+   - format_number
+
 Netdate:
  - summer time is not represented. Of course this is only possible for
    localzone, because it depends on the locale
