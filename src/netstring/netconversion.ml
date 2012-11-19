@@ -3108,6 +3108,21 @@ let ustring_map enc f ?range_pos ?range_len s =
 ;;
 
 
+let ustring_to_lower enc ?range_pos ?range_len s =
+  let f x = [ Netunichar.to_lower x ] in
+  ustring_map enc f ?range_pos ?range_len s ;;
+
+
+let ustring_to_upper enc ?range_pos ?range_len s =
+  let f x = [ Netunichar.to_upper x ] in
+  ustring_map enc f ?range_pos ?range_len s ;;
+
+
+let ustring_to_title enc ?range_pos ?range_len s =
+  let f x = [ Netunichar.to_title x ] in
+  ustring_map enc f ?range_pos ?range_len s ;;
+
+
 let ustring_sub enc pos len ?range_pos ?range_len s =
   try
     if pos < 0 || len < 0 then raise Cursor_out_of_range;
@@ -3243,3 +3258,13 @@ let ustring_of_uarray ?(subst = fun code -> raise (Cannot_represent code))
 
   String.sub !out_buf 0 !k_out
 ;;
+
+
+let code_cmp x1 x2 = x1-x2
+
+let ci_code_cmp x1 x2 =
+  let x1_lc = Netunichar.to_lower x1 in
+  let x2_lc = Netunichar.to_lower x2 in
+  x1_lc - x2_lc
+
+

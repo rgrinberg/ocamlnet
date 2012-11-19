@@ -1,3 +1,14 @@
+2012-11-19  Gerd Stolpmann  <gerd@samsung>
+
+	* Netdate: Fix interpretation of the ~localzone argument
+	  of several functions. Now the timezone is assumed for the
+	  target time, not the calling time
+
+	* Netdate: Adding localization
+
+	* Netconversion: Adding functions for converting to lowercase/
+	  uppercase/titlecase, and for case-insensitive comparison
+
 2012-11-07  Gerd Stolpmann  <gerd@samsung>
 
 	* Release OCamlnet-3.6.1

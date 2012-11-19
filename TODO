@@ -1,3 +1,6 @@
+Netdate:
+ - Check timezone names. The current ones seem to be chosen randomly.
+
 Netlocale:
  - nl_langinfo: use nl_langinfo_l if present
  - collect here some locale functions:
@@ -6,24 +9,16 @@ Netlocale:
    - format_monetary (strfmon)
    - format_number
 
-Netdate:
- - summer time is not represented. Of course this is only possible for
-   localzone, because it depends on the locale
- - add field dls to t whether daylight savings are in effect
- - get_local_winter_timezone??
+Netstringprep:
+ - implement the stringprep/SASLprep algorithm
+ - need a number of tables (see the RFC, and Unicode)
 
 container hooks: option to emit a stacktrace
-
-ocaml-4.00: 
- - see patches. 
- - netsys_posix.ml: open_flags is ocaml-specific. Do this check outside
-   the code - DONE
- - netstring_top.ml: needs -I +compiler-libs - DONE
 
 Http_fs: also make the HTTP code available (like last_response_header)
 
 CHECK:
- - ocamlopt with -g?
+ - ocamlopt with -g? DONE
 
 If closefrom is available use this for spawn
 

@@ -28,14 +28,14 @@ val localzone : int
       when daylight savings become effective or non-effective.
    *)
 
+val localzone_nodst : int
+  (** Returns the offset for the local time zone for the case that
+      daylight savings are not effective.
+   *)
+
 val get_localzone : unit -> int
   (** Retrieves the current offset for the local time zone, taking
       daylight savings into account.
-   *)
-
-val get_localzone_nodlt : unit -> int
-  (** Returns the offset for the local time zone for the case that
-      daylight savings are not effective.
    *)
 
 val create : ?localzone:bool -> ?zone:int -> ?nanos:int -> float -> t
@@ -61,10 +61,11 @@ type localization =
         (** Element [k] contains the abbreviated name of the week day [k]
             (0=Sunday) *)
 
-      all_day_names : string list array;
+      parsed_day_names : string list array;
         (** Element [k] contains a list of all possible names of the week
             day [k]. The list includes full and abbreviated names, but can
-            also contain any other allowed name (aliases).
+            also contain any other allowed name (aliases). The names here
+            are in lowercase characters.
          *)
 
       full_month_names : string array;
@@ -74,14 +75,15 @@ type localization =
         (** Element [k] contains the abbreviated name of the month day [k] 
             (0=January) *)
 
-      all_month_names : string list array;
+      parsed_month_names : string list array;
         (** Element [k] contains a list of all possible names of the month
             [k]. The list includes full and abbreviated names, but can
-            also contain any other allowed name (aliases).
+            also contain any other allowed name (aliases). The names here
+            are in lowercase characters.
          *)
 
       timezone_names : (string * int * bool) list;
-        (** A list of pairs [(name,offset,isdlt)] of timezones. The offset is
+        (** A list of pairs [(name,offset,isdst)] of timezones. The offset is
             in minutes.
          *)
 
@@ -102,7 +104,12 @@ type localization =
 
       t_format_ampm : string;
         (** Format string for time, using am and pm, according to the locale *)
+
+      char_encoding : string;
+        (** The character encoding of this locale *)
     }
+
+type compiled_localization
 
 val posix_l9n : localization
   (** The standard POSIX localization (English names) *)
@@ -115,7 +122,11 @@ val l9n_from_locale : string -> localization
       is always returned).
    *)
 
-val parse : ?localzone:bool -> ?zone:int -> ?l9n:localization -> string -> t
+val compile_l9n : localization -> compiled_localization
+  (** Preprocess the localization data for faster parsing and printing *)
+
+val parse : ?localzone:bool -> ?zone:int -> ?l9n:compiled_localization -> 
+            string -> t
   (** Parse a string and return a date/time record.
 
       The following particles are recognized (by example):
@@ -176,17 +187,20 @@ val since_epoch_approx : t -> float
       result is only an approximation.
    *)
 
-val parse_epoch : ?localzone:bool -> ?zone:int -> string -> float
+val parse_epoch : ?l9n:compiled_localization ->
+                  ?localzone:bool -> ?zone:int -> string -> float
   (** Parse a string and return the time (integral seconds since the epoch) *)
 
-val parse_epoch_timespec : ?localzone:bool -> ?zone:int -> string -> float * int
+val parse_epoch_timespec : ?l9n:compiled_localization ->
+                           ?localzone:bool -> ?zone:int -> string -> float * int
   (** Parse a string and return the time (seconds and nanos since the epoch) *)
   
-val parse_epoch_approx  : ?localzone:bool -> ?zone:int -> string -> float
+val parse_epoch_approx  : ?l9n:compiled_localization ->
+                          ?localzone:bool -> ?zone:int -> string -> float
   (** Parse a string and return the time (approximate seconds since the epoch)
    *)
 
-val format_to : ?l9n:localization ->
+val format_to : ?l9n:compiled_localization ->
                 Netchannels.out_obj_channel -> fmt:string -> t -> unit
   (** Format a date/time record according to the format string and outputs
    * the resulting string to the channel.
@@ -203,11 +217,12 @@ val format_to : ?l9n:localization ->
    *  - [%B]: full month name.
    *  - [%b]: abbreviated month name.
    *  - [%C]: (year / 100) as an integer; single digits are preceded by a zero.
-   *  - [%c]: equivalent to ["%a %b %e %T %Y"].
+   *  - [%c]: the preferred date+time representation of [l9n]
    *  - [%D]: equivalent to ["%m/%d/%y"].
    *  - [%d]: day of the month as an integer (01-31); single digits are
    *          preceded by a zero.
    *  - [%e]: day of the month as an integer (1-31).
+   *  - [%F]: equivalent to ["%Y-%m-%d"] (ISO 8601)
    *  - [%H]: hour (24-hour clock) as an integer (00-23).
    *  - [%h]: the same as %b.
    *  - [%I]: hour (12-hour clock) as an integer (01-12).
@@ -219,13 +234,14 @@ val format_to : ?l9n:localization ->
    *  - [%M]: minute as an integer (00-59).
    *  - [%m]: month as an integer (01-12).
    *  - [%n]: a newline.
-   *  - [%p]: either "AM" or "PM" as appropriate.
-   *  - [%P]: either "am" or "pm" as appropriate.
+   *  - [%p]: "AM" or "PM" as defined in [l9n], in uppercase
+   *  - [%P]: "am" or "pm" as defined in [l9n], in lowercase
    *  - [%R]: equivalent to ["%H:%M"].
-   *  - [%r]: equivalent to ["%I:%M:%S %p"].
+   *  - [%r]: the time in am/pm notation according to [l9n]
    *  - [%S]: second as an integer (00-60). This format accepts a precision
         argument, e.g. [%.3S] to print the second with three digits after the
         dot.
+   *  - [%s]: number of seconds since the epoch
    *  - [%T]: equivalent to ["%H:%M:%S"].
    *  - [%t]: a tab.
    *  - [%U]: week number of the year (Sunday as the first day
@@ -234,20 +250,23 @@ val format_to : ?l9n:localization ->
    *          an integer (1-7).
    *  - [%w]: weekday (Sunday as the first day of the week) as
    *          an integer (0-6).
-   *  - [%X]: representation of the time.
-   *  - [%x]: representation of the date.
+   *  - [%X]: representation of the time according to [l9n]
+   *  - [%x]: representation of the date according to [l9n]
    *  - [%Y]: year with century as an integer.
    *  - [%y]: year without century as an integer (00-99).
    *  - [%z]: time zone offset from UTC; a leading plus sign
    *        stands for east of UTC, a minus sign for west of UTC, hours and
    *        minutes follow with two digits each and no delimiter between them
    *        (common form for RFC 822 date headers).
+   *  - [%Z]: same as [%z]
    *  - [%:z]: time zone with colon, e.g. +05:00 (new since Ocamlnet 3)
    *  - [%%]: a `%' character.
    *
+   * If [l9n] is not passed, the default is the POSIX localization
+   * (English names).
    *)
 
-val format : fmt:string -> t -> string
+val format : ?l9n:compiled_localization -> fmt:string -> t -> string
   (** Format a date/time record as a string *)
 
 val mk_date : ?localzone:bool -> ?zone:int -> ?nanos:int -> fmt:string -> 

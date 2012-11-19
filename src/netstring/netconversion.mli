@@ -1250,7 +1250,34 @@ val ustring_map :
    *   (default: 0)
    * @param range_len The byte length of the substring to map
    *   (default: byte length of the input string minus [range_pos])
-   *) 
+   *)
+
+val ustring_to_lower : encoding -> ?range_pos:int -> ?range_len:int ->
+                       string -> string
+  (** Converts the input string to lowercase.
+
+      The [encoding], [range_pos], and [range_len] arguments work
+      as for [ustring_map]. The exception [Malformed_code] is raised
+      when illegal byte sequences are found.
+   *)
+
+val ustring_to_upper : encoding -> ?range_pos:int -> ?range_len:int ->
+                       string -> string
+  (** Converts the input string to uppercase.
+
+      The [encoding], [range_pos], and [range_len] arguments work
+      as for [ustring_map]. The exception [Malformed_code] is raised
+      when illegal byte sequences are found.
+   *)
+
+val ustring_to_title : encoding -> ?range_pos:int -> ?range_len:int ->
+                       string -> string
+  (** Converts the input string to titlecase.
+
+      The [encoding], [range_pos], and [range_len] arguments work
+      as for [ustring_map]. The exception [Malformed_code] is raised
+      when illegal byte sequences are found.
+   *)
 
 val ustring_sub :
        encoding ->
@@ -1301,6 +1328,20 @@ val ustring_compare :
    * @param range_len The byte length of the substring to compare
    *   (default: byte length of the input string minus [range_pos]),
    *   referring to the following string argument
+   *)
+
+val code_cmp : int -> int -> int
+  (** A compare function for [ustring_compare]: Normal string comparison:
+      This function compares by code point
+   *)
+
+val ci_code_cmp : int -> int -> int
+  (** A compare function for [ustring_compare]: Case-insensitive comparison:
+      This function compares by the lowercase code point if it exists, 
+      and the untransformed code point otherwise.
+
+      NB. This bases on the lowercase transformation that maps one char
+      to only one char, and not to many.
    *)
 
 val uarray_of_ustring : 
