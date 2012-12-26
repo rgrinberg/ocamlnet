@@ -168,7 +168,8 @@ META: META.in
 	    -e 's/@AUTHDHREQS@/$(AUTHDHREQS)/' \
 	    -e 's/@PREFERRED_CGI_PKG@/$(PREFERRED_CGI_PKG)/' \
 	    -e 's/@REGEXP_PROVIDER@/$(REGEXP_PROVIDER)/' \
-	    -e 's/@ZIP_PROVIDER@/$(ZIP_PROVIDER)/' \
+	    -e 's/@COMPAT_PCRE_PROVIDER@/$(COMPAT_PCRE_PROVIDER)/' \
+ 	    -e 's/@ZIP_PROVIDER@/$(ZIP_PROVIDER)/' \
 		META.in >META
 
 #----------------------------------------------------------------------
