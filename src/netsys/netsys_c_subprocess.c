@@ -535,23 +535,32 @@ CAMLprim value netsys_get_subprocess_status(value atom_idx_v) {
 #ifdef HAVE_POSIX_SIGNALS
     int atom_idx;
     struct sigchld_atom *atom;
+    struct sigchld_atom copy;
     value r, st;
 
     atom_idx = Int_val(atom_idx_v);
 
     sigchld_lock(1, 1);
 
-    atom = &(sigchld_list[atom_idx]);
+    /* We cannot allocate OCaml memory while we have the lock
+       (otherwise we could call a finalizer for a watched process... 
+       resulting in a deadlock)
 
-    if (atom->terminated) {
-	if (WIFEXITED(atom->status)) {
+       So create a copy.
+    */
+    atom = &(sigchld_list[atom_idx]);
+    memcpy(&copy, atom, sizeof(struct sigchld_atom));
+    sigchld_unlock(1);
+
+    if (copy.terminated) {
+	if (WIFEXITED(copy.status)) {
 	    st = alloc_small(1, TAG_WEXITED);
-	    Field(st, 0) = Val_int(WEXITSTATUS(atom->status));
+	    Field(st, 0) = Val_int(WEXITSTATUS(copy.status));
 	}
 	else {
 	    st = alloc_small(1, TAG_WSIGNALED);
 	    Field(st, 0) = 
-		Val_int(caml_rev_convert_signal_number(WTERMSIG(atom->status)));
+		Val_int(caml_rev_convert_signal_number(WTERMSIG(copy.status)));
 	};
 	r = alloc(1,0);
 	Field(r, 0) = st;
@@ -559,8 +568,6 @@ CAMLprim value netsys_get_subprocess_status(value atom_idx_v) {
     else {
 	r = Val_int(0);
     }
-
-    sigchld_unlock(1);
 
     return r;
 #else
