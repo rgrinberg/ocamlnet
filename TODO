@@ -1,3 +1,5 @@
+- Netbuffer.add_char: is not inlined in Ocaml-4.00
+
 For %G in Netdate:
 
 let rec iso8601_week_pair tm =
