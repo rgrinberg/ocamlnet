@@ -127,6 +127,11 @@ val add_some : mutator -> 'a -> 'a option
       already  a resident of the heap. This means [x] is not copied!
    *)
 
+val add_string : mutator -> int -> string
+  (** [let s = add_string mut len]: Adds an uninitialized string of length
+      [len] to the heap using [mut], and returns the string
+   *)
+
 val pin : mutator -> 'a -> unit
   (** [pin m x]: Pins a shared value [x] so it cannot be deleted by
       the garbage collector. The value remains pinned for the lifetime

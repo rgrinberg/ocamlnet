@@ -662,7 +662,7 @@ let add mut newval =
       Netsys_mem.init_value
 	heap_mem 0 newval 
 	[ Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom; 
-	  Netsys_mem.Copy_custom_int
+	  Netsys_mem.Copy_custom_int; Netsys_mem.Copy_bigarray;
 	] in
     assert(size mod bytes_per_word = 0);
     (* We need [size] bytes to store [newval] *)
@@ -673,12 +673,30 @@ let add mut newval =
     let voffs, size' =
       Netsys_mem.init_value
 	mem offs newval 
-	[Netsys_mem.Copy_atom; Netsys_mem.Copy_custom_int] in
+	[Netsys_mem.Copy_atom; Netsys_mem.Copy_custom_int; 
+         Netsys_mem.Copy_bigarray] in
     assert(size = size');
     (* Return the new value: *)
     dlog "add done";
     Netsys_mem.as_value mem voffs
   )
+
+
+let add_string mut length =
+  (* It is assumed that we already got the lock for the heap *)
+  dlog "add";
+  if not mut.alive then
+    failwith "Netmcore_heap.add_string: invalid mutator";
+  let heap = mut.heap in
+  let size = Netsys_mem.init_string_bytelen length in
+  assert(size mod bytes_per_word = 0);
+  (* We need [size] bytes to store [newval] *)
+  let (mem, offs) = alloc heap size in
+  let voffs, size' = Netsys_mem.init_string mem offs length in
+  assert(size = size');
+  (* Return the new value: *)
+  dlog "add_string done";
+  Netsys_mem.as_value mem voffs
 
 
 let add_some mut (x:'a) =
