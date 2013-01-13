@@ -179,22 +179,33 @@ type init_value_flag =
   | Copy_custom_int
   | Copy_atom
   | Copy_simulate
+  | Copy_conditionally
+  | Keep_atom
 
 type custom_ops = nativeint
 
 external netsys_init_value : 
   memory -> int -> 'a -> init_value_flag list -> nativeint -> 
-  (string * custom_ops) list -> (int * int)
+  (string * custom_ops) list -> ((int*int) list) -> (int * int)
   = "netsys_init_value_bc" "netsys_init_value"
 
-let init_value ?targetaddr ?(target_custom_ops=[]) mem offset v flags =
+let init_value ?targetaddr ?(target_custom_ops=[]) ?(cc=[])
+               mem offset v flags =
   let taddr = 
     match targetaddr with
       | None ->
 	  memory_address mem
       | Some a ->
 	  a in
-  netsys_init_value mem offset v flags taddr target_custom_ops
+  let cc =
+    List.map
+      (fun (s,e) ->
+         ( Nativeint.to_int (Nativeint.shift_right s 1),
+           Nativeint.to_int (Nativeint.shift_right e 1)
+         )
+      ) 
+      cc in
+  netsys_init_value mem offset v flags taddr target_custom_ops cc
 
 external get_custom_ops : 'a -> string * custom_ops
   = "netsys_get_custom_ops"
@@ -209,6 +220,9 @@ external color : Obj.t -> color
 
 external set_color : Obj.t -> color -> unit
   = "netsys_set_color"
+
+external is_bigarray : Obj.t -> bool
+  = "netsys_is_bigarray"
 
 external netsys_mem_read : Unix.file_descr -> memory -> int -> int -> int
   = "netsys_mem_read"

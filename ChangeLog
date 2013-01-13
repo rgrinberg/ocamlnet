@@ -4,7 +4,10 @@
 
 	* Netmcore_heap.mli: allowing to [add] bigarrays. New
 	  function [add_string] for creating uninitialized strings on
-	  heaps
+	  heaps. New function [add_immutable] for retaining value sharing.
+
+	* Netsys_mem: New options [Copy_conditionally] and [Keep_atom]
+	  for function [init_value].
 
 2012-12-26  Gerd Stolpmann  <gerd@samsung>
 

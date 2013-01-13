@@ -55,17 +55,8 @@ val create_heap : Netmcore.res_id -> int -> 'a -> 'a heap
       deeply duplicating [root] and all values pointed to by [root],
       and storing these duplicates in the heap.
 
-      The possible types of value [root] are restricted. In particular,
-      the following types are not supported (as ['a] or as a component
-      of ['a]):
-      - Function types
-      - Lazy values
-      - Objects
-      - Custom blocks (including bigarrays, but excluding
-        [int32], [int64], [nativeint] which are specially supported)
-      - I/O references like [in_channel] and [out_channel]
-      - empty arrays are only partially supported (in particular,
-        comparisons [x = [| |]] do not work)
+      The possible types of value [root] are restricted, see the [add]
+      function for more.
    *)
 
 val minimum_size : 'a -> int
@@ -107,18 +98,48 @@ val modify : 'a heap -> (mutator -> 'r) -> 'r
    *)
 
 val add : mutator -> 'a -> 'a
-  (** Pushes a new value onto the heap *)
+  (** Pushes a new value onto the heap. This creates a deep copy of the
+      value.
+
+      Not all values can be pushed here. In particular, forbidden are:
+      - Functions
+      - Objects
+      - Unsupported custom blocks, e.g. [in_channel] and [out_channel].
+        Supported custom blocks are only [int32], [int64], [nativeint],
+        and bigarrays.
+      - Heaps (a heap cannot contain a heap)
+      - Values containing semaphores and other synchronization primitives.
+        Explicitly allowed are dummy primitives like {!Netmcore_mutex.dummy}.
+   *)
+
+val add_immutable : mutator -> 'a -> 'a
+  (** Pushes a new value onto the heap. This function must only be used
+      if the added value is immutable. An important optimization is applied
+      here: if parts of the value are already living on the heap, these
+      parts are not copied, but shared with the output value.
+
+      The same value restrictions apply as for [add]. Note that
+      [add_immutable] cannot be used if the value to copy lives in a different
+      heap of the same pool (as a whole or partially). In this case use
+      [add].
+   *)
 
 val add_uniform_array : mutator -> int -> 'a -> 'a array
   (** [add_uniform_array m n x]: Pushes a new value with n elements onto
       the heap. Each index position of the array is initialized with
       the same copy of [x].
+
+      You should not call this function with [n=0], because this results in
+      a copied atom, which is an illegal representation in OCaml.
    *)
 
 val add_init_array : mutator -> int -> (int -> 'a) -> 'a array
-  (** [add_init_array m n f]: Pushes a new value with n element onto
+  (** [add_init_array m n f]: Pushes a new value with n elements onto
       the heap. The index position [k] is inititialized by running
       [f k] and pushing the copy of this onto the heap.
+
+      You should not call this function with [n=0], because this results in
+      a copied atom, which is an illegal representation in OCaml.
    *)
 
 val add_some : mutator -> 'a -> 'a option

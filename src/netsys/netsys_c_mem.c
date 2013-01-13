@@ -176,14 +176,13 @@ CAMLprim value netsys_map_file(value fdv,
 {
 #if defined(HAVE_MMAP) && defined(HAVE_SYSCONF) && !defined(_WIN32)
     int fd, shared;
-    off_t pos, savepos, eofpos, basize0;
+    off_t pos, eofpos, basize0;
           /* Att: pos might be 64 bit even on 32 bit systems! */
     struct stat st;
     void *addr, *eff_addr;
     intnat size;
     uintnat basize;
     int64 pos0;
-    char c;
     uintnat pagesize, delta;
 
     /* Avoid here seeking at all costs. On some systems, shared memory
@@ -675,9 +674,11 @@ int netsys_init_value_1(struct htab *t,
 			int enable_bigarrays, 
 			int enable_customs,
 			int enable_atoms,
+                        int enable_cc,
 			int simulation,
 			void *target_addr,
 			struct named_custom_ops *target_custom_ops,
+                        value cc,
 			int color,
 			intnat *start_offset,
 			intnat *bytelen
@@ -848,6 +849,19 @@ int netsys_init_value_1(struct htab *t,
 		for (i=0; i < work_words; ++i) {
 		    value field = Field(work, i);
 		    if (Is_block (field)) {
+                        if (enable_cc) {
+                            value cc_rest, cc_pair;
+                            intnat start, end;
+                            cc_rest = cc;
+                            while (Is_block(cc_rest)) {
+                                cc_pair = Field(cc_rest, 0);  /* List.hd */
+                                start = Long_val(Field(cc_pair,0)) << 1;
+                                end = Long_val(Field(cc_pair,1)) << 1;
+                                if (field >= start && field < end)
+                                    goto cont_for;
+                                cc_rest = Field(cc_rest, 1);  /* List.tl */
+                            }
+                        };
 			code = netsys_queue_add(q, (void *) field);
 			if (code != 0) {
 #ifdef DEBUG
@@ -856,6 +870,8 @@ int netsys_init_value_1(struct htab *t,
                             return code;
                         }
 		    }
+                cont_for:
+                    continue;
 		}
 	    }
 	    else {
@@ -1001,6 +1017,9 @@ int netsys_init_value_1(struct htab *t,
 		       16M on 32 bit systems). The special representation
 		       is an Abstract_tag with zero length, followed
 		       by the real length (in words)
+
+                       NB. This convention is also understood by the
+                       GC algorithm in Netmcore_heap.
 		    */
 		    
 		    if (enable_bigarrays == 2) {
@@ -1034,7 +1053,7 @@ int netsys_init_value_1(struct htab *t,
 			b_copy->data = data_copy;
 			b_copy->proxy = NULL;
 
-			/* If the copy is in our own buffer, it is
+			/* as the copy resides in our own buffer, it is
 			   now externally managed.
 			*/
 			b_copy->flags = 
@@ -1111,7 +1130,7 @@ int netsys_init_value_1(struct htab *t,
 }
 
 
-static int init_value_flags[] = { 1, 2, 4, 8 };
+static int init_value_flags[] = { 1, 2, 4, 8, 16, 32 };
 
 static struct htab *stat_tab = NULL;
 static struct nqueue *stat_queue = NULL;
@@ -1179,7 +1198,8 @@ value netsys_init_value(value memv,
 			value orig,  
 			value flags,
 			value targetaddrv,
-			value target_custom_ops
+			value target_custom_ops,
+                        value cc
 			)
 {
     int code;
@@ -1246,9 +1266,10 @@ value netsys_init_value(value memv,
     code = netsys_init_value_1(stat_tab, stat_queue, mem_data, mem_end, orig, 
 			       (cflags & 1) ? 2 : 0, 
 			       (cflags & 2) ? 1 : 0, 
-			       (cflags & 4) ? 2 : 0,
+			       (cflags & 4) ? 2 : ((cflags & 32) ? 1 : 0),
+                               (cflags & 16) ? 1 : 0,
 			       cflags & 8,
-			       targetaddr, ops, 0,
+			       targetaddr, ops, cc, 0,
 			       &start_offset, &bytelen);
 #ifdef DEBUG
     fprintf(stderr, "Done netsys_init_value code=%d\n", code);
@@ -1295,7 +1316,7 @@ value netsys_init_value_bc(value * argv, int argn)
 {
     return
 	netsys_init_value(argv[0], argv[1], argv[2], argv[3],
-			  argv[4], argv[5]);
+			  argv[4], argv[5], argv[6]);
 }
 
 
@@ -1350,8 +1371,9 @@ value netsys_copy_value(value flags, value orig)
 			       (cflags & 1) ? 1 : 0,  /* enable_bigarrays */
 			       (cflags & 2) ? 1 : 0,  /* enable_customs */
 			       1, /* enable_atoms */
+                               0, /* enable_cc */
 			       1, /* simulate */
-			       NULL, NULL, 0, &start_offset, &bytelen);
+			       NULL, NULL, 0, 0, &start_offset, &bytelen);
     if (code != 0) goto exit;
 
     /* fprintf (stderr, "done counting bytelen=%ld\n", bytelen); */
@@ -1417,8 +1439,9 @@ value netsys_copy_value(value flags, value orig)
 			       (cflags & 1) ? 1 : 0,  /* enable_bigarrays */
 			       (cflags & 2) ? 1 : 0,  /* enable_customs */
 			       1, /* enable_atoms */
+                               0, /* enable_cc */
 			       0, /* simulate */
-			       dest, &bigarray_ops, color,
+			       dest, &bigarray_ops, 0, color,
 			       &start_offset, &bytelen);
     if (code != 0) goto exit;
 
@@ -1486,6 +1509,22 @@ value netsys_get_custom_ops (value v)
     }
     else 
 	invalid_argument("Netsys_mem.get_custom_ops");
+
+    CAMLreturn(r);
+}
+
+
+value netsys_is_bigarray(value v) {
+    struct custom_operations *custom_ops;
+    CAMLparam1(v);
+    CAMLlocal1(r);
+
+    if (Is_block(v) && Tag_val(v) == Custom_tag) {
+	custom_ops = Custom_ops_val(v);
+        r = Val_bool(strcmp(custom_ops->identifier, "_bigarray")==0);
+    }
+    else
+        r = Val_bool(0);
 
     CAMLreturn(r);
 }

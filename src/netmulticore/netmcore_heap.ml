@@ -274,7 +274,7 @@ let extend_heap heap size =
     let (voffs, n) = 
       Netsys_mem.init_value mem magic_len ext_orig
 	[Netsys_mem.Copy_bigarray; Netsys_mem.Copy_custom_int; 
-	 Netsys_mem.Copy_atom] in
+	 Netsys_mem.Keep_atom] in
     let ext =
       Netsys_mem.as_value mem voffs in
     (* If the block is larger than the typical size of 64K, we initialize
@@ -353,6 +353,20 @@ let add_to_fl heap mem offs len =
   heap.heap_fl.(k) <- o
 
 
+let memory_range_of_pool heap =
+  let res = Netmcore.get_resource heap.heap_pool in
+  let (start_addr, end_addr) =
+    match res#repr with
+      | `Posix_shm_preallocated_sc(_,mem,_) -> 
+	  let mem_size = Bigarray.Array1.dim mem in
+          let sa = Netsys_mem.memory_address mem in
+	  let ea = Nativeint.add sa (Nativeint.of_int mem_size) in
+	  (sa, ea)
+      | _ -> 
+	  assert false in
+  (start_addr, end_addr)
+
+
 let do_gc heap =
   (* Our assumption is that all values have the GC color "white".
      
@@ -371,17 +385,7 @@ let do_gc heap =
    *)
   dlog "gc start";
 
-  let res = Netmcore.get_resource heap.heap_pool in
-  let (start_addr, end_addr) =
-    match res#repr with
-      | `Posix_shm_preallocated_sc(_,mem,_) -> 
-	  let mem_size = Bigarray.Array1.dim mem in
-          let sa = Netsys_mem.memory_address mem in
-	  let ea = Nativeint.add sa (Nativeint.of_int mem_size) in
-	  (sa, ea)
-      | _ -> 
-	  assert false in
-  
+  let (start_addr,end_addr) = memory_range_of_pool heap in
   dlogr (fun () ->
 	   sprintf "range: 0x%nx - 0x%nx" start_addr end_addr);
 
@@ -441,22 +445,55 @@ let do_gc heap =
 	    cur_fl_entry := None
 	| None -> ()
     in
+    let bigarray_data_size p =
+      (* Check for bigarrays. Netsys_mem.init_value uses a special
+         convention for marking the data part of the bigarray: The
+         data part is started with an _empty_ abstract block, followed
+         by the size of the data part, and finally followed by the
+         data part.
+       *)
+      if p + bytes_per_word < ext.ext_end then (
+        let v1 = Netsys_mem.as_value mem (p + bytes_per_word) in
+        if Obj.tag v1 = Obj.abstract_tag && Obj.size v1 = 0 then (
+          let data_size_s = String.create bytes_per_word in
+          Netsys_mem.blit_memory_to_string
+            mem (p + bytes_per_word) data_size_s 0 bytes_per_word;
+          let data_size =
+            match bytes_per_word with
+              | 4 -> Netnumber.int_of_uint4
+                       (Netnumber.HO.read_uint4 data_size_s 0)
+              | 8 -> Netnumber.int_of_uint8
+                       (Netnumber.HO.read_uint8 data_size_s 0)
+              | _ -> assert false in
+          data_size + 2   (* 2 for the abstract block and the length *)
+        )
+        else 0
+      )
+      else 0 
+    in
     while !offs < ext.ext_end do
       let v = Netsys_mem.as_value mem (!offs + bytes_per_word) in
       let sz = Obj.size v in
+      let next_offs = !offs + (sz+1)*bytes_per_word in
+      let extra_size =
+        if Obj.tag v = Obj.custom_tag && Netsys_mem.is_bigarray v then
+          bigarray_data_size next_offs
+        else
+          0 in
       ( match Netsys_mem.color v with
 	  | Netsys_mem.White ->
 	      dlogr (fun () -> sprintf "freeing 0x%nx"
 		       (Nativeint.add ext.ext_addr
 			  (Nativeint.of_int (!offs + bytes_per_word))));
+              let sz_total = sz + 1 + extra_size in
 	      ( match !cur_fl_entry with
 		  | None ->
-		      cur_fl_entry := Some(!offs, (sz+1)*bytes_per_word)
+		      cur_fl_entry := Some(!offs, sz_total * bytes_per_word)
 		  | Some(fl_offs, fl_len) ->
 		      cur_fl_entry := Some(fl_offs,
 					   fl_len +
-					     (sz+1)*bytes_per_word)
-	      )
+					     sz_total * bytes_per_word)
+	      );
 	  | _ ->
 	      dlogr (fun () -> sprintf "keeping 0x%nx"
 		       (Nativeint.add ext.ext_addr 
@@ -465,7 +502,7 @@ let do_gc heap =
 	      Netsys_mem.set_color v Netsys_mem.White;
 	      push()
       );
-      offs := !offs + (sz+1)*bytes_per_word
+      offs := next_offs + extra_size * bytes_per_word;
     done;
     if !all_free && ext != heap.heap_ext then
       shrink_heap heap ext
@@ -661,7 +698,7 @@ let add mut newval =
     let _, size =
       Netsys_mem.init_value
 	heap_mem 0 newval 
-	[ Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom; 
+	[ Netsys_mem.Copy_simulate; Netsys_mem.Keep_atom; 
 	  Netsys_mem.Copy_custom_int; Netsys_mem.Copy_bigarray;
 	] in
     assert(size mod bytes_per_word = 0);
@@ -673,8 +710,46 @@ let add mut newval =
     let voffs, size' =
       Netsys_mem.init_value
 	mem offs newval 
-	[Netsys_mem.Copy_atom; Netsys_mem.Copy_custom_int; 
+	[Netsys_mem.Keep_atom; Netsys_mem.Copy_custom_int; 
          Netsys_mem.Copy_bigarray] in
+    assert(size = size');
+    (* Return the new value: *)
+    dlog "add done";
+    Netsys_mem.as_value mem voffs
+  )
+
+
+let add_immutable mut newval =
+  (* It is assumed that we already got the lock for the heap *)
+  dlog "add";
+  if not mut.alive then
+    failwith "Netmcore_heap.add_immutable: invalid mutator";
+  if Obj.is_int (Obj.repr newval) then
+    newval
+  else (
+    let heap = mut.heap in
+    let heap_mem = ext_mem heap.heap_ext in
+    let (start_addr,end_addr) = memory_range_of_pool heap in
+    let cc = [ (start_addr,end_addr) ] in
+    let _, size =
+      Netsys_mem.init_value
+	~cc heap_mem 0 newval 
+	[ Netsys_mem.Copy_simulate; Netsys_mem.Keep_atom; 
+	  Netsys_mem.Copy_custom_int; Netsys_mem.Copy_bigarray;
+          Netsys_mem.Copy_conditionally
+	] in
+    assert(size mod bytes_per_word = 0);
+    (* We need [size] bytes to store [newval] *)
+    let (mem, offs) = alloc heap size in
+    (* Do the copy: Note that we need the same flags here as above,
+       except Copy_simulate which is omitted
+     *)
+    let voffs, size' =
+      Netsys_mem.init_value
+	~cc mem offs newval 
+	[Netsys_mem.Keep_atom; Netsys_mem.Copy_custom_int; 
+         Netsys_mem.Copy_bigarray; Netsys_mem.Copy_conditionally
+        ] in
     assert(size = size');
     (* Return the new value: *)
     dlog "add done";
@@ -767,8 +842,8 @@ let add_uniform_array mut n x_orig =
       snd (
 	Netsys_mem.init_value
 	  heap_mem 0 x_orig
-	  [ Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom;
-	    Netsys_mem.Copy_custom_int
+	  [ Netsys_mem.Copy_simulate; Netsys_mem.Keep_atom;
+	    Netsys_mem.Copy_custom_int; Netsys_mem.Copy_bigarray
 	  ])
     else
       0 in
@@ -785,7 +860,9 @@ let add_uniform_array mut n x_orig =
       let x_voffs, _ =
 	Netsys_mem.init_value
 	  mem offs x_orig
-	  [Netsys_mem.Copy_atom; Netsys_mem.Copy_custom_int] in
+	  [Netsys_mem.Keep_atom; Netsys_mem.Copy_custom_int;
+           Netsys_mem.Copy_bigarray
+          ] in
       Netsys_mem.as_value mem x_voffs
     )
     else x_orig in
@@ -885,7 +962,10 @@ let modify heap mutate =
 
 let copy x =
   if Obj.is_block (Obj.repr x) then
-    Netsys_mem.copy_value [Netsys_mem.Copy_atom; Netsys_mem.Copy_custom_int] x
+    Netsys_mem.copy_value 
+      [Netsys_mem.Keep_atom; Netsys_mem.Copy_custom_int; 
+       Netsys_mem.Copy_bigarray]
+      x
   else
     x
 
@@ -981,8 +1061,8 @@ let minimum_size x =
     let (_, n) =
       Netsys_mem.init_value
 	dummy_mem 0 x
-	[ Netsys_mem.Copy_simulate; Netsys_mem.Copy_atom; 
-	  Netsys_mem.Copy_custom_int
+	[ Netsys_mem.Copy_simulate; Netsys_mem.Keep_atom; 
+	  Netsys_mem.Copy_custom_int; Netsys_mem.Copy_bigarray
 	] in
     n + ((40 + fl_size + n_roots) * bytes_per_word)
       (* this is just an estimate *)
@@ -1069,7 +1149,7 @@ let create_heap pool size rootval_orig =
     let (voffs, n) = 
       Netsys_mem.init_value heap_mem !p heap_orig
 	[Netsys_mem.Copy_bigarray; Netsys_mem.Copy_custom_int; 
-	 Netsys_mem.Copy_atom] in
+	 Netsys_mem.Keep_atom] in
     let hoffs_s =
       Netnumber.HO.int8_as_string (Netnumber.int8_of_int voffs) in
     Netsys_mem.blit_string_to_memory hoffs_s 0 heap_mem p_hoffs 8;

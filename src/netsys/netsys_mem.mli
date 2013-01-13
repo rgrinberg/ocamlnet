@@ -280,10 +280,13 @@ type init_value_flag =
   | Copy_custom_int
   | Copy_atom
   | Copy_simulate
+  | Copy_conditionally
+  | Keep_atom
 
 val init_value : 
       ?targetaddr:nativeint -> 
       ?target_custom_ops:(string * custom_ops) list ->
+      ?cc:(nativeint * nativeint) list ->
       memory -> int -> 'a -> init_value_flag list -> (int * int)
   (** [let voffset, bytelen = init_value mem offset v flags]:
       Initializes the memory at [offset] and following bytes as
@@ -312,16 +315,21 @@ val init_value :
         different executable. This specific problem can be fixed
         by passing [target_custom_ops] with the right pointers.
       - Atoms (i.e. zero-sized blocks such as empty arrays) are only
-        supported if the [Copy_atom] flag is present. It is, however,
-        illegal to copy atoms because they lose then their atomic
-        property. This breaks comparisons, e.g. [if array=[| |] then...].
-        Unfortunately there is nothing we can do about it.
+        supported if the [Copy_atom] or [Keep_atom] flags are present,
+        otherwise the function fails. [Keep_atom] means here to keep
+        atoms as-is. This is correct, but also keeps references to
+        the atom definitions which live outside [mem]. [Copy_atom] means to
+        create a copy of the atom as a zero-sized block outside the
+        atom table. This way the value in [mem] is self-contained,
+        but this unfortunately breaks some assumptions of the
+        OCaml code generator. In particular, comparisons like
+        [if array=[| |] then...] may yield wrong results.
       - The input value may reside outside the Ocaml heap. This may break
         badly written C wrappers that do not use abstract or custom
         tags to mark foreign data.
 
       The function raises [Out_of_space] if the memory block is too small.
-      Cyclic input values are supported.
+      Cyclic input values are supported, and value sharing is kept intact.
 
       If the [Copy_simulate] flag is given, [mem] is not modified.
       In simulation mode, it is pretended that [mem] is as large
@@ -335,6 +343,17 @@ val init_value :
       to be mapped at a different address than it is right now.
 
       The new value has the GC color [White].
+
+      If bigarrays are copied, the copy also includes the data part.
+      The data part is directly following the bigarray block, and is
+      represented in a special implementation-defined way.
+
+      If the [Copy_conditionally] flag is set, the condition [cc] is
+      evaluated for every block, and only if [cc] returns true, the block
+      is copied. [cc] is a list of addresses [(start,end)], and a block
+      is not copied if its address lies in any of these address ranges.
+      Otherwise the block is copied. As an exception of the foregoing,
+      the first block (i.e. [v]) is always copied.
    *)
 
 val get_custom_ops : 'a -> (string * custom_ops)
@@ -365,6 +384,9 @@ val color : Obj.t -> color
 
 val set_color : Obj.t -> color -> unit
   (** Set the GC color *)
+
+val is_bigarray : Obj.t -> bool
+  (** Checks whether the objects ia actually a bigarray *)
 
 
 (** {2 I/O using [memory] as buffers} *)
