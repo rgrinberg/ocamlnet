@@ -164,6 +164,7 @@ add support options to docs
   If a pointer into the target heap is found, the data pointed to is
   not copied. Benefit: Immutable data structures (Set, Map)
   USER: plasma, Nn_notify
+  - DONE
 
 Netnumber plus add, sub
 
@@ -184,7 +185,7 @@ docs: Depict mem architecture of netmcore (multiple heaps, pool)
 
 fix reported problems
 
-- Equeue_ssl: include function to extract cert fingerprint
+- Equeue_ssl: include function to extract cert fingerprint - DONE
 
 - Bug Http_client:
   Digest auth where the server uses a domain string with several URLs!

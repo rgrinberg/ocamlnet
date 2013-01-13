@@ -30,6 +30,8 @@ PMAP = netmappings_iso.pmap netmappings_other.pmap netmappings_jp.pmap netmappin
 # netconversion.cmx, netbuffer.cmx: 
 # Allow cross-library inlining for these modules
 
+OCAMLOPT_OPTIONS_FOR_netbuffer.ml = -inline 10
+
 INSTALL_EXTRA_CMO = netmappings_iso netmappings_jp netmappings_kr \
 		    netmappings_other netmappings_min \
 		    netstring_top \
