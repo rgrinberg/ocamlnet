@@ -128,6 +128,9 @@ val get_value : string -> string option
 
       Raises [Sharedvar_type_mismatch] if the variable is not a string
       variable.
+
+      As an exception of the general rules, this function can also be
+      called from the controller, and not only from a container.
    *)
 
 val get_enc_value : string -> encap option
@@ -135,6 +138,9 @@ val get_enc_value : string -> encap option
       variable does not exist, [None] is returned.
 
       Raises [Sharedvar_type_mismatch] if the variable is not encapsulated
+
+      As an exception of the general rules, this function can also be
+      called from the controller, and not only from a container.
    *)
 
 val wait_for_value : string -> string option
