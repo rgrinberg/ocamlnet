@@ -2,6 +2,13 @@
   not work, even when the process is already done. The only workaround
   for now seems to be a Netplex_sharedvar.
 
+- Netmcore: do not chdir "/" - this is very surprising, and also not
+  necessary as we are always in the foreground
+
+- Netplex: the current controller should continue to exist in the registry
+  even when the main function has terminated. For postprocessing. Define
+  a different criterion for ending the lifetime of the controller.
+
 - Netbuffer.add_char: is not inlined in Ocaml-4.00
 
 For %G in Netdate:
