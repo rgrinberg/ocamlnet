@@ -11,6 +11,8 @@
 
   ch # output_string s
 
+- Netplex: provide simple message boxes (as recently developed for epig)
+
 - Netmcore: how to get the result of the first process? Joining does
   not work, even when the process is already done. The only workaround
   for now seems to be a Netplex_sharedvar.
