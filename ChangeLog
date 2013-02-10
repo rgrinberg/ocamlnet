@@ -1,5 +1,8 @@
 2013-02-10  Gerd Stolpmann  <gerd@samsung>
 
+	* Netplex_main: new function [run], designed for compute
+	  jobs run under Netplex regime
+
 	* Netdate: adding ISO-8601 week numbering. Fixing test suite
 	  and some bugs
 

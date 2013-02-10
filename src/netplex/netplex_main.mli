@@ -92,8 +92,48 @@ val startup :
     * even after [startup] returns to the caller. Also note that log messages
     * submitted via {!Netlog} appear as from component "netplex.other"
     * if they are sent from outside of a container.
+    *
+    * It is changed to [/] as working directory (as required for a daemon). 
    *)
 
+val run :
+      ?config_parser:(string -> config_file) ->
+      late_initializer:(config_file -> controller -> 'a) ->
+      extract_result:(controller -> 'a -> 'b) ->
+      parallelizer ->
+      logger_factory list ->
+      workload_manager_factory list ->
+      processor_factory list -> 
+      cmdline_config -> 
+        'b
+  (** Similar to [startup], but this function is tailored for Netplex
+      systems that compute results (e.g. Netmulticore jobs). In this 
+      scenario, it is
+      not sufficient to just fire off child processes, but you also want
+      to return a result to the caller once the processes have finished
+      their tasks. One consequence of this is that you cannot daemonize
+      the program - it always runs in the foreground (no matter whether
+      [-fg] is given or not).
+
+      [run] expects that the caller passes a function [extract_result].
+      This function is invoked once the Netplex system is done, and
+      the user can extract the final result from the controller. The
+      result of [extract_result] is also the result of [run].
+
+      At the moment [extract_result] is invoked, the child processes are
+      already terminated. They should have put their result at a place
+      that is in the controller, or can be reached with the help of the
+      controller. The controller functionality is still fully available.
+
+      Note that the controller is shut down as soon as [extract_result]
+      returns. Further interactions with the controller are not possible.
+
+      The [late_initializer] is now obligatory for typing reasons
+      (so you can get the result of the [late_initializer] from
+      [extract_result]). If you don't need it, just return [()].
+
+      The working directory is left unchanged.
+   *)
 
 (** {2 Tutorial}
   *

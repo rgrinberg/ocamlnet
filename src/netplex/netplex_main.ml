@@ -125,7 +125,7 @@ let daemon f =
 ;;
 
 
-let rec run ctrl =
+let rec run_controller ctrl =
   try
     Unixqueue.run ctrl#event_system
   with
@@ -134,26 +134,141 @@ let rec run ctrl =
 	  ~component:"netplex.controller"
 	  ~level:`Crit
 	  ~message:("Uncaught exception: " ^ Netexn.to_string error);
-	run ctrl
+	run_controller ctrl
 ;;
 
 
-let startup ?(late_initializer = fun _ _ -> ())
-            ?(config_parser = Netplex_config.read_config_file)
-            par c_logger_cf c_wrkmg_cf c_proc_cf cf =
+let get_config_pair ~config_parser par c_logger_cf c_wrkmg_cf c_proc_cf cf =
   let config_file = 
     match cf.config_tree_opt with
       | None ->
 	  config_parser (config_filename cf)
       | Some tree ->
 	  Netplex_config.repr_config_file (config_filename cf) tree in
-  
   let netplex_config =
     Netplex_config.read_netplex_config
       par#ptype
       c_logger_cf c_wrkmg_cf c_proc_cf 
       config_file in
+  (config_file, netplex_config)
 
+
+let handle_pidfile cf =
+  match cf.pidfile with
+    | Some file ->
+         let f = open_out file in
+         fprintf f "%d\n" (Unix.getpid());
+         close_out f;
+         (fun () ->
+	  try Sys.remove file with _ -> ())
+    | None ->
+         (fun () -> ())
+
+let redirect_logger f =
+  let old_logger = !Netlog.current_logger in
+  let old_dlogger = !Netlog.Debug.current_dlogger in
+
+  Netlog.current_logger := 
+    (fun level message ->
+       try
+         Netplex_cenv.log level message
+       (* This function also works from the controller thread! *)
+       with
+         | Netplex_cenv.Not_in_container_thread ->
+	      (* Fall back to something safe: *)
+	      old_logger level message
+    );
+  (* hmmm, Netlog.Debug cannot be handled by netplex *)
+  Netlog.Debug.current_dlogger := 
+    (fun mname msg ->
+       Netlog.channel_logger stderr `Debug `Debug (mname ^ ": " ^ msg)
+    );
+  try
+    let r = f() in
+    Netlog.current_logger := old_logger;
+    Netlog.Debug.current_dlogger := old_dlogger;
+    r
+  with
+    | error ->
+         Netlog.current_logger := old_logger;
+         Netlog.Debug.current_dlogger := old_dlogger;
+         raise error
+
+
+let setup_controller config_file netplex_config controller_config controller =
+  let processors =
+    List.map
+      (fun (sockserv_cfg, 
+	    (procaddr, c_proc_cfg), 
+	    (wrkmngaddr, c_wrkmng_cfg)
+	   ) ->
+         c_proc_cfg # create_processor
+		        controller_config config_file procaddr
+      )
+      netplex_config#services in
+  (* An exception while creating the processors will prevent the
+   * startup of the whole system!
+   *)
+              
+  let services =
+    List.map2
+      (fun (sockserv_cfg, 
+	    (procaddr, c_proc_cfg), 
+	    (wrkmngaddr, c_wrkmng_cfg)
+	   ) 
+  	   processor ->
+       try
+	 let wrkmng =
+	   c_wrkmng_cfg # create_workload_manager
+		            controller_config config_file wrkmngaddr in
+	 let sockserv = 
+	   Netplex_sockserv.create_socket_service 
+	     processor sockserv_cfg in
+	 Some (sockserv, wrkmng)
+       with
+	 | error ->
+	      (* An error while creating the sockets is quite
+               * problematic. We do not add the service, but we cannot
+               * prevent the system startup at that late point in time
+               *)
+	      controller # logger # log
+                ~component:"netplex.controller"
+		~level:`Crit
+		~message:("Uncaught exception preparing service " ^ 
+			    sockserv_cfg#name ^ ": " ^ 
+			      Netexn.to_string error);
+	      None
+      )
+      netplex_config#services
+      processors in
+
+  List.iter
+    (function
+      | Some(sockserv,wrkmng) ->
+	   ( try
+	       controller # add_service sockserv wrkmng
+	     with
+	       | error ->
+		    (* An error is very problematic now... *)
+		    controller # logger # log
+	              ~component:"netplex.controller"
+		      ~level:`Crit
+		      ~message:("Uncaught exception adding service " ^ 
+				  sockserv#name ^ ": " ^ 
+				    Netexn.to_string error);
+	   )
+      | None ->
+	   ()
+    )
+    services
+
+
+let startup ?(late_initializer = fun _ _ -> ())
+            ?(config_parser = Netplex_config.read_config_file)
+            par c_logger_cf c_wrkmg_cf c_proc_cf cf =
+  let (config_file, netplex_config) =
+    get_config_pair
+      ~config_parser par c_logger_cf c_wrkmg_cf c_proc_cf cf in
   let maybe_daemonize =
     (if cf.foreground then
        (fun f -> f ~init_done:(fun () -> ()))
@@ -161,24 +276,13 @@ let startup ?(late_initializer = fun _ _ -> ())
        daemon) in
   maybe_daemonize
     (fun ~init_done ->
-       let remove_pid_file =
-	 match cf.pidfile with
-	   | Some file ->
-               let f = open_out file in
-               fprintf f "%d\n" (Unix.getpid());
-               close_out f;
-               (fun () ->
-		  try Sys.remove file with _ -> ())
-	   | None ->
-               (fun () -> ())
-       in
+       let remove_pid_file = handle_pidfile cf in
        try
 	 let controller_config = netplex_config # controller_config in
 	 
 	 let controller = 
 	   Netplex_controller.create_controller 
 	     par controller_config in
-
 	 Netplex_cenv.register_ctrl controller;
 
 	 (* Change to / so we don't block filesystems without need.
@@ -187,114 +291,89 @@ let startup ?(late_initializer = fun _ _ -> ())
 	  *)
 	 Unix.chdir "/";  (* FIXME Win32: Something like c:/ *)
 
-	 let old_logger = !Netlog.current_logger in
-	 let old_dlogger = !Netlog.Debug.current_dlogger in
+         redirect_logger
+           (fun () ->
+              setup_controller
+                config_file netplex_config controller_config controller;
+	      ( try
+	          late_initializer config_file controller
+	        with
+	          | error ->
+		       (* An error is ... *)
+		       controller # logger # log
+                         ~component:"netplex.controller"
+		         ~level:`Crit
+		         ~message:("Uncaught exception in late initialization: " ^ 
+			             Netexn.to_string error);
+	      );
 
-	 Netlog.current_logger := 
-	   (fun level message ->
-	      try
-		Netplex_cenv.log level message
-		  (* This function also works from the controller thread! *)
-	      with
-		| Netplex_cenv.Not_in_container_thread ->
-		    (* Fall back to something safe: *)
-		    old_logger level message
-	   );
-	 (* hmmm, Netlog.Debug cannot be handled by netplex *)
-	 Netlog.Debug.current_dlogger := 
-	   (fun mname msg ->
-	      Netlog.channel_logger stderr `Debug `Debug (mname ^ ": " ^ msg)
-	   );
+	      init_done();
 
-	 let processors =
-	   List.map
-	     (fun (sockserv_cfg, 
-		   (procaddr, c_proc_cfg), 
-		   (wrkmngaddr, c_wrkmng_cfg)
-		  ) ->
-		c_proc_cfg # create_processor
-		  controller_config config_file procaddr)
-	     netplex_config#services in
-	 (* An exception while creating the processors will prevent the
-          * startup of the whole system!
-	  *)
-
-	 let services =
-	   List.map2
-	     (fun (sockserv_cfg, 
-		   (procaddr, c_proc_cfg), 
-		   (wrkmngaddr, c_wrkmng_cfg)
-		  ) 
-  		  processor ->
-		try
-		  let wrkmng =
-		    c_wrkmng_cfg # create_workload_manager
-		      controller_config config_file wrkmngaddr in
-		  let sockserv = 
-		    Netplex_sockserv.create_socket_service 
-		      processor sockserv_cfg in
-		  Some (sockserv, wrkmng)
-		with
-		  | error ->
-		      (* An error while creating the sockets is quite
-                       * problematic. We do not add the service, but we cannot
-                       * prevent the system startup at that late point in time
-                       *)
-		      controller # logger # log
-			~component:"netplex.controller"
-			~level:`Crit
-			~message:("Uncaught exception preparing service " ^ 
-				    sockserv_cfg#name ^ ": " ^ 
-				    Netexn.to_string error);
-		      None
-	     )
-	     netplex_config#services
-	     processors in
-
-	 List.iter
-	   (function
-	      | Some(sockserv,wrkmng) ->
-		  ( try
-		      controller # add_service sockserv wrkmng
-		    with
-		      | error ->
-			  (* An error is very problematic now... *)
-			  controller # logger # log
-			    ~component:"netplex.controller"
-			    ~level:`Crit
-			    ~message:("Uncaught exception adding service " ^ 
-					sockserv#name ^ ": " ^ 
-					Netexn.to_string error);
-		  )
-	      | None ->
-		  ()
-	   )
-	   services;
-
-	 ( try
-	     late_initializer config_file controller
-	   with
-	     | error ->
-		 (* An error is ... *)
-		 controller # logger # log
-		   ~component:"netplex.controller"
-		   ~level:`Crit
-		   ~message:("Uncaught exception in late initialization: " ^ 
-			       Netexn.to_string error);
-	 );
-
-	 init_done();
-
-	 run controller;
-	 Netplex_cenv.unregister_ctrl controller;
-	 controller # free_resources();
-
-	 Netlog.current_logger := old_logger;
-	 Netlog.Debug.current_dlogger := old_dlogger
-
+	      run_controller controller;
+	      controller # free_resources();
+	      Netplex_cenv.unregister_ctrl controller;
+              remove_pid_file();
+           )
        with
 	 | error ->
              remove_pid_file();
              raise error
     )
+;;
+
+let run ?(config_parser = Netplex_config.read_config_file)
+        ~late_initializer ~extract_result
+         par c_logger_cf c_wrkmg_cf c_proc_cf cf =
+  let (config_file, netplex_config) =
+    get_config_pair
+      ~config_parser par c_logger_cf c_wrkmg_cf c_proc_cf cf in
+
+  let remove_pid_file = handle_pidfile cf in
+  let cleanup = ref [ remove_pid_file ] in
+  try
+    let controller_config = netplex_config # controller_config in
+	 
+    let controller = 
+      Netplex_controller.create_controller 
+	par controller_config in
+    Netplex_cenv.register_ctrl controller;
+    cleanup := (fun () -> Netplex_cenv.unregister_ctrl controller) :: !cleanup;
+
+    redirect_logger
+      (fun () ->
+         setup_controller
+           config_file netplex_config controller_config controller;
+         cleanup := controller#free_resources :: !cleanup;
+	 let late_value =
+           try
+	     late_initializer config_file controller
+	   with
+	     | error ->
+		  (* An error is ... *)
+		  controller # logger # log
+                    ~component:"netplex.controller"
+		    ~level:`Crit
+		    ~message:("Uncaught exception in late initialization: " ^ 
+			        Netexn.to_string error);
+                  raise error in
+	 run_controller controller;
+         let result = extract_result controller late_value in
+	 controller # free_resources();
+	 Netplex_cenv.unregister_ctrl controller;
+         remove_pid_file();
+         result
+      )
+  with
+    | error ->
+         List.iter
+           (fun f ->
+              try
+                f()
+              with
+                | e ->
+                     eprintf "Exception in cleanup after exception: %s\n%!"
+                             (Netexn.to_string e)
+           )
+           !cleanup;
+         raise error
 ;;

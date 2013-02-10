@@ -23,45 +23,11 @@
 - Netplex: the current controller should continue to exist in the registry
   even when the main function has terminated. For postprocessing. Define
   a different criterion for ending the lifetime of the controller.
+  Solution: Netplex_main.run with extract_result callback. - DONE
 
 - Netbuffer.add_char: is not inlined in Ocaml-4.00 - DONE
 
-For %G in Netdate:
-
-let rec iso8601_week_pair tm =
-  let open Unix in
-  let wday_jan_1 = (* wday of Jan 1 *)
-    (tm.tm_wday - tm.tm_yday) % 7 in
-  let shift =
-    if wday_jan_1 = 1 then 7 else (wday_jan_1 - 1) % 7 in
-  let offset =
-    if wday_jan_1 >= 2 && wday_jan_1 <= 4 then 1 else 0 in
-  let week = (tm.tm_yday + shift) / 7 + offset in
-  if week = 0 then
-    (* replace with last week of the last year *)
-    let tm' =
-      { tm with
-	  tm_year = tm.tm_year - 1;
-	  tm_mon = 11;
-	  tm_mday = 31;
-      } in
-    iso8601_week_pair (snd (Unix.mktime tm'))
-  else
-    if week = 53 then
-      (* only if dec 31 is a thu/fri/sat/sun *)
-      let tm' =
-	{ tm with
-	    tm_mon = 11;
-	    tm_mday = 31;
-	} in
-      let tm'' = snd (Unix.mktime tm') in
-      if tm''.tm_wday >= 4 || tm''.tm_wday = 0 then
-	(53, tm.tm_year + 1900)
-      else
-	(1, tm.tm_year + 1901)
-    else
-      (week, tm.tm_year + 1900)
-
+- %G in Netdate - DONE
 
 ocaml-4.00: 
  - see patches. 
