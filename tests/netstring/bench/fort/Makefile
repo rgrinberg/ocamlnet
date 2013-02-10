@@ -4,6 +4,7 @@
 include Makefile.config
 
 OCAMLC     := ocamlc
+OCAMLMKTOP := ocamlmktop
 
 # FORT top-level interpreter
 NAME    := fort
@@ -16,7 +17,7 @@ LIBS    := unix
 EXECUTABLE := $(NAME)$(EXEC_SUFFIX)
 
 $(EXECUTABLE): $(OBJECTS)
-	$(OCAMLC) -linkall -o $@ toplevellib.cma $(LIBS:%=%.cma) $(OBJECTS)
+	$(OCAMLMKTOP) -linkall -o $@ $(LIBS:%=%.cma) $(OBJECTS)
 
 install: $(EXECUTABLE) $(OBJECTS)
 	mkdir -p $(LIBDIR)
@@ -39,10 +40,10 @@ release: distclean
 .SUFFIXES: .mli .ml .cmi .cmo
 
 .mli.cmi:
-	$(OCAMLC) -c $<
+	$(OCAMLC) -c -I +compiler-libs $<
 
 .ml.cmo:
-	$(OCAMLC) -c $<
+	$(OCAMLC) -c -I +compiler-libs $<
 
 # Dependencies
 

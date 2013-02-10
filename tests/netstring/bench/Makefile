@@ -10,6 +10,7 @@ test:
 	ocaml test_mimestring.ml
 	ocaml test_nethtml.ml
 	ocaml test_neturl.ml
+	ocaml test_netdate.ml
 	./test_recode
 
 test_recode: test_recode.ml

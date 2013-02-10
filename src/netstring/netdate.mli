@@ -187,6 +187,20 @@ val since_epoch_approx : t -> float
       result is only an approximation.
    *)
 
+val week_day : t -> int
+  (** Returns the week day. If the [week_day] field is (-1) the week day
+      is computed.
+   *)
+
+val year_day : t -> int
+  (** Returns the year day (range 0 to 365) *)
+
+val iso8601_week_pair : t -> int * int
+  (** Returns [(week_number, year)] for the ISO-8601 definition of weeks.
+      The week starts with Monday, and has numbers 1-53. A week is considered
+      to be part of the year into which four or more days fall.
+   *)
+
 val parse_epoch : ?l9n:compiled_localization ->
                   ?localzone:bool -> ?zone:int -> string -> float
   (** Parse a string and return the time (integral seconds since the epoch) *)
@@ -223,6 +237,8 @@ val format_to : ?l9n:compiled_localization ->
    *          preceded by a zero.
    *  - [%e]: day of the month as an integer (1-31).
    *  - [%F]: equivalent to ["%Y-%m-%d"] (ISO 8601)
+   *  - [%G]: the year of the week according to the ISO-8601 week definition
+   *  - [%g]: same as %G but uses a two-digit year
    *  - [%H]: hour (24-hour clock) as an integer (00-23).
    *  - [%h]: the same as %b.
    *  - [%I]: hour (12-hour clock) as an integer (01-12).
@@ -248,6 +264,8 @@ val format_to : ?l9n:compiled_localization ->
    *          of the week) as an integer (00-53).
    *  - [%u]  weekday (Monday as the first day of the week) as
    *          an integer (1-7).
+   *  - [%V]: week number of the year (ISO-8601 definition, use together with
+   *          [%G] or [%g]
    *  - [%w]: weekday (Sunday as the first day of the week) as
    *          an integer (0-6).
    *  - [%X]: representation of the time according to [l9n]

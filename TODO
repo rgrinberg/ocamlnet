@@ -24,7 +24,7 @@
   even when the main function has terminated. For postprocessing. Define
   a different criterion for ending the lifetime of the controller.
 
-- Netbuffer.add_char: is not inlined in Ocaml-4.00
+- Netbuffer.add_char: is not inlined in Ocaml-4.00 - DONE
 
 For %G in Netdate:
 

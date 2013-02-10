@@ -455,7 +455,7 @@ let parse ?(localzone=false)
     | [< 'Plus; rest >] -> scan_tz_details 1 rest
     | [< 'Minus; rest >] -> scan_tz_details (-1) rest
   and scan_tz_details sign = parser
-    | [< 'Number(l,tz) when l=4 >] -> sign * tz
+    | [< 'Number(l,tz) when l=4 >] -> sign * ((tz/100) * 60 + (tz mod 100))
     | [< 'Number(l,tz) when l<=2; rest >] ->
 	scan_tz_details2 sign tz rest
   and scan_tz_details2 sign tz1 = parser
@@ -683,7 +683,7 @@ let create ?(localzone=false)
   }
 ;;
 
-let week_day date =
+let week_day date = (* 0..6, relative to timezone *)
   if date.week_day = (-1) then
     let t1 = since_epoch date in
     let t2 = t1 +. (float_of_int (date.zone * 60)) in
@@ -692,6 +692,53 @@ let week_day date =
   else
     date.week_day
 ;;
+
+
+let year_day date = (* 0..365, relative to timezone *)
+  let is_leap_year = is_leap date.year in
+  months_start.(date.month - 1) +
+    (if date.month >= 3 && is_leap_year then 1 else 0) +
+    date.day - 1
+;;
+
+
+let rec iso8601_week_pair date =
+  let ( % ) a b = if a >= 0 then a mod b else  a mod b + b in
+  let d_wday = week_day date in
+  let d_yday = year_day date in
+  let wday_jan_1 =  (* wday of jan 1 *)
+    (d_wday - d_yday) % 7 in
+  let shift =
+    if wday_jan_1 = 1 then 7 else (wday_jan_1 - 1) % 7 in
+  let offset =
+    if wday_jan_1 >= 2 && wday_jan_1 <= 4 then 1 else 0 in
+  let week = (d_yday + shift) / 7 + offset in
+  if week = 0 then 
+    (* replace with last week of last year *)
+    let date' =
+      { date with
+        year = date.year - 1;
+        month = 12;
+        day = 31;
+        week_day = (-1)
+      } in
+    iso8601_week_pair date'
+  else
+    if week = 53 then
+      (* only if dec 31 is a thu/fri/sat/sun *)
+      let date' =
+        { date with
+            month = 12;
+            day = 31;
+            week_day = (-1)
+        } in
+      let d_wday' = week_day date' in
+      if d_wday' >= 4 || d_wday' = 0 then
+        (53, date.year)
+      else
+        (1, date.year+1)
+    else
+      (week, date.year)
 
 
 let rec format_to ?(l9n=c_posix_l9n) out_ch ~fmt date =
@@ -717,15 +764,12 @@ let rec format_to ?(l9n=c_posix_l9n) out_ch ~fmt date =
     ) else (
       aux b n
     ) in
-  let wd () =
-    if date.week_day = (-1) then
-      week_day date
-    else (
-      if date.week_day < 0 || date.week_day > 6 then fail ();
-      date.week_day
-    ) in
-  let yd () =
-    months_start.(date.month - 1) + date.day in
+  let wd_lz = lazy (week_day date) in
+  let wd () = Lazy.force wd_lz in
+  let yd_lz = lazy (year_day date) in
+  let yd () = Lazy.force yd_lz in
+  let wp_lz = lazy (iso8601_week_pair date) in
+  let wp() = Lazy.force wp_lz in
   let rec do_format ?(have_colon=false) ?(precision=0) = function
     | 'a' -> add_string l9n.l9n.abbr_day_names.( wd() )
     | 'A' -> add_string l9n.l9n.full_day_names.( wd() )
@@ -734,9 +778,11 @@ let rec format_to ?(l9n=c_posix_l9n) out_ch ~fmt date =
     | 'C' -> add_digits false 10 (date.year / 100)
     | 'd' -> add_digits false 10 date.day
     | 'e' -> add_digits true 10 date.day
+    | 'g' -> add_digits false 10 (snd(wp()) mod 10)
+    | 'G' -> add_digits false 1000 (snd(wp()))
     | 'H' -> add_digits false 10 date.hour
     | 'I' -> add_digits false 10 (match date.hour mod 12 with 0 -> 12 | d -> d)
-    | 'j' -> add_digits false 100 (yd ())
+    | 'j' -> add_digits false 100 (yd () + 1)
     | 'k' -> add_digits true 10 date.hour
     | 'l' -> add_digits true 10 (match date.hour mod 12 with 0 -> 12 | d -> d)
     | 'm' -> add_digits false 10 date.month
@@ -750,7 +796,7 @@ let rec format_to ?(l9n=c_posix_l9n) out_ch ~fmt date =
     | 'P' -> add_string (if date.hour >= 12 then
                            to_lower l9n.l9n.pm_particle
                          else
-                           to_upper l9n.l9n.am_particle)
+                           to_lower l9n.l9n.am_particle)
     | 's' -> add_string (string_of_float (since_epoch date))
     | 'S' -> add_digits false 10 date.second;
              if precision > 0 then (
@@ -772,9 +818,9 @@ let rec format_to ?(l9n=c_posix_l9n) out_ch ~fmt date =
 	add_digits false 10 (z / 60);
 	if have_colon then add_char ':';
 	add_digits false 10 (z mod 60)
-    | 'U' -> add_digits false 10 (((yd ()) - (wd ()) + 6) / 7)
-    | 'V' -> failwith "TODO"
-    | 'W' -> failwith "TODO"
+    | 'U' -> add_digits false 10 (((yd ()) - (wd ()) + 7) / 7)
+    | 'V' -> add_digits false 10 (fst(wp()))
+    | 'W' -> add_digits false 10 (((yd ()) - (wd ()) + 6) / 7)
     | 'w' -> add_digits false 1 (wd ())
     | '%' -> add_char '%'
     | 'c' -> format_to ~l9n out_ch ~fmt:l9n.l9n.d_t_format date        
