@@ -818,9 +818,10 @@ let rec format_to ?(l9n=c_posix_l9n) out_ch ~fmt date =
 	add_digits false 10 (z / 60);
 	if have_colon then add_char ':';
 	add_digits false 10 (z mod 60)
-    | 'U' -> add_digits false 10 (((yd ()) - (wd ()) + 7) / 7)
+    | 'U' -> add_digits false 10 ((yd () - wd () + 7) / 7)
     | 'V' -> add_digits false 10 (fst(wp()))
-    | 'W' -> add_digits false 10 (((yd ()) - (wd ()) + 6) / 7)
+    | 'W' -> let wdm = if wd() = 0 then 6 else wd() - 1 in
+             add_digits false 10 ((yd () - wdm + 7) / 7)
     | 'w' -> add_digits false 1 (wd ())
     | '%' -> add_char '%'
     | 'c' -> format_to ~l9n out_ch ~fmt:l9n.l9n.d_t_format date        

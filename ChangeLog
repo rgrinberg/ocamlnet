@@ -1,3 +1,8 @@
+2013-02-10  Gerd Stolpmann  <gerd@samsung>
+
+	* Netdate: adding ISO-8601 week numbering. Fixing test suite
+	  and some bugs
+
 2013-01-13  Gerd Stolpmann  <gerd@samsung>
 
 	* Release OCamlnet-3.6.3

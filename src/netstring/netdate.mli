@@ -266,6 +266,8 @@ val format_to : ?l9n:compiled_localization ->
    *          an integer (1-7).
    *  - [%V]: week number of the year (ISO-8601 definition, use together with
    *          [%G] or [%g]
+   *  - [%W]: week number of the year (Monday as the first day
+   *          of the week) as an integer (00-53).
    *  - [%w]: weekday (Sunday as the first day of the week) as
    *          an integer (0-6).
    *  - [%X]: representation of the time according to [l9n]
