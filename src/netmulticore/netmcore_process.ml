@@ -25,6 +25,11 @@ let join jp pid =
     | None -> None
     | Some enc -> Some(Obj.obj (Encap.unwrap enc))
 
+let join_nowait jp pid =
+  match Netmcore.join_nowait jp pid with
+    | None -> None
+    | Some enc -> Some(Obj.obj (Encap.unwrap enc))
+
 let release_fork_point fp =
   release fp
 

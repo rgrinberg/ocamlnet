@@ -230,9 +230,20 @@ val start : ?inherit_resources:inherit_request ->
 
 val join : res_id -> process_id -> Netplex_encap.encap option
   (** [let res_opt = join join_point pid]: Waits until the process [pid]
-      is done, and returns the result value if any.
+      is done, and returns the result value if any. You can only join
+      (or [join_nowait]) once per process.
 
       Raises [No_resource] if there is no such resource.
+
+      It is not possible to call [join] from the master process (as this
+      process must not block). You can, however, get the result of an
+      already terminated process with [join_nowait], e.g. after
+      {!Netmcore.run} returned.
+   *)
+
+val join_nowait : res_id -> process_id -> Netplex_encap.encap option
+  (** [let res_opt = join_nowait join_point pid]: Checks if the process [pid]
+      is done, and returns the result value if so. Otherwise return [None].
    *)
 
 (** {2 Managing resources from worker processes} *)
@@ -369,6 +380,26 @@ val startup : socket_directory:string ->
       [no_unlink]: Disable that old persistent kernel objects are deleted at
       startup. This may be useful when [startup] is called a second time
       from the same program.
+   *)
+
+val run : socket_directory:string ->
+          ?pidfile:string ->
+          ?init_ctrl:(Netplex_types.controller -> unit) ->
+          ?disable_pmanage:bool ->
+          ?no_unlink:bool ->
+          first_process:(unit -> process_id) ->
+          extract_result:(Netplex_types.controller -> process_id -> 'b) ->
+          unit ->
+            'b
+  (** This function fixes a design error in [startup], namely that it was
+      difficult to get the result of the process(es) back. Here, the
+      additional callback [extract_result] can be used to retrieve the
+      results from processes, especially from the first process.
+
+      You need to call {!Netmcore.join_nowait} to get the results from
+      processes.
+
+      The result of [extract_result] is the result of [run].
    *)
 
 val destroy_resources : unit -> unit

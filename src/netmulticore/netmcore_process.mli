@@ -55,7 +55,20 @@ val join : 'b join_point -> Netmcore.process_id -> 'b option
 
       If the process referenced by [pid] is not an instance that belongs
       to [jp], the function will fail.
+
+      This function must not be called from the master process (which is
+      not allowed to block until a result is available).
    *)
+
+val join_nowait : 'b join_point -> Netmcore.process_id -> 'b option
+   (** Like [join], but it is not waited for the termination of the process.
+       If the process is not yet done, this function returns [None].
+       It also returns [None] if the process terminated with an error or did
+       not set a result value for other reasons.
+
+       Unlike [join], this function can be called in the master process.
+    *)
+
 
 val release_fork_point : 'a fork_point -> unit
   (** Releases a fork point so it is deleted from the internal

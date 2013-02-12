@@ -1,3 +1,10 @@
+2013-02-12  Gerd Stolpmann  <gerd@samsung>
+
+	* Netmcore, Netmcore_process: also adding a function [run] in
+	  in addition to [startup] for jobs that want to return something.
+	  With [join_nowait] one can now get the result of the first process.
+	  Also updated examples/multicore/create_join.ml.
+
 2013-02-10  Gerd Stolpmann  <gerd@samsung>
 
 	* Netplex_main: new function [run], designed for compute

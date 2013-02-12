@@ -835,7 +835,35 @@ let join join_res_id pid =
 	f pid
     | _ ->
 	raise (No_resource join_res_id)
-  
+
+let some_self_obj() =
+  try Some(Netplex_cenv.self_obj()) with Not_found -> None
+
+let join_nowait join_res_id pid =
+  match some_self_obj() with
+    | Some(`Container _) -> 
+         ( let r = get_resource join_res_id in
+           match r # repr with
+             | `Join_point f ->
+                  ( let lev = get_levers() in
+                    match lev.get_result (join_res_id, pid) with
+                      | Some (Some res_opt) -> res_opt
+                      | Some None -> None
+                      | None -> None
+                  )
+             | _ ->
+	          raise (No_resource join_res_id)
+         )
+    | Some(`Controller ctrl) ->
+         ( match master_get_result ctrl (join_res_id, pid) with
+             | Some (Some res_opt) -> res_opt
+             | Some None -> None
+             | None -> None
+         )
+    | None ->
+         failwith "Netmcore.join_nowait: unknown context"
+
+
 let manage repr =
   let res_id =
     match self_exec() with
@@ -969,9 +997,10 @@ let destroy_resources () =
   )
 
 
-let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ()) 
-            ?(disable_pmanage=false) ?(no_unlink=false) ~first_process
-            () =
+let run ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ()) 
+        ?(disable_pmanage=false) ?(no_unlink=false) ~first_process
+        ~extract_result
+        () =
   let config_tree =
     `Section("netplex",
 	     [ `Section("controller",
@@ -990,26 +1019,39 @@ let startup ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ())
       ~foreground:true
       ~config_tree
       () in
-  Netplex_main.startup
+  Netplex_main.run
     ~late_initializer:(fun cf ctrl ->
-			 add_plugins ctrl;
-			 init_ctrl ctrl;
-                         enable_pmanage := not disable_pmanage;
-                         ( match !pmanager with
-                             | None -> ()
-                             | Some pm ->
-                                 let real_pm = Netplex_cenv.pmanage() in
-                                 if not no_unlink then
-                                   real_pm#unlink();
-                                 real_pm # register (pm # registered);
-                                 pmanager := Some real_pm
-                         );
-			 let pid = first_process() in
-			 initial_process := Some pid;
+		       add_plugins ctrl;
+		       init_ctrl ctrl;
+                       enable_pmanage := not disable_pmanage;
+                       ( match !pmanager with
+                           | None -> ()
+                           | Some pm ->
+                                let real_pm = Netplex_cenv.pmanage() in
+                                if not no_unlink then
+                                  real_pm#unlink();
+                                real_pm # register (pm # registered);
+                                pmanager := Some real_pm
+                       );
+		       let pid = first_process() in
+		       initial_process := Some pid;
+                       pid
 		      )
+    ~extract_result:(fun ctrl pid -> 
+                       extract_result ctrl pid
+                    )
     ( Netplex_mp.mp ~keep_fd_open:true ~terminate_tmo:(-1) () )
     Netplex_log.logger_factories
     Netplex_workload.workload_manager_factories
     [ ]
     conf
 
+
+let startup ~socket_directory ?pidfile ?init_ctrl
+            ?disable_pmanage ?no_unlink ~first_process
+            () =
+  run 
+    ~socket_directory ?pidfile ?init_ctrl ?disable_pmanage ?no_unlink
+     ~first_process ~extract_result:(fun _ _ -> ()) ()
+
+      
