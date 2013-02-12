@@ -44,6 +44,7 @@
  *
  * Related modules/software:
  * - {!Http_fs} allows you to access HTTP servers in the style of filesystems
+ * - {!Https_client} adds support for SSL (i.e. "https" URls)
  * - WebDAV: If you are looking for WebDAV there is an extension of this module:
  *   {{:http://oss.wink.com/webdav/} Webdav}, which is separately available.
  *)
@@ -1091,6 +1092,9 @@ class pipeline :
      *
      * This works not only with pipelines, but with every network client
      * or server which is compatible with the [Unixqueue] design.
+     *
+     * By default, the pipeline only supports "http" URLs. You can configure
+     * "https" support via {!Https_client}.
      *)
 
     method event_system : Unixqueue.event_system
@@ -1389,6 +1393,8 @@ sig
     *
     * Error codes are reported as {!Http_client.Http_error}. Note that
     * this is different than what the pipeline core does.
+    *
+    * "https" support can be additionally configured via {!Https_client}.
     *)
 
   (** {b Thread safety}
