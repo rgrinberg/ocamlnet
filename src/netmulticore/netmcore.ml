@@ -1000,7 +1000,7 @@ let destroy_resources () =
 let run ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ()) 
         ?(disable_pmanage=false) ?(no_unlink=false) ~first_process
         ~extract_result
-        () =
+        arg =
   let config_tree =
     `Section("netplex",
 	     [ `Section("controller",
@@ -1033,7 +1033,7 @@ let run ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ())
                                 real_pm # register (pm # registered);
                                 pmanager := Some real_pm
                        );
-		       let pid = first_process() in
+		       let pid = first_process arg in
 		       initial_process := Some pid;
                        pid
 		      )
@@ -1049,9 +1049,9 @@ let run ~socket_directory ?pidfile ?(init_ctrl=fun _ -> ())
 
 let startup ~socket_directory ?pidfile ?init_ctrl
             ?disable_pmanage ?no_unlink ~first_process
-            () =
+            arg =
   run 
     ~socket_directory ?pidfile ?init_ctrl ?disable_pmanage ?no_unlink
-     ~first_process ~extract_result:(fun _ _ -> ()) ()
+     ~first_process ~extract_result:(fun _ _ -> ()) arg
 
       

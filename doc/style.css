@@ -56,3 +56,6 @@ tr { background-color : White }
 td.typefieldcomment { background-color : #FFFFFF ; font-size: smaller ;}
 pre { margin-bottom: 4px }
 div.sig_block {margin-left: 1cm}
+li { margin-top: 1ex }
+li p { margin-top: 1ex; margin-bottom: 1ex }
+.remark { margin-left: 1cm; font-style: italic }

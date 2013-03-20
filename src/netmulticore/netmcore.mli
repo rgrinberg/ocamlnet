@@ -354,8 +354,8 @@ val startup : socket_directory:string ->
               ?init_ctrl:(Netplex_types.controller -> unit) ->
               ?disable_pmanage:bool ->
               ?no_unlink:bool ->
-              first_process:(unit -> process_id) ->
-              unit ->
+              first_process:('a -> process_id) ->
+              'a ->
                 unit
   (** This function makes the current process the master process.
       It starts immediately a new worker process, called the 
@@ -364,7 +364,7 @@ val startup : socket_directory:string ->
       shut down (which may lead to killing the remaining processes,
       following the usual shutdown procedure).
 
-      The first process is created by calling [first_process()] at the
+      The first process is created by calling [first_process] at the
       right moment. This function normally just invokes [start].
 
       Passing a [socket_directory] is mandatory. This directory will
@@ -387,9 +387,9 @@ val run : socket_directory:string ->
           ?init_ctrl:(Netplex_types.controller -> unit) ->
           ?disable_pmanage:bool ->
           ?no_unlink:bool ->
-          first_process:(unit -> process_id) ->
+          first_process:('a -> process_id) ->
           extract_result:(Netplex_types.controller -> process_id -> 'b) ->
-          unit ->
+          'a ->
             'b
   (** This function fixes a design error in [startup], namely that it was
       difficult to get the result of the process(es) back. Here, the

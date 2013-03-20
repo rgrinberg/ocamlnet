@@ -7,6 +7,7 @@ include $(TOP_DIR)/Makefile.rules
 
 .PHONY: html-doc
 html-doc:
+	cd odoc; $(MAKE)
 	rm -rf html-main
 	mkdir -p html-main
 	rm -f loadopts.tmp
@@ -16,7 +17,8 @@ html-doc:
 		echo "-load ../src/$$p/ocamldoc.dump" >>loadopts.tmp; \
 	done
 	$(OCAMLDOC) -d html-main -stars -t "Ocamlnet 3 Reference Manual" \
-		-html -css-style style.css \
+		-g odoc/chtml.cmo \
+		-css-style style.css \
 		-intro intro.txt intro.txt \
 		platform.txt foreword.txt ipv6.txt \
                `cat loadopts.tmp`
@@ -26,4 +28,8 @@ html-doc:
 clean-doc::
 	rm -rf html-main loadopts.tmp
 
-clean:: clean-doc
+clean-sub:
+	cd odoc; $(MAKE) clean
+
+clean:: clean-doc clean-sub
+
