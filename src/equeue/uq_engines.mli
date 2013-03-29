@@ -339,6 +339,14 @@ val seq_engine : 'a #engine -> ('a -> 'b #engine) -> 'b engine
    * (when [e1] and [e2] are engines, and [r1] is the result of [e1]).
    *)
 
+class ['a, 'b] qseq_engine : 'a #engine -> ('a -> 'b #engine) -> ['b] engine
+val qseq_engine : 'a #engine -> ('a -> 'b #engine) -> 'b engine
+  (** Almost the same as [seq_engine], but this version does not
+      propagate working state (i.e. no progress reporting).
+
+      [qseq_engine] should be preferred for recursive chains of engines.
+   *)
+
 class ['a] stream_seq_engine : 'a -> ('a -> 'a #engine) Stream.t -> 
                                Unixqueue.event_system -> ['a] engine
   (** [let se = new stream_seq_engine x0 s esys]: The constructed engine [se]
@@ -572,7 +580,7 @@ module Operators : sig
   (** The most important operators. This module should be opened. *)
 
   val ( ++ ) : 'a #engine -> ('a -> 'b #engine) -> 'b engine
-    (** Another name for [seq_engine]. Use this operator to run engines in
+    (** Another name for [qseq_engine]. Use this operator to run engines in
 	sequence:
 
 	{[
@@ -580,6 +588,11 @@ module Operators : sig
 	]}
 
 	Here [rK] is the result of engine [eK].
+
+        Change in OCamlnet-3.6.4: [++] is now [qseq_engine], and no longer
+        [seq_engine], and hence it does not support progress reporting anymore.
+        Redefine [++] as [seq_engine] in your own code if you need the old
+        behavior.
      *)
 
   val ( >> ) : 'a #engine -> 

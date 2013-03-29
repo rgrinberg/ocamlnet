@@ -1,3 +1,11 @@
+2013-03-29  Gerd Stolpmann  <gerd@samsung>
+
+	* Uq_engines: New [qseq_engine] class. This is the same as
+	  [seq_engine], but it does not forward pure progress events.
+          The operator [++] is now backed by [qseq_engine]. This change
+	  fixes performance bugs (e.g. Http_client had problems with
+	  HTTP responses consisting of many chunks).
+
 2013-02-12  Gerd Stolpmann  <gerd@samsung>
 
 	* Netmcore, Netmcore_process: also adding a function [run] in

@@ -302,8 +302,9 @@ let aborted_engine esys =
   const_engine `Aborted esys
 
 
-class ['a,'b] seq_engine (eng_a : 'a #engine)
-                         (make_b : 'a -> 'b #engine) =
+class ['a,'b] iseq_engine ~nocount
+                          (eng_a : 'a #engine)
+                          (make_b : 'a -> 'b #engine) =
   let esys = eng_a # event_system in
   let eng_a_state = ref (eng_a # state) in
   let eng_a = ref (Some (eng_a :> 'a engine)) in
@@ -390,7 +391,8 @@ object(self)
   method private seq_count() =
     match self#state with
       | `Working n ->
-	  self # set_state (`Working (n+1))
+          if not nocount then
+  	    self # set_state (`Working (n+1))
       | _ ->
 	  assert false
 
@@ -408,7 +410,11 @@ object(self)
 end;;
 
 
+class ['a,'b] seq_engine = ['a,'b] iseq_engine ~nocount:false
 let seq_engine = new seq_engine
+
+class ['a,'b] qseq_engine = ['a,'b] iseq_engine ~nocount:true
+let qseq_engine = new qseq_engine
 
 
 class ['a] delegate_engine e =
@@ -3895,7 +3901,7 @@ let datagram_provider ?proxy dgtype ues =
 
 
 module Operators = struct
-  let ( ++ ) = seq_engine
+  let ( ++ ) = qseq_engine
   let ( >> ) = fmap_engine
   let eps_e = epsilon_engine
 end
