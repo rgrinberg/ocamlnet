@@ -1,5 +1,11 @@
 2013-03-29  Gerd Stolpmann  <gerd@samsung>
 
+	* Http_client authentication: The domain for authentication
+	  keys can be set to ["*"]. Also, port number can be omitted
+	  in such domains.
+
+	* Http_client authentication: adding skip_challenges auth style
+
 	* Uq_engines: New [qseq_engine] class. This is the same as
 	  [seq_engine], but it does not forward pure progress events.
           The operator [++] is now backed by [qseq_engine]. This change

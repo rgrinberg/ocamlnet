@@ -1,3 +1,6 @@
+- deprecate Uq_engines.watchdog
+  Maybe we can have something else with "sensors".
+
 - Netdate: allow to set the 2-digit year cutoff
 
 - Bug netgzip:

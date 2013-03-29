@@ -848,6 +848,11 @@ object
     (** The domain URIs defining the protection space. The domain URIs
      * are absolute URIs. The list must not be empty for content accesses.
      * For proxy keys the list must be empty.
+     *
+     * Normally, this is just a list with one element. The URI must include
+     * the protocol scheme, the host name, and "/" as path. The port number
+     * is optional. Example: "http://localhost/". If the key is applicable
+     * to all domains, set this to ["*"].
      *)
 end
 
@@ -869,7 +874,8 @@ object
       * method is passed (lowercase characters). The method must
       * search (or query for) a key, and return it. The key must refer to
       * one of the passed realms. The domain of the key must be exactly
-      * the same as the passed [domain]. If the method raises [Not_found],
+      * the same as the passed [domain] (unless [domain=["*"]]).
+      * If the method raises [Not_found],
       * authentication will fail.
      *)
   method invalidate_key : key -> unit
@@ -947,17 +953,46 @@ object
      *)
   method create_proxy_session : http_call -> http_options ref -> auth_session option
     (** Same for proxy authentication *)
+  method skip_challenge : string option
+    (** If non-None, this method allows to skip the challenge entirely
+        for authentication. This means that the credentials are added to
+        the HTTP request before any previous response was seen from the
+        server. This adds additional security risks, and may cause that
+        credentials are sent to servers that forge their identity.
+        This is {b only} supported for basic authentication. The string
+        describes the URL space to which this applies (e.g.
+        "http://the-server/subdir"). Set the string to "*" to enable
+        everywhere. As no challenge is known, the realm string is
+        simply assumed to be "anywhere".
+     *)
+  method skip_challenge_session : http_call -> http_options ref -> auth_session option
+    (** Create a session for the case that the challenge was skipped *)
 end
 
 class basic_auth_handler : 
-        ?enable_auth_in_advance:bool -> #key_handler -> auth_handler
+        ?enable_auth_in_advance:bool -> ?skip_challenge:string option ->
+        #key_handler -> auth_handler
   (** Basic authentication. Authentication information is obtained by
     * the passed key_handler.
     *
-    * [enable_auth_in_advance]: If set to [true], authentication can be
-    * done in advance, i.e. before the server requests authentication.
-    * This reduces the number of messages exchanged with the server, but
-    * may be an additional security risk.
+    * [enable_auth_in_advance]: If set to [true], a quicker authentication
+    * mode is enabled: when a request is sent out, it is checked whether
+    * a previous request/response cycle exists that needed authentication.
+    * If so, the same credentials are added to the request. Normally,
+    * the request would be sent without credentials first, and only after
+    * getting the authentication challenge the request is resent with the
+    * credentials.
+    *
+    * [skip_challenge]: This option enables a mode so that the credentials
+    * are added to HTTP requests even before any response has been seen
+    * by the server. 
+    * This adds additional security risks, and may cause that
+    * credentials are sent to servers that forge their identity.
+    * The string
+    * describes the URL space to which this applies (e.g.
+    * "http://the-server/subdir"). Set the string to "*" to enable
+    * everywhere. As no challenge is known, the realm string is
+    * simply assumed to be "anywhere".
    *)
 
 class digest_auth_handler : 
