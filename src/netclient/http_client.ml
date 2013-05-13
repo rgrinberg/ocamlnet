@@ -259,6 +259,32 @@ let parse_url ?base_url options url =
 	(is_https,user,password,host,port,path)
  *)
 
+let new_cb_id () =
+  Oo.id (object end)
+
+let http_cb_id = new_cb_id()
+let https_cb_id = new_cb_id()
+let proxy_only_cb_id = new_cb_id()
+
+
+let default_schemes =
+  let http_syn =
+    { (Hashtbl.find Neturl.common_url_syntax "http") with
+      Neturl.url_enable_query = Neturl.Url_part_not_recognized
+    } in
+  let https_syn =
+    { (Hashtbl.find Neturl.common_url_syntax "https") with
+      Neturl.url_enable_query = Neturl.Url_part_not_recognized
+    } in
+  let ipp_syn =
+    { (Hashtbl.find Neturl.common_url_syntax "ipp") with
+      Neturl.url_enable_query = Neturl.Url_part_not_recognized
+    } in
+  [ "http", http_syn, Some 80, http_cb_id;
+    "https", https_syn, Some 443, https_cb_id;
+    "ipp", ipp_syn, Some 631, http_cb_id;
+  ]
+
 
 let comma_re = Netstring_str.regexp "[ \t\n\r]*,[ \t\n\r]*" ;;
 
@@ -535,14 +561,6 @@ object
   method private virtual def_has_req_body : bool
   method private virtual def_has_resp_body : bool
 end
-
-
-let new_cb_id () =
-  Oo.id (object end)
-
-let http_cb_id = new_cb_id()
-let https_cb_id = new_cb_id()
-let proxy_only_cb_id = new_cb_id()
 
 
 class virtual generic_call : gen_call =
@@ -1382,7 +1400,38 @@ object(self)
   method add_key key =
     let domain = key # domain in
     let realm = key # realm in
-    Hashtbl.replace keys (domain, realm) (key, false)
+
+    (* The domain must be the full URL with no parts omitted. For developers
+       who cannot read do some cleanups here:
+     *)
+    let domain_fixedup =
+      List.map
+        (fun dom ->
+           try
+             let (u1, _) = parse_url_0 default_schemes dom in
+             let u2 = Neturl.default_url ~path:[ "" ] u1 in
+             let u3 = 
+               Neturl.remove_from_url
+                 ~user:true ~user_param:true ~password:true u2 in
+             Neturl.string_of_url u3
+           with
+             | Not_found ->
+                  dom
+        )
+        domain in
+    let key_fixedup =
+      if domain = domain_fixedup then
+        key
+      else
+        ( object
+            method user = key#user
+            method password = key#password
+            method realm = key#realm
+            method domain = domain_fixedup
+          end
+        ) in
+
+    Hashtbl.replace keys (domain_fixedup, realm) (key_fixedup, false)
 
   method keys =
     Hashtbl.fold
@@ -4754,18 +4803,6 @@ class pipeline =
     val mutable open_connections = 0
 
     val options =
-      let http_syn =
-        { (Hashtbl.find Neturl.common_url_syntax "http") with
-            Neturl.url_enable_query = Neturl.Url_part_not_recognized
-        } in
-      let https_syn =
-        { (Hashtbl.find Neturl.common_url_syntax "https") with
-            Neturl.url_enable_query = Neturl.Url_part_not_recognized
-        } in
-      let ipp_syn =
-        { (Hashtbl.find Neturl.common_url_syntax "ipp") with
-            Neturl.url_enable_query = Neturl.Url_part_not_recognized
-        } in
       ref
 	{ (* Default values: *)
 	  synchronization = Pipeline 5;
@@ -4778,10 +4815,7 @@ class pipeline =
 	  handshake_timeout = 1.0;
 	  resolver = sync_resolver;
 	  configure_socket = (fun _ -> ());
-	  schemes = [ "http", http_syn, Some 80, http_cb_id;
-		      "https", https_syn, Some 443, https_cb_id;
-		      "ipp", ipp_syn, Some 631, http_cb_id;
-		    ];
+	  schemes = default_schemes;
 	  verbose_status = true;
 	  verbose_request_header = false;
 	  verbose_response_header = false;

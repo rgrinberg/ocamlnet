@@ -1,3 +1,11 @@
+2013-05-13  Gerd Stolpmann  <gerd@samsung>
+
+	* Http_client: more liberal interpretation of the "domain" part
+	  of authentication keys
+
+	* src/netsys/netsys_c_poll.c: Fix FD_CLOEXEC
+	  (Guillem Jover <guillem@hadrons.org>)
+
 2013-03-29  Gerd Stolpmann  <gerd@samsung>
 
 	* Http_client authentication: The domain for authentication
