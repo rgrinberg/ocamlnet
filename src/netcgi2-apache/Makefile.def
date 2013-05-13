@@ -1,6 +1,6 @@
 TOP_DIR=../..
 
-PKGNAME = netcgi_apache
+PKGNAME = netcgi2-apache
 # Keep the name in sync with the one on handler.c :
 BUILD_EXTRA = mod_netcgi_apache.so
 
@@ -50,7 +50,7 @@ endif
 ### Only works with OCaml >= 3.11 on plafforms where PIC differs from non-PIC
 ### See http://caml.inria.fr/mantis/view.php?id=3866
 mod_netcgi_apache.so: $(MOD_OBJECTS)
-	$(APXS) -c -o $@ $^ -L$(APACHE_OCAMLLIBDIR) $(APACHE_OCAMLLIBS)
+	$(APXS) -c -o $@ $^ -L$(APACHE_OCAMLLIBDIR) -Wl,-R,$(APACHE_OCAMLLIBDIR) $(APACHE_OCAMLLIBS)
 	test -f .libs/$@ && cp .libs/$@ .
 
 netcgi_apache_mod.lo: netcgi_apache_mod.o

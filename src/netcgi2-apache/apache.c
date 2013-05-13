@@ -34,6 +34,7 @@
 #include <http_config.h>
 #include <http_protocol.h>
 #include <http_request.h>
+#include <http_core.h>
 
 #if APACHE2
 #include <apr_strings.h>
@@ -200,9 +201,9 @@ netcgi2_apache_server_is_virtual(value sv)
 
 /*----- Connection structure. -----*/
 
-#define CONNECTION(field) \
+#define CONNECTION(suffix,field)                \
 CAMLprim value                                  \
-netcgi2_apache_connection_ ## field (value cv)        \
+netcgi2_apache_connection_ ## suffix (value cv)        \
 {                                               \
   CAMLparam1 (cv);                              \
   conn_rec *c = Conn_rec_val (cv);              \
@@ -212,8 +213,21 @@ netcgi2_apache_connection_ ## field (value cv)        \
     raise_not_found ();                         \
 }
 
-CONNECTION(remote_ip)
-CONNECTION(remote_host)
+#if AP_SERVER_MAJORVERSION_NUMBER == 1
+CONNECTION(remote_ip, remote_ip)
+#elsif AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORERSION_NUMBER < 3
+CONNECTION(remote_ip, remote_ip)
+#else
+/* Apache-2.4 and up: remote_ip is now available in two variants:
+   client_ip is the IP of the client (possibly a proxy), and 
+   useragent_ip is the IP of the user agent (by trusting an http field
+   that was added by the proxy if there is a proxy)
+*/
+CONNECTION(remote_ip, client_ip)
+#endif
+
+
+CONNECTION(remote_host, remote_host)
 
 /*----- Request structure. -----*/
 

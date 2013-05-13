@@ -1,5 +1,13 @@
 2013-05-13  Gerd Stolpmann  <gerd@samsung>
 
+	* netcgi2-apache: fixing build against apache-2.4.
+
+	* netcgi2-apache: fixing bug that PKGNAME was incorrect
+
+	* netcgi2-apache: the directory of the OCaml stdlib is now
+	  added via rpath to mod_netcgi_apache.so so that
+	  libcamlrun_shared.so is automatically found
+
 	* Http_client: more liberal interpretation of the "domain" part
 	  of authentication keys
 

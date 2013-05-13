@@ -1,7 +1,7 @@
 TOP_DIR=../..
 
 PRE = 1
-PKGNAME = netcgi_apache
+PKGNAME = netcgi2-apache
 GENERATE = config.h netcgi_apache_mod.ml META 500netcgi_apache.info
 
 INSTALL_EXTRA = netcgi_modtpl.cma 500netcgi_apache.info \
