@@ -225,7 +225,7 @@ CAMLprim value netsys_create_event_aggreg(value cancelv)
 #ifdef USABLE_EPOLL
     fd = epoll_create(128);
     if (fd == -1) uerror("epoll_create", Nothing);
-    code = fcntl(fd, F_SETFL, FD_CLOEXEC);
+    code = fcntl(fd, F_SETFD, FD_CLOEXEC);
     if (code == -1) {
 	e = errno;
 	close(fd);
@@ -245,7 +245,7 @@ CAMLprim value netsys_create_event_aggreg(value cancelv)
 	    close(fd);
 	    unix_error(e, "eventfd", Nothing);
 	};
-	code = fcntl(cancel_fd, F_SETFL, FD_CLOEXEC);
+	code = fcntl(cancel_fd, F_SETFD, FD_CLOEXEC);
 	if (code == -1) {
 	    e = errno;
 	    close(fd);
