@@ -35,6 +35,7 @@
 #include <http_protocol.h>
 #include <http_request.h>
 #include <http_core.h>
+#include <ap_release.h>
 
 #if APACHE2
 #include <apr_strings.h>
@@ -215,7 +216,8 @@ netcgi2_apache_connection_ ## suffix (value cv)        \
 
 #if AP_SERVER_MAJORVERSION_NUMBER == 1
 CONNECTION(remote_ip, remote_ip)
-#elsif AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORERSION_NUMBER < 3
+#else
+#if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER < 3
 CONNECTION(remote_ip, remote_ip)
 #else
 /* Apache-2.4 and up: remote_ip is now available in two variants:
@@ -224,6 +226,7 @@ CONNECTION(remote_ip, remote_ip)
    that was added by the proxy if there is a proxy)
 */
 CONNECTION(remote_ip, client_ip)
+#endif
 #endif
 
 
