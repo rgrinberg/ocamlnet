@@ -3,6 +3,10 @@
 	* Netgzip.ml: Fixing a bug in the inflating pipe (bad calculation
 	  of the crc)
 
+	* Netplex_mbox: implementation of a simple message box allowing
+	  communication between Netplex components. This module does
+	  neither need Netmulticore nor Netcamlbox, but is relatively slow.
+
 2013-05-13  Gerd Stolpmann  <gerd@samsung>
 
 	* netcgi2-apache: fixing build against apache-2.4.
