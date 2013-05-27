@@ -260,6 +260,7 @@ build web servers, and with [rpc] to build RPC servers.
     Netplex_mutex
     Netplex_semaphore
     Netplex_sharedvar
+    Netplex_mbox
     Netplex_encap
     Rpc_netplex}
     

@@ -721,6 +721,9 @@ end
 
 and plugin =
 object
+  method required : plugin list
+    (** Required plugins *)
+
   method program : Rpc_program.t
     (** The RPC program structure on which the messaging bases. The program,
         version and procedure numbers are ignored

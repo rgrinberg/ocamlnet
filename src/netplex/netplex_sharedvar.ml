@@ -27,6 +27,8 @@ let x_plugin =
 	  )
       )
 
+      method required = []
+
       method program =
 	Netplex_ctrl_aux.program_Sharedvar'V1
 

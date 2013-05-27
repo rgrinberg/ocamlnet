@@ -1481,6 +1481,7 @@ object(self)
 
   method add_plugin plugin =
     if not (List.mem plugin plugins) then (
+      List.iter self#add_plugin plugin#required;
       plugins <- plugin :: plugins;
       plugin # ctrl_added (self :> controller)
     )

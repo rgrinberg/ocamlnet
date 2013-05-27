@@ -1,3 +1,8 @@
+2013-05-27  Gerd Stolpmann  <gerd@samsung>
+
+	* Netgzip.ml: Fixing a bug in the inflating pipe (bad calculation
+	  of the crc)
+
 2013-05-13  Gerd Stolpmann  <gerd@samsung>
 
 	* netcgi2-apache: fixing build against apache-2.4.

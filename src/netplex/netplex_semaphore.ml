@@ -53,6 +53,8 @@ let plugin_i =
 	  )
       )
 
+      method required = []
+
       method program = 
 	Netplex_ctrl_aux.program_Semaphore'V1
 
