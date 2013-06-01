@@ -468,6 +468,7 @@ Implements SCRAM (RFC 5802). Right now only for GSS-API.
 
 {3:netmcore_intro Guides}
 
+- {!module:Netmcore_basics}: Basics
 - {!module:Netmcore_tut}: Tutorial
 
 {2:netcamlbox The [netcamlbox] library: message passing}
