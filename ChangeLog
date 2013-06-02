@@ -1,3 +1,7 @@
+2013-06-03  Gerd Stolpmann  <gerd@zotac>
+
+	* Netmcore_basics.txt: more documentation for Netmulticore
+
 2013-05-27  Gerd Stolpmann  <gerd@samsung>
 
 	* Netgzip.ml: Fixing a bug in the inflating pipe (bad calculation
@@ -331,7 +335,7 @@
 	containers.
 
 	* Release 3.4
-	
+
 2011-08-29  Gerd Stolpmann  <gerd@thinkpad.lan.sumadev.de>
 
 	* Http_client: one can set a different proxy server for each

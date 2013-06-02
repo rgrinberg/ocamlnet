@@ -4,6 +4,7 @@
 - Netdate: allow to set the 2-digit year cutoff
 
 - Netplex: provide simple message boxes (as recently developed for epig)
+  DONE
 
 - Netmcore: how to get the result of the first process? Joining does
   not work, even when the process is already done. The only workaround
