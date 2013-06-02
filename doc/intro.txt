@@ -47,11 +47,15 @@ A number of ideas and concepts are used throughout the libraries:
   accepting network connections or for doing computations.
 
 {2 Introductory chapters}
+{div guide}
+{3 Guides}
 
 - {!Foreword}: How Ocamlnet is organized
 - {!Platform}: Which functions are available on which platform
   (POSIX/Win32). Also hints for portable programming.
 - {!Ipv6}: The state of IPv6 support
+
+{divend guide}
 
 Related external articles:
 
@@ -113,6 +117,8 @@ Related external articles:
 
 {1:ch_base Base Libraries}
 
+
+{div guide}
 {3:ch_base_guides Guides}
 
 - {!module:Netchannels_tut}: The [Netchannels] tutorial - {b strongly 
@@ -129,6 +135,7 @@ Related external articles:
 - {!module:Netshm_intro}: Shared Memory for IPC
 - {!module:Shell_intro}: Motivation for [shell]
 
+{divend guide}
 
 {3:equeue_blog External articles}
 
@@ -320,10 +327,14 @@ other Ocamlnet libraries.
 
 {1:ch_web Web Programming}
 
+{div guide}
+
 {3:ch_web_guides Guides}
 
 - {!module:Netcgi_porting}: Porting [netcgi1] programs to [netcgi2]
 - {!module:Nethttpd_intro}: Overview over the HTTP daemon
+
+{divend guide}
 
 {3:netcgi1 The [netcgi1] library}
 
@@ -382,11 +393,15 @@ For a full web server, you'll also need [netplex].
 
 {1:ch_cs Client/Server Programming}
 
+
+{div guide}
 {3:ch_cs_guides Guides}
 
 - {!module:Rpc_intro}: Introduction
 - {!module:Rpc_mapping_ref}: RPC Language Mapping Reference
 - {!module:Rpc_intro_gss}: Securing RPC with the GSS-API
+
+{divend guide}
 
 {3:ch_cs_blog External articles}
 
@@ -466,10 +481,13 @@ Implements SCRAM (RFC 5802). Right now only for GSS-API.
 
 {1:ch_comp Parallel Computing}
 
+{div guide}
 {3:netmcore_intro Guides}
 
 - {!module:Netmcore_basics}: Basics
 - {!module:Netmcore_tut}: Tutorial
+
+{divend guide}
 
 {2:netcamlbox The [netcamlbox] library: message passing}
 
@@ -507,9 +525,12 @@ processes, and sending messages between them.
 
 {1:ch_netproto Network Protocol Libraries}
 
+{div guide}
 {3:ch_netproto_guides Guides}
 
 - {!module:Netclient_tut}: The Netclient tutorial (HTTP, FTP)
+
+{divend guide}
 
 {2:netclient The [netclient] library: HTTP, FTP, Telnet}
 

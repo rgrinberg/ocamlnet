@@ -1,5 +1,14 @@
 {1 Netmulticore Basics}
 
+{b Contents}
+
+- {!Netmcore_basics.processes}
+- {!Netmcore_basics.startstop}
+- {!Netmcore_basics.primitive}
+- {!Netmcore_basics.ipc}
+- {!Netmcore_basics.msgpassing}
+- {!Netmcore_basics.goon}
+
 The intention of this chapter is to give an overview over the basic
 mechanisms of Netmulticore. The focus is here on the {i safe}
 mechanisms, i.e. those that cannot crash the program if used the wrong
@@ -8,7 +17,7 @@ elements, mostly to maximize performance. The unsafe elements are well
 explained in {!Netmcore_tut}.
 
 
-{2 Processes}
+{2:processes Processes}
 
 Netmulticore uses subprocesses as workers. This has the advantage that
 the workers are really independent from each other. Especially, every
@@ -56,7 +65,7 @@ master process is kept as lean as possible, i.e. nothing is stored
 there, because the new workers are copies of the master image, and
 copying is cheapest when the image is as small as possible.
 
-{2 Starting up, shutting down}
+{2:startstop Starting up, shutting down}
 
 At startup time, Netmulticore starts one special worker, the {i first
 process}. This is the only worker that is not started by another
@@ -164,7 +173,7 @@ A few more remarks:
    have been called at Netplex startup time. We'll look at the possible
    interactions with Netplex closer below.
 
-{2 Primitive parallelization}
+{2:primitive Primitive parallelization}
 
 In the most simple scenario, a few workers are started at the same
 time, and compute the result in parallel. When the workers are done,
@@ -235,7 +244,7 @@ Some remarks:
    algorithms).
 
 
-{2 Using Netplex IPC mechanisms}
+{2:ipc Using Netplex IPC mechanisms}
 
 As noted, the Netplex library is the basis on which Netmulticore
 provides more advanced features. Let's have a quick glance at the
@@ -423,7 +432,7 @@ Overview of the operations (see linked pages for details):
 }
 
 
-{2 Message passing}
+{2:msgpassing Message passing}
 
 Message passing means that a worker installs a message box, and waits
 for the arrival of messages from other workers. Messages can be arbitrary
@@ -453,7 +462,7 @@ the Netplex controller. Again, use code like
 ]}
 
 Second, create the mailbox module. This is very similar to
-{!Netplex_sharedvar}:
+{!Netplex_sharedvar}, e.g.:
 
 {[
 module Mbox_foo =
@@ -481,7 +490,7 @@ and receiving one is possible with
 
 {[
 let msg = Mbox_foo.receive mbox
-]]
+]}
 
 which also waits for the arrival of the message. Remember that all
 three functions, [create], [send], and [receive] can only be called
@@ -490,10 +499,11 @@ from worker context.
 
 {3 Example: Task queue}
 
-We want to parallelize a list of tasks which can be independently run
-on any worker. The idea is that every worker provides a message box
-where a special process, the operator, sends the task descriptions to.
-If all tasks are done, the operator sends a termination request instead:
+In this example, we want to parallelize a list of tasks which can be
+independently run on any worker. The idea is that every worker
+provides a message box where a special process, the supervisor, sends
+the task descriptions to.  If all tasks are done, the supervisor sends a
+termination request instead:
 
 {[
 type worker_msg =
@@ -501,48 +511,52 @@ type worker_msg =
   | Term_request
 ]}
 
-The operator has no idea by itself which worker is busy and which one
-would be free for another task. Because of this, the operator installs
+The supervisor has no idea by itself which worker is busy and which one
+would be free for another task. Because of this, the supervisor installs
 another message box, and the worker sends a message when it is idle
 and requests another task:
 
 {[
-type operator_msg =
+type supervisor_msg =
   | Task_request of int
 ]}
 
 The integer argument is the index of the requesting worker.
 
 This arrangement will result in a "ping pong game": When a worker is free
-it sends [Task_request] to the operator, which in turn will send the
+it sends [Task_request] to the supervisor, which in turn will send the
 next [Task] to the requesting worker, or [Term_request] if the list
 is already empty. The interesting property is that no process actively
 monitors another process - instead, all processes just wait for messages
 and react on these.
 
-The definitions of the mailmox modules:
+The definitions of the mailbox modules:
 
 {[
 module Mbox_worker =
   Netplex_mbox.Make_mbox_type(struct type t = worker_msg end)
 
-module Mbox_operator =
-  Netplex_mbox.Make_mbox_type(struct type t = operator_msg end)
+module Mbox_supervisor =
+  Netplex_mbox.Make_mbox_type(struct type t = supervisor_msg end)
 ]}
 
 
 {3 The implementation of the workers}
+
+The workers wait for the arrival of messages from the supervisor in a
+loop, and react on incoming tasks. The loop is left when the
+termination request arrives.
 
 {[
 let worker_main w =
   (* where w is the index of the worker, 0..n-1 *)
   let wrk_mbox_name = sprintf "Worker_%d" w in
   let wrk_mbox = Mbox_worker.create wrk_mbox_name in
-  let op_mbox = Mbox_operator.create "Operator" in
+  let op_mbox = Mbox_supervisor.create "Supervisor" in
   let cont = ref true in
   while !cont do
     (* request a new task *)
-    Mbox_operator.send op_mbox (Task_request w);
+    Mbox_supervisor.send op_mbox (Task_request w);
     (* wait for task *)
     match Mbox_worker.receive wrk_mbox with
       | Task t ->
@@ -558,9 +572,98 @@ let worker_main_fork, worker_main_join =
 ]}
 
 
-{3 The implementation of the operator}
+{3 The implementation of the supervisor}
+
+The supervisor starts the worker processes, and also joins them
+at the end.
+
+There is a queue of messages to send to the workers, [q]. When a
+worker requests another task, the next prepared message is sent.
+At the end of [q] there are as many [Term_request] messages as
+needed to ensure that all workers will terminate.
+
+Note that this version does not collect any results from the workers.
+There could be extra [Task_result] messages for this purpose (emitted
+by the workers and interpreted by the supervisor).
+
+{[
+let supervisor_main arg =
+  let ((num_workers : int), (tasks : task list)) = arg in
+  let op_mbox = Mbox_supervisor.create "Supervisor" in
+  let q = Queue.create() in
+  List.iter (fun t -> Queue.add q (Task t)) tasks;
+  let workers =
+    Array.init
+      num_workers
+      (fun i -> Netmcore_process.start worker_main_fork i) in
+  Array.iteri
+    (fun i _ -> Queue.add q Term_request)
+    workers;
+  let wrk_mbox_names = 
+    Array.mapi
+      (fun i _ -> sprintf "Worker_%d" i)
+      workers in
+  let wrk_mboxes =
+    Array.map
+      (fun name -> Mbox_worker.create name)
+      wrk_mbox_names in
+  while not(Queue.is_empty q) do
+    (* wait for request *)
+    match Mbox_supervisor.receive op_mbox with
+      | Task_request r ->
+          let msg = Queue.take q in
+          let wrk_mbox = wrk_mboxes.(r) in
+          Mbox_worker.send wrk_mbox msg;
+  done;
+  Array.iter
+    (fun pid ->
+       Netmcore_process.join worker_main_join pid
+    )
+    workers
+
+let supervisor_main_fork, supervisor_main_join =
+  Netmcore_process.def_process supervisor_main
+]}
+
 
 {3 A main program}
 
+The main program just starts the supervisor, and waits for its
+termination:
 
-{2 Where to go on from here}
+{[
+let main tasks =
+  let sum_opt =
+    Netmcore.run
+      ~socket_directory:"/tmp/netmcore"
+      ~first_process:(fun () ->
+                        Netmcore_process.start supervisor_main_fork tasks
+                     )
+      ~extract_result:(fun _ pid ->
+                        Netmcore_process.join_nowait supervisor_main_join pid
+                      )
+      () in
+  match sum_opt with
+    | None -> printf "Error\n"
+    | Some () -> printf "Tasks completed\n"
+]}
+
+
+{2:goon Where to go on from here}
+
+If you want to write an Internet server, and you need Netmulticore
+for managing some workload processes, you should next try to understand
+Netplex in more detail. Netplex is a generic process manager with special
+support for server processes. As pointed out before, Netmulticore is just
+an extension of Netplex, so both libraries can be easily used together.
+Read more about Netplex in: {!Netplex_intro}, {!Netplex_advanced},
+{!Netplex_admin}.
+
+If your focus is on the acceleration of your multicore program, the
+next page to read is {!Netmcore_tut}. This page explains the parts of
+Netmulticore that use shared memory. In particular, the worker processes
+are enabled to access shared heaps containing OCaml values. The heaps
+are read/write, which is so far unique in the OCaml world. This allows
+you to represent shared data, e.g. as queues, hashtables, or arrays.
+The downside of these mechanisms is that unsafe and low-level OCaml
+features are used, comparable to writing a wrapper for a C function.

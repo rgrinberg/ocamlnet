@@ -23,6 +23,12 @@ namely that only one thread at a time can get the CPU. Because of this,
 multi-threaded programs cannot make use of the additional power of
 multicore CPU's.
 
+{div remark}
+Readers are encouraged to first have a look at {!Netmcore_basics},
+which is more fundamental and doesn't use unsafe language features.
+{divend remark}
+
+
 The approach of Netmulticore is to spawn subprocesses acting in the
 role of worker threads. Processes are separated from each other, and
 hence there is normally no direct way of getting into interaction.

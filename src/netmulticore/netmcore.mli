@@ -8,6 +8,10 @@
     Instead, independent processes are created, and the communication
     between processes is made as cheap and unproblematic as possible.
 
+    Please read {!Netmcore_basics} for an introduction into using
+    this module. There is also {!Netmcore_tut} with more advanced
+    techniques.
+
     Before using this library, it is required to call {!Netmcore.startup}.
     This turns the current process into the master process. The master
     process has only a supervising function, and is responsible for

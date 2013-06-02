@@ -5,6 +5,10 @@
 (** This module provides a slightly higher-level view on processes,
     but is also a bit more restricted than the primitives in
     {!Netmcore}.
+
+    Please read {!Netmcore_basics} for an introduction into using
+    this module. There is also {!Netmcore_tut} with more advanced
+    techniques.
  *)
 
 type 'a fork_point
