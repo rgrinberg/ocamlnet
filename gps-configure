@@ -1,6 +1,6 @@
 #! /bin/sh
 
-./configure -with-nethttpd -enable-ssl -enable-gtk2 -enable-zip \
+./configure -with-nethttpd -enable-ssl -enable-gtk2 -enable-zip -enable-pcre \
 	-with-rpc-auth-dh -enable-crypto \
 	-enable-tcl -equeue-tcl-defs -I/usr/include/tcl8.4 -equeue-tcl-libs -ltcl8.4 \
 	-enable-apache -apxs /usr/bin/apxs2 -apache /usr/lib/apache2/mpm-prefork/apache2 \

@@ -87,7 +87,7 @@ whelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
 whelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
 
 # Which options exist? eoptions for enable/disable, woptions for with/without:
-eoptions="pcre gtk gtk2 tcl ssl zip crypto apache"
+eoptions="pcre full_pcre gtk gtk2 tcl ssl zip crypto apache"
 woptions="nethttpd rpc_auth_dh"
 
 # Packages to include anyway:
