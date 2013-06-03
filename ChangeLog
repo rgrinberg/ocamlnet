@@ -1,5 +1,7 @@
 2013-06-03  Gerd Stolpmann  <gerd@zotac>
 
+        * Release Ocamlnet-3.6.4
+
 	* Regular expressions: The config switch -enable-pcre no
 	  longer switches the default backend to PCRE. The default
 	  remains Str, and only Netstring_pcre is additionally
