@@ -67,6 +67,8 @@ CORE		findlib		>= 1.0
 
                                 CHANGED IN OCAMLNET-3.6.4 !!!
 
+                                PLEASE READ doc/html-main/Regexp.html
+
 -enable-gtk	lablgtk		>= 1.2 (*)
 				http://wwwfun.kurims.kyoto-u.ac.jp/soft/
 				  olabl/lablgtk.html
