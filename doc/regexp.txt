@@ -1,0 +1,76 @@
+{1 Regular Expression Backends}
+
+Unfortunately, there is a bit of confusion about the regular expression
+backend used by Ocamlnet. Traditionally, this was always PCRE, and not
+the Str library coming with the OCaml distribution. The reason was
+that Str did not have a thread-safe API, but it was required to make
+Ocamlnet thread-safe.
+
+However, recent OCaml releases ship with a version of Str that can
+be easily made thread-safe. Because of this, the default regexp backend is
+now Str, with an option to use PCRE instead.
+
+{2 Current Solution}
+
+So we have now by default:
+
+ - Library [netstring], module {!Netstring_str}: This is a thread-safe
+   API around Str. All uses of regular expressions inside the OCamlnet
+   code base call functions of this module only.
+
+You can enable PCRE in the configure script with [-enable-pcre] or
+[-enable-full-pcre]. The effects are as follows:
+
+ - Library [netstring], module {!Netstring_str}: If only [-enable-pcre]
+   is configured, this is still an API around Str. If, however,
+   [-enable-full-pcre] is configured, the module maps the functions
+   to PCRE calls. Note that the regular expressions still use Str-compatible
+   syntax, so this switch of the backend is normally invisible to the caller.
+ - Library [netstring-pcre], module {!Netstring_pcre}: This module
+   is now available for both configure options. {!Netstring_pcre} provides
+   the same API, but uses PCRE-style regular expression syntax. We
+   provide this module solely for backward compatibility with older
+   versions of Ocamlnet. Note that previous versions of Ocamlnet added
+   this module to the [netstring] library, but it is now in the new
+   [netstring-pcre] library.
+
+The meanings of the configuration options are thus:
+
+ - [-enable-pcre]: The default regexp engine is still Str, and
+   {!Netstring_pcre} is available in the separate library [netstring-pcre]
+ - [-enable-full-pcre]: The regexp engine is changed to PCRE, and
+   {!Netstring_pcre} is also available in the separate library [netstring-pcre]
+
+{2 Previous Solutions}
+
+Actually, Ocamlnet stepped away from PCRE in several phases.
+
+ - Before release 3.3: Ocamlnet always used PCRE as backend. {!Netstring_str}
+   used Str syntax, but mapped this to PCRE syntax.
+ - Release 3.3.1: Optionally, {!Netstring_str} can now use Str as backend.
+   There are still thread-safety issues, so this was not made the default,
+   and only active after [-disable-pcre].
+ - Release 3.6: This version fixed the thread-safety problems, and Str
+   was now the default backend. The option [-enable-pcre] reverted to
+   the previous behavior: PCRE backed {!Netstring_str}, and {!Netstring_pcre}
+   was built. The latter module was moved to its own library [netstring-pcre].
+ - Release 3.6.4 (current): Adding [-enable-full-pcre] with the meaning
+   that PCRE becomes the backend, and [-enable-pcre] has now the weaker
+   meaning that [netstring-pcre] is built.
+
+{2 Recommendations}
+
+For {b packagers} of Ocamlnet, the recommendation is to build Ocamlnet
+with Str as default engine, and to offer PCRE as option (i.e.
+[-enable-pcre]). The latter allows it to easily port other software
+to the new Ocamlnet style.
+
+It is discouraged to switch completely to PCRE ([-enable-full-pcre]).
+
+For {b users} of Ocamlnet, the recommendations are:
+
+ - Use Str as regular expression engine, and if thread-safety is an
+   issue, prefer {!Netstring_str} over the default Str API.
+ - If there are still good reasons to use PCRE, you have either
+   the choice to use PCRE directly, or via {!Netstring_pcre}. This
+   module will not go away (it is {b not deprecated}).

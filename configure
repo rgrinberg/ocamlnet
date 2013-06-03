@@ -49,6 +49,7 @@ set_defaults () {
     enable_crypto=0
     enable_apache=0
     enable_pcre=0
+    enable_full_pcre=0
     compat_pcre=0
     with_nethttpd=0
     with_rpc_auth_dh=0
@@ -81,6 +82,7 @@ ehelp_zip="Enable/disable parts that depend on camlzip"
 ehelp_crypto="Enable/disable parts that depend on cryptokit"
 ehelp_apache="Enable/disable Apache mod connector (EXPERIMENTAL)"
 ehelp_pcre="Enable/disable the build against pcre-ocaml"
+ehelp_full_pcre="Enable/disable the build against pcre-ocaml (no Str)"
 whelp_nethttpd="Enable/disable nethttpd web server component (GPL!)"
 whelp_rpc_auth_dh="Enable/disable support for SecureRPC (Diffie-Hellman auth)"
 
@@ -210,7 +212,8 @@ _EOF_
         Use this C preprocessor program for ocamlrpcgen
 
 -compat-pcre
-        Compat option for GODI-3.12
+        Makes the netstring library dependent on netstring-pcre, for
+        better compatibility with old versions of Ocamlnet
 
 Defaults are:
 
@@ -496,17 +499,26 @@ fi
 ######################################################################
 # Check that pcre is available:
 
-if [ $enable_pcre -gt 0 ]; then
+if [ $enable_pcre -gt 0 -o $enable_full_pcre -gt 0 ]; then
     printf "%s" "Checking for PCRE... "
     if check_library pcre pcre.cmi; then
 	echo "found"
-	regexp_defs="-D HAVE_PCRE"
+        # This means to build netstring-pcre
 	have_pcre=1
-	regexp_provider="netstring-pcre"  # which again depends on pcre
-        regexp_provider_make="pcre"       # also solved via -I to netstring-pcre
+        if [ $enable_full_pcre -gt 0 ]; then
+            # In netstring: Netstring_str uses PCRE as backend
+  	    regexp_defs="-D HAVE_PCRE"
+	    regexp_provider="netstring-pcre"  # which again depends on pcre
+            regexp_provider_make="pcre"       # also solved via -I to netstring-pcre
+        else
+            # In netstring: Netstring_str uses Str as backend
+            regexp_defs="-D ENABLE_STR_EXTERNALS"
+            regexp_provider="str"
+            regexp_provider_make="str"
+        fi
     else
 	echo "not found"
-	echo "Sorry, installation is not possible without PCRE."
+	echo "Sorry, PCRE was requested."
 	echo "Get the PCRE-OCaml library from:"
 	echo "http://www.ocaml.info/home/ocaml_sources.html,"
 	echo "or disable the build against PCRE-Ocaml (not recommended)".
@@ -514,8 +526,8 @@ if [ $enable_pcre -gt 0 ]; then
     fi
 else
     # ENABLE_STR_EXTERNALS works for all recent OCaml versions
-    regexp_defs="-D ENABLE_STR_EXTERNALS"
     have_pcre=0
+    regexp_defs="-D ENABLE_STR_EXTERNALS"
     regexp_provider="str"
     regexp_provider_make="str"
 fi
@@ -894,7 +906,7 @@ for opt in rpc_xti $woptions equeue_tcl equeue_gtk1 equeue_gtk2 equeue_ssl rpc_s
 	fi
 done
 
-if [ $enable_pcre -gt 0 ]; then
+if [ $enable_pcre -gt 0 -o $enable_full_pcre -gt 0 ]; then
     pkglist="netstring-pcre $pkglist"
 fi
 

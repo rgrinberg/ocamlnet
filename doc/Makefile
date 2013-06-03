@@ -20,7 +20,7 @@ html-doc:
 		-g odoc/chtml.cmo \
 		-css-style style.css \
 		-intro intro.txt intro.txt \
-		platform.txt foreword.txt ipv6.txt \
+		platform.txt foreword.txt ipv6.txt regexp.txt \
                `cat loadopts.tmp`
 	cp style.css html-main
 	cp html-main/index.html html-main/Intro.html

@@ -29,6 +29,7 @@ netmulticore    CORE 	        Multiprocessing
 netplex		CORE		Generic server framework
 netshm		CORE		Shared memory for IPC
 netstring	CORE		String routines (e.g. URLs, HTML, Mail)
+netstring-pcre  -enable[-full]-pcre   PCRE layer
 netsys		CORE		System interfaces missing in Unix
 netzip	        -enable-zip     read/write gzip data using object channels
 pop		CORE		POP3 client
@@ -59,17 +60,12 @@ CORE		findlib		>= 1.0
 				http://www.ocaml-programming.de/packages
 				Library manager
 
-CORE		pcre		>= 5
+-enable-pcre or
+-enable-full-pcre pcre		>= 5
 		 (pcre-ocaml)	http://www.ocaml.info/ocaml_sources
 				Regular expressions library
 
-				! Since Ocamlnet-3.3 pcre is not
-				! strictly required. It is also possible
-				! to build without by configuring with
-				! -disable-pcre. The Str regexp engine
-				! is then used instead.  The
-				! functionality should be exactly the
-				! same.
+                                CHANGED IN OCAMLNET-3.6.4 !!!
 
 -enable-gtk	lablgtk		>= 1.2 (*)
 				http://wwwfun.kurims.kyoto-u.ac.jp/soft/
@@ -221,6 +217,7 @@ in binary form:
 - ocamlnet-tcl		Add-on libraries needing tcl
 - ocamlnet-zip          Add-on libraries needing camlzip
 - ocamlnet-crypto	Add-on libraries needing cryptokit
+- ocamlnet-pcre         Add-on libraries needing pcre
 - ocamlnet-nethttpd	nethttpd (optional, if it makes the different
 			licensing conditions clearer)
 

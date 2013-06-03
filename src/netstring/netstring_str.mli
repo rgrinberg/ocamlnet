@@ -11,14 +11,7 @@
  * is visible to the outside. The module [Netstring_str] is similar to [Str],
  * but has a thread-compatible interface.
  *
- * Now we have the much better PCRE library for regular expressions.
- * This implementation of [Netstring_str] bases on the PCRE engine but retains
- * the old interface as much as possible. This includes that the [regexp]
- * function parses old-style regular expressions and internally translates 
- * them to PCRE-style expressions.
- *
- * See also {!Netstring_pcre}. The difference is that [Netstring_pcre] expects
- * already PCRE-style regular expressions and does not translate them.
+ * For an explanation why we need this module, please read {!Regexp}.
  *)
 
 (** {b Supported regexp syntax}

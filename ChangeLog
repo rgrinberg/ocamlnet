@@ -1,5 +1,13 @@
 2013-06-03  Gerd Stolpmann  <gerd@zotac>
 
+	* Regular expressions: The config switch -enable-pcre no
+	  longer switches the default backend to PCRE. The default
+	  remains Str, and only Netstring_pcre is additionally
+	  built. The new switch -enable-full-pcre has now the
+	  stronger meaning of also using PCRE as default backend.
+
+	  New documentation page Regexp explaining this.
+
 	* Netmcore_basics.txt: more documentation for Netmulticore
 
 2013-05-27  Gerd Stolpmann  <gerd@samsung>

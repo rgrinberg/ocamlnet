@@ -54,6 +54,7 @@ A number of ideas and concepts are used throughout the libraries:
 - {!Platform}: Which functions are available on which platform
   (POSIX/Win32). Also hints for portable programming.
 - {!Ipv6}: The state of IPv6 support
+- {!Regexp}: Regular expression backends
 
 {divend guide}
 
