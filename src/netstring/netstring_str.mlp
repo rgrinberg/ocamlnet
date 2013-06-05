@@ -65,6 +65,7 @@ let quote_set s =
 (* HAVE_PCRE                                                          *)
 (**********************************************************************)
 
+IFNDEF ENABLE_STR_EXTERNALS THEN
 IFDEF HAVE_PCRE THEN
 
 (* This implementation of Netstring_str uses the PCRE engine. The
@@ -588,9 +589,10 @@ let string_after = Netstring_pcre.string_after ;;
 let first_chars = Netstring_pcre.first_chars ;;
 let last_chars = Netstring_pcre.last_chars ;;
 
-ELSE
+ENDIF
 
-IFDEF ENABLE_STR_EXTERNALS THEN
+ELSE
+(* i.e. ENABLE_STR_EXTERNALS *)
 
 (**********************************************************************)
 (* ENABLE_STR_EXTERNALS                                               *)
@@ -859,7 +861,10 @@ let string_after = Str.string_after;;
 let first_chars = Str.first_chars;;
 let last_chars = Str.last_chars;;
 
-ELSE
+ENDIF
+
+IFNDEF HAVE_PCRE THEN
+IFNDEF ENABLE_STR_EXTERNALS THEN
 
 (**********************************************************************)
 (* DEFAULT                                                            *)

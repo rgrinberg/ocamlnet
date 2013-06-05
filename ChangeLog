@@ -1,3 +1,9 @@
+2013-06-06  Gerd Stolpmann  <gerd@zotac>
+
+	* Release Ocamlnet-3.6.5
+
+	* Build fix for netstring-pcre
+
 2013-06-03  Gerd Stolpmann  <gerd@zotac>
 
         * Release Ocamlnet-3.6.4

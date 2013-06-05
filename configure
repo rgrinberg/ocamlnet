@@ -67,7 +67,7 @@ set_defaults () {
 ocamlc=`get_path ocamlc`
 set_defaults
 
-version="3.6.4"
+version="3.6.5"
 exec_suffix=""
 path_sep=":"
 
@@ -512,7 +512,7 @@ if [ $enable_pcre -gt 0 -o $enable_full_pcre -gt 0 ]; then
             regexp_provider_make="pcre"       # also solved via -I to netstring-pcre
         else
             # In netstring: Netstring_str uses Str as backend
-            regexp_defs="-D ENABLE_STR_EXTERNALS"
+            regexp_defs="-D ENABLE_STR_EXTERNALS -D HAVE_PCRE"
             regexp_provider="str"
             regexp_provider_make="str"
         fi
