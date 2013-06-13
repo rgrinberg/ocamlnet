@@ -152,18 +152,6 @@ object (self)
 
   (* Transaction Commands *)
 
-  method stat () =
-    self#check_state `Transaction;
-    send_command oc "STAT";
-    try 
-      status_response ic (fun s p ->
-	let count, p = int s p in
-	let size, p  = int s p in
-	let ext      = trim s p 1 in
-	(count, size, ext)
-      )
-    with _ -> raise Protocol_error;
-
   method list ?msgno () =
     self#check_state `Transaction;
     let parse_line s p set =
