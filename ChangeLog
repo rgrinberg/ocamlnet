@@ -1,3 +1,7 @@
+2013-06-13 Gerd Stolpmann
+
+        * Remove duplicate method Netpop.stat
+
 2013-06-06  Gerd Stolpmann  <gerd@zotac>
 
 	* Release Ocamlnet-3.6.5
