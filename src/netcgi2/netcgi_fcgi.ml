@@ -799,7 +799,7 @@ let run ?(config=Netcgi.default_config)
 
   let sockaddr1 =
     match port with
-      | None -> None
+      | None -> sockaddr
       | Some p -> Some(Unix.ADDR_INET(Unix.inet_addr_loopback,p)) in
   let sock = match sockaddr1 with
     | None ->
