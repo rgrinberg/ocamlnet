@@ -313,15 +313,12 @@ let pass_result cl call f =
   (* for regular calls only! *)
 
   (* Stop the timer, if any : *)
-
   stop_retransmission_timer cl call;
 
   (* Change the state of the call to 'Done': *)
-
   call.state <- Done;
 
   (* pass 'f' to the call back function: *)
-
   try
     dlog cl "Calling back";
     ( match call.detail with
@@ -351,7 +348,7 @@ let pass_exception ?(skip_auth=false) cl call x =
    * calls.
    * 
    * For authproto messages, the exception is passed to the connected calls
-   * instead.
+   * instead. Option skip_auth: no notification for authproto messages.
    *)
   if call.state <> Done then (  (* Don't call back twice *)
     try
@@ -361,21 +358,21 @@ let pass_exception ?(skip_auth=false) cl call x =
 	   "Passing exception " ^ sx);
       ( match call.detail with
 	  | `Regular _ ->
-	      pass_result cl call (fun () -> raise x)
+	       pass_result cl call (fun () -> raise x)
 	  | `Auth_proto prog ->
-	      if not skip_auth then (
-		stop_retransmission_timer cl call;
-		call.state <- Done;
-		let q =
-		  try Hashtbl.find cl.delayed_calls call.call_auth_proto
-		  with Not_found -> Queue.create() in
-		Hashtbl.remove cl.delayed_calls call.call_auth_proto;
-		Queue.iter
-		  (fun d_call ->
-		     pass_result cl d_call (fun () -> raise x)
-		  )
-		  q
-	      )
+	       stop_retransmission_timer cl call;
+	       call.state <- Done;
+	       if not skip_auth then (
+		 let q =
+		   try Hashtbl.find cl.delayed_calls call.call_auth_proto
+		   with Not_found -> Queue.create() in
+		 Hashtbl.remove cl.delayed_calls call.call_auth_proto;
+		 Queue.iter
+		   (fun d_call ->
+  		      pass_result cl d_call (fun () -> raise x)
+		   )
+		   q
+	       )
       )
     with
       | Keep_call -> ()          (* ignore *)
@@ -460,16 +457,15 @@ let find_or_make_auth_protocol cl user_opt =
   (*****)
 
 let rec next_xid cl =
-  if SessionMap.mem cl.next_xid cl.used_xids then
+  let xid = cl.next_xid in
+  (* xid is uint4, so we increment as int64: *)
+  let xid64 = Rtypes.int64_of_uint4 xid in
+  let xid64' = Int64.logand (Int64.succ xid64) 0xffff_ffff_L in
+  cl.next_xid <- Rtypes.uint4_of_int64 xid64';
+  if SessionMap.mem xid cl.used_xids then
     next_xid cl
-  else (
-    let xid = cl.next_xid in
-    (* xid is uint4, so we increment as int64: *)
-    let xid64 = Rtypes.int64_of_uint4 xid in
-    let xid64' = Int64.logand (Int64.succ xid64) 0xffff_ffff_L in
-    cl.next_xid <- Rtypes.uint4_of_int64 xid64';
+  else
     xid
-  )
 
   (*****)
 

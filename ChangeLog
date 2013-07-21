@@ -1,3 +1,11 @@
+2013-07-21  Gerd Stolpmann  <gerd@samsung>
+
+	* Rpc_client: fixing a potential endless loop when session IDs
+	  are reused
+
+	* Rpc_client: fixing the shutdown when a TCP connection is
+	  immediately refused, and GSS-API authentication is active.
+
 2013-06-16  Gerd Stolpmann  <gerd@zotac>
 
 	* Netcgi_fcgi.run: no longer ignoring the sockaddr argument
