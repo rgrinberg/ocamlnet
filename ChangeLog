@@ -1,5 +1,7 @@
 2013-07-21  Gerd Stolpmann  <gerd@samsung>
 
+	* Release Ocamlnet-3.6.6
+
 	* Netplex_container: emits now backtraces if these are enabled.
 
 	* Http_fs: adding [last_response_status] method
