@@ -51,7 +51,7 @@ Netstringprep:
 
 container hooks: option to emit a stacktrace
 
-Http_fs: also make the HTTP code available (like last_response_header)
+Http_fs: also make the HTTP code available (like last_response_header) - DONE
 
 CHECK:
  - ocamlopt with -g? DONE
