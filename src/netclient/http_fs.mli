@@ -118,6 +118,12 @@ object
 	(or not fully).
      *)
 
+  method last_response_status : Nethttp.http_status * int * string
+    (** Return the response status of the last operation, as triple
+        [(symbolic_code,numeric_code,text)]. This triple is set in the
+        same way as the response header. Raises [Not_found] if unavailable.
+     *)
+
   method pipeline : Http_client.pipeline
     (** The HTTP pipeline backing this file system *)
 

@@ -30,6 +30,7 @@ object
   method write : write_flag list -> string -> Netchannels.out_obj_channel
   method write_file : write_file_flag list -> string -> Netfs.local_file -> unit
   method last_response_header : Nethttp.http_header
+  method last_response_status : Nethttp.http_status * int * string
   method pipeline : Http_client.pipeline
   method translate : string -> string
 
@@ -306,6 +307,7 @@ class http_fs
     try p#run()
     with Interrupt -> () in
   let last_response_header = ref None in
+  let last_response_status = ref None in
 
   let cancel_flag = ref (ref false) in
   
@@ -324,6 +326,20 @@ object(self)
       | Some hdr ->
 	  hdr
 
+  method last_response_status =
+    match !last_response_status with
+      | None ->
+	  raise Not_found
+      | Some triple ->
+	  triple
+
+  method private remember_call call =
+    last_response_header := Some(call#response_header);
+    last_response_status := Some(call#response_status,
+                                 call#response_status_code,
+                                 call#response_status_text)
+
+
   method read flags path =
     let url = translate path in
     let call = new Http_client.get url in
@@ -340,6 +356,7 @@ object(self)
       with Not_found -> [] in
     List.iter (fun (n,v) -> req_hdr # update_field n v) header;
     last_response_header := None;
+    last_response_status := None;
 
     if streaming || List.mem `Streaming flags then (
       let onempty() = () in
@@ -356,7 +373,7 @@ object(self)
       call # set_response_body_storage
 	(`Body (fun () -> 
 		  (* Check whether this is the last body *)
-		  last_response_header := Some(call#response_header);
+                  self # remember_call call;
 		  match is_error_response path call with
 		    | None ->
 			if !cur_ch <> None then
@@ -424,7 +441,7 @@ object(self)
       let cur_tmp = ref None in 
       call # set_response_body_storage
 	(`Body (fun () -> 
-		  last_response_header := Some(call#response_header);
+                  self # remember_call call;
 		  (* Check whether this is the last body *)
 		  match is_error_response path call with
 		    | None ->
@@ -471,11 +488,12 @@ object(self)
       with Not_found -> [] in
     List.iter (fun (n,v) -> req_hdr # update_field n v) header;
     last_response_header := None;
+    last_response_status := None;
 
     let cur_tmp = ref None in 
     call # set_response_body_storage
       (`Body (fun () -> 
-		last_response_header := Some(call#response_header);
+                self # remember_call call;
 		(* Check whether this is the last body *)
 		match is_error_response path call with
 		  | None ->
@@ -530,6 +548,7 @@ object(self)
       with Not_found -> [] in
     List.iter (fun (n,v) -> req_hdr # update_field n v) header;
     last_response_header := None;
+    last_response_status := None;
 
     let create_flag = List.mem `Create flags in
     let trunc_flag = List.mem `Truncate flags in
@@ -560,6 +579,7 @@ object(self)
     let precondfailed = !precondfailed in
 	    
     last_response_header := None;
+    last_response_status := None;
     if (streaming || List.mem `Streaming flags) && local_opt = None then (
       (* We cannot reconnect in streaming mode :-( *)
       call # set_reconnect_mode Http_client.Request_fails;
@@ -586,7 +606,7 @@ object(self)
 	  if !eof then (
 	    running := false;
 	    (* check for errors *)
-	    last_response_header := Some(call#response_header);
+            self # remember_call call;
 	    match is_error_response ~precondfailed path call with
 	      | None -> ()
 	      | Some e -> handle_error ~precondfailed path call
@@ -639,7 +659,7 @@ object(self)
 	      close()
 	    with e -> close(); raise e
 	  );
-	  last_response_header := Some(call#response_header);
+          self # remember_call call;
 	  match is_error_response ~precondfailed path call with
 	    | None ->
 		()
@@ -662,11 +682,12 @@ object(self)
 
   method size _ path =
     last_response_header := None;
+    last_response_status := None;
     let url = translate path in
     let call = new Http_client.head url in
     p#add call;
     p#run();
-    last_response_header := Some(call#response_header);
+    self # remember_call call;
     match is_error_response path call with
       | None ->
 	  ( try
@@ -686,11 +707,12 @@ object(self)
 
   method test_list flags path tl =
     last_response_header := None;
+    last_response_status := None;
     let url = translate path in
     let call = new Http_client.head url in
     p#add call;
     p#run();
-    last_response_header := Some(call#response_header);
+    self # remember_call call;
     match is_error_response path call with
       | None ->
 	  let is_dir =
@@ -730,6 +752,7 @@ object(self)
        *)
       raise(Unix.Unix_error(Unix.ENOTDIR,"Http_fs.readdir",path)) in
     last_response_header := None;
+    last_response_status := None;
     let path1 =
       if path <> "" && path.[String.length path - 1] <> '/' then
 	path ^ "/"
@@ -739,7 +762,7 @@ object(self)
     let call = new Http_client.get url in
     p#add call;
     p#run();
-    last_response_header := Some(call#response_header);
+    self # remember_call call;
     match is_error_response path call with
       | None ->
 	  (* The is_dir_url test only works if the server redirects to a
@@ -818,6 +841,7 @@ object(self)
 
   method remove flags path =
     last_response_header := None;
+    last_response_status := None;
     if List.mem `Recursive flags then
       raise(Unix.Unix_error(Unix.EINVAL,
 			    "Http_fs.remove: recursion not supported",
@@ -826,7 +850,7 @@ object(self)
     let call = new Http_client.get url in
     p#add call;
     p#run();
-    last_response_header := Some(call#response_header);
+    self # remember_call call;
     match is_error_response path call with
       | None ->
 	  ()

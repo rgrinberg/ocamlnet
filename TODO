@@ -2,7 +2,7 @@
   If the connect is refused, the exception is not immedietaly passed
   back to the caller. First the message must time out. Probably
   the timeout handler for the auth proto isn't removed.
-  (Test case: plasma_admin)
+  (Test case: plasma_admin) - DONE
 
 - deprecate Uq_engines.watchdog
   Maybe we can have something else with "sensors".
