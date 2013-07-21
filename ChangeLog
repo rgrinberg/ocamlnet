@@ -1,5 +1,7 @@
 2013-07-21  Gerd Stolpmann  <gerd@samsung>
 
+	* Netplex_container: emits now backtraces if these are enabled.
+
 	* Http_fs: adding [last_response_status] method
 
 	* Rpc_client: fixing a potential endless loop when session IDs

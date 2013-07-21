@@ -49,7 +49,7 @@ Netstringprep:
  - implement the stringprep/SASLprep algorithm
  - need a number of tables (see the RFC, and Unicode)
 
-container hooks: option to emit a stacktrace
+container hooks: option to emit a stacktrace - DONE
 
 Http_fs: also make the HTTP code available (like last_response_header) - DONE
 

@@ -155,7 +155,10 @@ object(self)
       sockserv # processor # container_run esys
     with
       | error ->
+          let bt = Printexc.get_backtrace() in
 	  self # log `Crit ("run: Exception " ^ Netexn.to_string error);
+          if Printexc.backtrace_status() then
+            self # log `Crit ("run: Backtrace: " ^ bt);
 	  let b = sockserv # processor # global_exception_handler error in
 	  if b then self # protect_run()
 
