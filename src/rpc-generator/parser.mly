@@ -13,12 +13,14 @@
 %token LBRACE RBRACE
 %token STAR COMMA SEMICOLON COLON EQUAL MAPSTO
 %token <string> IDENT
+%token <string> QIDENT
 %token <string> INTLITERAL
 %token K_opaque K_string K_void K_unsigned K_int K_hyper
 %token K_float K_double K_quadruple K_bool
 %token K_enum K_struct K_union K_switch K_case K_default
 %token K_const K_typedef K_program K_version
 %token K_int32 K_int64 K_unboxed K_abstract K_managed
+%token K_tuple K_lowercase K_uppercase K_capitalize K_prefix K_equals
 %token IGNORE PERCENT
 %token <int*int> LINEFEED
 %token <int*string> SETFILE
@@ -134,8 +136,8 @@ int_or_hyper:
 ;
 
 enum_type_spec:
-  K_enum enum_body
-    { T_enum $2 }
+  K_enum enum_options enum_body
+    { T_enum(mk_enum $2 $3) }
 | K_enum identifier
     { T_refer_to (R_enum, ref $2) }
 ;
@@ -152,9 +154,16 @@ enum_body_list:
     { ( $1, $3 ) :: $5 }
 ;
 
+enum_options:
+  mangling_option enum_options
+    { $1 :: $2 }
+|
+    { [] }
+;
+
 struct_type_spec:
-  K_struct struct_body
-    { T_struct $2 }
+  K_struct struct_options struct_body
+    { T_struct(mk_struct $2 $3) }
 | K_struct identifier
     { T_refer_to (R_struct, ref $2) }
 ;
@@ -171,6 +180,22 @@ struct_body_list:
     { $1 :: $3 }
 ;
 
+struct_options:
+  struct_option struct_options
+    { $1 :: $2 }
+|
+    { [] }
+;
+
+struct_option:
+  K_tuple
+    { `Tuple }
+| K_equals QIDENT
+    { `Equals $2 }
+| mangling_option
+    { ( $1 :> [ mangling_option | struct_option ] ) }
+;
+
 union_type_spec:
   K_union union_body
     { T_union $2 }
@@ -179,9 +204,9 @@ union_type_spec:
 ;
 
 union_body:
-  K_switch LPAREN declaration RPAREN
+  union_options K_switch LPAREN declaration RPAREN
            LBRACE union_body_list union_default_opt RBRACE
-    { mk_union $3 $6 $7 }
+    { mk_union $1 $4 $7 $8 }
 ;
 
 /*
@@ -210,6 +235,8 @@ union_case_list:
 union_case_mapping:
   MAPSTO IDENT
     { Some $2 }
+| MAPSTO QIDENT
+    { Some $2 }
 |
     { None }
 ;
@@ -221,6 +248,20 @@ union_default_opt:
     { None }
 ;
 
+union_options:
+  mangling_option union_options
+    { $1 :: $2 }
+|
+    { [] }
+;
+
+mangling_option:
+  K_lowercase { `Lowercase }
+| K_uppercase { `Uppercase }
+| K_capitalize { `Capitalize }
+| K_prefix QIDENT { `Prefix $2 }
+;
+
 constant_def:
   K_const declared_identifier EQUAL constant SEMICOLON
     { Constdef($2, $4) }
@@ -229,10 +270,10 @@ constant_def:
 type_def:
   K_typedef declaration SEMICOLON
     { Typedef $2 }
-| K_enum declared_identifier enum_body SEMICOLON
-    { Typedef (mk_decl $2 (T_enum $3)) }
-| K_struct declared_identifier struct_body SEMICOLON
-    { Typedef (mk_decl $2 (T_struct $3)) }
+| K_enum declared_identifier enum_options enum_body SEMICOLON
+    { Typedef (mk_decl $2 (T_enum(mk_enum $3 $4))) }
+| K_struct declared_identifier struct_options struct_body SEMICOLON
+    { Typedef (mk_decl $2 (T_struct(mk_struct $3 $4))) }
 | K_union declared_identifier union_body SEMICOLON
     { Typedef (mk_decl $2 (T_union $3)) }
 ;
@@ -324,6 +365,8 @@ declared_identifier:
   IDENT
     { mk_id $1 }
 | IDENT MAPSTO IDENT
+    { mk_mapped_id $1 $3 }
+| IDENT MAPSTO QIDENT
     { mk_mapped_id $1 $3 }
 ;
 

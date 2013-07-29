@@ -15,6 +15,14 @@ type xdr_id =
     }
 ;;
 
+type mangling_option =
+  [ `Lowercase
+  | `Uppercase
+  | `Capitalize
+  | `Prefix of string
+  ]
+;;
+
 let mk_id name =
   { xdr_name = name; ocaml_name_requested = false; ocaml_name = "" }
 ;;
@@ -26,6 +34,28 @@ let mk_mapped_id xdrname ocamlname =
 let mk_void_id () =
   { xdr_name = ""; ocaml_name_requested = false; ocaml_name = "" }
 ;;
+
+let mangle_name opts name =
+  List.fold_left
+    (fun name opt ->
+       match opt with
+         | `Lowercase -> String.lowercase name
+         | `Uppercase -> String.uppercase name
+         | `Capitalize -> String.capitalize name
+         | `Prefix p -> p ^ name
+    )
+    name
+    opts
+;;
+
+let mangle_id opts id =
+  if id.ocaml_name_requested then
+    id
+  else
+    let ocaml_name = mangle_name opts id.xdr_name in
+    { id with ocaml_name; ocaml_name_requested = true }
+;;
+
 
 type xdr_constant =
   | Constant of (bool * uint4)        (* sign (true=neg), absolute value *)
@@ -43,6 +73,12 @@ type int_variant =
   | INT32
   | INT64
   | Unboxed
+;;
+
+type struct_option =
+  [ `Tuple 
+  | `Equals of string
+  ]
 ;;
 
 type xdr_type =
@@ -67,7 +103,7 @@ type xdr_type =
   | T_bool
   | T_refer_to of (refconstr * string ref)         (* always the XDR name! *)
   | T_enum of (xdr_id * xdr_constant ref) list
-  | T_struct of xdr_decl list
+  | T_struct of (struct_option list * xdr_decl list)
   | T_union of xdr_union
 
 and refconstr =
@@ -85,6 +121,10 @@ and xdr_union =
 	 * ocaml_name: The ocaml name for the polymorphic variant
 	 * component_decl: The declaration after ':' (t x)
 	 *)
+      mangling : mangling_option list;
+        (* Additional mangling for [cases]. This is delayed because
+           [discrimant] can be a reference.
+         *)
       default : xdr_decl option;
     }
 
@@ -123,6 +163,14 @@ type xdr_def =
 ;;
 
 
+let mk_enum (opts:mangling_option list) l =
+  List.map
+    (fun (id,const) ->
+       (mangle_id opts id,const)
+    )
+    l
+
+
 let mk_decl id t =
   { decl_type = t;
     decl_symbol = id;
@@ -130,12 +178,39 @@ let mk_decl id t =
   }
 ;;
 
-let mk_union discr cs defl =
+let mk_union opts discr cs defl =
   { discriminant = discr;
     cases = cs;
+    mangling = opts;
     default = defl;
   }
 ;;
+
+let mangling_opt opt =
+  match opt with
+    | #mangling_option as opt -> [opt]
+    | _ -> []
+
+let struct_opt opt =
+  match opt with
+    | #struct_option as opt -> [opt]
+    | _ -> []
+
+
+let mk_struct opts decls =
+  let mangling_opts =
+    List.flatten (List.map mangling_opt opts) in
+  let struct_opts =
+    List.flatten (List.map struct_opt opts) in
+  let decls1 =
+    List.map
+      (fun d ->
+         { d with decl_symbol = mangle_id mangling_opts d.decl_symbol }
+      )
+      decls in
+  (struct_opts, decls1)
+;;
+
 
 let mk_program symbol def number =
   { prog_symbol = symbol;
@@ -262,7 +337,7 @@ let resolve_constants dl =
 				    resolve_const c;
 				    def_constant id (constant !c);
 				 ) l
-      | T_struct td         -> List.iter check_type_decl td
+      | T_struct(_,td)      -> List.iter check_type_decl td
       | T_union u           -> check_type_decl (u.discriminant);
 	                       List.iter (fun (c,_,td) ->
 					    resolve_const c;
@@ -427,7 +502,7 @@ let check_type_constraints dl =
       | T_refer_to n         -> ignore(get_type t)
       | T_enum l             -> List.iter
 	                          (fun(_,c) -> signed_int (constant !c)) l
-      | T_struct td          -> uniqueness_in_tdlist td;
+      | T_struct(_,td)       -> uniqueness_in_tdlist td;
 	                        List.iter check_type_decl td
       | T_union u            -> let defdecl =
 	                          match u.default with

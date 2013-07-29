@@ -25,7 +25,7 @@ let name_mapping
       | T_array_unlimited t' -> check_type t'
       | T_enum l ->
 	  List.iter (fun (id,_) -> rename_enum id) l
-      | T_struct tdl ->
+      | T_struct (_,tdl) ->
 	  List.iter (fun td -> rename_struct_component td.decl_symbol) tdl;
 	  List.iter (fun td -> check_type td.decl_type) tdl;
       | T_union u ->

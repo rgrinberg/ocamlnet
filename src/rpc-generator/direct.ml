@@ -48,7 +48,7 @@ let mark_decls_suited_for_direct_mapping dl =
 	  true
       | T_option t1 ->
 	  visit_type t1
-      | T_struct tdl ->
+      | T_struct(_,tdl) ->
 	  List.for_all (fun td -> visit_type td.decl_type) tdl
       | T_refer_to(_,n) ->
 	  not (Hashtbl.mem visiting !n) && (

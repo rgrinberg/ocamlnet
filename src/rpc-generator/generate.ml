@@ -182,6 +182,20 @@ let values_of_enum_type t =
 	assert false
 ;;
 
+let get_union_discriminator_type typemap u =
+  (* gets and normalizes the descr type *)
+  let t1 = get_type_from_map typemap u.discriminant.decl_type in
+  match t1 with
+    | T_int _ | T_uint _ -> 
+        t1
+    | T_bool ->
+        T_enum(enum_type T_bool)
+    | T_enum l ->
+        (* apply mangling *)
+        T_enum(mk_enum u.mangling l)
+    | _ ->
+        assert false
+;;
 
 (**********************************************************************)
 (* Output constant definitions                                        *)
@@ -208,6 +222,7 @@ let output_consts (mli:formatter) (f:formatter) (dl:xdr_def list) =
   in
 
   let rec output_type t = (
+   (* that's only about the enum constants inside t *)
     match t with
       | T_option t'         -> output_type t'
       | T_array_fixed(_,t') -> output_type t'
@@ -218,7 +233,7 @@ let output_consts (mli:formatter) (f:formatter) (dl:xdr_def list) =
 				    output_signed_const id (constant !c)
                                  )
 	                         (strip_enum_list l)
-      | T_struct td         -> List.iter output_type_decl td
+      | T_struct(_,td)      -> List.iter output_type_decl td
       | T_union u           -> output_type_decl (u.discriminant);
                                List.iter (fun (_,_,td) ->
                                             output_type_decl td) u.cases;
@@ -365,19 +380,12 @@ let output_type_declarations (f:formatter) (dl:xdr_def list) =
 	  Queue.add (n,t) deferred;
 	  fprintf f "%s" n
       | T_union u ->
-	  let discr_type = get_type_of_decl u.discriminant in
+	  let discr_type = get_union_discriminator_type typemap u in
 	  let make_tag c =
 	    let (sign,absval) = constant c in
 	    match discr_type with
 		(T_int _|T_uint _) ->
 		  (if sign then "__" else "_") ^ string_of_uint4 absval
-	      | T_bool ->
-		  assert(not sign);
-		  ( match string_of_uint4 absval with
-			"0" -> "False"
-		      | "1" -> "True"
-		      | _   -> assert false
-		  )
 	      | T_enum l ->
 		  ( try
 		      let id,_ =
@@ -455,19 +463,45 @@ let output_type_declarations (f:formatter) (dl:xdr_def list) =
     begin_decl();
     fprintf f "%s = @\n" n;
     (match t with
-	T_struct tdl ->
-	  fprintf f "@[<hov>{ ";
-	  List.iter
-	    (fun td' ->
-	       if td'.decl_symbol.xdr_name <> "" then begin
-		 fprintf f "@\n  mutable %s : @[<b 4>@," td'.decl_symbol.ocaml_name;
-		 output_type td'.decl_type;
-		 fprintf f "@];";
-	       end
-		 (* else: td' is a void component *)
-	    )
-	    tdl;
-	  fprintf f "@\n}@]";
+	T_struct(opts,tdl) ->
+          if List.mem `Tuple opts then (
+            fprintf f "@[<hov>( ";
+            let first = ref true in
+	    List.iter
+	      (fun td' ->
+	         if td'.decl_symbol.xdr_name <> "" then (
+                   if not !first then fprintf f "@;* ";
+                   first := false;
+                   output_type td'.decl_type;
+                 )
+	        (* else: td' is a void component *)
+              )
+              tdl;
+            fprintf f " )@]"
+          ) else (
+            ( try
+                let p = 
+                  List.find (function `Equals _ -> true | _ -> false) opts in
+                match p with
+                  | `Equals s -> fprintf f "  %s =@\n" s
+                  | _ -> assert false
+              with Not_found -> ()
+            );
+	    fprintf f "@[<hov>{ ";
+	    List.iter
+	      (fun td' ->
+	         if td'.decl_symbol.xdr_name <> "" then begin
+		   fprintf f
+                     "@\n  mutable %s : @[<b 4>@,"
+                     td'.decl_symbol.ocaml_name;
+		   output_type td'.decl_type;
+		   fprintf f "@];";
+                 end
+	        (* else: td' is a void component *)
+	      )
+	      tdl;
+	    fprintf f "@\n}@]";
+          )
       | t ->
 	  output_type t);
     fprintf f "@]@\n";
@@ -674,7 +708,7 @@ let output_xdr_type (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    )
 	    (strip_enum_list l);
 	  fprintf f "]@]";
-      | T_struct tdl ->
+      | T_struct(_,tdl) ->
 	  fprintf f "@[<hv 2>Xdr.X_struct@ @[<hv>[@ ";
 	  List.iter
 	    (fun d ->
@@ -687,10 +721,10 @@ let output_xdr_type (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    tdl;
 	  fprintf f "]@]@]";
       | T_union u ->
-	    let discr_type = get_type_of_decl u.discriminant in
-	    if match discr_type with T_int _ | T_uint _ -> true
-                                                    | _ -> false
-	    then begin
+	    let discr_type = get_union_discriminator_type typemap u in
+            let is_union_over_int =
+	      match discr_type with T_int _ | T_uint _ -> true | _ -> false in
+	    if is_union_over_int then begin
 	      (* Unions of integers *)
 	      let constr, printint =
 		match discr_type with
@@ -896,7 +930,7 @@ let calc_min_size dl =
 	    if size = 0 then
 	      failwith "Array elements must not have length 0";
 	    4
-	| T_struct s ->
+	| T_struct(_,s) ->
 	    List.fold_left
 	      (fun acc td ->
 		 acc ++ calc td.decl_type
@@ -1053,7 +1087,7 @@ let have_enum_default_with_arg u get_type_of_decl  =
     | _ -> assert false
 
 
-let output_match_union_by_cases f u var get_type_of_decl 
+let output_match_union_by_cases f u discr_type var get_type_of_decl 
                                 f_case f_default f_let =
   (* Outputs a "match" statement over the Ocaml variants. The variable var
      is matched. For every variant of var the function f_case is called:
@@ -1089,7 +1123,6 @@ let output_match_union_by_cases f u var get_type_of_decl
      The function f_let can be used to generate "let v = ... in ..."
      statements.
    *)
-  let discr_type = get_type_of_decl u.discriminant in
   match discr_type with
     | T_int _ | T_uint _ ->
 	fprintf f "@[<v 2>";
@@ -1177,9 +1210,8 @@ let output_match_union_by_cases f u var get_type_of_decl
 
 
 
-let output_match_union_by_number f u var by_k get_type_of_decl
+let output_match_union_by_number f u discr_type var by_k get_type_of_decl
                                  f_case f_default f_let f_coerce =
-  let discr_type = get_type_of_decl u.discriminant in
   match discr_type with
     | T_int _ | T_uint _ ->
 	fprintf f "@[<v 2>( ";
@@ -1273,9 +1305,8 @@ let output_match_union_by_number f u var by_k get_type_of_decl
 	assert false
 
 
-let output_coerce_pattern f u get_type_of_decl =
+let output_coerce_pattern f u discr_type get_type_of_decl =
   (* outputs a type pattern to which values of [u] can be coerced to *)
-  let discr_type = get_type_of_decl u.discriminant in
   match discr_type with
     | T_int _ | T_uint _ ->
 	fprintf f "@[<hv>[";
@@ -1344,6 +1375,13 @@ let output_coerce_pattern f u get_type_of_decl =
 (**********************************************************************)
 (* Output conversion functions                                        *)
 (**********************************************************************)
+
+
+let proj_pattern var p q =
+  let l1 =
+    Array.init q (fun i -> if i=p then var else "_") in
+  String.concat "," (Array.to_list l1)
+
 
 let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 
@@ -1462,7 +1500,30 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    generate_direct_case direct_opt;
 	    fprintf f "| _ -> raise Xdr.Dest_failure@ ";
 	    fprintf f "@]@ )";
-	| T_struct tl ->
+	| T_struct(opts,tl) when List.mem `Tuple opts ->
+	    fprintf f "@[<hv 2>";
+	    fprintf f "( let f s =@ ";
+	    fprintf f "  @[<hv>( @[<hv>";
+	    let isfirst = ref true in
+	    let k = ref 0 in
+	    List.iter
+	      (fun d ->
+		 if d.decl_type <> T_void then begin
+		   if not !isfirst then fprintf f ",@ ";
+		   isfirst:= false;
+		   fprintf f "@[<hv>";
+		   fprintf f "(fun x -> ";
+		   output_toconv_for_type "x" d.decl_type None;
+		   fprintf f ")@ s.(%d)" !k;
+		   fprintf f "@]";
+		   incr k
+		 end
+	      )
+	      tl;
+	    fprintf f "@]@ )@] in@ ";
+	    generate_dest direct_opt var "XV_struct_fast" "f";
+	    fprintf f "@]@ )"
+	| T_struct(_,tl) ->
 	    fprintf f "@[<hv 2>";
 	    fprintf f "( let f s =@ ";
 	    fprintf f "  @[<hv>{ @[<hv>";
@@ -1496,14 +1557,15 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	      generate_direct_case direct_opt;
 	      fprintf f "| _ ->@ ";
 	    );
-	    let discr_type = get_type_of_decl u.discriminant in
-	    if match discr_type with T_int _ | T_uint _ -> true
-	                                            | _ -> false
-	    then begin
+	    let discr_type = get_union_discriminator_type typemap u in
+            let is_union_over_int =
+	      match discr_type with T_int _ | T_uint _ -> true | _ -> false in
+	    if is_union_over_int then begin
 	      (* Unions of integers *)
 	      output_match_union_by_number
 		f
 		u
+                discr_type
 		"discriminant"
 		false  (* by_k *)
 		get_type_of_decl
@@ -1539,7 +1601,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 		(fun () ->
 		   (* f_coerce *)
 		   fprintf f "@ :> ";
-		   output_coerce_pattern f u get_type_of_decl
+		   output_coerce_pattern f u discr_type get_type_of_decl
 		)
 	    end
 	    else begin
@@ -1549,6 +1611,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	      output_match_union_by_number
 		f
 		u
+                discr_type
 		"k"
 		true  (* by_k *)
 		get_type_of_decl
@@ -1585,7 +1648,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 		(fun () ->
 		   (* f_coerce *)
 		   fprintf f "@ :> ";
-		   output_coerce_pattern f u get_type_of_decl
+		   output_coerce_pattern f u discr_type get_type_of_decl
 		)
 	    end;
 	    if check_direct then
@@ -1745,7 +1808,33 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    fprintf f "| _ -> failwith \"RPC/XDR error: invalid enum value for type `%s'\"@ " name;
 	    fprintf f ")";
 	    fprintf f "@]";
-	| T_struct tdl ->
+	| T_struct(opts,tdl) when List.mem `Tuple opts ->
+            let tdl =
+              Array.to_list
+                (Array.mapi
+                   (fun i d -> (i,d))
+                   (Array.of_list
+                      (List.filter (fun d -> d.decl_type <> T_void) tdl))
+                ) in
+            fprintf f "@[<hv>(@[<hv 2>";
+            fprintf f "let (%s) = %s in@;"
+              (String.concat ","
+                (List.map (fun (i,_) -> sprintf "x%d" i) tdl))
+              var;
+	    List.iter
+	      (fun (i,d) ->
+                 let v = sprintf "x%d" i in
+	         fprintf f "let %s = " v;
+		 output_ofconv_for_type name v d.decl_type;
+                 fprintf f " in@;"
+	      )
+	      tdl;
+	    fprintf f "Xdr.XV_struct_fast@ ";
+	    fprintf f "[| %s |]"
+              (String.concat ";"
+                (List.map (fun (i,_) -> sprintf "x%d" i) tdl));
+            fprintf f "@])@]"
+	| T_struct(_,tdl) ->
 	    fprintf f "@[<hv>(@[<hv 2>Xdr.XV_struct_fast@ ";
 	    fprintf f "[|@ ";
 	    List.iter
@@ -1762,12 +1851,13 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	      tdl;
 	    fprintf f "|]@])@]"
 	| T_union u ->
-	    let discr_type = get_type_of_decl u.discriminant in
+	    let discr_type = get_union_discriminator_type typemap u in
 	    let have_mkdefault =
 	      have_enum_default_with_arg u get_type_of_decl in
 	    output_match_union_by_cases
 	      f
 	      u
+              discr_type
 	      var
 	      get_type_of_decl
 	      (fun k (sign,n) d have_x is_default ->
@@ -1905,7 +1995,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	  fprintf f "| Some x ->@[<hv 2>@ ";
 	  output_sizeexpr_for_type 
 	    name 
-	    (calc_sizefn_for_struct ["",`Size_const n; "",calcexpr1]);
+	    (calc_sizefn_for_struct [`None,`Size_const n; `None,calcexpr1]);
 	  fprintf f "@])@]"
       | `Size_struct l ->
 	  fprintf f "@[<hv 2>(";
@@ -1915,13 +2005,18 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	       if not !first then
 		 fprintf f " +!@ ";
 	       first := false;
-	       if component = "" then
-		 output_sizeexpr_for_type name calcexpr1
-	       else (
-		 fprintf f "@[<hv 2>( let x = x%s in@ " component;
-		 output_sizeexpr_for_type name calcexpr1;
-		 fprintf f "@])"
-	       )
+               match component with
+                 | `None ->
+		      output_sizeexpr_for_type name calcexpr1
+                 | `Field fname ->
+		      fprintf f "@[<hv 2>( let x = x.%s in@ " fname;
+		      output_sizeexpr_for_type name calcexpr1;
+		      fprintf f "@])"
+                 | `Proj(p,q) ->
+		      fprintf f "@[<hv 2>( let (%s) = x in@ "
+                              (proj_pattern "x" p q);
+		      output_sizeexpr_for_type name calcexpr1;
+		      fprintf f "@])"                      
 	    )
 	    l;
 	  fprintf f ")@]"
@@ -1958,13 +2053,14 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 		  fprintf f "@]@ )"
 	  )
       | `Size_union(u,sizeexpr_cases,sizeexpr_default) ->
-	  (* let discr_type = get_type_of_decl u.discriminant in *)
+	  let discr_type = get_union_discriminator_type typemap u in
 	  let have_mkdefault =
 	    have_enum_default_with_arg u get_type_of_decl in
 	  fprintf f "@[<hv 2>( 4 +!@ ";
 	  output_match_union_by_cases
 	    f
 	    u
+            discr_type
 	    "x"
 	    get_type_of_decl
 	    (fun k (sign,n) d have_x is_default ->       (* f_case *)
@@ -2029,12 +2125,29 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	  `Size_const 4L
       | T_hyper _ | T_uhyper _ | T_double ->
 	  `Size_const 8L
-      | T_struct tdl ->
+      | T_struct(opts,tdl) when List.mem `Tuple opts ->
+          let tdl_a = 
+            Array.of_list
+	      (List.filter
+		 (fun d -> d.decl_type <> T_void)
+		 tdl
+	      ) in
+	  calc_sizefn_for_struct
+            (Array.to_list
+	       (Array.mapi
+	          (fun i d -> 
+		     let component = `Proj(i, Array.length tdl_a) in
+		     (component, calc_sizefn_for_type name d.decl_type)
+	          ) 
+                  tdl_a
+	       )
+            )
+      | T_struct(_,tdl) ->
 	  calc_sizefn_for_struct
 	    (List.map 
 	       (fun d -> 
-		  let component = "." ^ d.decl_symbol.ocaml_name in
-		  (component, calc_sizefn_for_type name d.decl_type)
+		  let fname = d.decl_symbol.ocaml_name in
+		  (`Field fname, calc_sizefn_for_type name d.decl_type)
 	       ) 
 	       (List.filter
 		  (fun d -> d.decl_type <> T_void)
@@ -2097,10 +2210,10 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	   l1
 	) in
     let l2 =
-      (if n_const > 0L then ["", `Size_const n_const] else []) @ l_other in
+      (if n_const > 0L then [`None, `Size_const n_const] else []) @ l_other in
     match l2 with
       | [] -> `Size_const 0L
-      | ["", x] -> x
+      | [`None, x] -> x
       | _ -> `Size_struct l2
   in
 
@@ -2194,7 +2307,21 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	  fprintf f "raise(Xdr.Xdr_failure \"invalid enum\");@]@ ";
 	  fprintf f "Netnumber.BE.write_int4_unsafe s !p x;@ ";
 	  fprintf f "p := !p + 4;@ "
-      | T_struct tdl ->
+      | T_struct(opts,tdl) when List.mem `Tuple opts ->
+          let n = List.length tdl in
+          let p = ref 0 in
+	  List.iter
+	    (fun d ->
+	       if d.decl_type <> T_void then (
+  	         fprintf f "@[<hov 2>( let (%s) = x in@ "
+                         (proj_pattern "x" !p n);
+	         output_writeexpr_for_type name d.decl_type;
+	         fprintf f "()@]@ );@ ";
+                 incr p;
+	       )
+            )
+	    tdl
+      | T_struct(_,tdl) ->
 	  List.iter
 	    (fun d ->
 	       if d.decl_type <> T_void then (
@@ -2228,12 +2355,13 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	  fprintf f "()@]@ ";
 	  fprintf f ")@ x@];@ "
       | T_union u ->
-	  let discr_type = get_type_of_decl u.discriminant in
+	  let discr_type = get_union_discriminator_type typemap u in
 	  let have_mkdefault = 
 	    have_enum_default_with_arg u get_type_of_decl in
 	  output_match_union_by_cases
 	    f
 	    u
+            discr_type
 	    "x"
 	    get_type_of_decl
 	    (fun k (sign,n) d have_x is_default ->  (* f_case *)
@@ -2394,7 +2522,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	  fprintf f "raise(Xdr.Xdr_format \"invalid enum\");@]@ ";
 	  fprintf f "x";
 	  fprintf f "@]@ )"
-      | T_struct tdl ->
+      | T_struct(opts,tdl) ->
 	  fprintf f "( @[<hv>";
 	  let i = ref 0 in
 	  List.iter
@@ -2408,16 +2536,29 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    )
 	    tdl;
 	  i := 0;
-	  fprintf f "{ @[<hv>";
-	  List.iter
-	    (fun d ->
-	       if d.decl_type <> T_void then (
-		 fprintf f "@ %s = x%d;" d.decl_symbol.ocaml_name !i;
-		 incr i;
-	       )
-	    )
-	    tdl;
-	  fprintf f "@]@ }";
+          if List.mem `Tuple opts then (
+            let s =
+              String.concat ","
+                (Array.to_list
+                   (Array.map
+                      (fun j -> sprintf "x%d" j)
+                      (Array.init !i (fun j -> j))
+                   )
+                ) in
+            fprintf f "(%s)" s
+          )
+          else (
+	    fprintf f "{ @[<hv>";
+	    List.iter
+	      (fun d ->
+	         if d.decl_type <> T_void then (
+		   fprintf f "@ %s = x%d;" d.decl_symbol.ocaml_name !i;
+		   incr i;
+	         )
+	      )
+	      tdl;
+	    fprintf f "@]@ }";
+          );
 	  fprintf f "@]@ )"
       | T_refer_to (_,refname) ->
 	  let ocaml_name =
@@ -2438,7 +2579,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
       | T_array_unlimited t' ->
 	  output_readexpr_for_array name None t'
       | T_union u ->
-	  let discr_type = get_type_of_decl u.discriminant in
+	  let discr_type = get_union_discriminator_type typemap u in
 	  let int_name =
 	    match discr_type with
 	      | T_int _ | T_enum _ | T_bool -> "int4"
@@ -2453,6 +2594,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	  output_match_union_by_number
 	    f
 	    u
+            discr_type
 	    "d"
 	    false  (* by_k *)
 	    get_type_of_decl
@@ -2503,7 +2645,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	    )
 	    (fun () ->    	                      (* f_coerce *)
 	       fprintf f "@ :> ";
-	       output_coerce_pattern f u get_type_of_decl
+	       output_coerce_pattern f u discr_type get_type_of_decl
 	    );
 	  fprintf f "@]@ )"
 

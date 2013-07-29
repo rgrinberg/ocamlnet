@@ -53,6 +53,14 @@ rule token = parse
   | "_int32"    { K_int32 }
   | "_int64"    { K_int64 }
   | "_managed"  { K_managed }
+  | "_tuple"    { K_tuple }
+  | "_uppercase" { K_uppercase }
+  | "_lowercase" { K_uppercase }
+  | "_capitalize" { K_capitalize }
+  | "_prefix" { K_prefix }
+  | "_equals" { K_equals }
+  | '"' ( [ 'a'-'z' 'A'-'Z' '_' '0'-'9' '\'' '.' ]+ as s ) '"'
+    { QIDENT s }
   | '-'? ['1'-'9'] ['0'-'9']*                      (* C-style decimal number *)
     { INTLITERAL (Lexing.lexeme lexbuf) }
   | '-'? '0' ['0'-'7']*                            (* C-style octal number *)
