@@ -65,15 +65,15 @@ the result as follows:
 
 {[
 type t_P'V'add'arg =                      (* Arguments *)
-      ( Rtypes.int4 * Rtypes.int4 )
+      ( Netnumber.int4 * Netnumber.int4 )
 and t_P'V'add'res =                       (* Result *)
-      Rtypes.int4
+      Netnumber.int4
 ]}
 
-Note that the XDR integer type is mapped to {!Rtypes.int4} which is an
-opaque type representing 4-byte signed integers. {!Rtypes} defines
+Note that the XDR integer type is mapped to {!Netnumber.int4} which is an
+opaque type representing 4-byte signed integers. {!Netnumber} defines
 conversion functions for int4 to/from other O'Caml types. If
-{!Rtypes.int4} is not what you want, you can select a different
+{!Netnumber.int4} is not what you want, you can select a different
 integer mapping on the command line of [ocamlrpcgen]. For example, [-int
 int32] selects that you want the built-in [int32] integer type, and [-int
 unboxed] selects that you want the built-in [int] integer type. Note (1)
@@ -427,8 +427,8 @@ usage: ocamlrpcgen [-aux] [-clnt] [-srv] [-srv2]
 - [-clnt]: Creates for every XDR file a client module.
 - [-srv]: Creates for every XDR file a server module.
 - [-srv2]: Creates for every XDR file a new-style server module.
-- [-int abstract]: Uses {!Rtypes.int4} for signed ints and
-  {!Rtypes.uint4} for unsigned ints as default integer representation.
+- [-int abstract]: Uses {!Netnumber.int4} for signed ints and
+  {!Netnumber.uint4} for unsigned ints as default integer representation.
   This is the default. 
 - [-int int32]: Uses [int32] for both signed and unsigned
   ints as default integer representation. Note that overflows are ignored for
@@ -437,8 +437,8 @@ usage: ocamlrpcgen [-aux] [-clnt] [-srv] [-srv2]
 - [-int unboxed]: Uses [Pervasives.int] for both signed and
   unsigned ints as default integer representation. XDR values outside the range
   of O'Camls 31 bit signed ints are rejected (raise an exception).
-- [-hyper abstract]: Uses {!Rtypes.int8} for signed ints and
-  {!Rtypes.uint8} for unsigned ints as default hyper (64 bit integer) 
+- [-hyper abstract]: Uses {!Netnumber.int8} for signed ints and
+  {!Netnumber.uint8} for unsigned ints as default hyper (64 bit integer) 
   representation. This is the default.
 - [-hyper int64]: Uses [int64] for both signed and unsigned
   ints as default hyper representation. Note that overflows are ignored for
@@ -634,6 +634,52 @@ type b = { b_c : t2; ... }
 This works wherever a name is defined in the XDR file.
 
 
+{2:map_dirs Directives for name mapping}
+
+Since Ocamlnet-3.6.7, there are now also a few directives influencing the
+name mapping for structs, unions, and enums:
+
+ - [_lowercase]: the XDR name is lowercased
+ - [_uppercase]: the XDR name is uppercased
+ - [_capitalize]: the XDR name is capitalized
+ - [_prefix "p"]: this prefix is prepended to the XDR name
+
+It is possible to specify several directives, which are then applied one
+after the other.
+
+ - For structs, these directives control the name mapping of the elements.
+   Place the directives before the left brace, e.g.
+   {[
+     struct a _lowercase _prefix "a_" {
+       T1 string;
+       T2 float;
+     };
+   ]}
+   This would generate the record type
+   [ type a = { a_t1 : string; a_t2 : float } ].
+
+ - For enums, these directives control the name mapping of the generated
+   constants. Again, place the directives before the left brace, e.g.
+   {[
+     enum x _lowercase {
+       ONE = 1,
+       TWO = 2
+     };
+   ]}
+   The generated OCaml constants have here names [one] and [two].
+ - For unions, the directives control the name mapping of the discriminating
+   cases (when an enum is used for that). Place the directives before the
+   [switch] keyword, e.g.
+   {[
+     union u _lowercase _capitalize switch (x discr) {
+       case ONE: void;
+       case TWO: double x;
+     };
+   ]}
+   This would generate the variant type [ [`One | `Two of float] ] in the
+   Ocaml mapping.
+
+
 {2:map_ints Mapping integer types}
 
 XDR defines 32 bit and 64 bit integers, each in a signed and unsigned
@@ -642,11 +688,11 @@ so-called unboxed integers), 32 bit signed integers (type [int32]), and 64 bit
 signed integers (type [int64]), it is unclear how to map the XDR integers to
 O'Caml integers.
 
-The module {!Rtypes} defines the opaque types [int4], [uint4], [int8],
+The module {!Netnumber} defines the opaque types [int4], [uint4], [int8],
 and [uint8] which exactly correspond to the XDR types. These are
 useful to pass integer values through to other applications, and for
 simple identification of things. However, you cannot compute directly
-with the {!Rtypes} integers. Of course, {!Rtypes} also provides
+with the {!Netnumber} integers. Of course, {!Netnumber} also provides
 conversion functions to the basic O'Caml integer types [int], [int32],
 and [int64], but it would be very inconvenient to call these
 conversions for every integer individually.
@@ -657,11 +703,11 @@ necessary conversion invocations automatically). The new keywords
 [_abstract], [_int32], [_int64], and [_unboxed] select the variant to
 use:
 
-- [_abstract int]: A signed 32 bit integer mapped to {!Rtypes.int4}
+- [_abstract int]: A signed 32 bit integer mapped to {!Netnumber.int4}
 - [_int32 int]: A signed 32 bit integer mapped to [int32]
 - [_int64 int]: A signed 32 bit integer mapped to [int64]
 - [_unboxed int]: A signed 32 bit integer mapped to [int]
-- [unsigned _abstract int]: An unsigned 32 bit integer mapped to {!Rtypes.uint4}
+- [unsigned _abstract int]: An unsigned 32 bit integer mapped to {!Netnumber.uint4}
 - [unsigned _int32 int]: An unsigned 32 bit integer mapped to [int32] 
   (ignoring overflows)
 - [unsigned _int64 int]: An unsigned 32 bit integer mapped to [int64]
@@ -674,10 +720,10 @@ causes a language mapping rejecting too small or too big values.
 
 A similar mapping can be specified for the 64 bit integers (hypers):
 
-- [_abstract hyper]: A signed 64 bit integer mapped to {!Rtypes.int8}
+- [_abstract hyper]: A signed 64 bit integer mapped to {!Netnumber.int8}
 - [_int64 hyper]: A signed 64 bit integer mapped to [int64]
 - [_unboxed hyper]: A signed 64 bit integer mapped to [int]
-- [unsigned _abstract hyper]: An unsigned 64 bit integer mapped to {!Rtypes.uint8}
+- [unsigned _abstract hyper]: An unsigned 64 bit integer mapped to {!Netnumber.uint8}
 - [unsigned _int64 hyper]: An unsigned 64 bit integer mapped to [int64]
 - [unsigned _unboxed hyper]: An unsigned 64 bit integer mapped to [int]
 
@@ -724,11 +770,32 @@ performed.
 
 {2:map_records Mapping record types (structs)}
 
-Structs are mapped to O'Caml records.
+Structs are mapped to O'Caml records by default. The elements are mutable.
+
+Since Ocamlnet-3.6.7 it is possible to add an equality constraint, e.g.
+
+{[
+struct x _equals "MyModule.x" {
+  ...
+};
+]}
+
+would generate
+
+{[
+type x = MyModule.x = { ... }
+]}
+
+Another option since 3.6.7 is to request a tuple instead of a record:
+
+{[
+struct x _tuple { ... }
+]}
+
 
 {2:map_enums Mapping enumerated types (enums)}
 
-Enumerated types are mapped to {!Rtypes.int4} (always, regardless of
+Enumerated types are mapped to {!Netnumber.int4} (always, regardless of
 what the [-int] option specifies). The enumerated constants are mapped
 to let-bound values of the same name. Example: The XDR definition
 
@@ -742,9 +809,9 @@ enum e {
 generates the following lines of code in the auxiliary module:
 
 {[
-type e = Rtypes.int4;;
-val a : Rtypes.int4;;
-val b : Rtypes.int4;;
+type e = Netnumber.int4;;
+val a : Netnumber.int4;;
+val b : Netnumber.int4;;
 ]}
 
 However, when the XDR conversion is performed, it is checked whether values of
@@ -780,10 +847,10 @@ union u (e discr) {
 This is mapped to the O'Caml type definitions:
 
 {[
-type e = Rtypes.int4;;
+type e = Netnumber.int4;;
 type u =
-  [ `a of Rtypes.int4
-  | `b of Rtypes.int8
+  [ `a of Netnumber.int4
+  | `b of Netnumber.int8
   | `c of string
   | `d of string
   ]
@@ -818,9 +885,9 @@ This is mapped to the O'Caml type definition:
 
 {[
 type u = 
-  [ `__1 of Rtypes.int4
-  | `_1  of Rtypes.int8
-  | `default of (Rtypes.int4 * string)
+  [ `__1 of Netnumber.int4
+  | `_1  of Netnumber.int8
+  | `default of (Netnumber.int4 * string)
   ]
 ]}
 
@@ -865,7 +932,7 @@ This is mapped to:
 {[
 type intlist = intlistbody option
 and intlistbody = 
-  { value : Rtypes.int4;
+  { value : Netnumber.int4;
     next : intlist;
   }
 ]}
@@ -878,8 +945,8 @@ really needed within [ocamlrpcgen].
 
 Normally, only the following modules are of interest:
 
-- {!Rtypes}: Supports serialization/deserialization of the
-  basic integer and fp types ("rtypes" = remote types)
+- {!Netnumber}: Supports serialization/deserialization of the
+  basic integer and fp types
 - {!Rpc}: Contains some types needed everyhwere
 - {!Rpc_client}: Contains the functions supporting RPC clients
 - {!Rpc_server}: Contains the functions supporting RPC servers

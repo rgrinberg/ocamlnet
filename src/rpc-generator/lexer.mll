@@ -55,7 +55,7 @@ rule token = parse
   | "_managed"  { K_managed }
   | "_tuple"    { K_tuple }
   | "_uppercase" { K_uppercase }
-  | "_lowercase" { K_uppercase }
+  | "_lowercase" { K_lowercase }
   | "_capitalize" { K_capitalize }
   | "_prefix" { K_prefix }
   | "_equals" { K_equals }

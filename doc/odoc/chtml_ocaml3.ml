@@ -1,26 +1,6 @@
 (* Our custom HTML generator *)
 
-(* Define
-
-     {picture file.png Caption Text}
-
-     so images can be easily included into ocamldoc documentation
-
-   Define
-
-     {directinclude <true>|<false>}
-
-     changing the bahviour of "include Module". If direct include is enabled,
-     the included stuff is directly shown.
-
-   Define
-     {knowntype identifier}
-     {knownclass identifier}
-
-     to enter additional names into the tables of type and class names
-     for which links are generated
-
- *)
+(* See chtml_ocaml4.ml *)
 
 open Printf
 open Odoc_info
@@ -64,19 +44,20 @@ object(self)
       (self#escape caption)
       file
 
-  method private html_of_div b t =
+  method private html_of_div tag b t =
     let html_classes =
       match split_args t with
 	| [] ->
-	     failwith "{div ...} needs at least one argument"
+	     failwith (sprintf "{%s ...} needs at least one argument" tag)
 	| w ->
              w in
     bprintf b
-      "<div class=\"%s\">"
+      "<%s class=\"%s\">"
+      tag
       (String.concat " " (List.map self#escape html_classes));
 
-  method private html_of_divend b t =
-    bprintf b "</div>"
+  method private html_of_divend tag b t =
+    bprintf b "</%s>" tag
 
 
   val mutable enable_direct_include = false
@@ -129,8 +110,14 @@ object(self)
     match s with
 	(* left brace: up to ocamldoc-3.11 *)
       | "{picture" | "picture" -> self#html_of_picture b t
-      | "{div" | "div" -> self#html_of_div b t
-      | "{divend" | "divend" -> self#html_of_divend b t
+      | "{div" | "div" -> self#html_of_div "div" b t
+      | "{divend" | "divend" -> self#html_of_divend "div" b t
+      | "{table" | "table" -> self#html_of_div "table" b t
+      | "{tableend" | "tableend" -> self#html_of_divend "table" b t
+      | "{tr" | "tr" -> self#html_of_div "tr" b t
+      | "{trend" | "trend" -> self#html_of_divend "tr" b t
+      | "{td" | "td" -> self#html_of_div "td" b t
+      | "{tdend" | "tdend" -> self#html_of_divend "td" b t
       | "{directinclude" | "directinclude" -> self#html_of_direct_include b t
       | "{knowntype" | "knowntype" -> self#add_known_type t
       | "{knownclass" | "knownclass" -> self#add_known_class t

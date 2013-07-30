@@ -17,6 +17,18 @@
 
    Define
 
+     {table class}
+     {tr class}
+     {td class}
+     paragraph
+     {tdend something}
+     {trend something}
+     {tableend something}
+
+     to create HTML tables.
+
+   Define
+
      {directinclude <true>|<false>}
 
      changing the bahviour of "include Module". If direct include is enabled,
@@ -82,19 +94,20 @@ module Generator (G : Odoc_html.Html_generator) = struct
         (self#escape caption)
         file
 
-    method private html_of_div b t =
+    method private html_of_div tag b t =
       let html_classes =
         match split_args t with
 	  | [] ->
-	      failwith "{div ...} needs at least one argument"
+	      failwith (sprintf "{%s ...} needs at least one argument" tag)
 	  | w ->
                w in
       bprintf b
-        "<div class=\"%s\">"
+        "<%s class=\"%s\">"
+        tag
         (String.concat " " (List.map self#escape html_classes));
 
-    method private html_of_divend b t =
-      bprintf b "</div>"
+    method private html_of_divend tag b t =
+      bprintf b "</%s>" tag
 
     val mutable enable_direct_include = false
 
@@ -178,8 +191,14 @@ module Generator (G : Odoc_html.Html_generator) = struct
 
       match s with
         | "picture" -> self#html_of_picture b t
-        | "div" -> self#html_of_div b t
-        | "divend" -> self#html_of_divend b t
+        | "div" -> self#html_of_div "div" b t
+        | "divend" -> self#html_of_divend "div" b t
+        | "table" -> self#html_of_div "table" b t
+        | "tableend" -> self#html_of_divend "table" b t
+        | "tr" -> self#html_of_div "tr" b t
+        | "trend" -> self#html_of_divend "tr" b t
+        | "td" -> self#html_of_div "td" b t
+        | "tdend" -> self#html_of_divend "td" b t
         | "directinclude" -> self#html_of_direct_include b t
         | "fixpxpcoretypes" -> self#html_of_fix_pxp_core_types b t
         | "knowntype" -> add_known_type t

@@ -192,7 +192,7 @@ let get_union_discriminator_type typemap u =
         T_enum(enum_type T_bool)
     | T_enum l ->
         (* apply mangling *)
-        T_enum(mk_enum u.mangling l)
+        T_enum(mk_enum ~remap:true u.mangling l)
     | _ ->
         assert false
 ;;
@@ -459,7 +459,7 @@ let output_type_declarations (f:formatter) (dl:xdr_def list) =
   )
 
   and output_declaration n t = (
-    fprintf f "@[<hov 6>";
+    fprintf f "@[<hov 5>";
     begin_decl();
     fprintf f "%s = @\n" n;
     (match t with
@@ -483,7 +483,7 @@ let output_type_declarations (f:formatter) (dl:xdr_def list) =
                 let p = 
                   List.find (function `Equals _ -> true | _ -> false) opts in
                 match p with
-                  | `Equals s -> fprintf f "  %s =@\n" s
+                  | `Equals s -> fprintf f "%s =@\n" s
                   | _ -> assert false
               with Not_found -> ()
             );
@@ -1816,8 +1816,8 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
                    (Array.of_list
                       (List.filter (fun d -> d.decl_type <> T_void) tdl))
                 ) in
-            fprintf f "@[<hv>(@[<hv 2>";
-            fprintf f "let (%s) = %s in@;"
+            fprintf f "@[<hv>(@[<hv 1>";
+            fprintf f " let (%s) = %s in@;"
               (String.concat ","
                 (List.map (fun (i,_) -> sprintf "x%d" i) tdl))
               var;
@@ -2535,7 +2535,6 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
 	       )
 	    )
 	    tdl;
-	  i := 0;
           if List.mem `Tuple opts then (
             let s =
               String.concat ","
@@ -2548,6 +2547,7 @@ let output_conversions (mli:formatter) (f:formatter) (dl:xdr_def list) =
             fprintf f "(%s)" s
           )
           else (
+	    i := 0;
 	    fprintf f "{ @[<hv>";
 	    List.iter
 	      (fun d ->

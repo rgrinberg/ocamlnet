@@ -14,11 +14,12 @@ several steps, corresponding to several ways of representing the values:
 
 - Binary level: The message is represented as byte string. In O'Caml,
   these byte strings are always [string] values.
-- Term level: The message is represented as structured {!Xdr.xdr_value}
+- Term level: The XDR type is given as {!Xdr.xdr_type_term}.
+  The message is represented as structured {!Xdr.xdr_value}
   term. For example, an XDR [struct] with two components [a] and [b]
   with integer values 1 and 2 is represented as
   {[XV_struct [ "a", XV_int r1; "b" XV_int r2 ]]} where
-  [r1 = Rtypes.int4_of_int 1] and [r2 = Rtypes.int4_of_int 2]. There
+  [r1 = Netnumber.int4_of_int 1] and [r2 = Netnumber.int4_of_int 2]. There
   are sometimes several ways of representing a value on term level.
 - Fully-mapped level: The message is represented as a generated O'Caml type
   that closely corresponds to the XDR type. The [struct] example
@@ -54,83 +55,197 @@ context).
 
 {2 XDR: Simple Types}
 
-The simple XDR types are
+The following table shows:
+ - how a variable [x] would be declared in the XDR file
+ - what the corresponding term type is
+ - how the type is mapped to a full OCaml type
 
-- [void]: special type denoting that no data is passed
-- signed [int] and [unsigned int]: 32 bit signed/unsigned integers
-- signed [hyper] and [unsigned hyper]: 64 bit signed/unsigned integers
-- [bool]: the boolean type with two values [FALSE] and [TRUE]
-- [float]: single-precision IEEE floating point numbers 
-- [double]: double-precision IEEE floating point numbers 
-- [opaque[n]]: fixed-length opaque data containing n bytes, written
-  {[opaque varname[n]]} in .x files
-- [opaque<n>]: variable-length opaque data containing up to n bytes,
-  written {[opaque varname<n>]} in .x files
-- [string<n>]: string data containing up to n bytes,
-  written {[string varname<n>]} in .x files
+{table t1}
+{tr t1head}
+{td t1}XDR declaration for [x]{tdend t1}
+{td t1}Term-level mapping{tdend t1}
+{td t1}Full mapping{tdend t1}
+{td t1}Comment{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[void]{tdend t1}
+{td t1}{!Xdr.X_void}{tdend t1}
+{td t1}[unit] (in some contexts omitted){tdend t1}
+{td t1}-{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[int x]{tdend t1}
+{td t1}{!Xdr.X_int}{tdend t1}
+{td t1}{!Netnumber.int4}, [int32], [int64], or [int] \[1\]{tdend t1}
+{td t1}32 bit signed integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[_abstract int x]{tdend t1}
+{td t1}{!Xdr.X_int}{tdend t1}
+{td t1}{!Netnumber.int4} \[6\]{tdend t1}
+{td t1}32 bit signed integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[_int32 int x]{tdend t1}
+{td t1}{!Xdr.X_int}{tdend t1}
+{td t1}[int32]{tdend t1}
+{td t1}32 bit signed integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[_int64 int x]{tdend t1}
+{td t1}{!Xdr.X_int}{tdend t1}
+{td t1}[int64]{tdend t1}
+{td t1}32 bit signed integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[_unboxed int x]{tdend t1}
+{td t1}{!Xdr.X_int}{tdend t1}
+{td t1}[int] \[2\]{tdend t1}
+{td t1}32 bit signed integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[unsigned int x]{tdend t1}
+{td t1}{!Xdr.X_uint}{tdend t1}
+{td t1}{!Netnumber.uint4}, [int32], [int64], or [int] \[1\]{tdend t1}
+{td t1}32 bit unsigned integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[unsigned _abstract int x]{tdend t1}
+{td t1}{!Xdr.X_uint}{tdend t1}
+{td t1}{!Netnumber.uint4} \[6\]{tdend t1}
+{td t1}32 bit unsigned integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[unsigned _int32 int x]{tdend t1}
+{td t1}{!Xdr.X_uint}{tdend t1}
+{td t1}[int32] \[4\]{tdend t1}
+{td t1}32 bit unsigned integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[unsigned _int64 int x]{tdend t1}
+{td t1}{!Xdr.X_uint}{tdend t1}
+{td t1}[int64]{tdend t1}
+{td t1}32 bit unsigned integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[unsigned _unboxed int x]{tdend t1}
+{td t1}{!Xdr.X_uint}{tdend t1}
+{td t1}[int] \[2\]{tdend t1}
+{td t1}32 bit unsigned integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[hyper x]{tdend t1}
+{td t1}{!Xdr.X_hyper}{tdend t1}
+{td t1}{!Netnumber.int8}, [int64], or [int] \[1\]{tdend t1}
+{td t1}64 bit signed integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[_abstract hyper x]{tdend t1}
+{td t1}{!Xdr.X_hyper}{tdend t1}
+{td t1}{!Netnumber.int8} \[6\]{tdend t1}
+{td t1}64 bit signed integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[_int64 hyper x]{tdend t1}
+{td t1}{!Xdr.X_hyper}{tdend t1}
+{td t1}[int64]{tdend t1}
+{td t1}64 bit signed integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[_unboxed hyper x]{tdend t1}
+{td t1}{!Xdr.X_hyper}{tdend t1}
+{td t1}[int] \[3\]{tdend t1}
+{td t1}64 bit signed integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[unsigned hyper x]{tdend t1}
+{td t1}{!Xdr.X_uhyper}{tdend t1}
+{td t1}{!Netnumber.int8}, [int64], or [int] \[1\]{tdend t1}
+{td t1}64 bit unsigned integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[unsigned _abstract hyper x]{tdend t1}
+{td t1}{!Xdr.X_uhyper}{tdend t1}
+{td t1}{!Netnumber.uint8} \[6\]{tdend t1}
+{td t1}64 bit unsigned integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[unsigned _int64 hyper x]{tdend t1}
+{td t1}{!Xdr.X_uhyper}{tdend t1}
+{td t1}[int64] \[4\]{tdend t1}
+{td t1}64 bit unsigned integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[unsigned _unboxed hyper x]{tdend t1}
+{td t1}{!Xdr.X_uhyper}{tdend t1}
+{td t1}[int] \[3\]{tdend t1}
+{td t1}64 bit unsigned integer{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[bool x]{tdend t1}
+{td t1}{!Xdr.x_bool}
+{td t1}[bool]{tdend t1}
+{td t1}Boolean type{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[float x]{tdend t1}
+{td t1}{!Xdr.X_float}{tdend t1}
+{td t1}[float] \[5\]{tdend t1}
+{td t1}32 bit IEEE float{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[double x]{tdend t1}
+{td t1}{!Xdr.X_double}{tdend t1}
+{td t1}[float] \[5\]{tdend t1}
+{td t1}64 bit IEEE float{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[opaque x[n]]{tdend t1}
+{td t1}{!Xdr.X_opaque_fixed}{tdend t1}
+{td t1}[string]{tdend t1}
+{td t1}Opaque data with exactly [n] bytes.
+The length [n] is dynamically checked{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[opaque x<n>]{tdend t1}
+{td t1}{!Xdr.X_opaque}{tdend t1}
+{td t1}[string]{tdend t1}
+{td t1}Opaque data with up to [n] bytes.
+The length [n] is dynamically checked{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[string x<n>]{tdend t1}
+{td t1}{!Xdr.X_string}{tdend t1}
+{td t1}[string]{tdend t1}
+{td t1}String consisting of up to [n] bytes.
+The length [n] is dynamically checked{tdend t1}
+{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[_managed string x<n>]{tdend t1}
+{td t1}{!Xdr.X_mstring}{tdend t1}
+{td t1}{!Xdr_mstring.mstring}{tdend t1}
+{td t1}Alternative runtime representation. See {!Xdr_mstring}.{tdend t1}
+{trend t1}
+{tableend t1}
 
-In O'Caml, these types are mapped as follows:
-
-- [void]: on term level mapped to {!Xdr.XV_void}. On the fully-mapped level
-  sometimes mapped to [unit], sometimes omitted
-- [signed int]: on term level mapped to {!Xdr.XV_int} which takes an
-  {!Rtypes.int4} as argument.
-  On the fully-mapped level this type can be mapped either to 
-  {!Rtypes.int4}, [int32] or
-  [int], depending on what the application needs. When mapping to [int]
-  it can happen that not all values can be represented. The exception
-  {!Rtypes.Cannot_represent} is raised in this case.
-- [unsigned int]: on term level mapped to {!Xdr.XV_uint} which takes an
-  {!Rtypes.uint4} as argument.
-  On the fully-mapped level this type
-  can be mapped either to {!Rtypes.uint4}, [int32] or
-  [int], depending on what the application needs. The mapping to [int32]
-  (which is signed) is done bitwise (sign bit is ignored). 
-  When mapping to [int] it can happen that not all values can be represented. 
-  The exception {!Rtypes.Cannot_represent} is raised in this case.
-- [signed hyper]: on term level mapped to {!Xdr.XV_hyper} which takes an
-  {!Rtypes.int8} as argument.
-  On the fully-mapped level this type 
-  can be mapped either to {!Rtypes.int8}, [int64] or
-  [int], depending on what the application needs. When mapping to [int]
-  it can happen that not all values can be represented. The exception
-  {!Rtypes.Cannot_represent} is raised in this case.
-- [unsigned hyper]: on term level mapped to {!Xdr.XV_uhyper} which takes an
-  {!Rtypes.uint8} as argument.
-  On the fully-mapped level this type
-  can be mapped either to {!Rtypes.uint8}, [int64] or
-  [int], depending on what the application needs. The mapping to [int64]
-  (which is signed) is done bitwise (sign bit is ignored). 
-  When mapping to [int] it can happen that not all values can be represented. 
-  The exception {!Rtypes.Cannot_represent} is raised in this case.
-- [bool]: on term level mapped to {!Xdr.xv_false} or {!Xdr.xv_true}
-  which are pre-defined constants using enumerations for booleans.
-  Actually, [xv_false] is [XV_enum_fast 0] and [xv_true] is
-  [XV_enum_fast 1]. On the fully-mapped level this type is
-  mapped to [bool]
-- [float]: on the term level mapped to {!Xdr.XV_float} which takes an
-  {!Rtypes.fp4} as argument. On the fully-mapped level this type is
-  mapped to [float] which, however, is double-precision. When converting
-  an O'Caml [float] to an XDR [float] it may happen that precision is lost,
-  and that very small or large numbers cannot represented at all. The
-  nearest value is taken instead which may be [0] or [infinity].
-- [double]: on the term level mapped to {!Xdr.XV_double} which takes an
-  {!Rtypes.fp8} as argument. On the fully-mapped level this type is
-  mapped to [float] (loss-free)
-- [opaque]: on the term level mapped to {!Xdr.XV_opaque} which takes
-  a string argument. On the fully-mapped level this type is
-  mapped to [string]. The size constraint is dynamically checked in
-  both cases when RPC message are analyzed or created.
-- [string]: on the term level mapped to {!Xdr.XV_string} which takes
-  a string argument. On the fully-mapped level this type is
-  mapped to [string]. The size constraint is dynamically checked
-  in both cases when RPC message are analyzed or created.
-
-Since Ocamlnet-3, there is also the variant of managed strings. A
-managed string (declared by the keyword [_managed] in the XDR file)
-is mapped to {!Xdr.XV_mstring} on the term level. This constructor
-takes an argument of type {!Xdr_mstring.mstring}, which is also the
-type on the fully-mapped level.
+Footnotes:
+ +  The default is the first alternative. You can select with
+    command-line switches of [ocamlrpcgen] one of the other
+    options for the whole XDR file
+ +  On 32 bit platforms only a subset of XDR values can be represented 
+    with this OCaml type. If a conversion fails, {!Netnumber.Cannot_represent}
+    is raised.
+ +  On both 32 and 64 bit platforms only a subset of XDR values can be
+    represented 
+    with this OCaml type. If a conversion fails, {!Netnumber.Cannot_represent}
+    is raised.
+ +  This is a logical mapping: large XDR numbers where the MSB is set
+    are mapped to negative OCaml numbers.
+ +  The OCaml [float] type is a 64 bit IEEE floating point number.
+ +  The module {!Netnumber} is an extended version of the older
+    {!Rtypes} definition, and contains wrapper types for all XDR
+    number types.
 
 {2 XDR: Options}
 
@@ -156,17 +271,34 @@ contained in the array. If the size constraint is missing, the array
 may have arbitrary many elements. However, due to the binary
 representation, the number is actually limited to 2 ^ 32 - 1.
 
-Fixed-size array are written {[t varname[n]]} and variable-size arrays
-{[t varname<n>]} in .x files (where n is the size). Arrays of any size
-are written {[t varname<>]} in .x files.
+{table t1}
+{tr t1head}
+{td t1}XDR declaration for [x][  ]{tdend t1}
+{td t1}Term-level mapping[  ]{tdend t1}
+{td t1}Full mapping[  ]{tdend t1}
+{td t1}Comment{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[t x[n]]{tdend t1}
+{td t1}{!Xdr.X_array}{tdend t1}
+{td t1}[t' array]{tdend t1}
+{td t1}Arrays with exactly [n] elements{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[t x<n>]{tdend t1}
+{td t1}{!Xdr.X_array}{tdend t1}
+{td t1}[t' array]{tdend t1}
+{td t1}Arrays with up to [n] elements{tdend t1}
+{trend t1}
+{tr t1}
+{td t1}[t x<>]{tdend t1}
+{td t1}{!Xdr.X_array}{tdend t1}
+{td t1}[t' array]{tdend t1}
+{td t1}Arrays with any number of elements{tdend t1}
+{trend t1}
+{tableend t1}
 
-On term level, array values are mapped to {!Xdr.XV_array} [v] where
-[v] is an O'Caml array of the mapped element values.
-
-On the fully-mapped level, arrays are mapped to the {[t' array]}
-O'Caml type when [t'] is the mapped element type.
-
-The size constraint is dynamically checked in both cases when RPC
+The size constraints are dynamically checked in all cases when RPC
 message are analyzed or created.
 
 {2 XDR: Structs}
@@ -190,7 +322,7 @@ components. At position 0 we find "a", and at position 1 we find "b".
 Of course, this type is different from [ struct { hyper b; int a } ]
 because the order of the components is essential.
 
-On term level, there are two ways of representing structs: one
+On term level, there are two ways of representing structs {!Xdr.X_struct}: one
 identifies components by name, one by position. The latter is also
 called the "fast" representation (and the one used by [ocamlrpcgen]).
 
@@ -213,7 +345,8 @@ first letter is lowercase. Second, the names may be changed because
 several structs use the same component names which is not possible
 in O'Caml. Thus, the generated O'Caml record type look like
 
-{[ {
+{[
+   {
      mutable varname0' : t0';
      mutable varname1' : t1';
      ...
@@ -223,6 +356,33 @@ in O'Caml. Thus, the generated O'Caml record type look like
 where [varnameK'] is the component name after the mentioned renaming
 and [tK'] is the mapped component type, both for position [K].
 
+{3 Equality constraints}
+
+Since Ocamlnet-3.6.7 the keyword [_equals] is understood and
+generates an equality constraint, e.g.
+[struct _equals "M.t" { int a; hyper b }], meaning that this OCaml
+record type is the same as the one defined as [M.t].
+
+{3 Controlling the name mapping}
+
+Ocamlnet-3.6.7 also introduces the name mapping directives for
+struct fields:
+
+ - [_lowercase]: the XDR name is lowercased
+ - [_uppercase]: the XDR name is uppercased
+ - [_capitalize]: the XDR name is capitalized
+ - [_prefix "p"]: this prefix is prepended to the XDR name
+
+For example, [struct _lowercase _prefix "my_" { int A; hyper B }]
+would generate a record type with fields [my_a] and [my_b].
+
+{3 Tuples}
+
+Since Ocamlnet-3.6.7 it is possible to select an alternate mapping
+to OCaml tuples by specifying the [_tuple] keyword (e.g.
+[ struct _tuple { int a; hyper b } ]).
+
+
 
 {2 XDR: Enumerations}
 
@@ -230,7 +390,8 @@ In XDR it is possible to define enumerations which are considered as
 subtypes of [int]. These consist of a list of integers with associated
 symbolic names. In the .x file this is written as
 
-{[ enum {
+{[
+   enum {
      Name0 = Int0,
      Name1 = Int1,
      ...
@@ -254,12 +415,26 @@ In the "by position" case, the value named [NameK] is represented as
 the argument of [XV_enum].
 
 On the fully-mapped level, the enumerated value named [NameK] is
-represented as O'Caml value of type [Rtypes.int4] whose value is
+represented as O'Caml value of type [Netnumber.int4] whose value is
 [IntK], i.e. the number associated with the name. In the type mapper
 file generated by [ocamlrpcgen] there are additional definitions
 for every enum. In particular, there is a constant whose name
-is [NameK] (after makeing the name O'Camlish) and whose value is
+is [NameK] (after makeing the name OCamlish) and whose value is
 [IntK].
+
+{3 Controlling the name mapping}
+
+Ocamlnet-3.6.7 also introduces the name mapping directives for
+enum constants:
+
+ - [_lowercase]: the XDR name is lowercased
+ - [_uppercase]: the XDR name is uppercased
+ - [_capitalize]: the XDR name is capitalized
+ - [_prefix "p"]: this prefix is prepended to the XDR name
+
+For example, [enum _lowercase _prefix "my_" { A=0, B=1 }]
+would generate constants [my_a] and [my_b] (with the values
+0 and 1, resp.).
 
 {2 XDR: Unions discriminated by integers}
 
@@ -313,7 +488,7 @@ union
 
 is mapped to
 
-{[ [ `__1 of int64 | `_0 of bool | `default of Rtypes.int4 * string ] ]}
+{[ [ `__1 of int64 | `_0 of bool | `default of Netnumber.int4 * string ] ]}
 
 Note that the default case consists of the value of the discriminant
 on the left and the value of the union on the right.
@@ -379,34 +554,73 @@ such.
 For example, the union
 
 {[ enum e {
-     A = 5,
-     B = 42,
-     C = 7,
-     D = 81
+     CASEA = 5,
+     CASEB = 42,
+     CASEC = 7,
+     CASED = 81
    }
 
   union switch (e d) {
-    case B:
+    case CASEB:
       int b;
-    case C:
+    case CASEC:
       void;
     default:
       hyper ad;
   }
 ]}
 
-is mapped to the O'Caml type
+is mapped to the O'Caml type (the tags are all lowercase by default):
 
 {[ 
-   [ 'A of int64     (* expanded default case *)
-   | `B of int32
-   | `C
-   | `D of int64     (* expanded default case *)
+   [ 'casea of int64     (* expanded default case *)
+   | `caseb of int32
+   | `casec
+   | `cased of int64     (* expanded default case *)
    ]
 ]}
 
-If an arm is simply [void], the corresponding variant will not have
-an argument.
+If an arm is simply [void] like for [CASEC], the corresponding variant will 
+not have an argument like [`casec].
+
+
+{3 Controlling the name mapping}
+
+Ocamlnet-3.6.7 also introduces the name mapping directives for
+union tags:
+
+ - [_lowercase]: the XDR name is lowercased
+ - [_uppercase]: the XDR name is uppercased
+ - [_capitalize]: the XDR name is capitalized
+ - [_prefix "p"]: this prefix is prepended to the XDR name
+
+An example: The XDR type
+
+{[
+  union _capitalize switch (e d) {
+    case CASEB:
+      int b;
+    case CASEC:
+      void;
+    default:
+      hyper ad;
+  }
+]}
+
+is mapped to
+
+{[ 
+   [ 'Casea of int64
+   | `Caseb of int32
+   | `Casec
+   | `Cased of int64
+   ]
+]}
+
+If there are name mapping directives in the definition of the enumeration
+[e], these directives will be ignored. Only the directives in the [union]
+definition are used for generating the OCaml tag names.
+
 
 {2 RPC: Programs}
 

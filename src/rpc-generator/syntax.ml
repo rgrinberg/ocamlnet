@@ -3,6 +3,7 @@
  *)
 
 open Netnumber;;
+open Printf
 
 exception Error of string;;
 
@@ -48,12 +49,32 @@ let mangle_name opts name =
     opts
 ;;
 
-let mangle_id opts id =
-  if id.ocaml_name_requested then
-    id
-  else
-    let ocaml_name = mangle_name opts id.xdr_name in
-    { id with ocaml_name; ocaml_name_requested = true }
+let mangle_id ?(remap=false) opts id =
+  (* remap: only true for the second round of mangling of union cases.
+     As we want to map the cases independently of the base enum, we ignore
+     the ocaml_name for the base enum.
+   *)
+  if remap then (
+    if opts <> [] then
+      { id with
+          ocaml_name = mangle_name opts id.xdr_name;
+          ocaml_name_requested = true;
+      }
+    else
+      { id with
+        ocaml_name = String.lowercase id.xdr_name;
+        ocaml_name_requested = false;
+      }
+  )
+  else (
+    if opts <> [] && not id.ocaml_name_requested then
+      { id with
+          ocaml_name = mangle_name opts id.xdr_name;
+          ocaml_name_requested = true;
+      }
+    else
+      id
+  )
 ;;
 
 
@@ -163,10 +184,10 @@ type xdr_def =
 ;;
 
 
-let mk_enum (opts:mangling_option list) l =
+let mk_enum ?remap (opts:mangling_option list) l =
   List.map
     (fun (id,const) ->
-       (mangle_id opts id,const)
+       (mangle_id ?remap opts id,const)
     )
     l
 

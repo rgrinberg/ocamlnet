@@ -60,3 +60,12 @@ li { margin-top: 1ex }
 li p { margin-top: 1ex; margin-bottom: 1ex }
 .remark { margin-left: 1cm; font-style: italic }
 .guide { background-color: #F0E4C1 }
+table.t1 { padding: 5px; border: 1px solid black; border-collapse:collapse; }
+td.t1 { empty-cells: show;
+        border-top: 1px solid black;
+        border-bottom: 1px solid black;
+        padding-left: 5px;
+        padding-right: 5px;
+      }
+tr.t1head { background-color: #D0D0D0; }
+
