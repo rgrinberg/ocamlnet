@@ -1,3 +1,9 @@
+2013-07-31  Gerd Stolpmann  <gerd@zotac>
+
+	* Extending ocamlrpcgen: It supports now six new directives,
+	  _lowercase, _uppercase, _capitalize, _prefix, _equals,
+	  and _tuple (see documentation).
+
 2013-07-21  Gerd Stolpmann  <gerd@samsung>
 
 	* Release Ocamlnet-3.6.6

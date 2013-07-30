@@ -1,6 +1,6 @@
 (* $Id$ *)
 
-(** Unicode charater information *)
+(** Unicode character information *)
 
 val to_lower : int -> int
   (** Converts the input letter to lowercase. Returns the input unchanged
