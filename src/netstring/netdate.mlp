@@ -76,7 +76,7 @@ let posix_l9n =
       |];
     abbr_month_names =
       [| "Jan"; "Feb"; "Mar"; "Apr"; "May"; "Jun";
-         "Jul"; "AUg"; "Sep"; "Oct"; "Nov"; "Dec"
+         "Jul"; "Aug"; "Sep"; "Oct"; "Nov"; "Dec"
       |];
     parsed_month_names =
       [| [ "january"; "jan" ];
