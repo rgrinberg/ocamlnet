@@ -150,6 +150,24 @@ val string_of_http_status : http_status -> string
   (** Returns the informational text for a status value *)
   (* See also Netcgi.status_line *)
 
+val base_code : int -> int
+  (** Allows to handle unknown status codes that are untranslatable by
+      [http_status_of_int]:
+       - for a code 100 to 199 the value 100 is returned
+       - for a code 200 to 299 the value 200 is returned
+       - for a code 300 to 399 the value 300 is returned
+       - for a code 400 to 499 the value 400 is returned
+       - for all other codes 500 is returned
+
+      E.g.
+      {[
+  let st =
+    try Nethttp.http_status_of_int code
+    with Not_found ->
+      Nethttp.http_status_of_int (Nethttp.base_code code)
+      ]}
+   *)
+
 type http_method = string * string
   (** Method name, URI *)
 

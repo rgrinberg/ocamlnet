@@ -1,3 +1,11 @@
+2013-08-13  Gerd Stolpmann  <gerd@e130>
+
+	* Nethttp: new function base_code
+
+	* Http_client: handling the case better that an unknown status code is
+	  returned by the server. Before, [response_status] simply
+	  raised [Not_found]. Now, the base status is returned instead.
+
 2013-07-31  Gerd Stolpmann  <gerd@zotac>
 
 	* Extending ocamlrpcgen: It supports now six new directives,

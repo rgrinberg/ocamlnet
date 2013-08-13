@@ -998,7 +998,10 @@ object(self)
   method response_status_code = self#check_response(); resp_code
   method response_status_text = self#check_response(); resp_text
   method response_status = 
-    self#check_response(); Nethttp.http_status_of_int resp_code
+    self#check_response();
+    try Nethttp.http_status_of_int resp_code
+    with Not_found ->
+      Nethttp.http_status_of_int (Nethttp.base_code resp_code)
   method response_protocol = self#check_response(); resp_proto
   method response_header = self#check_response(); resp_header
   method response_body = 

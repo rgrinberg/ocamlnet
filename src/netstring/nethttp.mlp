@@ -227,6 +227,18 @@ let http_status_of_int =
     | 505 -> `Http_version_not_supported
     | _ -> raise Not_found
 
+let base_code code =
+  if code >= 100 && code < 200 then
+    100
+  else if code >= 200 && code < 300 then
+    200
+  else if code >= 300 && code < 400 then
+    300
+  else if code >= 400 && code < 500 then
+    400
+  else
+    500
+
 type http_method = string * string
   (** Method name, URI *)
 
