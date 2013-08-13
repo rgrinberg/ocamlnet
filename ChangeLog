@@ -1,5 +1,8 @@
 2013-08-13  Gerd Stolpmann  <gerd@e130>
 
+	* Http_fs: fixing chunked encoding for PUT (this is already done
+	  in Http_client)
+
 	* Nethttp: new function base_code
 
 	* Http_client: handling the case better that an unknown status code is

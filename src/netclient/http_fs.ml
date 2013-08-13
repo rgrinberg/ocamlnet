@@ -584,7 +584,8 @@ object(self)
       (* We cannot reconnect in streaming mode :-( *)
       call # set_reconnect_mode Http_client.Request_fails;
       (* We have to use chunked transfer encoding: *)
-      req_hdr # update_field "Transfer-Encoding" "chunked";
+      (* req_hdr # update_field "Transfer-Encoding" "chunked";*)
+      call # set_chunked_request();
 
       let page_size = Netsys_mem.pagesize in
       let buf = Netpagebuffer.create page_size in
@@ -598,10 +599,12 @@ object(self)
 	    p # add call;
 	    added := true
 	  );
+(*
 	  if !eof then (
 	    (* last chunk: *)
 	    Netpagebuffer.add_string buf "0\r\n\r\n"
 	  );
+ *)
 	  run();
 	  if !eof then (
 	    running := false;
@@ -615,13 +618,15 @@ object(self)
       let onempty () =
 	Unixqueue.once p#event_system g 0.0
 	  (fun () -> if !running then raise Interrupt) in
+(*
       let add_sub_string buf s pos len =
 	(* Create a chunk: *)
 	Netpagebuffer.add_string buf (sprintf "%x\r\n" len);
 	Netpagebuffer.add_sub_string buf s pos len;
 	Netpagebuffer.add_string buf "\r\n";
       in
-      let body = buffer_body ~add_sub_string buf eof ondata onempty 0L in
+ *)
+      let body = buffer_body (*~add_sub_string*) buf eof ondata onempty 0L in
       call # set_request_body body;
 
       body # open_value_wr()
