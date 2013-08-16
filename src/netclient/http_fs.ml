@@ -376,8 +376,9 @@ object(self)
                   self # remember_call call;
 		  match is_error_response path call with
 		    | None ->
+                         (* this can occur with authorized messages! *)
 			if !cur_ch <> None then
-			  failwith "Http_fs: unexpected reconnect";
+                          Netpagebuffer.clear buf;
 			let code = call#response_status_code in
 			let drop =
 			  (* Maybe Range headers are not supported: *)
