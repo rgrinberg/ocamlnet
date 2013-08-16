@@ -123,4 +123,8 @@ val ssl_accept_engine :
 module Debug : sig
   val enable : bool ref
     (** Enables {!Netlog}-style debugging of this module *)
+
+  val dump_data : bool ref
+    (** If also [enable], output a full dump of payload data *)
+
 end

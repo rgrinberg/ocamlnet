@@ -2266,6 +2266,13 @@ let io_buffer options fd mplex fd_state : io_buffer =
 		| None ->
 		    eps_e (`Done None) esys
 		| Some line ->
+	            if !options.verbose_status then
+	              dlogr
+	                (fun () ->
+	                   sprintf "FD %Ld - Status: %S"
+                                   (Netsys.int64_of_file_descr fd)
+                                   line
+                        );
 		    ( match Netstring_str.string_match status_re line 0 with
 			| None ->
 			    raise (Garbage_received "Bad status line")
@@ -2338,6 +2345,9 @@ let io_buffer options fd mplex fd_state : io_buffer =
 	in
 	assert(real_end_pos = String.length hdr_str);
 	let header = new Netmime.basic_mime_header header_l in
+	if !options.verbose_response_header then
+	  dump_header "HTTP response " header#fields;
+
 	call # private_api # set_continue (code < 200);
 	(* Calling set_continue may trigger that the send loop
 	   in [transmitter] resumes its send task. We need to do it
@@ -2407,6 +2417,16 @@ let io_buffer options fd mplex fd_state : io_buffer =
 			    if n <> l then
 			      raise(Bad_message "EOF in response message")
 		    );
+	            if !options.verbose_response_contents then
+	              dlogr
+	                (fun () ->
+	                 sprintf "FD %Ld - HTTP response body %s"
+                           (Netsys.int64_of_file_descr fd)
+		           (match length_opt with
+		              | None -> "(unknown length)"
+		              | Some n -> sprintf "(%Ld bytes)" n
+		           )
+	                );
 		    `Done n
 		| st -> st
 	     )   (* out_dev is closed in read_end_e *)
@@ -2418,6 +2438,13 @@ let io_buffer options fd mplex fd_state : io_buffer =
 	input_line_opt_e ~max_len:max_line_len buf_in_dev
 	++ (function
 	      | Some line ->
+	            if !options.verbose_response_contents then
+	              dlogr
+	                (fun () ->
+	                   sprintf "FD %Ld - HTTP response chunk size: %S"
+                                   (Netsys.int64_of_file_descr fd)
+                                   line
+                        );
 		  ( match Netstring_str.string_match chunk_re line 0 with
 		      | None ->
 			  raise
@@ -2454,6 +2481,13 @@ let io_buffer options fd mplex fd_state : io_buffer =
 	input_line_opt_e ~max_len:max_line_len buf_in_dev
 	++ (function
 	      | Some line ->
+	           if !options.verbose_response_contents then
+	             dlogr
+	               (fun () ->
+	                   sprintf "FD %Ld - HTTP response chunk end: %S"
+                                   (Netsys.int64_of_file_descr fd)
+                                   line
+                       );
 		  if line = "" || line = "\r" then
 		    read_chunked_body_e code header out_dev call
 		  else
@@ -2470,6 +2504,13 @@ let io_buffer options fd mplex fd_state : io_buffer =
 		    let msg = "EOF where response trailer expected" in
 		    raise (Bad_message msg)
 		| Some line ->
+	            if !options.verbose_response_contents then
+	              dlogr
+	                (fun () ->
+	                   sprintf "FD %Ld - HTTP response trailer: %S"
+                                   (Netsys.int64_of_file_descr fd)
+                                   line
+                        );
 		    Buffer.add_string trl_buf line;
 		    Buffer.add_string trl_buf "\n";
 		    if line = "" || line = "\r" then (
@@ -2500,6 +2541,8 @@ let io_buffer options fd mplex fd_state : io_buffer =
 	let new_header =
 	  new Netmime.basic_mime_header (header#fields @ trailer_l) in
 	call # private_api # set_response_header new_header;
+	if !options.verbose_response_header then
+	  dump_header "HTTP response+trailer " new_header#fields;
 	(* out_dev is closed in read_end_e *)
 	read_end_e call
 	  
@@ -2983,27 +3026,26 @@ let transmitter
 	  (* This is only used if we announced a body in the header, but
 	     finally do not send it (because we got an error from the server).
 
-	     Normally we just close the connection for writing.
-	     If we use the chunked encoding, a better way to indicate
-	     the end of the body is to send an empty body 
+             If we haven't started sending the request body, we simply
+             go on. Otherwise, close the connection.
+
+             NB. Because there is a race condition between client and
+             server, there is no better way!
 	   *)
-	  state <- Finishing;
-	  let rh = msg # request_header `Effective in
-	  let is_chunked =
-	    try rh # field "Transfer-encoding" <> "identity"
-	    with Not_found -> false in
-	  if is_chunked then (
-	    let ch = new Netchannels.input_string "" in
-	    let d = `Async_in(new Uq_engines.pseudo_async_in_channel ch,esys) in
-	    io # add (Send_body_chunked d);
-	  )
-	  else
+          let unclean = state <> Handshake in
+          if unclean then (
+	    state <- Finishing;
 	    io # add Send_eof;
-	  io # write_e esys
-	  ++ (fun () ->
+	    io # write_e esys
+	    ++ (fun () ->
 		state <- Sent_request;
 		eps_e (`Done ()) esys
-	     )
+	       )
+          )
+          else (
+	    state <- Sent_request;
+	    eps_e (`Done ()) esys
+          )
 	in
 
 	let (fin_e, signal) = Uq_engines.signal_engine esys in

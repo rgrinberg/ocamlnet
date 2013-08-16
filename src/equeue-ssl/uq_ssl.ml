@@ -2,6 +2,7 @@
 
 module Debug = struct
   let enable = ref false
+  let dump_data = ref false
 end
 
 let dlog = Netlog.Debug.mk_dlog "Uq_ssl" Debug.enable
@@ -381,6 +382,12 @@ object(self)
 	   let n = Ssl_exts.single_read ssl_sock s pos len in
 	   reading <- None;
 	   assert(n > 0);
+           if !Debug.dump_data then
+             dlogr
+               (fun () ->
+                  sprintf "FD %Ld: read %S"
+                          fdi (String.sub s pos n)
+               );
 	   (false, false, fun () -> when_done None n)
 	 with
 	   | Ssl.Read_error Ssl.Error_zero_return ->
@@ -454,6 +461,12 @@ object(self)
 	 try
 	   let n = Ssl_exts.single_write ssl_sock s pos len in
 	   writing <- None;
+           if !Debug.dump_data then
+             dlogr
+               (fun () ->
+                  sprintf "FD %Ld: write %S"
+                          fdi (String.sub s pos n)
+               );
 	   (false, false, fun () -> when_done None n)
 	 with
 	   | Ssl.Write_error Ssl.Error_zero_return ->

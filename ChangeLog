@@ -1,3 +1,14 @@
+2013-08-16  Gerd Stolpmann  <gerd@e130>
+
+	* Http_fs: read method: fixing a problem with resent messages
+
+	* Http_client: better reaction after "100" responses
+
+	* Http_client: implementing verbose_response_header, and
+	  verbose_response_contents again
+
+	* Uq_ssl: debugging of payload data (Uq_ssl.Debug.dump_data)
+
 2013-08-13  Gerd Stolpmann  <gerd@e130>
 
 	* Http_fs: fixing chunked encoding for PUT (this is already done
