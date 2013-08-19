@@ -31,7 +31,9 @@ module Emu = struct
        the code.
      *)
 
-  let n_active = Netsys_posix.sysconf_open_max() / 4
+  let n_active =
+    try Netsys_posix.sysconf_open_max() / 4
+    with _ -> 64
     (* max number of open semaphores (normally, each open sem consumes
        a file descr). It is tried not to exceed this value, but in some
        situations this will nevertheless occur.
