@@ -8,7 +8,9 @@ INSTALL_EXTRA = netsys_oothr.cmo \
                 netsys_oothr_mt_init.cmx netsys_oothr_mt_init.o \
                 netsys_oothr_mt_init.p.cmx netsys_oothr_mt_init.p.o \
                 netsys_gprof_init.p.cmx netsys_gprof_init.p.o \
-                netsys_c_gprof.o
+                netsys_c_gprof.o \
+		netsys_c_event.h \
+		netsys_c_outofheap.o
 
 OCAMLDEP_OPTIONS = -package "camlp4.macro" -syntax camlp4o
 
