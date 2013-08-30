@@ -216,7 +216,7 @@ object(self)
 
   (* ---- The following is copied from Netcgi_env: ---- *)
 
-  method input_header = in_header
+  (* method input_header = in_header *)
 
   method input_header_field ?default name =
     try in_header # field name
@@ -250,8 +250,10 @@ object(self)
   method input_content_type() =
     Mimestring.scan_mime_type_ep (self # input_header_field "CONTENT-TYPE") []
 
+(*
   method output_header =
     out_header
+*)
 
   method output_header_field ?default name =
     try out_header # field name
