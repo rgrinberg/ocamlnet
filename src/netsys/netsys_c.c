@@ -454,9 +454,11 @@ static int open_flag_table[] = {
   O_NOCTTY, O_DSYNC, O_SYNC, O_RSYNC, 0 /* O_SHARE_DELETE */, O_CLOEXEC
 };
 
+#ifdef NEED_CLOEXEC_EMULATION
 static int open_cloexec_table[] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
 };
+#endif
 #endif
 
 CAMLprim value netsys_openat(value dirfd, value path, value flags, value perm)
