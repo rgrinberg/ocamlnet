@@ -1,6 +1,6 @@
 version = "@VERSION@"
 description = "Ocamlnet - Server framework"
-requires = "netplex,netcamlbox"
+requires = "netplex,netcamlbox,netsys.outofheap"
 archive(byte) = "netmulticore.cma"
 archive(native) = "netmulticore.cmxa"
 archive(native,gprof) = "netmulticore.p.cmxa"

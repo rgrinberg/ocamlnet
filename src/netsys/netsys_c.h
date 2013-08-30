@@ -97,6 +97,62 @@
 #define In_code_area 8
 int caml_page_table_add(int kind, void * start, void * end);
 int caml_page_table_remove(int kind, void * start, void * end);
+
+#ifdef HAVE_NEW_MODIFY
+
+/* need full memory.h support */
+
+#ifdef ARCH_SIXTYFOUR
+/* 64 bits: Represent page table as a sparse hash table */
+int caml_page_table_lookup(void * addr);
+#define Classify_addr(a) (caml_page_table_lookup((void *)(a)))
+#else
+/* 32 bits: Represent page table as a 2-level array */
+#define Pagetable2_log 11
+#define Pagetable2_size (1 << Pagetable2_log)
+#define Pagetable1_log (Page_log + Pagetable2_log)
+#define Pagetable1_size (1 << (32 - Pagetable1_log))
+CAMLextern unsigned char * caml_page_table[Pagetable1_size];
+#define Pagetable_index1(a) (((uintnat)(a)) >> Pagetable1_log)
+#define Pagetable_index2(a) \
+  ((((uintnat)(a)) >> Page_log) & (Pagetable2_size - 1))
+#define Classify_addr(a) \
+  caml_page_table[Pagetable_index1(a)][Pagetable_index2(a)]
+#endif
+
+#define Is_in_heap(a) (Classify_addr(a) & In_heap)
+
+/* Stuff from minor_gc.h */
+
+CAMLextern char *caml_young_start;
+CAMLextern char *caml_young_end;
+
+struct caml_ref_table {
+  value **base;
+  value **end;
+  value **threshold;
+  value **ptr;
+  value **limit;
+  asize_t size;
+  asize_t reserve;
+};
+CAMLextern struct caml_ref_table caml_ref_table;
+
+#define Is_young(val) \
+    ((char *)(val) < (char *)caml_young_end && \
+     (char *)(val) > (char *)caml_young_start)
+
+extern void caml_realloc_ref_table (struct caml_ref_table *);
+
+/* Stuff from major_gc.h */
+
+extern int caml_gc_phase;
+#define Phase_mark 0
+
+extern void caml_darken (value, value *);
+
+#endif
+
 #endif
 
 /**********************************************************************/

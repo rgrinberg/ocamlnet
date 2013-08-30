@@ -12,6 +12,7 @@ have_printexc_register_printer=0
 have_printexc_register_printer_bool=false
 code_printexc_register_printer='()'
 have_ocaml_fancy_page_tables=0
+have_new_modify=0
 have_syslog=0
 have_at=0
 have_fchdir=0
@@ -168,6 +169,25 @@ printf "Checking whether Ocaml has fancy page tables... "
 
 cclib=""
 compile_emit ocaml_fancy_page_tables FANCY_PAGE_TABLES
+
+######################################################################
+
+printf "Checking on new implementation of caml_modify... "
+# assume this from ocaml-4.01 on
+
+case `ocamlc -version` in
+    [123].*) : ;;
+    4.00*) : ;;
+    *) have_new_modify=1 ;;
+esac
+
+if [ $have_new_modify -gt 0 ]; then
+    echo "#define HAVE_NEW_MODIFY" >> config.h
+    echo "found"
+else
+    echo "#undef HAVE_NEW_MODIFY" >> config.h
+    echo "not found"
+fi
 
 ######################################################################
 

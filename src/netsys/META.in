@@ -9,3 +9,12 @@ archive(native,mt) = "netsys_oothr_mt.cmxa netsys_oothr_mt_init.cmx netsys.cmxa"
 archive(native,gprof,mt) = "netsys_oothr_mt.p.cmxa netsys_oothr_mt_init.p.cmx netsys.p.cmxa"
 archive(byte,toploop) = "netsys_oothr.cma netsys.cma"
 archive(byte,mt,toploop) = "netsys_oothr_mt.cma netsys_oothr_mt_init.cmo netsys.cma"
+
+package "outofheap" (
+        version = "@VERSION@"
+        description = "Ocamlnet - override caml_modify and caml_initialize"
+        requires = ""
+        archive(byte) = "netsys_c_outofheap.o"
+        archive(native) = "netsys_c_outofheap.o"
+        linkopts(byte) = "-custom"
+)
