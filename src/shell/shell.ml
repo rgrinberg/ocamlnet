@@ -240,8 +240,9 @@ let setup_job
 	  C_fd fd ->
 	    Some fd
 	| C_file (append,name) ->
-	    let app_flags = if append then [ Unix.O_APPEND ] else [] in
-	    let std_flags = [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] in
+	    let app_flags = 
+              if append then [ Unix.O_APPEND ] else [ Unix.O_TRUNC ] in
+	    let std_flags = [ Unix.O_WRONLY; Unix.O_CREAT ] in
 	    let fd = Unix.openfile name (app_flags @ std_flags) 0o777 in
 	    files_to_close := fd :: !files_to_close;
 	    Some fd
