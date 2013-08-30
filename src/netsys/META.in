@@ -14,6 +14,7 @@ package "outofheap" (
         version = "@VERSION@"
         description = "Ocamlnet - override caml_modify and caml_initialize"
         requires = ""
+	exists_if = "netsys_c_outofheap.o"
         archive(byte) = "netsys_c_outofheap.o"
         archive(native) = "netsys_c_outofheap.o"
         linkopts(byte) = "-custom"

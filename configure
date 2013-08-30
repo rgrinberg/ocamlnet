@@ -548,6 +548,32 @@ fi
 ( cd src/rpc-auth-local; ./configure )
 
 ######################################################################
+# whether we can support camlboxes and multicore
+
+support_outofheap=0
+if grep 'OOH_OBJECT = .' src/netsys/Makefile.conf >/dev/null 2>/dev/null; then
+    support_outofheap=1
+fi
+
+support_semaphores=0
+if grep '#define HAVE_POSIX_SEM_NAMED' src/netsys/config.h \
+    >/dev/null 2>/dev/null; then
+    support_semaphores=1
+fi
+
+enable_camlbox=0
+enable_multicore=0
+printf "Checking whether netcamlbox and netmulticore are supported... "
+if [ $support_outofheap -gt 0 -a $support_semaphores -gt 0 ]; then
+    echo "yes"
+    enable_camlbox=1
+    enable_multicore=1
+else
+    echo "no"
+fi
+
+
+######################################################################
 # TCL
 
 with_equeue_tcl=0
@@ -887,7 +913,7 @@ echo "Effective options:"
 print_options
 echo
 
-pkglist="netsys netshm netstring equeue shell netgssapi rpc-generator rpc rpc-auth-local pop smtp netclient netcgi2 netplex netcgi2-plex netcamlbox netmulticore"
+pkglist="netsys netshm netstring equeue shell netgssapi rpc-generator rpc rpc-auth-local pop smtp netclient netcgi2 netplex netcgi2-plex"
 
 full_pkglist="$pkglist netstring-pcre rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi2 netzip netcgi2-apache netmech-scram"
 
@@ -922,6 +948,14 @@ if [ $with_nethttpd -gt 0 ]; then
     # Fixup: nethttpd is already added by the for loop, but we need also
     # nethttpd-for-netcgi2
     pkglist="$pkglist nethttpd-for-netcgi2"
+fi
+
+if [ $enable_camlbox -gt 0 ]; then
+    pkglist="$pkglist netcamlbox"
+fi
+
+if [ $enable_multicore -gt 0 ]; then
+    pkglist="$pkglist netmulticore"
 fi
 
 

@@ -17,6 +17,7 @@ have_syslog=0
 have_at=0
 have_fchdir=0
 have_fdopendir=0
+support_outofheap=0
 
 win32=0
 
@@ -108,9 +109,11 @@ compile_emit () {
     if compile "$1"; then
 	echo "found"
 	echo "#define $2" >>config.h
+        return 0
     else
 	echo "not found"
 	echo "#undef $2" >>config.h
+        return 1
     fi
 }
 
@@ -187,6 +190,29 @@ if [ $have_new_modify -gt 0 ]; then
 else
     echo "#undef HAVE_NEW_MODIFY" >> config.h
     echo "not found"
+fi
+
+have_weak_modify=0
+if [ $have_new_modify -gt 0 ]; then
+    printf "Checking whether new caml_modify can be overridden... "
+    cclib=""
+    compile_emit weak_modify WEAK_MODIFY
+    have_weak_modify=$(( 1 - $? ))
+fi
+
+printf "Checking whether out-of-heap values are supported and mutable... "
+if [ $have_new_modify -gt 0 ]; then
+    support_outofheap=$have_weak_modify
+else
+    support_outofheap=1
+fi
+
+if [ $support_outofheap -gt 0 ]; then
+    echo "yes"
+    def_ooh_object="netsys_c_outofheap.o"
+else
+    echo "no"
+    def_ooh_object=""
 fi
 
 ######################################################################
@@ -405,6 +431,7 @@ cat <<EOF >Makefile.conf
 NETSYS_LINK_OPTIONS = $netsys_link_options
 DEF_O_SHARE_DELETE = $def_o_share_delete
 DEF_O_CLOEXEC = $def_o_cloexec
+OOH_OBJECT = $def_ooh_object
 EOF
 
 cat <<EOF >>config.h

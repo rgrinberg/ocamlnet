@@ -1,5 +1,8 @@
 2013-08-30  Gerd Stolpmann  <gerd@e130>
 
+	* The libraries netcamlbox and netmulticore are now only built
+	  if completely supported.
+
 	* Porting netcamlbox and netmulticore to ocaml-4.01:
 	  There are new implementations in OCaml for caml_modify and
 	  caml_initialize that are incompatible with our usage here.

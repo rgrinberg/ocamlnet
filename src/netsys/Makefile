@@ -29,9 +29,9 @@ DOBJECTS = netsys.mli netsys_posix.mli netsys_pollset.mli netlog.mli \
 	   netsys_sem.mli netsys_pmanage.mli
 LINK_OPTIONS = $(NETSYS_LINK_OPTIONS)
 
-ALL_EXTRA = netsys_oothr.cma netsys_c_outofheap.o
+ALL_EXTRA = netsys_oothr.cma $(OOH_OBJECT)
 ALLMT_EXTRA = netsys_oothr_mt.cma netsys_oothr_mt_init.cmo
-OPT_EXTRA = netsys_oothr.cmxa netsys_c_gprof.o netsys_c_outofheap.o
+OPT_EXTRA = netsys_oothr.cmxa netsys_c_gprof.o $(OOH_OBJECT)
 OPTP_EXTRA = netsys_oothr.p.cmxa netsys_gprof_init.cmx
 OPTMT_EXTRA = netsys_oothr_mt.cmxa netsys_oothr_mt_init.cmx
 OPTMTP_EXTRA = netsys_oothr_mt.p.cmxa netsys_oothr_mt_init.cmx
