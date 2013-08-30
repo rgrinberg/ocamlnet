@@ -1,5 +1,7 @@
 2013-08-30  Gerd Stolpmann  <gerd@e130>
 
+	* Release Ocamlnet-3.7.0
+
 	* Shell.to_file: implement the append flag as documented
 	  (bug reported by David Chase)
 
