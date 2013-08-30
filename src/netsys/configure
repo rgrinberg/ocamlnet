@@ -361,6 +361,22 @@ else
     echo "no"
 fi
 
+######################################################################
+
+printf "Checking for O_CLOEXEC... "
+mkdir -p tmp
+cat <<_EOF_ >tmp/t.ml
+let x = Unix.O_CLOEXEC;;
+_EOF_
+
+def_o_cloexec="-D NO_O_CLOEXEC"
+if ocaml unix.cma tmp/t.ml >/dev/null 2>/dev/null; then
+    echo "yes"
+    def_o_cloexec="-D HAVE_O_CLOEXEC"
+else
+    echo "no"
+fi
+
 
 ######################################################################
 
@@ -368,6 +384,7 @@ fi
 cat <<EOF >Makefile.conf
 NETSYS_LINK_OPTIONS = $netsys_link_options
 DEF_O_SHARE_DELETE = $def_o_share_delete
+DEF_O_CLOEXEC = $def_o_cloexec
 EOF
 
 cat <<EOF >>config.h

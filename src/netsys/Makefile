@@ -48,7 +48,9 @@ OCAMLOPT_OPTIONS_FOR_netsys_oothr_mt_init.ml = $(THREAD)
 OCAMLC_OPTIONS_FOR_netsys_c_xdr.c = -ccopt -O
 
 OCAMLC_OPTIONS_FOR_netsys_posix.ml = \
-  -package "camlp4.macro" -syntax camlp4o -ppopt "$(DEF_O_SHARE_DELETE)"
+  -package "camlp4.macro" -syntax camlp4o \
+  -ppopt "$(DEF_O_SHARE_DELETE)" \
+  -ppopt "$(DEF_O_CLOEXEC)"
 OCAMLOPT_OPTIONS_FOR_netsys_posix.ml = $(OCAMLC_OPTIONS_FOR_netsys_posix.ml)
 
 OCAMLDEP_OPTIONS = -package "camlp4.macro" -syntax camlp4o
