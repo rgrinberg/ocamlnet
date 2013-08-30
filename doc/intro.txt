@@ -490,6 +490,17 @@ Implements SCRAM (RFC 5802). Right now only for GSS-API.
 
 {divend guide}
 
+{b Important change since OCaml-4.01:} This OCaml version changed the
+semantics of the built-in primitives [caml_modify] and
+[caml_initialize]. Essentially, it is no longer possible to modify
+OCaml values residing outside the regular OCaml heap. As we do this
+inside Netcamlbox and Netmulticore, this change affects these
+libraries. Fortunately, there is a workaround on systems supporting weak
+symbols (all ELF systems and OS X): Here, [caml_modify] and
+[caml_initialize] are overridden by Ocamlnet so that they are
+again compatible. Note that this is a global modification of the
+runtime system!
+
 {2:netcamlbox The [netcamlbox] library: message passing}
 
 Camlbox is a fast message-passing system between processes running on

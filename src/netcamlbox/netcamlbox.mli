@@ -69,6 +69,19 @@
    below, {!Netcamlbox.events}.
  *)
 
+(** {b Since OCaml-4.01:} This OCaml version changed the semantics of the
+    built-in primitives [caml_modify] and [caml_initialize]. Essentially,
+    it is no longer possible to modify OCaml values residing outside the
+    regular OCaml heap. As we do this inside Netcamlbox, this change affects
+    this library. Fortunately, there is a workaround on systems supporting
+    weak symbols (all ELF systems and OS X): Here, [caml_modify] and
+    [caml_initialize] are overridden by Netcamlbox so that they are again
+    compatible. Note that this is a global modification of the runtime
+    system!
+
+    Future versions of Ocamlnet may solve this problem differently.
+ *)
+
 
 type camlbox_address = string
     (** The address of a camlbox is a string that does not contain
