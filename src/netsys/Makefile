@@ -55,7 +55,7 @@ OCAMLOPT_OPTIONS_FOR_netsys_posix.ml = $(OCAMLC_OPTIONS_FOR_netsys_posix.ml)
 
 OCAMLDEP_OPTIONS = -package "camlp4.macro" -syntax camlp4o
 
-INSTALL_EXTRA += netsys_c_event.h
+INSTALL_EXTRA += netsys_c_event.h $(OOH_OBJECT)
 
 include $(TOP_DIR)/Makefile.rules
 

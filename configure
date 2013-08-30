@@ -67,7 +67,7 @@ set_defaults () {
 ocamlc=`get_path ocamlc`
 set_defaults
 
-version="3.7.0"
+version="3.7.1"
 exec_suffix=""
 path_sep=":"
 
@@ -917,6 +917,14 @@ pkglist="netsys netshm netstring equeue shell netgssapi rpc-generator rpc rpc-au
 
 full_pkglist="$pkglist netstring-pcre rpc-auth-local rpc-xti equeue-tcl equeue-gtk1 equeue-gtk2 equeue-ssl rpc-ssl rpc-auth-dh nethttpd nethttpd-for-netcgi2 netzip netcgi2-apache netmech-scram"
 
+if [ $enable_camlbox -gt 0 ]; then
+    pkglist="$pkglist netcamlbox"
+fi
+
+if [ $enable_multicore -gt 0 ]; then
+    pkglist="$pkglist netmulticore"
+fi
+
 if [ $disable_core -gt 0 ]; then
     # Omit the core packages:
     pkglist=""
@@ -948,14 +956,6 @@ if [ $with_nethttpd -gt 0 ]; then
     # Fixup: nethttpd is already added by the for loop, but we need also
     # nethttpd-for-netcgi2
     pkglist="$pkglist nethttpd-for-netcgi2"
-fi
-
-if [ $enable_camlbox -gt 0 ]; then
-    pkglist="$pkglist netcamlbox"
-fi
-
-if [ $enable_multicore -gt 0 ]; then
-    pkglist="$pkglist netmulticore"
 fi
 
 
