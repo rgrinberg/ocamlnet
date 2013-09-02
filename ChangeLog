@@ -48,7 +48,6 @@
 	  returned by the server. Before, [response_status] simply
 	  raised [Not_found]. Now, the base status is returned instead.
 
->>>>>>> .r1884
 2013-07-31  Gerd Stolpmann  <gerd@zotac>
 
 	* Extending ocamlrpcgen: It supports now six new directives,
