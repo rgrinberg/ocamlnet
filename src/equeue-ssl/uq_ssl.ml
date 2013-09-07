@@ -205,6 +205,7 @@ class ssl_mplex_ctrl ?(close_inactive_descr=true)
   let fdi = Netsys.int64_of_file_descr fd in
 object(self)
   val mutable alive = true    (* if false => state in { `Clean, `Unclean } *)
+  val mutable closed = false
   val mutable read_eof = false
   val mutable wrote_eof = false
 
@@ -927,8 +928,9 @@ object(self)
 
 
   method inactivate() =
-    if alive then (
-      self # inactivate_no_close();
+    self # inactivate_no_close();
+    if not closed then (
+      closed <- true;
       if close_inactive_descr then (
 	preclose();
 	Unix.close fd
