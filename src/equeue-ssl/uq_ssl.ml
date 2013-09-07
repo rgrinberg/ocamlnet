@@ -928,7 +928,6 @@ object(self)
 
   method inactivate() =
     if alive then (
-      alive <- false;
       self # inactivate_no_close();
       if close_inactive_descr then (
 	preclose();
@@ -940,8 +939,9 @@ object(self)
     pending <- [];
     disconnecting <- None;
     have_handler <- false;
-    Unixqueue.clear esys group;
+    if alive then Unixqueue.clear esys group;
     self # stop_all_timers();
+    alive <- false
 
   method event_system = esys
 
