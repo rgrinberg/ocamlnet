@@ -27,6 +27,7 @@ CAMLprim value equeue_ssl_single_shutdown(value socket)
   caml_enter_blocking_section();
   ret = SSL_shutdown(ssl);
   if (ret == -1) {
+      caml_leave_blocking_section();
       raise_with_arg(*caml_named_value("ssl_exn_shutdown_error"), 
 		     Val_int(SSL_get_error(ssl, ret)));
   };
@@ -41,7 +42,7 @@ CAMLprim value equeue_ssl_get_shutdown(value socket)
   CAMLparam1(socket);
   CAMLlocal3(rcvd,sent,ret);
   int r;
-  
+
   SSL *ssl = SSL_val(socket);
   caml_enter_blocking_section();
   r = SSL_get_shutdown(ssl);
