@@ -1,3 +1,8 @@
+2013-09-30  Gerd Stolpmann  <gerd@zotac>
+
+	* ssl_exts_stubs.c: releasing global lock on shutdown error
+	  (Török Edwin)
+
 2013-09-08  Gerd Stolpmann  <gerd@zotac>
 
 	* Uq_ssl: Fix error path when SSL connection fails during the
