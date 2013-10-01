@@ -89,6 +89,7 @@ val create_ssl_multiplex_controller :
        ?preclose:(unit -> unit) ->
        ?initial_state:ssl_socket_state ->
        ?timeout:(float * exn) ->
+       ?ssl_socket:Ssl.socket ->
        Unix.file_descr -> Ssl.context -> Unixqueue.event_system ->
          ssl_multiplex_controller
   (** Creates a multiplex controller for an SSL socket. The descriptor must
@@ -106,6 +107,10 @@ val create_ssl_multiplex_controller :
     * [timeout]: if set to [(t, x)], started operations time out after [t]
     * seconds and pass the exception [x] back. A timeout is only indicated
     * when all started operations are inactive for [t] seconds.
+    *
+    * [ssl_socket]: If passed, this socket is used instead of creating a
+    * new one for the file descriptor. It is required that the descriptor
+    * and the SSL context are connected with this SSL socket.
    *)
 
 val ssl_connect_engine : 

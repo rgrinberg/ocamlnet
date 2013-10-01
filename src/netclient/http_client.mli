@@ -734,10 +734,13 @@ class type transport_channel_type =
 object
   method setup_e : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
-                   Uq_engines.multiplex_controller Uq_engines.engine
+                     (Uq_engines.multiplex_controller * 
+                      Http_client_conncache.private_data
+                     ) Uq_engines.engine
   (** [setup fd cb tmo tmo_x host port esys]: Create or configure a communication
       circuit over the file descriptor [fd] that can be driven by the
-      returned multiplex controller object.
+      returned multiplex controller object. Since OCamlnet-3.8, the method
+      can also return private data for the connection cache.
 
       [tmo] is the timeout. After inactivity the  exception [tmo_x] must be
       raised.
@@ -749,11 +752,14 @@ object
 
   method continue : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
+                   Http_client_conncache.private_data ->
                    Uq_engines.multiplex_controller
   (** [continue] is called when an already established circuit needs to
       be continued.
 
       Note that the event system can be different now.
+
+      If it is not possible to continue, the method may raise [Not_found].
    *)
 end
 

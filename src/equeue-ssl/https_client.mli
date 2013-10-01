@@ -7,11 +7,14 @@ type channel_binding_id = int
 
 class type transport_channel_type =
 object
-  method setup_e : Unix.file_descr -> channel_binding_id -> float -> exn -> 
+  method setup_e : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
-                   Uq_engines.multiplex_controller Uq_engines.engine
+                   (Uq_engines.multiplex_controller * 
+                    exn option)
+                   Uq_engines.engine
   method continue : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
+                   exn option ->
                    Uq_engines.multiplex_controller
 end
 (** Same as {!Http_client.transport_channel_type} *)	  

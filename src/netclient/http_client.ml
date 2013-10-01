@@ -3274,6 +3274,18 @@ let rewrite_first_hop s =
 	`Socks5 ((s,port1),(host2,port2))
 
 
+let string_of_peer peer =
+  match peer with
+    | `Direct (host,port) -> 
+	sprintf "direct connection to %s:%d" host port
+    | `Http_proxy (host,port) ->
+	sprintf "proxy connection via %s:%d" host port
+    | `Http_proxy_connect ((host1,port1),(host2,port2)) ->
+	sprintf "proxy connection via %s:%d to %s:%d" host1 port1 host2 port2
+    | `Socks5 ((host1,port1),(host2,port2)) ->
+	sprintf "SOCKS connection via %s:%d to %s:%d" host1 port1 host2 port2
+
+
 let proxy_connect_e esys fd fd_open host port options proxy_auth_handler_opt
                     cur_proxy_session tcp_real_connect_e setup_e =
   (* Send the CONNECT line plus header, and wait for 200.
@@ -3415,17 +3427,7 @@ let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options
 	   signal_res (`Done addr)
     );
 
-  let descr =
-    match peer with
-      | `Direct (host,port) -> 
-	  sprintf "direct connection to %s:%d" host port
-      | `Http_proxy (host,port) ->
-	  sprintf "proxy connection via %s:%d" host port
-      | `Http_proxy_connect ((host1,port1),(host2,port2)) ->
-	  sprintf "proxy connection via %s:%d to %s:%d" host1 port1 host2 port2
-      | `Socks5 ((host1,port1),(host2,port2)) ->
-	  sprintf "SOCKS connection via %s:%d to %s:%d" host1 port1 host2 port2
-  in
+  let descr = string_of_peer peer in
 
   let tmo_x =
     Timeout descr in
@@ -3439,7 +3441,8 @@ let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options
 	let cache_peer =
 	  rewrite_first_hop hop1_host_ip peer in
 	try
-	  let fd = conn_cache # find_inactive_connection cache_peer cb in
+	  let fd, priv_data = 
+            conn_cache # find_inactive_connection cache_peer cb in
 	  (* Case: reuse old connection *)
 	  conn_cache # set_connection_state fd cache_peer (`Active conn_owner);
 	  if !options.verbose_events then
@@ -3449,8 +3452,8 @@ let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options
 	  let mplex = 
 	    tp # continue 
 	      fd cb !options.connection_timeout tmo_x 
-	      real_host real_port esys in
-	  eps_e (`Done(fd, mplex, 0.0)) esys
+	      real_host real_port esys priv_data in
+	  eps_e (`Done(fd, mplex, priv_data, cache_peer, 0.0)) esys
 	with
 	  | Not_found ->
 	      if !options.verbose_connection then
@@ -3490,7 +3493,8 @@ let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options
 			      fd cb !options.connection_timeout tmo_x
 			      real_host real_port esys
 			    >> (function
-				  | `Done mplex -> `Done(fd,mplex)
+				  | `Done(mplex,priv_data) -> 
+                                      `Done(fd,mplex,priv_data)
 				  | `Error err -> `Error err
 				  | `Aborted -> `Aborted
 			       ) in
@@ -3523,7 +3527,7 @@ let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options
 		(Timeout (sprintf
 			    "creating %s" descr))
 		eng
-	      ++ (fun (fd,mplex) ->
+	      ++ (fun (fd,mplex,priv_data) ->
 		    let t1 = Unix.gettimeofday() in
 		    let d = t1 -. t0 in
 
@@ -3541,7 +3545,7 @@ let tcp_connect_e esys tp cb (peer:peer) conn_cache conn_owner options
 
 		    conn_cache # set_connection_state
 		      fd cache_peer (`Active conn_owner);
-		    eps_e (`Done(fd, mplex, d)) esys
+		    eps_e (`Done(fd, mplex, priv_data, cache_peer, d)) esys
 		 )
 	      >> (function
 		    | `Error err ->
@@ -3562,23 +3566,27 @@ class type transport_channel_type =
 object
   method setup_e : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
-                   Uq_engines.multiplex_controller Uq_engines.engine
+                   (Uq_engines.multiplex_controller *
+                      Http_client_conncache.private_data
+                   )Uq_engines.engine
   method continue : Unix.file_descr -> channel_binding_id -> float -> exn ->
                    string -> int -> Unixqueue.event_system ->
-                   Uq_engines.multiplex_controller
+                   Http_client_conncache.private_data ->
+                     Uq_engines.multiplex_controller
 end
 
 let http_transport_channel_type : transport_channel_type =
   ( object(self)
-      method continue fd cb tmo tmo_x host port esys =
+      method continue fd cb tmo tmo_x host port esys priv_data =
+        if priv_data <> None then raise Not_found;
 	Uq_engines.create_multiplex_controller_for_connected_socket
 	  ~close_inactive_descr:true
 	  ~supports_half_open_connection:true
 	  ~timeout:( tmo, tmo_x )
 	  fd esys
       method setup_e fd cb tmo tmo_x host port esys =
-	let mplex = self # continue fd cb tmo tmo_x host port esys in
-	eps_e (`Done mplex) esys
+	let mplex = self # continue fd cb tmo tmo_x host port esys None in
+	eps_e (`Done(mplex,None)) esys
     end
   )
 
@@ -3587,14 +3595,16 @@ let http_transport_channel_type : transport_channel_type =
 
 let fragile_pipeline 
        esys  cb
-       peer
+       cache_peer
        proxy_auth_state proxy_auth_handler_opt
-       fd mplex connect_time no_pipelining conn_cache
+       fd mplex priv_data connect_time no_pipelining conn_cache
        auth_cache
        counters options =
   (* Implements a pipeline for an existing connection [fd]. This object
      does not implement any way of recovering after errors.
    *)
+  (* NB. cache_peer contains IP addresses for the next hop *)
+
   let connection_e, signal_connection = Uq_engines.signal_engine esys in
     (* Indicates that the connection is closed *)
   let queue_e, signal_queue = Uq_engines.signal_engine esys in
@@ -3611,7 +3621,7 @@ let fragile_pipeline
     Int64.to_string (Netsys.int64_of_file_descr fd) in
 
   let peer_is_proxy =  (* whether we have a normal HTTP proxy *)
-    match peer with
+    match cache_peer with
       | `Http_proxy _ -> true
       | _ -> false in
 
@@ -3891,8 +3901,8 @@ let fragile_pipeline
       if io # socket_state <> Down then (
 	if !options.verbose_connection then 
 	  dlog (sprintf 
-		  "FD %s - HTTP connection: Shutdown!"
-		  fd_str);
+		  "FD %s - HTTP connection: Shutdown reusable=%B"
+		  fd_str reusable);
 	let followup() =
 	  signal_connection(`Done());
 	  if !options.verbose_events then
@@ -3910,7 +3920,11 @@ let fragile_pipeline
 	  | Up_rw ->
 	      if reusable then (
 		( try
-		    conn_cache # set_connection_state fd peer (`Inactive cb);
+	            dlog (sprintf 
+		            "FD %s - HTTP connection: caching as inactive"
+                            fd_str);
+		    conn_cache # set_connection_state 
+                                   fd cache_peer (`Inactive(cb,priv_data));
 		    io # down();
 		  with
 		    | Not_found ->
@@ -4648,15 +4662,15 @@ let robust_pipeline
 		     connecting <- None;
 		     self#conn_is_error err
 		  )
-	~is_done:(fun (fd,mplex,t) ->
+	~is_done:(fun (fd,mplex,priv_data,cache_peer,t) ->
 		    connect_time <- t;
 		    connect_pause <- 0.0;
 		    connecting <- None;
 		    let fp =
 		      fragile_pipeline
-			esys cb peer
+			esys cb cache_peer
 			proxy_auth_state proxy_auth_handler_opt
-			fd mplex t no_pipelining conn_cache
+			fd mplex priv_data t no_pipelining conn_cache
 			auth_cache
 			counters options in
 		    fp_opt <- Some fp;

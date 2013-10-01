@@ -1,3 +1,15 @@
+2013-10-01  Gerd Stolpmann  <gerd@zotac>
+
+	* Https_client and aggressive connection caching: In previous
+	  versions there was a problem with the reinitialization of the
+	  SSL socket when a former connection was reused. The fix requires
+	  an API change of connection_cache: The SSL socket can now be
+	  stored with the inactive connection.
+
+	* Http_client: fixing a bug with connection caching: Address
+	  resolution was not taken into account for computing the key
+	  in the connection cache.
+
 2013-09-30  Gerd Stolpmann  <gerd@zotac>
 
 	* ssl_exts_stubs.c: releasing global lock on shutdown error

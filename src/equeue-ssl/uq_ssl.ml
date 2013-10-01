@@ -952,14 +952,20 @@ end
 
 
 let create_ssl_multiplex_controller
-       ?close_inactive_descr ?preclose ?initial_state ?timeout fd ctx esys =
+       ?close_inactive_descr ?preclose ?initial_state ?timeout ?ssl_socket
+       fd ctx esys =
   let () = Unix.set_nonblock fd in
-  let s = Ssl.embed_socket fd ctx in
-  let m = Ssl_exts.get_mode s in
-  let () = Ssl_exts.set_mode s 
-    { m with
-	Ssl_exts.enable_partial_write = true; 
-	accept_moving_write_buffer = true } in
+  let s =
+    match ssl_socket with
+      | Some s -> s
+      | None ->
+          let s = Ssl.embed_socket fd ctx in
+          let m = Ssl_exts.get_mode s in
+          let () = Ssl_exts.set_mode s 
+                    { m with
+	              Ssl_exts.enable_partial_write = true; 
+	              accept_moving_write_buffer = true } in
+          s in
   new ssl_mplex_ctrl ?close_inactive_descr ?preclose ?initial_state ?timeout
     fd s esys
 ;;
