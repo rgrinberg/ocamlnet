@@ -479,8 +479,8 @@ CAMLprim value netsys_openat(value dirfd, value path, value flags, value perm)
     if (ret == -1) uerror("openat", path);
 #if defined(NEED_CLOEXEC_EMULATION) && defined(FD_CLOEXEC)
     if (convert_flag_list(flags, open_cloexec_table) != 0) {
-        int flags = fcntl(fd, F_GETFD, 0);
-        if (flags == -1 || fcntl(fd, F_SETFD, flags | FD_CLOEXEC) == -1)
+        int flags = fcntl(Int_val(dirfd), F_GETFD, 0);
+        if (flags == -1 || fcntl(Int_val(dirfd), F_SETFD, flags | FD_CLOEXEC) == -1)
           uerror("openat", path);
     }
 #endif
