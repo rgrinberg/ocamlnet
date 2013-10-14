@@ -101,7 +101,9 @@ val run :
       server needs to connect to to talk to the script (this address
       must also be specified in the wen server config file).
 
-      @param port alternative way to specify [sockaddr] for localhost
+      @param port alternative way to specify [sockaddr] listening to
+      localhost {b only}.  If you would like your FastCGI program to
+      be accessed from a different machine, use [sockaddr] instead.
 
       Your application should be ready handle SIGUSR1, used to
       resquest a "graceful" process shutdown, and SIGTERM to request a
